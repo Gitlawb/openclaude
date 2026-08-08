@@ -24,6 +24,11 @@ type Match = {
   line: number;
   text: string;
 };
+type Preview = {
+  file: string;
+  line: number;
+  content: string;
+};
 const VISIBLE_RESULTS = 12;
 const DEBOUNCE_MS = 100;
 const PREVIEW_CONTEXT_LINES = 4;
@@ -35,34 +40,34 @@ const MAX_TOTAL_MATCHES = 500;
  * Global Search dialog (ctrl+shift+f / cmd+shift+f).
  * Debounced ripgrep search across the workspace.
  */
-export function GlobalSearchDialog(t0) {
+export function GlobalSearchDialog(t0: Props) {
   const $ = _c(40);
   const {
     onDone,
     onInsert
   } = t0;
-  useRegisterOverlay("global-search");
+  useRegisterOverlay("global-search", true);
   const {
     columns,
     rows
   } = useTerminalSize();
   const previewOnRight = columns >= 140;
   const visibleResults = Math.min(VISIBLE_RESULTS, Math.max(4, rows - 14));
-  let t1;
+  let t1: Match[];
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [];
     $[0] = t1;
   } else {
     t1 = $[0];
   }
-  const [matches, setMatches] = useState(t1);
+  const [matches, setMatches] = useState<Match[]>(t1);
   const [truncated, setTruncated] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [focused, setFocused] = useState(undefined);
-  const [preview, setPreview] = useState(null);
-  const abortRef = useRef(null);
-  const timeoutRef = useRef(null);
+  const [focused, setFocused] = useState<Match | undefined>(undefined);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   let t2;
   let t3;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
@@ -123,7 +128,7 @@ export function GlobalSearchDialog(t0) {
   useEffect(t4, t5);
   let t6;
   if ($[6] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = q => {
+    t6 = (q: string) => {
       setQuery(q);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -157,7 +162,7 @@ export function GlobalSearchDialog(t0) {
   const previewWidth = previewOnRight ? Math.max(40, columns - listWidth - 14) : columns - 6;
   let t7;
   if ($[7] !== matches.length || $[8] !== onDone) {
-    t7 = m_3 => {
+    t7 = (m_3: Match) => {
       const opened = openFileInExternalEditor(resolvePath(getCwd(), m_3.file), m_3.line);
       logEvent("tengu_global_search_select", {
         result_count: matches.length,
@@ -174,7 +179,7 @@ export function GlobalSearchDialog(t0) {
   const handleOpen = t7;
   let t8;
   if ($[10] !== matches.length || $[11] !== onDone || $[12] !== onInsert) {
-    t8 = (m_4, mention) => {
+    t8 = (m_4: Match, mention: boolean) => {
       onInsert(mention ? `@${m_4.file}#L${m_4.line} ` : `${m_4.file}:${m_4.line} `);
       logEvent("tengu_global_search_insert", {
         result_count: matches.length,
@@ -196,7 +201,7 @@ export function GlobalSearchDialog(t0) {
   if ($[14] !== handleInsert) {
     t10 = {
       action: "mention",
-      handler: m_5 => handleInsert(m_5, true)
+      handler: (m_5: Match) => handleInsert(m_5, true)
     };
     $[14] = handleInsert;
     $[15] = t10;
@@ -207,7 +212,7 @@ export function GlobalSearchDialog(t0) {
   if ($[16] !== handleInsert) {
     t11 = {
       action: "insert path",
-      handler: m_6 => handleInsert(m_6, false)
+      handler: (m_6: Match) => handleInsert(m_6, false)
     };
     $[16] = handleInsert;
     $[17] = t11;
@@ -216,7 +221,7 @@ export function GlobalSearchDialog(t0) {
   }
   let t12;
   if ($[18] !== isSearching) {
-    t12 = q_0 => isSearching ? "Searching\u2026" : q_0 ? "No matches" : "Type to search\u2026";
+    t12 = (q_0: string) => isSearching ? "Searching\u2026" : q_0 ? "No matches" : "Type to search\u2026";
     $[18] = isSearching;
     $[19] = t12;
   } else {
@@ -224,7 +229,7 @@ export function GlobalSearchDialog(t0) {
   }
   let t13;
   if ($[20] !== maxPathWidth || $[21] !== maxTextWidth || $[22] !== query) {
-    t13 = (m_7, isFocused) => <Text color={isFocused ? "suggestion" : undefined}><Text dimColor={true}>{truncatePathMiddle(m_7.file, maxPathWidth)}:{m_7.line}</Text>{" "}{highlightMatch(truncateToWidth(m_7.text.trimStart(), maxTextWidth), query)}</Text>;
+    t13 = (m_7: Match, isFocused: boolean) => <Text color={isFocused ? "suggestion" : undefined}><Text dimColor={true}>{truncatePathMiddle(m_7.file, maxPathWidth)}:{m_7.line}</Text>{" "}{highlightMatch(truncateToWidth(m_7.text.trimStart(), maxTextWidth), query)}</Text>;
     $[20] = maxPathWidth;
     $[21] = maxTextWidth;
     $[22] = query;
@@ -234,7 +239,7 @@ export function GlobalSearchDialog(t0) {
   }
   let t14;
   if ($[24] !== preview || $[25] !== previewWidth || $[26] !== query) {
-    t14 = m_8 => preview?.file === m_8.file && preview.line === m_8.line ? <><Text dimColor={true}>{truncatePathMiddle(m_8.file, previewWidth)}:{m_8.line}</Text>{preview.content.split("\n").map((line_0, i) => <Text key={i}>{highlightMatch(truncateToWidth(line_0, previewWidth), query)}</Text>)}</> : <LoadingState message={"Loading\u2026"} dimColor={true} />;
+    t14 = (m_8: Match) => preview !== null && preview.file === m_8.file && preview.line === m_8.line ? <><Text dimColor={true}>{truncatePathMiddle(m_8.file, previewWidth)}:{m_8.line}</Text>{preview.content.split("\n").map((line_0, i) => <Text key={i}>{highlightMatch(truncateToWidth(line_0, previewWidth), query)}</Text>)}</> : <LoadingState message={"Loading\u2026"} dimColor={true} />;
     $[24] = preview;
     $[25] = previewWidth;
     $[26] = query;
@@ -262,14 +267,20 @@ export function GlobalSearchDialog(t0) {
   }
   return t15;
 }
-function _temp4(query_0, controller_1, setMatches_0, setTruncated_0, setIsSearching_0) {
+function _temp4(
+  query_0: string,
+  controller_1: AbortController,
+  setMatches_0: React.Dispatch<React.SetStateAction<Match[]>>,
+  setTruncated_0: React.Dispatch<React.SetStateAction<boolean>>,
+  setIsSearching_0: React.Dispatch<React.SetStateAction<boolean>>,
+) {
   const cwd = getCwd();
   let collected = 0;
   ripGrepStream(["-n", "--no-heading", "-i", "-m", String(MAX_MATCHES_PER_FILE), "-F", "-e", query_0], cwd, controller_1.signal, lines => {
     if (controller_1.signal.aborted) {
       return;
     }
-    const parsed = [];
+    const parsed: Match[] = [];
     for (const line of lines) {
       const m_1 = parseRipgrepLine(line);
       if (!m_1) {
@@ -310,11 +321,11 @@ function _temp4(query_0, controller_1, setMatches_0, setTruncated_0, setIsSearch
     setIsSearching_0(false);
   });
 }
-function _temp3(m_2) {
+function _temp3(m_2: Match[]): Match[] {
   return m_2.length ? [] : m_2;
 }
-function _temp2() {}
-function _temp(m) {
+function _temp2(): void {}
+function _temp(m: Match[]): Match[] {
   return m.length ? [] : m;
 }
 function matchKey(m: Match): string {

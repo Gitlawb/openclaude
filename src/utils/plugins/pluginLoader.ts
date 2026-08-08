@@ -2022,9 +2022,12 @@ async function loadPluginSettings(
 }
 
 /**
- * Merge two HooksSettings objects
+ * Merge two HooksSettings objects. Concatenates matcher arrays for events
+ * that appear in both `base` and `additional`. Exported so callers (and
+ * tests) can verify the supplement path keeps both sets of matchers
+ * rather than dropping the base ones via object spread.
  */
-function mergeHooksSettings(
+export function mergeHooksSettings(
   base: HooksSettings | undefined,
   additional: HooksSettings,
 ): HooksSettings {
@@ -3141,12 +3144,15 @@ async function finishLoadingPluginFromPath(
       }
     }
 
-    // Supplement hooks from marketplace entry
+    // Supplement hooks from marketplace entry. Object spread would replace
+    // each event's matcher array wholesale, silently dropping matchers that
+    // plugin.json already registered for the same event. mergeHooksSettings
+    // concatenates per-event arrays the way the rest of this file does.
     if (entry.hooks) {
-      plugin.hooksConfig = {
-        ...(plugin.hooksConfig || {}),
-        ...(entry.hooks as HooksSettings),
-      }
+      plugin.hooksConfig = mergeHooksSettings(
+        plugin.hooksConfig,
+        entry.hooks as HooksSettings,
+      )
     }
   }
 

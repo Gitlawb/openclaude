@@ -14,5 +14,6 @@ export {
   installLatest,
   lockCurrentVersion,
   removeInstalledSymlink,
+  repairNativeLauncher,
   type SetupMessage,
 } from './installer.js'

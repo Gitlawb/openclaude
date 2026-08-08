@@ -26,6 +26,7 @@ import { type AppState, type AppStateStore, getDefaultAppState } from './AppStat
 // can incrementally move off the .tsx import and stop pulling React.
 export { type AppState, type AppStateStore, type CompletionBoundary, getDefaultAppState, IDLE_SPECULATION_STATE, type SpeculationResult, type SpeculationState } from './AppStateStore.js';
 export const AppStoreContext = React.createContext<AppStateStore | null>(null);
+type IfAny<T, Y, N> = 0 extends 1 & T ? Y : N;
 type Props = {
   children: React.ReactNode;
   initialState?: AppState;
@@ -35,7 +36,7 @@ type Props = {
   }) => void;
 };
 const HasAppStateContext = React.createContext<boolean>(false);
-export function AppStateProvider(t0) {
+export function AppStateProvider(t0: Props): React.ReactNode {
   const $ = _c(13);
   const {
     children,
@@ -46,7 +47,7 @@ export function AppStateProvider(t0) {
   if (hasAppStateContext) {
     throw new Error("AppStateProvider can not be nested within another AppStateProvider");
   }
-  let t1;
+  let t1: () => AppStateStore;
   if ($[0] !== initialState || $[1] !== onChangeAppState) {
     t1 = () => createStore(initialState ?? getDefaultAppState(), onChangeAppState);
     $[0] = initialState;
@@ -55,8 +56,8 @@ export function AppStateProvider(t0) {
   } else {
     t1 = $[2];
   }
-  const [store] = useState(t1);
-  let t2;
+  const [store] = useState<AppStateStore>(t1);
+  let t2: () => void;
   if ($[3] !== store) {
     t2 = () => {
       const {
@@ -72,7 +73,7 @@ export function AppStateProvider(t0) {
   } else {
     t2 = $[4];
   }
-  let t3;
+  let t3: React.DependencyList;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
     t3 = [];
     $[5] = t3;
@@ -80,9 +81,9 @@ export function AppStateProvider(t0) {
     t3 = $[5];
   }
   useEffect(t2, t3);
-  let t4;
+  let t4: (source: SettingSource) => void;
   if ($[6] !== store.setState) {
-    t4 = source => applySettingsChange(source, store.setState);
+    t4 = (source: SettingSource) => applySettingsChange(source, store.setState);
     $[6] = store.setState;
     $[7] = t4;
   } else {
@@ -109,7 +110,7 @@ export function AppStateProvider(t0) {
   }
   return t6;
 }
-function _temp(prev) {
+function _temp(prev: AppState): AppState {
   return {
     ...prev,
     toolPermissionContext: createDisabledBypassPermissionsContext(prev.toolPermissionContext)
@@ -140,16 +141,18 @@ function useAppStore(): AppStateStore {
  * const { text, promptId } = useAppState(s => s.promptSuggestion) // good
  * ```
  */
-export function useAppState(selector) {
+export function useAppState<T>(selector: (state: AppState) => T): T;
+export function useAppState<T>(selector: IfAny<T, T, never>): any;
+export function useAppState<T>(selector: (state: AppState) => T): T {
   const store = useAppStore();
-  const selectorRef = React.useRef(selector);
-  const storeRef = React.useRef(store);
+  const selectorRef = React.useRef<(state: AppState) => T>(selector);
+  const storeRef = React.useRef<AppStateStore>(store);
   // Update refs during render so get() always calls the latest selector/store
   // without creating a new function identity that would trigger useSyncExternalStore
   // to re-sync and cause re-render loops.
   selectorRef.current = selector;
   storeRef.current = store;
-  const get = React.useCallback(() => {
+  const get = React.useCallback((): T => {
     return selectorRef.current(storeRef.current.getState());
   }, []);
   return useSyncExternalStore(store.subscribe, get, get);
@@ -160,31 +163,39 @@ export function useAppState(selector) {
  * Returns a stable reference that never changes -- components using only
  * this hook will never re-render from state changes.
  */
-export function useSetAppState() {
+export function useSetAppState(): AppStateStore['setState'] {
   return useAppStore().setState;
 }
 
 /**
  * Get the store directly (for passing getState/setState to non-React code).
  */
-export function useAppStateStore() {
+export function useAppStateStore(): AppStateStore {
   return useAppStore();
 }
-const NOOP_SUBSCRIBE = () => () => {};
+const NOOP_SUBSCRIBE: AppStateStore['subscribe'] = () => () => {};
 
 /**
  * Safe version of useAppState that returns undefined if called outside of AppStateProvider.
  * Useful for components that may be rendered in contexts where AppStateProvider isn't available.
  */
-export function useAppStateMaybeOutsideOfProvider(selector) {
+export function useAppStateMaybeOutsideOfProvider<T>(
+  selector: (state: AppState) => T,
+): T | undefined;
+export function useAppStateMaybeOutsideOfProvider<T>(
+  selector: IfAny<T, T, never>,
+): any;
+export function useAppStateMaybeOutsideOfProvider<T>(
+  selector: (state: AppState) => T,
+): T | undefined {
   const store = useContext(AppStoreContext);
-  const selectorRef = React.useRef(selector);
-  const storeRef = React.useRef(store);
+  const selectorRef = React.useRef<(state: AppState) => T>(selector);
+  const storeRef = React.useRef<AppStateStore | null>(store);
   // Update refs during render so get() always calls the latest selector/store
   // without creating a new function identity.
   selectorRef.current = selector;
   storeRef.current = store;
-  const get = React.useCallback(() => {
+  const get = React.useCallback((): T | undefined => {
     return storeRef.current ? selectorRef.current(storeRef.current.getState()) : undefined;
   }, []);
   return useSyncExternalStore(store ? store.subscribe : NOOP_SUBSCRIBE, get);

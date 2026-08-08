@@ -52,10 +52,15 @@ import {
   saveMode,
   saveWorktreeState,
 } from './sessionStorage.js'
+import { prepareGoalForSessionResume } from '../services/goal/state.js'
+import type { GoalState } from '../services/goal/types.js'
 import { isTodoV2Enabled } from './tasks.js'
 import type { TodoList } from './todo/types.js'
 import { TodoListSchema } from './todo/types.js'
-import type { ContentReplacementRecord } from './toolResultStorage.js'
+import {
+  filterContentReplacementsForMessages,
+  type ContentReplacementRecord,
+} from './toolResultStorage.js'
 import {
   getCurrentWorktreeSession,
   restoreWorktreeSession,
@@ -67,6 +72,7 @@ type ResumeResult = {
   attributionSnapshots?: AttributionSnapshotMessage[]
   contextCollapseCommits?: ContextCollapseCommitEntry[]
   contextCollapseSnapshot?: ContextCollapseSnapshotEntry
+  goal?: GoalState | null
 }
 
 /**
@@ -147,6 +153,9 @@ export function restoreSessionStateFromLog(
       }))
     }
   }
+
+  const goal = prepareGoalForSessionResume(result.goal ?? null)
+  setAppState(prev => ({ ...prev, goal }))
 }
 
 /**
@@ -312,6 +321,17 @@ type ResumeLoadResult = {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goal?: GoalState | null
+}
+
+export function createForkSessionInfoMessage(
+  sourceSessionId: string | undefined,
+  newSessionId: string = getSessionId(),
+): Message {
+  return createSystemMessage(
+    `Forked conversation from session ${sourceSessionId ?? 'unknown'} into new session ${newSessionId}. This is conversation branching, not filesystem isolation; no worktree branch or filesystem copy was created.`,
+    'info',
+  )
 }
 
 /**
@@ -459,7 +479,20 @@ export async function processResumedConversation(
     // → they're classified as FROZEN → full content sent (cache miss, permanent
     // overage). insertContentReplacement stamps sessionId = getSessionId() =
     // the fresh ID, so loadTranscriptFile's keyed lookup will match.
-    await recordContentReplacement(result.contentReplacements)
+    result.contentReplacements = filterContentReplacementsForMessages(
+      result.messages,
+      result.contentReplacements,
+    )
+    if (result.contentReplacements.length) {
+      await recordContentReplacement(result.contentReplacements)
+    }
+  }
+  if (opts.forkSession) {
+    result.messages.push(
+      createForkSessionInfoMessage(
+        opts.sessionIdOverride ?? result.sessionId,
+      ),
+    )
   }
 
   // Restore session metadata so /status shows the saved name and metadata
@@ -545,6 +578,7 @@ export async function processResumedConversation(
       ...(resumedAgentType && { agent: resumedAgentType }),
       ...(restoredAttribution && { attribution: restoredAttribution }),
       ...(standaloneAgentContext && { standaloneAgentContext }),
+      goal: prepareGoalForSessionResume(result.goal ?? null),
       agentDefinitions: refreshedAgentDefs,
     },
   }

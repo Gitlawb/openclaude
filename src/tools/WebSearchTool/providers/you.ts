@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const youProvider: SearchProvider = {
   name: 'you',
@@ -21,16 +22,15 @@ export const youProvider: SearchProvider = {
     url.searchParams.set('query', input.query)
     url.searchParams.set('num_web_results', '10')
 
-    const res = await fetch(url.toString(), {
-      headers: { 'X-API-Key': process.env.YOU_API_KEY! },
+    const data = await fetchJsonWithWebSearchTimeout(
+      url.toString(),
+      {
+        headers: { 'X-API-Key': process.env.YOU_API_KEY! },
+      },
       signal,
-    })
+      { providerName: 'You.com' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`You.com search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const webResults = data?.results?.web ?? data?.results ?? []
 
     const hits = webResults.map((r: any) => {

@@ -11,8 +11,14 @@ const mockedClipboardPath = join(process.cwd(), 'openclaude-clipboard.txt')
 
 const generateTempFilePathMock = mock(() => mockedClipboardPath)
 
+// Mirrors the execFileNoThrow/execFileNoThrowWithCwd signature so that
+// recorded calls keep usable tuple types ([file, args, options]).
 const execFileNoThrowMock = mock(
-  async () => ({ code: 0, stdout: '', stderr: '' }),
+  async (
+    _file: string,
+    _args: string[],
+    _options?: Record<string, unknown>,
+  ) => ({ code: 0, stdout: '', stderr: '' }),
 )
 
 function installOscMocks(): void {

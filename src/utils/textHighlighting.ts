@@ -1,6 +1,7 @@
 import {
   type AnsiCode,
   ansiCodesToString,
+  type Char,
   reduceAnsiCodes,
   type Token,
   tokenize,
@@ -127,15 +128,17 @@ class HighlightSegmenter {
         this.stringPos += token.code.length
         this.tokenIdx++
       } else {
+        // Non-ansi tokens are treated as Char; tokenize doesn't emit
+        // ControlCode for the strings we segment (pre-existing assumption).
         const charsNeeded = targetVisiblePos - this.visiblePos
-        const charsAvailable = token.value.length - this.charIdx
+        const charsAvailable = (token as Char).value.length - this.charIdx
         const charsToTake = Math.min(charsNeeded, charsAvailable)
 
         this.stringPos += charsToTake
         this.visiblePos += charsToTake
         this.charIdx += charsToTake
 
-        if (this.charIdx >= token.value.length) {
+        if (this.charIdx >= (token as Char).value.length) {
           this.tokenIdx++
           this.charIdx = 0
         }

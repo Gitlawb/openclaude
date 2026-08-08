@@ -9,6 +9,28 @@ import {
   generatedIntegrationArtifactsAreCurrent,
 } from './artifactGenerator.js'
 
+// Resolve generated artifacts by filename rather than tuple position, so a
+// swap of the manifest/descriptor outputs can't pass these assertions.
+function splitGeneratedArtifacts(
+  artifacts: Awaited<ReturnType<typeof generateIntegrationArtifacts>>,
+): { manifestContent: string; artifactsContent: string } {
+  const byName = (name: string): string => {
+    const artifact = artifacts.find(a => path.basename(a.path) === name)
+    if (!artifact) {
+      throw new Error(`Expected a generated ${name}`)
+    }
+    // Assert the full destination path, not just the basename, so a wrong
+    // output directory can't slip through and break runtime imports.
+    const expectedSuffix = path.join('src', 'integrations', 'generated', name)
+    expect(artifact.path.endsWith(expectedSuffix)).toBe(true)
+    return artifact.content
+  }
+  return {
+    manifestContent: byName('integrationManifest.generated.ts'),
+    artifactsContent: byName('integrationArtifacts.generated.ts'),
+  }
+}
+
 const FIXTURE_DIRS = [
   'src/integrations/vendors',
   'src/integrations/gateways',
@@ -47,6 +69,25 @@ describe('integration artifact generator', () => {
     await expect(generatedIntegrationArtifactsAreCurrent()).resolves.toBe(true)
   })
 
+  test('pins aimlapi.com as the second provider preset', async () => {
+    const { manifestContent } = splitGeneratedArtifacts(
+      await generateIntegrationArtifacts(),
+    )
+    const orderedMatch = manifestContent.match(
+      /export const ORDERED_PROVIDER_PRESETS = \[\n([\s\S]*?)\n\] as const/,
+    )
+    expect(orderedMatch).not.toBeNull()
+    const orderedPresetIds = Array.from(
+      orderedMatch![1]!.matchAll(/"([^"]+)"/g),
+      match => match[1]!,
+    )
+    expect(orderedPresetIds.slice(0, 3)).toEqual([
+      'gitlawb-opengateway',
+      'aimlapi',
+      'anthropic',
+    ])
+  })
+
   test('derives loader and preset manifest entries for a preset gateway from descriptor files', async () => {
     await withFixtureRepo(
       {
@@ -82,12 +123,16 @@ describe('integration artifact generator', () => {
 `,
       },
       async repoRoot => {
-        const [{ content }] = await generateIntegrationArtifacts({ repoRoot })
+        const { manifestContent, artifactsContent } = splitGeneratedArtifacts(
+          await generateIntegrationArtifacts({ repoRoot }),
+        )
 
-        expect(content).toContain("import gatewayAcme from '../gateways/acme.js'")
-        expect(content).toContain('"preset": "acme-gateway"')
-        expect(content).toContain('"gatewayId": "acme"')
-        expect(content).toContain('"routeId": "acme"')
+        expect(artifactsContent).toContain(
+          "import gatewayAcme from '../gateways/acme.js'",
+        )
+        expect(manifestContent).toContain('"preset": "acme-gateway"')
+        expect(manifestContent).toContain('"gatewayId": "acme"')
+        expect(manifestContent).toContain('"routeId": "acme"')
       },
     )
   })
@@ -117,14 +162,16 @@ describe('integration artifact generator', () => {
 `,
       },
       async repoRoot => {
-        const [{ content }] = await generateIntegrationArtifacts({ repoRoot })
+        const { manifestContent, artifactsContent } = splitGeneratedArtifacts(
+          await generateIntegrationArtifacts({ repoRoot }),
+        )
 
-        expect(content).toContain(
+        expect(artifactsContent).toContain(
           "import vendorAcmeFirstParty from '../vendors/acme-first-party.js'",
         )
-        expect(content).toContain('"preset": "acme-direct"')
-        expect(content).toContain('"routeId": "acme-first-party"')
-        expect(content).toContain('"vendorId": "acme-first-party"')
+        expect(manifestContent).toContain('"preset": "acme-direct"')
+        expect(manifestContent).toContain('"routeId": "acme-first-party"')
+        expect(manifestContent).toContain('"vendorId": "acme-first-party"')
       },
     )
   })
@@ -210,9 +257,11 @@ describe('integration artifact generator', () => {
 `,
       },
       async repoRoot => {
-        const [{ content }] = await generateIntegrationArtifacts({ repoRoot })
+        const { manifestContent } = splitGeneratedArtifacts(
+          await generateIntegrationArtifacts({ repoRoot }),
+        )
 
-        const orderedMatch = content.match(
+        const orderedMatch = manifestContent.match(
           /export const ORDERED_PROVIDER_PRESETS = \[\n([\s\S]*?)\n\] as const/,
         )
         expect(orderedMatch).not.toBeNull()

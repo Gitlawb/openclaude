@@ -14,8 +14,17 @@ export function expandEnvVarsInString(value: string): {
   const missingVars: string[] = []
 
   const expanded = value.replace(/\$\{([^}]+)\}/g, (match, varContent) => {
-    // Split on :- to support default values (limit to 2 parts to preserve :- in defaults)
-    const [varName, defaultValue] = varContent.split(':-', 2)
+    // Split on the FIRST ':-' to support ${VAR:-default} default values. Note
+    // String.split(sep, limit) caps the array length and discards the
+    // remainder — it does not glue the tail back on like a maxsplit — so
+    // `split(':-', 2)` would truncate a default that itself contains ':-'
+    // (e.g. ${VAR:-a:-b} -> "a" instead of "a:-b"). Slice at the first ':-'
+    // instead so any later ':-' stays in the default, matching bash.
+    const sepIndex = varContent.indexOf(':-')
+    const varName =
+      sepIndex === -1 ? varContent : varContent.slice(0, sepIndex)
+    const defaultValue =
+      sepIndex === -1 ? undefined : varContent.slice(sepIndex + 2)
     const envValue = process.env[varName]
 
     if (envValue !== undefined) {

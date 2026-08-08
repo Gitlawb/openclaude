@@ -3,7 +3,6 @@ import { constants as fsConstants, readFileSync, unlinkSync } from 'fs'
 import { type FileHandle, mkdir, open, stat } from 'fs/promises'
 import memoize from 'lodash-es/memoize.js'
 import { isAbsolute, resolve } from 'path'
-import { join as posixJoin } from 'path/posix'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
   getOriginalCwd,
@@ -16,6 +15,7 @@ import { logForDebugging } from './debug.js'
 import { errorMessage, isENOENT } from './errors.js'
 import { getFsImplementation } from './fsOperations.js'
 import { logError } from './log.js'
+import { normalizeAbortReason } from './abortReasons.js'
 import {
   createAbortedCommand,
   createFailedCommand,
@@ -30,7 +30,7 @@ export type { ExecResult } from './ShellCommand.js'
 
 import { accessSync } from 'fs'
 import { onCwdChangedForHooks } from './hooks/fileChangedWatcher.js'
-import { getClaudeTempDirName } from './permissions/filesystem.js'
+import { getClaudeTempDir } from './permissions/filesystem.js'
 import { getPlatform } from './platform.js'
 import { SandboxManager } from './sandbox/sandbox-adapter.js'
 import { invalidateSessionEnvCache } from './sessionEnvironment.js'
@@ -221,11 +221,8 @@ export async function exec(
     .toString(16)
     .padStart(4, '0')
 
-  // Sandbox temp directory - use per-user directory name to prevent multi-user permission conflicts
-  const sandboxTmpDir = posixJoin(
-    process.env.CLAUDE_CODE_TMPDIR || '/tmp',
-    getClaudeTempDirName(),
-  )
+  // Use the same probed temp directory that the sandbox allowlist exposes.
+  const sandboxTmpDir = getClaudeTempDir()
 
   const { commandString: builtCommand, cwdFilePath } =
     await provider.buildExecCommand(command, {
@@ -272,7 +269,9 @@ export async function exec(
 
   // If already aborted, don't spawn the process at all
   if (abortSignal.aborted) {
-    return createAbortedCommand()
+    return createAbortedCommand(undefined, {
+      abortReason: normalizeAbortReason(abortSignal.reason),
+    })
   }
 
   const binShell = provider.shellPath
@@ -467,9 +466,16 @@ export async function exec(
 
     logForDebugging(`Shell exec error: ${errorMessage(error)}`)
 
-    return createAbortedCommand(undefined, {
+    if (abortSignal.aborted) {
+      return createAbortedCommand(undefined, {
+        code: 126, // Standard Unix code for execution errors
+        stderr: errorMessage(error),
+        abortReason: normalizeAbortReason(abortSignal.reason),
+      })
+    }
+
+    return createFailedCommand(errorMessage(error), {
       code: 126, // Standard Unix code for execution errors
-      stderr: errorMessage(error),
     })
   }
 }

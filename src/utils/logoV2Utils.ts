@@ -165,7 +165,7 @@ export function truncatePath(path: string, maxLength: number): string {
   }
 
   // Try to keep as many middle parts as possible
-  const middleParts = []
+  const middleParts: string[] = []
   for (let i = parts.length - 2; i > 0; i--) {
     const part = parts[i]
     if (part && stringWidth(part) + separatorWidth <= available) {

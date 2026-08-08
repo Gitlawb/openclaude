@@ -10,7 +10,10 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+} from 'src/utils/model/providers.js'
 import {
   getIsNonInteractiveSession,
   preferThirdPartyAuthentication,
@@ -40,6 +43,7 @@ import {
   isValidAwsStsOutput,
 } from './aws.js'
 import { AwsAuthStatusManager } from './awsAuthStatusManager.js'
+import { importOptionalRuntimeModule } from './optionalRuntimeModule.js'
 import { clearBetasCaches } from './betas.js'
 import {
   type AccountInfo,
@@ -867,8 +871,11 @@ const GCP_CREDENTIALS_CHECK_TIMEOUT_MS = 5_000
  */
 export async function checkGcpCredentialsValid(): Promise<boolean> {
   try {
-    // Dynamically import to avoid loading google-auth-library unnecessarily
-    const { GoogleAuth } = await import('google-auth-library')
+    // Dynamically import to avoid loading google-auth-library unnecessarily.
+    // It is an optional, on-demand dependency (not shipped by default).
+    const { GoogleAuth } = await importOptionalRuntimeModule<
+      typeof import('google-auth-library')
+    >('google-auth-library', 'Vertex AI (GCP) authentication')
     const auth = new GoogleAuth({
       scopes: ['https://www.googleapis.com/auth/cloud-platform'],
     })
@@ -1582,7 +1589,28 @@ async function checkAndRefreshOAuthTokenIfNeededImpl(
   }
 }
 
+/**
+ * Read subscriptionType only from user settings source.
+ * Project, local, flag, and policy settings are excluded.
+ * See jatmn's P1 on #1731.
+ */
+function getTrustedSubscriptionType(): SubscriptionType | null {
+  const candidate = getSettingsForSource('userSettings')?.subscriptionType
+  if (candidate) {
+    return candidate as SubscriptionType
+  }
+  return null
+}
+
 export function isClaudeAISubscriber(): boolean {
+  const override = getTrustedSubscriptionType()
+  if (override === 'free') {
+    return false
+  }
+  if (override) {
+    return true
+  }
+
   if (!isAnthropicAuthEnabled()) {
     return false
   }
@@ -1684,6 +1712,11 @@ export function getSubscriptionType(): SubscriptionType | null {
   // Check for mock subscription type first (ANT-only testing)
   if (shouldUseMockSubscription()) {
     return getMockSubscriptionType()
+  }
+
+  const override = getTrustedSubscriptionType()
+  if (override) {
+    return override
   }
 
   if (!isAnthropicAuthEnabled()) {
@@ -1888,7 +1921,7 @@ export type UserAccountInfo = {
 export function getAccountInformation() {
   const apiProvider = getAPIProvider()
   // Only provide account info for first-party Anthropic API
-  if (apiProvider !== 'firstParty') {
+  if (apiProvider !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     return undefined
   }
   const { source: authTokenSource } = getAuthTokenSource()

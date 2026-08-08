@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { getOriginalCwd, setOriginalCwd } from '../../../bootstrap/state.js'
 import { handleInteractivePermission } from '../../../hooks/toolPermission/handlers/interactiveHandler.js'
@@ -113,7 +113,8 @@ function createToolUseConfirm(
           output_tokens: 0,
         },
       },
-    },
+      // Minimal fixture — partial usage/uuid, cast type-side only.
+    } as unknown as ToolUseConfirm['assistantMessage'],
     tool: MonitorTool,
     description: 'watch log',
     input: {
@@ -315,7 +316,7 @@ async function renderMonitorPermission(
   })
 
   root.render(
-    <AppStateProvider>
+    <AppStateProvider initialState={getDefaultAppState()}>
       <TestKeybindingProvider>
         <MonitorPermissionRequest
           toolUseConfirm={toolUseConfirm}
@@ -400,6 +401,7 @@ describe('MonitorPermissionRequest', () => {
             destination: 'localSettings',
           },
         ],
+        undefined,
       )
       expect(toolUseConfirm.onReject).not.toHaveBeenCalled()
     } finally {

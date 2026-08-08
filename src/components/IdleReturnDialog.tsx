@@ -91,7 +91,7 @@ export function IdleReturnDialog(t0) {
   }
   let t10;
   if ($[12] !== t3 || $[13] !== t4 || $[14] !== t9) {
-    t10 = <Dialog title={t3} onCancel={t4}>{t5}{t9}</Dialog>;
+    t10 = <Dialog title={t3} onCancel={t4} showNavigationHint={true}>{t5}{t9}</Dialog>;
     $[12] = t3;
     $[13] = t4;
     $[14] = t9;

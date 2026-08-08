@@ -31,6 +31,7 @@ import { clearRepositoryCaches } from '../../utils/detectRepository.js'
 import { clearResolveGitDirCache } from '../../utils/git/gitFilesystem.js'
 import { clearStoredImagePaths } from '../../utils/imageStore.js'
 import { clearSessionEnvVars } from '../../utils/sessionEnvVars.js'
+import { clearSessionContextWindowOverride } from '../../utils/context.js'
 
 /**
  * Clear all session-related caches.
@@ -93,12 +94,18 @@ export function clearSessionCaches(
 
   // Clear tungsten session usage tracking
   if (process.env.USER_TYPE === 'ant') {
-    void import('../../tools/TungstenTool/TungstenTool.js').then(
-      ({ clearSessionsWithTungstenUsage, resetInitializationState }) => {
-        clearSessionsWithTungstenUsage()
-        resetInitializationState()
-      },
-    )
+    void import('../../tools/TungstenTool/TungstenTool.js').then(mod => {
+      // TungstenTool.ts is currently a stub module — these helpers may be
+      // absent, so call them only if present.
+      const tungsten = mod as Partial<
+        Record<
+          'clearSessionsWithTungstenUsage' | 'resetInitializationState',
+          () => void
+        >
+      >
+      tungsten.clearSessionsWithTungstenUsage?.()
+      tungsten.resetInitializationState?.()
+    })
   }
   // Clear attribution caches (file content cache, pending bash states)
   // Dynamic import to preserve dead code elimination for COMMIT_ATTRIBUTION feature flag
@@ -125,6 +132,8 @@ export function clearSessionCaches(
   clearTrackedMagicDocs()
   // Clear session environment variables
   clearSessionEnvVars()
+  // Clear session-scoped context window overrides
+  clearSessionContextWindowOverride()
   // Clear WebFetch URL cache (up to 50MB of cached page content)
   void import('../../tools/WebFetchTool/utils.js').then(
     ({ clearWebFetchCache }) => clearWebFetchCache(),

@@ -210,8 +210,11 @@ export function parseGitDiff(
     // Stop after MAX_FILES
     if (result.size >= MAX_FILES) break
 
-    // Skip files larger than 1MB
-    if (fileDiff.length > MAX_DIFF_SIZE_BYTES) {
+    // Skip files larger than 1MB. Measure UTF-8 bytes, not String.length:
+    // `.length` counts UTF-16 code units, which undercounts multibyte content
+    // (CJK/emoji are 3-4 bytes each) by up to ~4x and would let a multi-MB
+    // single-file diff slip past this cap.
+    if (Buffer.byteLength(fileDiff, 'utf8') > MAX_DIFF_SIZE_BYTES) {
       continue
     }
 
@@ -248,16 +251,22 @@ export function parseGitDiff(
         continue
       }
 
-      // Skip binary file markers and other metadata
+      // Skip binary file markers and other metadata. These only appear in the
+      // file preamble before the first @@ hunk header, so only match them when
+      // we are not yet inside a hunk. Once inside a hunk, a line such as
+      // "---legacy-peer-deps" (a removed line whose content starts with "--")
+      // or "+++count" (an added line whose content starts with "++") is real
+      // diff content and must not be dropped as a "+++"/"---" header.
       if (
-        line.startsWith('index ') ||
-        line.startsWith('---') ||
-        line.startsWith('+++') ||
-        line.startsWith('new file') ||
-        line.startsWith('deleted file') ||
-        line.startsWith('old mode') ||
-        line.startsWith('new mode') ||
-        line.startsWith('Binary files')
+        !currentHunk &&
+        (line.startsWith('index ') ||
+          line.startsWith('---') ||
+          line.startsWith('+++') ||
+          line.startsWith('new file') ||
+          line.startsWith('deleted file') ||
+          line.startsWith('old mode') ||
+          line.startsWith('new mode') ||
+          line.startsWith('Binary files'))
       ) {
         continue
       }
@@ -445,7 +454,7 @@ export async function fetchSingleFileGitDiff(
  * Extracts only the hunk content (starting from @@) as the patch,
  * and counts additions/deletions.
  */
-function parseRawDiffToToolUseDiff(
+export function parseRawDiffToToolUseDiff(
   filename: string,
   rawDiff: string,
   status: 'modified' | 'added',
@@ -462,9 +471,16 @@ function parseRawDiffToToolUseDiff(
     }
     if (inHunks) {
       patchLines.push(line)
-      if (line.startsWith('+') && !line.startsWith('+++')) {
+      // Count every added/removed line inside a hunk. The `+++ b/file` and
+      // `--- a/file` headers only appear in the preamble before the first `@@`,
+      // so they never reach here — guarding on `!startsWith('+++')` /
+      // `!startsWith('---')` would instead drop genuine hunk content whose text
+      // begins with `++`/`--` (e.g. `+++quiet-flag`, `---legacy-peer-deps`, a
+      // YAML `---` separator), undercounting additions/deletions. Mirrors the
+      // in-hunk handling already documented in parseGitDiff above.
+      if (line.startsWith('+')) {
         additions++
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
+      } else if (line.startsWith('-')) {
         deletions++
       }
     }

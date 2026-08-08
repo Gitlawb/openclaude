@@ -14,5 +14,7 @@ export function getWikiPaths(cwd: string): WikiPaths {
     schemaFile: join(root, 'schema.md'),
     indexFile: join(root, 'index.md'),
     logFile: join(root, 'log.md'),
+    conventionsFile: join(root, 'pages', 'conventions.md'),
+    conventionsCacheFile: join(cwd, OPENCLAUDE_DIRNAME, '.conventions-cache.json'),
   }
 }

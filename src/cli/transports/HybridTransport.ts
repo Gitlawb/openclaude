@@ -2,6 +2,7 @@ import axios, { type AxiosError } from 'axios'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
+import { errorMessage } from '../../utils/errors.js'
 import { getSessionIngressAuthToken } from '../../utils/sessionIngressAuth.js'
 import { SerialBatchEventUploader } from './SerialBatchEventUploader.js'
 import {
@@ -54,6 +55,7 @@ const CLOSE_GRACE_MS = 3000
 export class HybridTransport extends WebSocketTransport {
   private postUrl: string
   private uploader: SerialBatchEventUploader<StdoutMessage>
+  private closeGraceMs: number
 
   // stream_event delay buffer — accumulates content deltas for up to
   // BATCH_FLUSH_INTERVAL_MS before enqueueing (reduces POST count)
@@ -68,11 +70,14 @@ export class HybridTransport extends WebSocketTransport {
     options?: WebSocketTransportOptions & {
       maxConsecutiveFailures?: number
       onBatchDropped?: (batchSize: number, failures: number) => void
+      closeGraceMs?: number
     },
   ) {
     super(url, headers, sessionId, refreshHeaders, options)
-    const { maxConsecutiveFailures, onBatchDropped } = options ?? {}
+    const { maxConsecutiveFailures, onBatchDropped, closeGraceMs } =
+      options ?? {}
     this.postUrl = convertWsUrlToPostUrl(url)
+    this.closeGraceMs = closeGraceMs ?? CLOSE_GRACE_MS
     this.uploader = new SerialBatchEventUploader<StdoutMessage>({
       // Large cap — session-ingress accepts arbitrary batch sizes. Events
       // naturally batch during in-flight POSTs; this just bounds the payload.
@@ -168,30 +173,57 @@ export class HybridTransport extends WebSocketTransport {
     void this.uploader.enqueue(this.takeStreamEvents())
   }
 
-  override close(): void {
-    if (this.streamEventTimer) {
-      clearTimeout(this.streamEventTimer)
-      this.streamEventTimer = null
+  override async close(): Promise<void> {
+    const pendingStreamEvents = this.takeStreamEvents()
+    let closeError: unknown
+    let didCloseThrow = false
+    try {
+      await super.close()
+    } catch (error) {
+      closeError = error
+      didCloseThrow = true
     }
-    this.streamEventBuffer = []
-    // Grace period for queued writes — fallback. replBridge teardown now
-    // awaits archive between write and close (see CLOSE_GRACE_MS), so
-    // archive latency is the primary drain window and this is a last
-    // resort. Keep close() sync (returns immediately) but defer
-    // uploader.close() so any remaining queue gets a chance to finish.
-    const uploader = this.uploader
-    let graceTimer: ReturnType<typeof setTimeout> | undefined
-    void Promise.race([
-      uploader.flush(),
-      new Promise<void>(r => {
-        // eslint-disable-next-line no-restricted-syntax -- need timer ref for clearTimeout
-        graceTimer = setTimeout(r, CLOSE_GRACE_MS)
-      }),
-    ]).finally(() => {
-      clearTimeout(graceTimer)
-      uploader.close()
-    })
-    super.close()
+
+    const { uploader } = this
+    let uploaderCloseError: unknown
+    if (uploader) {
+      let closeGraceTimer: ReturnType<typeof setTimeout> | null = null
+      try {
+        await Promise.race([
+          (async () => {
+            if (pendingStreamEvents.length > 0) {
+              await uploader.enqueue(pendingStreamEvents)
+            }
+            await uploader.flush()
+          })(),
+          new Promise<void>(resolve => {
+            closeGraceTimer = setTimeout(resolve, this.closeGraceMs)
+          }),
+        ])
+      } catch {
+        // Ignore flush errors on shutdown
+      } finally {
+        if (closeGraceTimer) {
+          clearTimeout(closeGraceTimer)
+        }
+        try {
+          uploader.close()
+        } catch (error) {
+          uploaderCloseError = error
+          logForDebugging(
+            `HybridTransport: uploader close failed: ${errorMessage(error)}`,
+          )
+          logForDiagnosticsNoPII('warn', 'cli_hybrid_uploader_close_error')
+        }
+      }
+    }
+
+    if (didCloseThrow) {
+      throw closeError
+    }
+    if (uploaderCloseError) {
+      throw uploaderCloseError
+    }
   }
 
   /**

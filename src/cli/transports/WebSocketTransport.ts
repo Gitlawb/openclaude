@@ -553,7 +553,7 @@ export class WebSocketTransport implements Transport {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     // Clear any pending reconnection timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)

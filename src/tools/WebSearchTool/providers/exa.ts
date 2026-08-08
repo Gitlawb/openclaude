@@ -21,6 +21,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 /** Join up to 3 highlight excerpts with an ellipsis separator. */
 function describeFromHighlights(r: any): string | undefined {
@@ -52,21 +53,20 @@ export const exaProvider: SearchProvider = {
     if (input.allowed_domains?.length) body.includeDomains = input.allowed_domains
     if (input.blocked_domains?.length) body.excludeDomains = input.blocked_domains
 
-    const res = await fetch('https://api.exa.ai/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.EXA_API_KEY!,
+    const data = await fetchJsonWithWebSearchTimeout(
+      'https://api.exa.ai/search',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.EXA_API_KEY!,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
       signal,
-    })
+      { providerName: 'Exa' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Exa search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const hits = (data.results ?? []).map((r: any) => ({
       title: r.title ?? '',
       url: r.url ?? '',

@@ -407,9 +407,11 @@ function formatDiff(lines: string[], startingLineNumber: number, width: number, 
       // so the visual continuity (solid red/green bar) is unchanged.
       return <Box key={key} flexDirection="row">
           <NoSelect fromLeftEdge>
-            <Text color={overrideTheme ? 'text' : undefined} backgroundColor={bgColor} dimColor={dim || type === 'nochange'}>
+            {/* Line numbers always dim (mirrors color-diff addLineNumber) so
+                the gutter recedes; the +/- sigil keeps full intensity. */}
+            <Text color={overrideTheme ? 'text' : undefined} backgroundColor={bgColor} dimColor={true}>
               {lineNumStr}
-              {sigil}
+              <Text dimColor={dim || type === 'nochange'}>{sigil}</Text>
             </Text>
           </NoSelect>
           <Text color={overrideTheme ? 'text' : undefined} backgroundColor={bgColor} dimColor={dim}>

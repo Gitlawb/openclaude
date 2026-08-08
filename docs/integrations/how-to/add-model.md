@@ -65,6 +65,17 @@ editing multiple shared model files. In the common path:
   one route;
 - let the route catalog continue to own the offered subset.
 
+## Reasoning and `/effort` metadata
+
+Use `classification: ['reasoning']` and `capabilities.supportsReasoning` to
+describe that a model is known to reason or think. Those fields do not by
+themselves enable `/effort` request mutation.
+
+Only add `reasoning` metadata when the model's exact control surface has been
+verified for the route that will call it, including accepted levels, rejected
+levels, and any thinking-disable format. For the full checklist, see
+`docs/integrations/reasoning-effort.md`.
+
 ## When to add a brand descriptor
 
 Add or update a brand descriptor when:
@@ -168,13 +179,16 @@ Model lookup should prefer:
    `modelDescriptorId`;
 3. global shared model descriptors under `src/integrations/models/` for legacy
    and custom OpenAI-compatible model names;
-4. documented env overrides from `src/utils/model/openaiContextWindows.ts`
-   (`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
-   `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`).
+4. documented user overrides from `src/utils/model/openaiContextWindows.ts` —
+   the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` / `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`
+   env vars and the `modelLimits` map in `settings.json` (see the
+   `modelLimits` section in `docs/advanced-setup.md` for key matching and
+   precedence).
 
-`openaiContextWindows.ts` is compatibility glue for user-provided env
-overrides. It should not grow a second built-in model table. Built-in model
-limits belong in model descriptor files.
+`openaiContextWindows.ts` is compatibility glue for user-provided overrides
+(env vars and the `settings.json` `modelLimits` map). It should not grow a
+second built-in model table. Built-in model limits belong in model descriptor
+files.
 
 ## What not to do
 

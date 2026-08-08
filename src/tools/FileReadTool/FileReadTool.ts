@@ -48,6 +48,10 @@ import {
   ImageResizeError,
   maybeResizeAndDownsampleImageBuffer,
 } from '../../utils/imageResizer.js'
+import {
+  getImageProcessor,
+  ImageProcessorUnavailableError,
+} from './imageProcessor.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { isAutoMemFile } from '../../utils/memoryFileDetection.js'
@@ -64,6 +68,7 @@ import {
   isPDFSupported,
   parsePDFPageRange,
 } from '../../utils/pdfUtils.js'
+import { checkVisionCapabilityForFile } from '../../utils/visionUtils.js'
 import {
   checkReadPermissionForTool,
   matchingRuleForInput,
@@ -172,14 +177,80 @@ export function registerFileReadListener(
   }
 }
 
+export type MaxFileReadTokenExceededDetails = {
+  filePath?: string
+  source?: 'api' | 'estimate'
+  totalLines?: number
+}
+
+function formatCount(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function formatReadRangeExample(
+  filePath: string,
+  offset: number,
+  limit: number,
+): string {
+  return JSON.stringify({ file_path: filePath, offset, limit })
+}
+
+export function formatMaxFileReadTokenExceededMessage(
+  tokenCount: number,
+  maxTokens: number,
+  details: MaxFileReadTokenExceededDetails = {},
+): string {
+  const tokenCountText =
+    details.source === 'estimate'
+      ? `estimated ${formatCount(tokenCount)} tokens`
+      : `${formatCount(tokenCount)} tokens`
+
+  const lines = [
+    `File content is too large to read in one request (${tokenCountText}; limit ${formatCount(maxTokens)} tokens).`,
+  ]
+
+  if (details.totalLines !== undefined) {
+    lines.push(`The file has ${formatCount(details.totalLines)} total lines.`)
+  }
+
+  if (details.filePath) {
+    const firstLimit = Math.max(
+      1,
+      Math.min(200, details.totalLines ?? 200),
+    )
+    lines.push('Read smaller ranges with offset and limit, for example:')
+    lines.push(`  ${formatReadRangeExample(details.filePath, 1, firstLimit)}`)
+
+    if (details.totalLines === undefined || details.totalLines > firstLimit) {
+      const secondOffset = firstLimit + 1
+      const secondLimit = Math.max(
+        1,
+        Math.min(200, (details.totalLines ?? firstLimit + 200) - firstLimit),
+      )
+      lines.push(
+        `  ${formatReadRangeExample(details.filePath, secondOffset, secondLimit)}`,
+      )
+    }
+  } else {
+    lines.push(
+      'Read smaller ranges with offset and limit, for example offset: 1, limit: 200, then offset: 201, limit: 200.',
+    )
+  }
+
+  lines.push(
+    'Use Grep first if you are looking for specific text, then Read the relevant range.',
+  )
+
+  return lines.join('\n')
+}
+
 export class MaxFileReadTokenExceededError extends Error {
   constructor(
     public tokenCount: number,
     public maxTokens: number,
+    public details: MaxFileReadTokenExceededDetails = {},
   ) {
-    super(
-      `File content (${tokenCount} tokens) exceeds maximum allowed tokens (${maxTokens}). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.`,
-    )
+    super(formatMaxFileReadTokenExceededMessage(tokenCount, maxTokens, details))
     this.name = 'MaxFileReadTokenExceededError'
   }
 }
@@ -458,14 +529,6 @@ export const FileReadTool = buildTool({
       }
     }
 
-    // SECURITY: UNC path check (no I/O) — defer filesystem operations
-    // until after user grants permission to prevent NTLM credential leaks
-    const isUncPath =
-      fullFilePath.startsWith('\\\\') || fullFilePath.startsWith('//')
-    if (isUncPath) {
-      return { result: true }
-    }
-
     // Binary extension check (string check on extension only, no I/O).
     // PDF, images, and SVG are excluded - this tool renders them natively.
     const ext = path.extname(fullFilePath).toLowerCase()
@@ -479,6 +542,35 @@ export const FileReadTool = buildTool({
         message: `This tool cannot read binary files. The file appears to be a binary ${ext} file. Please use appropriate tools for binary file analysis.`,
         errorCode: 4,
       }
+    }
+
+    // Vision-capability gate: refuse image reads when the active model
+    // explicitly lacks `supportsVision` (e.g. Xiaomi Mimo V2.5 Pro / Flash,
+    // Llama, Mistral). Returning early surfaces a clear `<tool_use_error>`
+    // to the model so it can pivot to a text-based approach (Bash `file`,
+    // `identify`, OCR) or `/model` to switch to a vision-capable model —
+    // instead of producing an image-only tool result that the provider
+    // rejects with a generic 400 (issue #1421).
+    const visionCheck = checkVisionCapabilityForFile(
+      fullFilePath,
+      toolUseContext.options.mainLoopModel,
+      {
+        baseUrl:
+          toolUseContext.options.providerOverride?.baseURL ??
+          process.env.OPENAI_BASE_URL ??
+          process.env.OPENAI_API_BASE,
+      },
+    )
+    if (visionCheck.result === false) {
+      return visionCheck
+    }
+
+    // SECURITY: UNC path check (no I/O) — defer filesystem operations
+    // until after user grants permission to prevent NTLM credential leaks
+    const isUncPath =
+      fullFilePath.startsWith('\\\\') || fullFilePath.startsWith('//')
+    if (isUncPath) {
+      return { result: true }
     }
 
     // Block specific device files that would hang (infinite output or blocking input).
@@ -729,8 +821,14 @@ function formatFileLines(file: { content: string; startLine: number }): string {
 export const CYBER_RISK_MITIGATION_REMINDER =
   '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n'
 
-// Models where cyber risk mitigation should be skipped
-const MITIGATION_EXEMPT_MODELS = new Set(['claude-opus-4-6'])
+// Models where cyber risk mitigation should be skipped. The recent Opus models
+// (4.8/4.7) inherit 4.6's exemption — 4.8 is now the first-party default, so
+// without this it would get the reminder on every file read that 4.6 did not.
+const MITIGATION_EXEMPT_MODELS = new Set([
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+])
 
 function shouldIncludeFileReadMitigation(): boolean {
   if (isEnvTruthy(process.env.OPENCLAUDE_DISABLE_TOOL_REMINDERS)) {
@@ -759,6 +857,7 @@ async function validateContentTokens(
   content: string,
   ext: string,
   maxTokens?: number,
+  details: Omit<MaxFileReadTokenExceededDetails, 'source'> = {},
 ): Promise<void> {
   const effectiveMaxTokens =
     maxTokens ?? getDefaultFileReadingLimits().maxTokens
@@ -770,7 +869,14 @@ async function validateContentTokens(
   const effectiveCount = tokenCount ?? tokenEstimate
 
   if (effectiveCount > effectiveMaxTokens) {
-    throw new MaxFileReadTokenExceededError(effectiveCount, effectiveMaxTokens)
+    throw new MaxFileReadTokenExceededError(
+      effectiveCount,
+      effectiveMaxTokens,
+      {
+        ...details,
+        source: tokenCount === null ? 'estimate' : 'api',
+      },
+    )
   }
 }
 
@@ -1030,7 +1136,10 @@ async function callInner(
       context.abortController.signal,
     )
 
-  await validateContentTokens(content, ext, maxTokens)
+  await validateContentTokens(content, ext, maxTokens, {
+    filePath: file_path,
+    totalLines,
+  })
 
   readFileState.set(fullFilePath, {
     content,
@@ -1156,16 +1265,13 @@ export async function readImageWithTokenBudget(
       }
     } catch (e) {
       logError(e)
-      // Fallback: heavily compressed version from the SAME buffer
+      // Fallback: heavily compressed version from the SAME buffer, loaded via
+      // the shared optional image processor (NOT a raw import('sharp')). This
+      // keeps the missing-image-processor contract: when no processor is
+      // installed, surface the actionable install hint instead of swallowing it
+      // and returning an image that already exceeded the token budget.
       try {
-        const sharpModule = await import('sharp')
-        const sharp =
-          (
-            sharpModule as {
-              default?: typeof sharpModule
-            } & typeof sharpModule
-          ).default || sharpModule
-
+        const sharp = await getImageProcessor()
         const fallbackBuffer = await sharp(imageBuffer)
           .resize(400, 400, {
             fit: 'inside',
@@ -1176,6 +1282,10 @@ export async function readImageWithTokenBudget(
 
         return createImageResponse(fallbackBuffer, 'jpeg', originalSize)
       } catch (error) {
+        // No image processor available → surface the install hint rather than
+        // returning an over-budget image. Other failures (e.g. a corrupt
+        // buffer) still degrade gracefully to the original.
+        if (error instanceof ImageProcessorUnavailableError) throw error
         logError(error)
         return createImageResponse(imageBuffer, detectedFormat, originalSize)
       }

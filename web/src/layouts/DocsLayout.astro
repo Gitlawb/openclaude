@@ -1,0 +1,78 @@
+---
+import BaseLayout from './BaseLayout.astro'
+import Breadcrumbs from '../components/Breadcrumbs.astro'
+import DocsSidebar from '../components/DocsSidebar.astro'
+import DocsToc, { type TocEntry } from '../components/DocsToc.astro'
+import { docsPages, pagerFor } from '../data/docsNav'
+import { SITE } from '../data/site'
+
+interface Props {
+  /** Browser tab / SERP title */
+  title: string
+  description: string
+  /** H1 + breadcrumb label (falls back to nav title) */
+  heading: string
+  lede?: string
+  toc?: TocEntry[]
+  /** override the default docs OG card */
+  ogImage?: string
+}
+
+const { title, description, heading, lede, toc = [], ogImage = SITE.ogDocs } = Astro.props
+
+const path = Astro.url.pathname
+const { prev, next } = pagerFor(path)
+const navTitle = docsPages.find(p => p.href === path)?.title ?? heading
+
+const crumbs = [
+  { label: 'home', href: '/' },
+  { label: 'docs', href: '/docs/' },
+  ...(path === '/docs/' ? [] : [{ label: navTitle.toLowerCase(), href: path }]),
+]
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: heading,
+    description,
+    url: new URL(path, SITE.url).href,
+    isPartOf: { '@type': 'WebSite', name: SITE.name, url: SITE.url },
+    about: { '@type': 'SoftwareApplication', name: 'openclaude', url: SITE.url },
+    author: { '@type': 'Organization', name: 'GitLawb', url: SITE.gitlawb },
+  },
+]
+---
+
+<BaseLayout title={title} description={description} ogImage={ogImage} type="article" jsonLd={jsonLd}>
+  <div class="container">
+    <div class="docs-shell">
+      <DocsSidebar />
+      <article class="docs-article">
+        <Breadcrumbs crumbs={crumbs} />
+        <h1>{heading}</h1>
+        {lede && <p class="lede">{lede}</p>}
+        <slot />
+        <nav class="docs-pager" aria-label="docs pagination">
+          <span>
+            {prev && (
+              <a href={prev.href}>
+                <span class="label">← previous</span>
+                {prev.title}
+              </a>
+            )}
+          </span>
+          <span style="text-align: right;">
+            {next && (
+              <a href={next.href}>
+                <span class="label">next →</span>
+                {next.title}
+              </a>
+            )}
+          </span>
+        </nav>
+      </article>
+      <DocsToc toc={toc} />
+    </div>
+  </div>
+</BaseLayout>

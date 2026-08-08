@@ -141,7 +141,7 @@ export function DiffDialog(t0) {
     t8 = $[15];
   }
   useEffect(t7, t8);
-  useRegisterOverlay("diff-dialog");
+  useRegisterOverlay("diff-dialog", true);
   let t10;
   let t9;
   if ($[16] !== sources.length || $[17] !== viewMode) {

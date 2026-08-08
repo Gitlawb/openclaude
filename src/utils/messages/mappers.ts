@@ -19,7 +19,7 @@ import type {
   Message,
 } from 'src/types/message.js'
 import type { DeepImmutable } from 'src/types/utils.js'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { createAssistantMessage } from '../messages.js'
 import { getPlan } from '../plans.js'
 
@@ -63,7 +63,7 @@ export function toInternalMessages(
               ),
               uuid: message.uuid,
               timestamp: new Date().toISOString(),
-            },
+            } as Message,
           ]
         }
         return []
@@ -104,9 +104,10 @@ export function fromSDKCompactMetadata(
     preTokens: meta.pre_tokens,
     ...(seg && {
       preservedSegment: {
-        headUuid: seg.head_uuid,
-        anchorUuid: seg.anchor_uuid,
-        tailUuid: seg.tail_uuid,
+        // SDK wire type carries plain strings — type-level cast only.
+        headUuid: seg.head_uuid as UUID,
+        anchorUuid: seg.anchor_uuid as UUID,
+        tailUuid: seg.tail_uuid as UUID,
       },
     }),
   }

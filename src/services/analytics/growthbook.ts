@@ -4,9 +4,9 @@
  *
  * OpenClaude does not phone home. This module replaces the original
  * analytics-driven GrowthBook client with a local-only implementation that
- * reads feature flags from ~/.claude/feature-flags.json for developer overrides.
+ * reads feature flags from ~/.openclaude/feature-flags.json for developer overrides.
  *
- * Priority: CLAUDE_FEATURE_FLAGS_FILE env > ~/.claude/feature-flags.json > defaultValue
+ * Priority: OPENCLAUDE_FEATURE_FLAGS_FILE env > CLAUDE_FEATURE_FLAGS_FILE env > ~/.openclaude/feature-flags.json > defaultValue
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -29,8 +29,9 @@ function _loadFlags(): void {
 	if (_flags !== undefined) return
 	try {
 		const flagsPath =
+			process.env.OPENCLAUDE_FEATURE_FLAGS_FILE ||
 			process.env.CLAUDE_FEATURE_FLAGS_FILE ||
-			join(homedir(), '.claude', 'feature-flags.json')
+			join(homedir(), '.openclaude', 'feature-flags.json')
 		const parsed = JSON.parse(readFileSync(flagsPath, 'utf-8'))
 		_flags =
 			parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
@@ -66,8 +67,8 @@ export type GrowthBookUserAttributes = {
 	github?: unknown
 }
 
-/** No-op: no background refresh to subscribe to. */
-export function onGrowthBookRefresh(): void {}
+/** No-op: no background refresh to subscribe to. The listener is never invoked. */
+export function onGrowthBookRefresh(_listener?: () => void): void {}
 
 /** Returns false — no env overrides when GrowthBook is disabled. */
 export function hasGrowthBookEnvOverride(_feature: string): boolean {
@@ -122,6 +123,9 @@ export function getFeatureValue_CACHED_MAY_BE_STALE<T>(
 export function getFeatureValue_CACHED_WITH_REFRESH<T>(
 	_featureName: string,
 	defaultValue: T,
+	// Refresh interval accepted for callsite compatibility; this local-file
+	// shim has no background refresh, so the value is unused.
+	_refreshIntervalMs?: number,
 ): T {
 	return _getFlagValue(_featureName, defaultValue)
 }

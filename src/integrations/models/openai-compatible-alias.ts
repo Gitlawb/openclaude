@@ -36,6 +36,13 @@ function aliasModel(
 }
 
 const aliasModels: readonly AliasModel[] = [
+  ['deepseek-ai/DeepSeek-V3.2-Exp', 'DeepSeek V3.2 Exp', 163_840, 163_840],
+  ['bytedance/doubao-seed-2.0-pro-260215', 'Doubao Seed 2.0 Pro', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-code-preview-260215', 'Doubao Seed 2.0 Code Preview', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-lite-260428', 'Doubao Seed 2.0 Lite', 262_144, 131_072],
+  ['bytedance/doubao-seed-2.0-mini-260428', 'Doubao Seed 2.0 Mini', 262_144, 131_072],
+  ['kwaipilot/kat-coder-pro-v2', 'KAT Coder Pro V2', 262_144, 144_000],
+  ['owl', 'OWL', 1_048_576, 262_144],
   ['github:copilot', 'GitHub Copilot', 128_000, 16_384],
   ['github:copilot:claude-sonnet-4', 'GitHub Copilot Claude Sonnet 4', 216_000, 16_000],
   ['github:copilot:claude-haiku-4', 'GitHub Copilot Claude Haiku 4', 200_000, 64_000],
@@ -43,6 +50,7 @@ const aliasModels: readonly AliasModel[] = [
   ['github:copilot:claude-sonnet-4.5', 'GitHub Copilot Claude Sonnet 4.5', 200_000, 32_000],
   ['github:copilot:claude-sonnet-4.6', 'GitHub Copilot Claude Sonnet 4.6', 200_000, 32_000],
   ['github:copilot:claude-opus-4', 'GitHub Copilot Claude Opus 4', 200_000, 32_000],
+  ['github:copilot:claude-opus-4.5', 'GitHub Copilot Claude Opus 4.5', 200_000, 32_000],
   ['github:copilot:claude-opus-4.6', 'GitHub Copilot Claude Opus 4.6', 200_000, 32_000],
   ['github:copilot:gpt-3.5-turbo', 'GitHub Copilot GPT-3.5 Turbo', 16_384, 4_096],
   ['github:copilot:gpt-4', 'GitHub Copilot GPT-4', 32_768, 4_096],
@@ -55,6 +63,9 @@ const aliasModels: readonly AliasModel[] = [
   ['github:copilot:gpt-4o-mini', 'GitHub Copilot GPT-4o Mini', 128_000, 4_096],
   ['github:copilot:gpt-5-mini', 'GitHub Copilot GPT-5 Mini', 264_000, 64_000],
   ['github:copilot:gpt-5.1', 'GitHub Copilot GPT-5.1', 264_000, 64_000],
+  ['github:copilot:gpt-5.1-codex', 'GitHub Copilot GPT-5.1 Codex', 400_000, 128_000],
+  ['github:copilot:gpt-5.1-codex-max', 'GitHub Copilot GPT-5.1 Codex Max', 400_000, 128_000],
+  ['github:copilot:gpt-5.1-codex-mini', 'GitHub Copilot GPT-5.1 Codex Mini', 400_000, 128_000],
   ['github:copilot:gpt-5.2', 'GitHub Copilot GPT-5.2', 400_000, 128_000],
   ['github:copilot:gpt-5.2-codex', 'GitHub Copilot GPT-5.2 Codex', 400_000, 128_000],
   ['github:copilot:gpt-5.3-codex', 'GitHub Copilot GPT-5.3 Codex', 400_000, 128_000],

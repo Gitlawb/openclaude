@@ -11,6 +11,7 @@ import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath, pathToFileURL } from 'url'
 import { spawnSync } from 'child_process'
+import { enableNodeCompileCacheIfAvailable } from './node-compile-cache.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
@@ -32,6 +33,17 @@ function hasNodeOptionFlag(flag) {
 }
 
 function getHeapSizeMb() {
+  // --max-memory flag overrides env var
+  const maxMemArg = process.argv.find(a => a.startsWith('--max-memory='))
+  if (maxMemArg) {
+    const mb = Number.parseInt(maxMemArg.split('=')[1] || '0', 10)
+    if (Number.isSafeInteger(mb) && mb > 0) {
+      process.env[HEAP_SIZE_ENV] = String(mb)
+      process.env.OPENCLAUDE_MAX_MEMORY_MB = String(mb)
+      return mb
+    }
+  }
+
   const raw = process.env[HEAP_SIZE_ENV]
   if (!raw) return DEFAULT_HEAP_SIZE_MB
   const parsed = Number.parseInt(raw, 10)
@@ -58,10 +70,26 @@ function relaunchWithLongSessionHeapIfNeeded() {
     execArgv.push('--expose-gc')
   }
 
+  // Strip --max-memory flag before relaunching — it's a launcher-only arg
+  // that Commander in the built CLI would reject as unknown.
+  const childArgs = process.argv.slice(2).filter(
+    arg => !arg.startsWith('--max-memory=') && arg !== '--max-memory',
+  )
+
+  // Preserve the original argv[1] (which may be a symlink like
+  // /usr/local/bin/openclaude) instead of resolving it via import.meta.url.
+  // Resolving symlinks here defeats install-type detection downstream: a real
+  // npm global install (symlink → node_modules/@gitlawb/openclaude/bin) would
+  // resolve to the package's real path inside node_modules, which is fine, but
+  // a `npm install -g .` dev symlink resolves back to the repo and looks like
+  // a source-tree dev run. Using argv[1] keeps the invocation path stable so
+  // doctorDiagnostic's npm-global path markers can match correctly.
+  const launcherPath = process.argv[1] || fileURLToPath(import.meta.url)
+
   const result = spawnSync(process.execPath, [
     ...execArgv,
-    fileURLToPath(import.meta.url),
-    ...process.argv.slice(2),
+    launcherPath,
+    ...childArgs,
   ], {
     stdio: 'inherit',
     env: {
@@ -80,6 +108,7 @@ function relaunchWithLongSessionHeapIfNeeded() {
 
 if (existsSync(distPath)) {
   relaunchWithLongSessionHeapIfNeeded()
+  enableNodeCompileCacheIfAvailable()
   await import(pathToFileURL(distPath).href)
 } else {
   console.error(`

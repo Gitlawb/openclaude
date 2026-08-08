@@ -19,7 +19,7 @@ function compactBoundaryMessage(): Message {
     content: 'Conversation compacted',
     isMeta: false,
     timestamp: new Date().toISOString(),
-    uuid: `test-${Math.random()}`,
+    uuid: `test-${Math.random()}` as Message['uuid'],
     level: 'info',
     compactMetadata: {
       trigger: 'manual',

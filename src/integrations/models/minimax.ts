@@ -70,9 +70,13 @@ export default [
     label: 'MiniMax M2.7',
     brandId: 'minimax',
     vendorId: 'minimax',
-    classification: ['chat', 'reasoning', 'vision', 'coding'],
+    // Text-only model: accepts text input, no image/vision inputs.
+    classification: ['chat', 'reasoning', 'coding'],
     defaultModel: 'MiniMax-M2.7',
-    capabilities: minimaxM2Capabilities,
+    capabilities: {
+      ...minimaxM2Capabilities,
+      supportsVision: false,
+    },
     contextWindow: 196_608,
     maxOutputTokens: 131_072,
   }),
@@ -85,6 +89,17 @@ export default [
     defaultModel: 'MiniMax-M2.7-highspeed',
     capabilities: minimaxM2Capabilities,
     contextWindow: 196_608,
+    maxOutputTokens: 131_072,
+  }),
+  defineModel({
+    id: 'minimax-m3',
+    label: 'MiniMax M3',
+    brandId: 'minimax',
+    vendorId: 'minimax',
+    classification: ['chat', 'reasoning', 'coding'],
+    defaultModel: 'MiniMax-M3',
+    capabilities: minimaxM2Capabilities,
+    contextWindow: 1_048_576,
     maxOutputTokens: 131_072,
   }),
   defineModel({

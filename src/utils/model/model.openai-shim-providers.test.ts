@@ -4,40 +4,62 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getGlobalConfig, saveGlobalConfig } from '../config.js'
-
+import { resetStateForTests } from '../../bootstrap/state.js'
+import {
+  type GlobalConfig,
+  getGlobalConfig,
+  saveGlobalConfig,
+} from '../config.js'
+import {
+  clearPluginSettingsBase,
+  resetSettingsCache,
+} from '../settings/settingsCache.js'
 async function importFreshModelModule() {
   mock.restore()
-  mock.module('../auth.js', () => ({
-    getSubscriptionType: () => 'max',
-    isClaudeAISubscriber: () => true,
-    isMaxSubscriber: () => true,
-    isProSubscriber: () => false,
-    isTeamPremiumSubscriber: () => false,
-  }))
+  const getAPIProvider = () => {
+    if (process.env.NVIDIA_NIM) return 'nvidia-nim'
+    if (process.env.MINIMAX_API_KEY) return 'minimax'
+    if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
+    if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
+    if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
+    if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
+    if (process.env.CLAUDE_CODE_USE_OPENAI) {
+      const baseUrl = process.env.OPENAI_BASE_URL ?? ''
+      const model = process.env.OPENAI_MODEL ?? ''
+      return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
+        ? 'codex'
+        : 'openai'
+    }
+    if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
+    if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
+    if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
+    return 'firstParty'
+  }
   mock.module('./providers.js', () => ({
-    getAPIProvider: () => {
-      if (process.env.NVIDIA_NIM) return 'nvidia-nim'
-      if (process.env.MINIMAX_API_KEY) return 'minimax'
-      if (process.env.MIMO_API_KEY) return 'xiaomi-mimo'
-      if (process.env.CLAUDE_CODE_USE_GEMINI) return 'gemini'
-      if (process.env.CLAUDE_CODE_USE_MISTRAL) return 'mistral'
-      if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
-      if (process.env.CLAUDE_CODE_USE_OPENAI) {
-        const baseUrl = process.env.OPENAI_BASE_URL ?? ''
-        const model = process.env.OPENAI_MODEL ?? ''
-        return baseUrl.includes('/backend-api/codex') || model.startsWith('codex')
-          ? 'codex'
-          : 'openai'
-      }
-      if (process.env.CLAUDE_CODE_USE_BEDROCK) return 'bedrock'
-      if (process.env.CLAUDE_CODE_USE_VERTEX) return 'vertex'
-      if (process.env.CLAUDE_CODE_USE_FOUNDRY) return 'foundry'
-      return 'firstParty'
-    },
+    getAPIProvider,
+    isFirstPartyAnthropicBaseUrl: () => !process.env.ANTHROPIC_BASE_URL,
+    isFirstPartyAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !process.env.ANTHROPIC_BASE_URL,
+    isCustomAnthropicProvider: () =>
+      getAPIProvider() === 'firstParty' && !!process.env.ANTHROPIC_BASE_URL,
+  }))
+  mock.module('./modelAllowlist.js', () => ({
+    isModelAllowed: () => true,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./model.js?ts=${nonce}`)
+}
+
+async function restoreMockedModulesToActual(): Promise<void> {
+  const nonce = `${Date.now()}-${Math.random()}`
+  const [actualProviders, actualModelAllowlist] = await Promise.all([
+    import(`./providers.js?restore=${nonce}`),
+    import(`./modelAllowlist.js?restore=${nonce}`),
+  ])
+  mock.module('./providers.js', () => actualProviders)
+  mock.module('src/utils/model/providers.js', () => actualProviders)
+  mock.module('./modelAllowlist.js', () => actualModelAllowlist)
+  mock.module('src/utils/model/modelAllowlist.js', () => actualModelAllowlist)
 }
 
 const SAVED_ENV = {
@@ -51,13 +73,36 @@ const SAVED_ENV = {
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
+  ANTHROPIC_DEFAULT_OPUS_MODEL: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_SONNET_MODEL: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
 }
-const savedModel = getGlobalConfig().model
+// `model` is a legacy loose key not declared on GlobalConfig.
+const savedModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
 
 function restoreEnv(key: keyof typeof SAVED_ENV): void {
   if (SAVED_ENV[key] === undefined) {
@@ -74,6 +119,9 @@ beforeEach(async () => {
   // globally. Without mock.restore() here, those overrides bleed into this
   // suite and the provider-kind branches we're testing become unreachable.
   mock.restore()
+  resetStateForTests()
+  resetSettingsCache()
+  clearPluginSettingsBase()
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -89,21 +137,39 @@ beforeEach(async () => {
   delete process.env.OPENAI_BASE_URL
   delete process.env.CODEX_API_KEY
   delete process.env.CHATGPT_ACCOUNT_ID
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES
   saveGlobalConfig(current => ({
     ...current,
     model: undefined,
+    availableModels: undefined,
   }))
 })
 
-afterEach(() => {
+afterEach(async () => {
   try {
     mock.restore()
+    resetStateForTests()
+    resetSettingsCache()
+    clearPluginSettingsBase()
+    await restoreMockedModulesToActual()
     for (const key of Object.keys(SAVED_ENV) as Array<keyof typeof SAVED_ENV>) {
       restoreEnv(key)
     }
     saveGlobalConfig(current => ({
       ...current,
       model: savedModel,
+      availableModels: undefined,
     }))
   } finally {
     releaseSharedMutationLock()
@@ -236,15 +302,38 @@ test('getDefaultOpusModel returns OPENAI_MODEL for MiniMax', async () => {
   expect(getDefaultOpusModel()).toBe('MiniMax-M2.7')
 })
 
-test('getDefaultMainLoopModelSetting defaults MiniMax to M2.7', async () => {
+test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   process.env.MINIMAX_API_KEY = 'minimax-test'
 
   const {
     getDefaultMainLoopModel,
     getDefaultMainLoopModelSetting,
   } = await importFreshModelModule()
-  expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M2.7')
-  expect(getDefaultMainLoopModel()).toBe('MiniMax-M2.7')
+  expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
+  expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
+})
+
+test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'meta/llama-3.3-70b-instruct'
+
+  const {
+    getDefaultMainLoopModel,
+    getDefaultMainLoopModelSetting,
+  } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('meta/llama-3.3-70b-instruct')
+  expect(getDefaultMainLoopModel()).toBe('meta/llama-3.3-70b-instruct')
+})
+
+test('getDefaultMainLoopModelSetting falls back to the NVIDIA NIM descriptor default', async () => {
+  process.env.NVIDIA_NIM = '1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe(
+    'nvidia/llama-3.1-nemotron-70b-instruct',
+  )
 })
 
 test('getDefaultMainLoopModelSetting defaults Xiaomi MiMo to mimo-v2.5-pro', async () => {
@@ -303,6 +392,34 @@ test('getDefaultHaikuModel returns OPENAI_MODEL for MiniMax', async () => {
   expect(getDefaultHaikuModel()).toBe('MiniMax-M2.5-highspeed')
 })
 
+test('getDefaultMainLoopModelSetting keeps the configured custom Anthropic model', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('tenant-model')
+})
+
+test('modelDisplayString uses the configured custom Anthropic default', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { modelDisplayString } = await importFreshModelModule()
+  expect(modelDisplayString(null)).toBe('Default (tenant-model)')
+})
+
+test('custom Anthropic endpoints retain their configured model and conservative defaults', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+
+  const { getDefaultOpusModel, getDefaultSonnetModel, getSmallFastModel } =
+    await importFreshModelModule()
+
+  expect(getSmallFastModel()).toBe('tenant-model')
+  expect(getDefaultOpusModel()).toBe('claude-opus-4-7')
+  expect(getDefaultSonnetModel()).toBe('claude-sonnet-4-5-20250929')
+})
+
 test('default helpers do not leak claude-* names to shim providers', async () => {
   // Umbrella guard: for each OpenAI-shim provider, none of the default-model
   // helpers may return an Anthropic-branded model name. That was the source
@@ -351,4 +468,3 @@ test('default helpers do not leak claude-* names to Xiaomi MiMo', async () => {
     expect(model.toLowerCase()).not.toContain('opus')
   }
 })
-

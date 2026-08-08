@@ -11,6 +11,7 @@ import { getSlashCommandToolSkills, isBridgeSafeCommand } from '../commands.js';
 import { getRemoteSessionUrl } from '../constants/product.js';
 import { useNotifications } from '../context/notifications.js';
 import type { PermissionMode, SDKMessage } from '../entrypoints/agentSdkTypes.js';
+import { EXTERNAL_PERMISSION_MODES } from '../types/permissions.js';
 import type { SDKControlResponse } from '../entrypoints/sdk/controlTypes.js';
 import { Text } from '../ink.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js';
@@ -22,7 +23,8 @@ import { errorMessage } from '../utils/errors.js';
 import { enqueue } from '../utils/messageQueueManager.js';
 import { buildSystemInitMessage } from '../utils/messages/systemInit.js';
 import { createBridgeStatusMessage, createSystemMessage } from '../utils/messages.js';
-import { getAutoModeUnavailableNotification, getAutoModeUnavailableReason, isAutoModeGateEnabled, isBypassPermissionsModeDisabled, transitionPermissionMode } from '../utils/permissions/permissionSetup.js';
+import { requestPermissionModeChange } from '../utils/permissions/permissionModeChange.js';
+import { applyPermissionModeChange } from '../utils/permissions/permissionSetup.js';
 import { getLeaderToolUseConfirmQueue } from '../utils/swarm/leaderPermissionBridge.js';
 
 /** How long after a failure before replBridgeEnabled is auto-cleared (stops retries). */
@@ -294,6 +296,8 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
                         const skills = await getSlashCommandToolSkills(getCwd());
                         if (cancelled) return;
                         const state_0 = store.getState();
+                                    const rawPermissionMode = state_0.toolPermissionContext.mode
+            const validPermissionMode: PermissionMode = (EXTERNAL_PERMISSION_MODES as readonly string[]).includes(rawPermissionMode) ? (rawPermissionMode as PermissionMode) : 'default'
                         handleRef.current?.writeSdkMessages([buildSystemInitMessage({
                           // tools/mcpClients/plugins redacted for REPL-bridge:
                           // MCP-prefixed tool names and server names leak which
@@ -306,8 +310,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
                           tools: [],
                           mcpClients: [],
                           model: mainLoopModelRef.current,
-                          permissionMode: state_0.toolPermissionContext.mode as PermissionMode,
-                          // TODO: avoid the cast
+                                        permissionMode: validPermissionMode,
                           // Remote clients can only invoke bridge-safe commands —
                           // advertising unsafe ones (local-jsx, unallowed local)
                           // would let mobile/web attempt them and hit errors.
@@ -390,7 +393,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
             onInboundMessage: handleInboundMessage,
             onPermissionResponse: handlePermissionResponse,
             onInterrupt() {
-              abortControllerRef.current?.abort();
+              abortControllerRef.current?.abort('interrupt');
             },
             onSetModel(model) {
               const resolved = model === 'default' ? null : model ?? null;
@@ -413,7 +416,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
                 };
               });
             },
-            onSetPermissionMode(mode) {
+            async onSetPermissionMode(mode) {
               // Policy guards MUST fire before transitionPermissionMode —
               // its internal auto-gate check is a defensive throw (with a
               // setAutoModeActive(true) side-effect BEFORE the throw) rather
@@ -424,41 +427,33 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
               // These mirror print.ts handleSetPermissionMode; the bridge
               // can't import the checks directly (bootstrap-isolation), so
               // it relies on this verdict to emit the error response.
-              if (mode === 'bypassPermissions') {
-                if (isBypassPermissionsModeDisabled()) {
-                  return {
-                    ok: false,
-                    error: 'Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration'
-                  };
+              let blockedError: string | undefined;
+              const result = await requestPermissionModeChange({
+                mode,
+                toolPermissionContext: store.getState().toolPermissionContext,
+                allowDangerousModeConfirmation: false,
+                onApply: () => {
+                  setAppState(prev_12 => {
+                    const current = prev_12.toolPermissionContext.mode;
+                    if (current === mode) return prev_12;
+                    return {
+                      ...prev_12,
+                      toolPermissionContext: applyPermissionModeChange(prev_12.toolPermissionContext, mode)
+                    };
+                  });
+                },
+                onBlocked: error => {
+                  blockedError = error;
                 }
-                if (!store.getState().toolPermissionContext.isBypassPermissionsModeAvailable) {
-                  return {
-                    ok: false,
-                    error: 'Cannot set permission mode to bypassPermissions. Enable it with --allow-dangerously-skip-permissions or set permissions.allowBypassPermissionsMode in settings.json'
-                  };
-                }
-              }
-              if (feature('TRANSCRIPT_CLASSIFIER') && mode === 'auto' && !isAutoModeGateEnabled()) {
-                const reason = getAutoModeUnavailableReason();
+              });
+              if (result.status !== 'applied') {
                 return {
                   ok: false,
-                  error: reason ? `Cannot set permission mode to auto: ${getAutoModeUnavailableNotification(reason)}` : 'Cannot set permission mode to auto'
+                  error: blockedError ?? `Cannot set permission mode to ${mode}`
                 };
               }
               // Guards passed — apply via the centralized transition so
               // prePlanMode stashing and auto-mode state sync all fire.
-              setAppState(prev_12 => {
-                const current = prev_12.toolPermissionContext.mode;
-                if (current === mode) return prev_12;
-                const next = transitionPermissionMode(current, mode, prev_12.toolPermissionContext);
-                return {
-                  ...prev_12,
-                  toolPermissionContext: {
-                    ...next,
-                    mode
-                  }
-                };
-              });
               // Recheck queued permission prompts now that mode changed.
               setImmediate(() => {
                 getLeaderToolUseConfirmQueue()?.(currentQueue => {

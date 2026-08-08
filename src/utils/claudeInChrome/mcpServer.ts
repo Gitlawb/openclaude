@@ -167,7 +167,10 @@ export function createChromeContext(
     // structurally-matching one. Once 0.4.0 is published, this can switch to
     // the package's exported types and the dep can be bumped.
     ...(process.env.USER_TYPE === 'ant' && {
-      callAnthropicMessages: async (req: {
+      // Cast below: the 0.3.0 stub types this field as
+      // (request: unknown) => Promise<unknown>; the inlined 0.4.0
+      // request/response shapes are intentionally narrower (see above).
+      callAnthropicMessages: (async (req: {
         model: string
         max_tokens: number
         system: string
@@ -209,7 +212,7 @@ export function createChromeContext(
             output_tokens: response.usage.output_tokens,
           },
         }
-      },
+      }) as ClaudeForChromeContext['callAnthropicMessages'],
     }),
     trackEvent: (eventName, metadata) => {
       const safeMetadata: {

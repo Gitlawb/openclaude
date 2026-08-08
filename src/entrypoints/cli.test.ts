@@ -3,7 +3,102 @@
  * Closes: Gitlawb/openclaude#402 — JavaScript heap OOM during large tasks
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+} from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  applyLoadedEnvFileValues,
+  loadEnvFile,
+} from '../utils/envFile.js'
+import {
+  applyProviderFlagFromArgs,
+  clearRememberedProviderFlagForTests,
+  reapplyRememberedProviderFlag,
+} from '../utils/providerFlag.js'
+import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
+
+type CliMain = typeof import('./cli.js')['main']
+
+let runCliEntrypoint: CliMain
+
+const mockProfileCheckpoint = mock((_checkpoint: string) => {})
+const mockPsHandler = mock(async (_args: string[]) => {})
+const mockLogsHandler = mock(async (_args: string[]) => {})
+const mockAttachHandler = mock(async (_args: string[]) => {})
+const mockKillHandler = mock(async (_args: string[]) => {})
+const mockHandleBgFlag = mock(async (_args: string[]) => {})
+const mockLoadEnvFile = mock((_filePath: string) => ({}))
+const mockParseProviderEnvFileArgs = mock((_args: string[]) => ({ paths: [] }))
+const mockReapplyRememberedEnvFileValues = mock(() => {})
+const mockRememberLoadedEnvFileValues = mock(
+  (_values: Record<string, string>) => {},
+)
+const mockEnableConfigs = mock(() => {})
+const mockApplySafeConfigEnvironmentVariables = mock(() => {})
+const mockApplyStartupEnvFromProfile = mock(
+  async (_input: {
+    processEnv: NodeJS.ProcessEnv
+    onValidationError: (message: string) => void
+  }) => {},
+)
+const mockGetProviderValidationError = mock(
+  async (_env: NodeJS.ProcessEnv) => undefined,
+)
+const mockEagerLoadSettingsFromArgs = mock((_args: string[]) => ({ ok: true }))
+const mockResolveOutOfProcessTeammateProviderFromCliArgs = mock(
+  (_args: string[], _settings: unknown) => undefined,
+)
+const mockApplyAgentProviderOverrideToEnv = mock((_override: unknown) => {})
+const mockGetInitialSettings = mock(() => ({}))
+const mockRefreshGithubModelsTokenIfNeeded = mock(async () => {})
+const mockHydrateGithubModelsTokenFromSecureStorage = mock(() => {})
+const mockValidateProviderEnvForStartupOrExit = mock(async () => {})
+const mockPrintStartupScreen = mock((_model: string | undefined) => {})
+const mockStartCapturingEarlyInput = mock(() => {})
+const mockCliMain = mock(async () => {})
+
+const runtimeMocks = [
+  mockProfileCheckpoint,
+  mockPsHandler,
+  mockLogsHandler,
+  mockAttachHandler,
+  mockKillHandler,
+  mockHandleBgFlag,
+  mockLoadEnvFile,
+  mockParseProviderEnvFileArgs,
+  mockReapplyRememberedEnvFileValues,
+  mockRememberLoadedEnvFileValues,
+  mockEnableConfigs,
+  mockApplySafeConfigEnvironmentVariables,
+  mockApplyStartupEnvFromProfile,
+  mockGetProviderValidationError,
+  mockEagerLoadSettingsFromArgs,
+  mockResolveOutOfProcessTeammateProviderFromCliArgs,
+  mockApplyAgentProviderOverrideToEnv,
+  mockGetInitialSettings,
+  mockRefreshGithubModelsTokenIfNeeded,
+  mockHydrateGithubModelsTokenFromSecureStorage,
+  mockValidateProviderEnvForStartupOrExit,
+  mockPrintStartupScreen,
+  mockStartCapturingEarlyInput,
+  mockCliMain,
+]
+
+function clearRuntimeMocks() {
+  for (const fn of runtimeMocks) {
+    fn.mockClear()
+  }
+}
 
 describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   const originalNodeOptions = process.env.NODE_OPTIONS
@@ -50,20 +145,519 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   })
 })
 
-describe('useMemoryUsage.ts — threshold constants (issue #402)', () => {
-  it('HIGH_MEMORY_THRESHOLD documented as 1.5 GB', async () => {
-    const src = await Bun.file(
-      `${import.meta.dir}/../hooks/useMemoryUsage.ts`,
-    ).text()
+describe('cli.tsx — --provider startup ordering', () => {
+  const providerEnvKeys = [
+    'CLAUDE_CODE_USE_OPENAI',
+    'CLAUDE_CODE_USE_GEMINI',
+    'OPENAI_API_KEY',
+    'OPENAI_BASE_URL',
+    'OPENAI_MODEL',
+    'GEMINI_MODEL',
+  ]
+  const originalEnv = new Map<string, string | undefined>()
+  let tempDir: string
 
-    expect(src).toContain('HIGH_MEMORY_THRESHOLD = 1.5 * 1024 * 1024 * 1024')
+  beforeEach(() => {
+    clearRememberedProviderFlagForTests()
+    tempDir = mkdtempSync(join(tmpdir(), 'openclaude-cli-env-file-test-'))
+    for (const key of providerEnvKeys) {
+      originalEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
   })
 
-  it('CRITICAL_MEMORY_THRESHOLD documented as 2.5 GB', async () => {
-    const src = await Bun.file(
-      `${import.meta.dir}/../hooks/useMemoryUsage.ts`,
-    ).text()
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true })
+    for (const key of providerEnvKeys) {
+      const originalValue = originalEnv.get(key)
+      if (originalValue === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = originalValue
+      }
+    }
+    originalEnv.clear()
+    clearRememberedProviderFlagForTests()
+  })
 
-    expect(src).toContain('CRITICAL_MEMORY_THRESHOLD = 2.5 * 1024 * 1024 * 1024')
+  function writeProviderEnvFile(content: string): string {
+    const filePath = join(tempDir, '.env')
+    writeFileSync(filePath, content, 'utf-8')
+    return filePath
+  }
+
+  it('remembers --provider so settings.env reloads cannot clobber it', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+
+    const earlyProviderApplyIndex = src.indexOf('applyProviderFlagFromArgs(args')
+    const rememberOptionIndex = src.indexOf(
+      'rememberForSettingsEnv: true',
+      earlyProviderApplyIndex,
+    )
+    const settingsEnvApplyIndex = src.indexOf(
+      'applySafeConfigEnvironmentVariables()',
+    )
+
+    expect(earlyProviderApplyIndex).toBeGreaterThanOrEqual(0)
+    expect(rememberOptionIndex).toBeGreaterThan(earlyProviderApplyIndex)
+    expect(settingsEnvApplyIndex).toBeGreaterThan(earlyProviderApplyIndex)
+  })
+
+  it('reapplies remembered --provider after every managed settings env merge', async () => {
+    const src = await Bun.file(`${import.meta.dir}/../utils/managedEnv.ts`).text()
+    const safeApplyIndex = src.indexOf('export function applySafeConfigEnvironmentVariables')
+    const configApplyIndex = src.indexOf('export function applyConfigEnvironmentVariables')
+    const safeReapplyIndex = src.indexOf(
+      'reapplyRememberedProviderFlag()',
+      safeApplyIndex,
+    )
+    const configReapplyIndex = src.indexOf(
+      'reapplyRememberedProviderFlag()',
+      configApplyIndex,
+    )
+
+    expect(safeReapplyIndex).toBeGreaterThan(safeApplyIndex)
+    expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
+    expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
+  })
+
+  it('remembers provider env-file values so later managed settings env merges can restore them', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const envFileImportIndex = src.indexOf('rememberLoadedEnvFileValues')
+    const rememberLoadedFileIndex = src.indexOf(
+      'rememberLoadedEnvFileValues(loadEnvFile(filePath))',
+    )
+
+    expect(envFileImportIndex).toBeGreaterThanOrEqual(0)
+    expect(rememberLoadedFileIndex).toBeGreaterThan(envFileImportIndex)
+  })
+
+  it('preserves explicit --provider-env-file values through settings and startup profile env merges', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    Object.assign(process.env, {
+      OPENAI_API_KEY: 'settings-key',
+      OPENAI_BASE_URL: 'https://settings.example/v1',
+      OPENAI_MODEL: 'settings-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    applyProfileEnvToProcessEnv(process.env, {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'profile-key',
+      OPENAI_BASE_URL: 'https://profile.example/v1',
+      OPENAI_MODEL: 'profile-model',
+    })
+    applyLoadedEnvFileValues(loaded)
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_API_KEY).toBe('file-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://file.example/v1')
+    expect(process.env.OPENAI_MODEL).toBe('file-model')
+  })
+
+  it('keeps explicit --provider values ahead of provider env-file reapply checkpoints', () => {
+    const filePath = writeProviderEnvFile([
+      'CLAUDE_CODE_USE_OPENAI=1',
+      'OPENAI_API_KEY=file-key',
+      'OPENAI_BASE_URL=https://file.example/v1',
+      'OPENAI_MODEL=file-model',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+    const result = applyProviderFlagFromArgs(
+      ['--provider', 'gemini', '--model', 'gemini-2.0-flash'],
+      { rememberForSettingsEnv: true },
+    )
+    expect(result?.error).toBeUndefined()
+
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+    applyLoadedEnvFileValues(loaded)
+    reapplyRememberedProviderFlag()
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBe('1')
+    expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
+  })
+
+  it('dispatches background session management before config and provider validation', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const bgManagementIndex = src.indexOf("args[0] === 'ps'")
+    const configEnableIndex = src.indexOf('enableConfigs()')
+    const providerValidationIndex = src.indexOf(
+      'await validateProviderEnvForStartupOrExit()',
+    )
+
+    expect(bgManagementIndex).toBeGreaterThanOrEqual(0)
+    expect(configEnableIndex).toBeGreaterThanOrEqual(0)
+    expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
+    expect(bgManagementIndex).toBeLessThan(configEnableIndex)
+    expect(bgManagementIndex).toBeLessThan(providerValidationIndex)
+  })
+
+  it('keeps background spawn after profile routing but before provider validation', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const profileApplyIndex = src.indexOf('await applyStartupEnvFromProfile')
+    const bgFlagIndex = src.indexOf("optionArgs.includes('--bg')")
+    const providerValidationIndex = src.indexOf(
+      'await validateProviderEnvForStartupOrExit()',
+    )
+
+    expect(profileApplyIndex).toBeGreaterThanOrEqual(0)
+    expect(bgFlagIndex).toBeGreaterThanOrEqual(0)
+    expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
+    expect(bgFlagIndex).toBeGreaterThan(profileApplyIndex)
+    expect(bgFlagIndex).toBeLessThan(providerValidationIndex)
+  })
+
+})
+
+describe('cli.tsx — background routing behavior', () => {
+  const bgOptions = {
+    bgSessionsEnabled: true,
+    importers: {
+      startupProfiler: async () => ({
+        profileCheckpoint: mockProfileCheckpoint,
+      }),
+      bg: async () => ({
+        psHandler: mockPsHandler,
+        logsHandler: mockLogsHandler,
+        attachHandler: mockAttachHandler,
+        killHandler: mockKillHandler,
+        handleBgFlag: mockHandleBgFlag,
+      }),
+      envFile: async () => ({
+        loadEnvFile: mockLoadEnvFile,
+        parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
+        reapplyRememberedEnvFileValues: mockReapplyRememberedEnvFileValues,
+        rememberLoadedEnvFileValues: mockRememberLoadedEnvFileValues,
+      }),
+      config: async () => ({
+        enableConfigs: mockEnableConfigs,
+      }),
+      managedEnv: async () => ({
+        applySafeConfigEnvironmentVariables:
+          mockApplySafeConfigEnvironmentVariables,
+      }),
+      providerProfile: async () => ({
+        applyStartupEnvFromProfile: mockApplyStartupEnvFromProfile,
+      }),
+      providerValidation: async () => ({
+        getProviderValidationError: mockGetProviderValidationError,
+        validateProviderEnvForStartupOrExit:
+          mockValidateProviderEnvForStartupOrExit,
+      }),
+      flagSettings: async () => ({
+        eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
+      }),
+      agentRouting: async () => ({
+        applyAgentProviderOverrideToEnv: mockApplyAgentProviderOverrideToEnv,
+        resolveOutOfProcessTeammateProviderFromCliArgs:
+          mockResolveOutOfProcessTeammateProviderFromCliArgs,
+      }),
+      settings: async () => ({
+        getInitialSettings: mockGetInitialSettings,
+      }),
+      githubModelsCredentials: async () => ({
+        hydrateGithubModelsTokenFromSecureStorage:
+          mockHydrateGithubModelsTokenFromSecureStorage,
+        refreshGithubModelsTokenIfNeeded: mockRefreshGithubModelsTokenIfNeeded,
+      }),
+      startupScreen: async () => ({
+        printStartupScreen: mockPrintStartupScreen,
+      }),
+      earlyInput: async () => ({
+        startCapturingEarlyInput: mockStartCapturingEarlyInput,
+      }),
+      main: async () => ({
+        main: mockCliMain,
+      }),
+    },
+  } as unknown as Parameters<CliMain>[1]
+  const originalAutoRunGuard =
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+
+  beforeAll(async () => {
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = '1'
+
+    const entrypoint = await import('./cli.js')
+    runCliEntrypoint = entrypoint.main
+  })
+
+  afterAll(() => {
+    if (originalAutoRunGuard === undefined) {
+      delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+    } else {
+      process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN =
+        originalAutoRunGuard
+    }
+  })
+
+  beforeEach(() => {
+    clearRuntimeMocks()
+  })
+
+  it('dispatches background management commands before startup work', async () => {
+    const cases: Array<[string, typeof mockPsHandler, string[]]> = [
+      ['ps', mockPsHandler, ['--json']],
+      ['logs', mockLogsHandler, ['session-1', '-f']],
+      ['attach', mockAttachHandler, ['session-1']],
+      ['kill', mockKillHandler, ['session-1']],
+    ]
+
+    for (const [command, handler, tail] of cases) {
+      clearRuntimeMocks()
+
+      await runCliEntrypoint([command, ...tail], bgOptions)
+
+      expect(handler.mock.calls).toEqual([[tail]])
+      expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
+      expect(mockHandleBgFlag).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+      expect(mockCliMain).not.toHaveBeenCalled()
+    }
+  })
+
+  it('keeps management commands on the management path even with --bg arguments', async () => {
+    const cases: Array<[string, typeof mockPsHandler]> = [
+      ['ps', mockPsHandler],
+      ['logs', mockLogsHandler],
+      ['attach', mockAttachHandler],
+      ['kill', mockKillHandler],
+    ]
+
+    for (const [command, handler] of cases) {
+      clearRuntimeMocks()
+
+      await runCliEntrypoint([command, '--bg', 'session-1'], bgOptions)
+
+      expect(handler.mock.calls).toEqual([[['--bg', 'session-1']]])
+      expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
+      expect(mockHandleBgFlag).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+      expect(mockCliMain).not.toHaveBeenCalled()
+    }
+  })
+
+  it('routes real background flags after profile routing without provider validation', async () => {
+    const args = ['--background', '--', '--print']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
+    expect(mockParseProviderEnvFileArgs.mock.calls).toEqual([[args]])
+    expect(mockReapplyRememberedEnvFileValues).toHaveBeenCalledTimes(2)
+    expect(mockApplySafeConfigEnvironmentVariables).toHaveBeenCalledTimes(1)
+    expect(mockApplyStartupEnvFromProfile).toHaveBeenCalledTimes(1)
+    expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([[args]])
+    expect(mockHandleBgFlag.mock.calls).toEqual([[args]])
+    expect(mockRefreshGithubModelsTokenIfNeeded).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
+  })
+
+  it('treats --bg after -- as positional text, not a background flag', async () => {
+    const args = ['--', '--bg']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockHandleBgFlag).not.toHaveBeenCalled()
+    expect(mockRefreshGithubModelsTokenIfNeeded).toHaveBeenCalledTimes(1)
+    expect(mockHydrateGithubModelsTokenFromSecureStorage).toHaveBeenCalledTimes(
+      1,
+    )
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledTimes(1)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Node 24 premature exit regression (issue #1678)', () => {
+  it('built CLI stays alive during initialization in interactive mode without premature exit', async () => {
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const fs = await import('node:fs/promises')
+    const url = await import('node:url')
+
+    const scriptPath = path.join(os.tmpdir(), `test-cli-startup-${Date.now()}.mjs`)
+    const cliUrl = url.pathToFileURL(path.resolve(import.meta.dir, '../../dist/cli.mjs')).href
+    let proc
+
+    try {
+      await Bun.write(scriptPath, `
+        // Mock TTY so the CLI thinks it's interactive and starts the TUI
+        process.stdout.isTTY = true;
+        process.stdin.isTTY = true;
+        process.stdin.setRawMode = () => {};
+        process.env.OPENCLAUDE_DISABLE_TELEMETRY = '1';
+        process.env.OPENGATEWAY_API_KEY = 'dummy';
+
+        // Ensure the CLI auto-runs even if the test runner disabled it globally
+        delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN;
+
+        // Use absolute import to work from os.tmpdir()
+        // If the entrypoint uses void main(), this promise resolves immediately.
+        // If it correctly uses await main(), it stays pending while the CLI runs.
+        import('${cliUrl}').then(() => {
+          console.log('---PREMATURE_EVAL_END---');
+          process.exit(0);
+        });
+      `)
+
+      proc = Bun.spawn(['node', scriptPath], { stdout: 'pipe' })
+      const reader = proc.stdout.getReader()
+
+      let gotOutput = false
+      let evaluationEndedPrematurely = false
+
+      async function readStdout() {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const text = new TextDecoder().decode(value)
+          if (text.includes('---PREMATURE_EVAL_END---')) {
+            evaluationEndedPrematurely = true
+          } else if (text.trim().length > 0) {
+            gotOutput = true
+          }
+        }
+      }
+
+      // Start reading without awaiting it yet
+      const readPromise = readStdout()
+
+      // Wait until we get startup output or detect premature evaluation end
+      const start = Date.now()
+      while (!gotOutput && !evaluationEndedPrematurely && Date.now() - start < 5000) {
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      expect(gotOutput).toBe(true)
+
+      // The critical regression window: wait 500ms *after* output.
+      // With void main(), Node 24 will exit during the subsequent async imports because the event loop empties,
+      // which allows the import() promise above to resolve and emit the signal.
+      await new Promise(r => setTimeout(r, 500))
+
+      expect(evaluationEndedPrematurely).toBe(false)
+      expect(proc.exitCode).toBe(null)
+      expect(proc.killed).toBe(false)
+    } finally {
+      if (proc && proc.exitCode === null && !proc.killed) {
+        proc.kill()
+      }
+      await fs.unlink(scriptPath).catch(() => {})
+    }
+  })
+
+  it('cli.tsx uses top-level await for main() to prevent premature exit', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    expect(src).toMatch(/await main\(\)/)
+    expect(src).not.toMatch(/^\s*void main\(\)/m)
+  })
+
+  describe('--yolo alias', () => {
+    it('is registered on the main command next to the canonical flag', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      expect(src).toContain(
+        ".option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks",
+      )
+    })
+
+    it('is registered on the ssh stub command', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      const sshCmd = src.indexOf("program.command('ssh <host> [dir]')")
+      expect(sshCmd).toBeGreaterThanOrEqual(0)
+      const sshAction = src.indexOf('.action(async () => {', sshCmd)
+      const sshBlock = src.slice(sshCmd, sshAction)
+      expect(sshBlock).toContain(
+        "--yolo, --dangerously-skip-permissions",
+      )
+    })
+
+    it('is recognized by the cc:// and ssh raw-argv scans', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // cc:// sets remote state via includes(); the rewrites and ssh path strip
+      // both spellings from the forwarded argv.
+      expect(src).toContain(
+        "rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo')",
+      )
+      expect(src).toContain("arg !== '--dangerously-skip-permissions' && arg !== '--yolo'")
+      expect(src).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // Passing both flags at once must not leave one behind as an unknown
+      // option on the headless `open` subcommand or in the ssh forwarded line.
+      const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
+      const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
+      const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
+      const ccOccurrences =
+        ccBlock.split("'--dangerously-skip-permissions'").length - 1 +
+        ccBlock.split("'--yolo'").length - 1
+      expect(ccOccurrences).toBeGreaterThanOrEqual(4)
+
+      const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
+      const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
+      const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
+      expect(sshBlock).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('is recognized by the skills leading scan so --yolo skills list routes', async () => {
+      const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+      const setStart = src.indexOf('SKILLS_LEADING_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('is recognized by the skills trailing scan so skills list --yolo routes', async () => {
+      const src = await Bun.file(
+        `${import.meta.dir}/../cli/handlers/skillsCli.ts`,
+      ).text()
+      const setStart = src.indexOf('TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('appears in the built CLI help', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
+      expect(fs.existsSync(cliPath)).toBe(true)
+
+      const originalGuard = process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      try {
+        const proc = Bun.spawn(['node', cliPath, '--help'], { stdout: 'pipe' })
+        const text = await new Response(proc.stdout).text()
+        await proc.exited
+        expect(text).toContain('--yolo, --dangerously-skip-permissions')
+      } finally {
+        if (originalGuard === undefined) {
+          delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+        } else {
+          process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = originalGuard
+        }
+      }
+    })
   })
 })

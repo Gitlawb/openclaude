@@ -201,7 +201,7 @@ function _temp2(s_0) {
 function _temp(s) {
   return s.mainLoopModel;
 }
-function Diagnostics(t0) {
+function Diagnostics(t0: { promise: Promise<Diagnostic[]> }) {
   const $ = _c(5);
   const {
     promise

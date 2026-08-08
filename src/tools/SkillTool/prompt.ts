@@ -21,6 +21,8 @@ import { logError } from '../../utils/log.js'
 export const SKILL_BUDGET_CONTEXT_PERCENT = 0.01
 export const CHARS_PER_TOKEN = 4
 export const DEFAULT_CHAR_BUDGET = 8_000 // Fallback: 1% of 200k × 4
+export const MAX_CHAR_BUDGET = DEFAULT_CHAR_BUDGET
+export const SUBAGENT_SKILL_LISTING_CHAR_BUDGET = 4_000
 
 // Per-entry hard cap. The listing is for discovery only — the Skill tool loads
 // full content on invoke, so verbose whenToUse strings waste turn-1 cache_creation
@@ -28,16 +30,27 @@ export const DEFAULT_CHAR_BUDGET = 8_000 // Fallback: 1% of 200k × 4
 // since the cap is generous enough to preserve the core use case.
 export const MAX_LISTING_DESC_CHARS = 250
 
-export function getCharBudget(contextWindowTokens?: number): number {
+export type SkillListingBudgetOptions = {
+  maxCharBudget?: number
+}
+
+export function getCharBudget(
+  contextWindowTokens?: number,
+  options: SkillListingBudgetOptions = {},
+): number {
   if (Number(process.env.SLASH_COMMAND_TOOL_CHAR_BUDGET)) {
     return Number(process.env.SLASH_COMMAND_TOOL_CHAR_BUDGET)
   }
+  const maxBudget = options.maxCharBudget ?? MAX_CHAR_BUDGET
   if (contextWindowTokens) {
-    return Math.floor(
-      contextWindowTokens * CHARS_PER_TOKEN * SKILL_BUDGET_CONTEXT_PERCENT,
+    return Math.min(
+      maxBudget,
+      Math.floor(
+        contextWindowTokens * CHARS_PER_TOKEN * SKILL_BUDGET_CONTEXT_PERCENT,
+      ),
     )
   }
-  return DEFAULT_CHAR_BUDGET
+  return Math.min(DEFAULT_CHAR_BUDGET, maxBudget)
 }
 
 function getCommandDescription(cmd: Command): string {
@@ -70,10 +83,11 @@ const MIN_DESC_LENGTH = 20
 export function formatCommandsWithinBudget(
   commands: Command[],
   contextWindowTokens?: number,
+  options: SkillListingBudgetOptions = {},
 ): string {
   if (commands.length === 0) return ''
 
-  const budget = getCharBudget(contextWindowTokens)
+  const budget = getCharBudget(contextWindowTokens, options)
 
   // Try full descriptions first
   const fullEntries = commands.map(cmd => ({

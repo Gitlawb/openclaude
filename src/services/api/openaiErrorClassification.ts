@@ -5,10 +5,13 @@ export type OpenAICompatibilityFailureCategory =
   | 'network_error'
   | 'auth_invalid'
   | 'rate_limited'
+  | 'quota_exhausted'
   | 'model_not_found'
   | 'endpoint_not_found'
+  | 'vision_not_supported'
   | 'context_overflow'
   | 'tool_call_incompatible'
+  | 'tool_stream_unsupported'
   | 'malformed_provider_response'
   | 'provider_unavailable'
   | 'unknown'
@@ -24,6 +27,28 @@ export type OpenAICompatibilityFailure = {
   requestUrl?: string
 }
 
+const NON_REPLAYABLE_OPENAI_REQUEST = Symbol.for(
+  'openclaude.openai.nonReplayableRequest',
+)
+
+export function markOpenAIRequestNonReplayable<T extends object>(error: T): T {
+  Object.defineProperty(error, NON_REPLAYABLE_OPENAI_REQUEST, {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  })
+  return error
+}
+
+export function isOpenAIRequestNonReplayable(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    Reflect.get(error, NON_REPLAYABLE_OPENAI_REQUEST) === true
+  )
+}
+
 const OPENAI_CATEGORY_MARKER_PREFIX = '[openai_category='
 
 const LOCALHOST_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1'])
@@ -36,13 +61,26 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'network_error',
     'auth_invalid',
     'rate_limited',
+    'quota_exhausted',
     'model_not_found',
     'endpoint_not_found',
+    'vision_not_supported',
     'context_overflow',
     'tool_call_incompatible',
+    'tool_stream_unsupported',
     'malformed_provider_response',
     'provider_unavailable',
     'unknown',
+  ])
+
+const RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFailureCategory> =
+  new Set<OpenAICompatibilityFailureCategory>([
+    'connection_refused',
+    'localhost_resolution_failed',
+    'request_timeout',
+    'network_error',
+    'rate_limited',
+    'provider_unavailable',
   ])
 
 function isOpenAICompatibilityFailureCategory(
@@ -51,6 +89,12 @@ function isOpenAICompatibilityFailureCategory(
   return OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(
     value as OpenAICompatibilityFailureCategory,
   )
+}
+
+export function isRetryableOpenAICompatibilityFailureCategory(
+  category: OpenAICompatibilityFailureCategory,
+): boolean {
+  return RETRYABLE_OPENAI_COMPATIBILITY_FAILURE_CATEGORIES.has(category)
 }
 
 function getErrorCode(error: unknown): string | undefined {
@@ -127,6 +171,87 @@ function isToolCompatibilityMessage(body: string): boolean {
   )
 }
 
+function getStructuredToolStreamValidationError(body: string): boolean | undefined {
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown }
+    if (!Array.isArray(parsed.detail)) return undefined
+    const details: Array<{ loc: unknown[]; type?: unknown; msg?: unknown }> = []
+    for (const detail of parsed.detail) {
+      if (!detail || typeof detail !== 'object') continue
+      const { loc, type, msg } = detail as { loc?: unknown; type?: unknown; msg?: unknown }
+      if (Array.isArray(loc)) details.push({ loc, type, msg })
+    }
+    const isRootToolStreamLocation = (loc: unknown[]): boolean =>
+      loc[0] === 'body' && loc[1] === 'tool_stream'
+    const isRootToolStreamExtraField = (detail: {
+      loc: unknown[]
+      type?: unknown
+      msg?: unknown
+    }): boolean =>
+      detail.loc.length === 2 &&
+      isRootToolStreamLocation(detail.loc) &&
+      (
+        detail.type === 'extra_forbidden' ||
+        detail.type === 'value_error.extra' ||
+        (typeof detail.msg === 'string' && /extra (?:inputs|fields) (?:are )?not permitted/i.test(detail.msg))
+      )
+    if (details.some(isRootToolStreamExtraField)) return true
+    if (
+      details.some(
+        detail =>
+          detail.loc.length === 2 &&
+          isRootToolStreamLocation(detail.loc) &&
+          typeof detail.msg === 'string' &&
+          /tool_stream is (?:unsupported|not supported|unknown|invalid)/i.test(detail.msg),
+      )
+    ) return true
+    if (
+      details.some(detail =>
+        detail.loc.includes('tools') || isRootToolStreamLocation(detail.loc)
+      )
+    ) return false
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Detect a gateway rejecting the Z.AI-proprietary `tool_stream` parameter
+// (e.g. NVIDIA NIM: `400 Unsupported parameter(s): tool_stream`). The
+// `tool_call` substring in isToolCompatibilityMessage does NOT match
+// `tool_stream`, so this needs its own matcher.
+function isToolStreamUnsupportedMessage(body: string): boolean {
+  const normalized = body.toLowerCase().replace(/['"`]/g, '')
+  const structuredValidation = getStructuredToolStreamValidationError(body)
+  if (
+    /(?:function|tool)\s*:?\s+tool_stream\b/.test(normalized) ||
+    /\b(?:function|tool)\b.*?\b(?:schema|properties?)\b.*?\btool_stream\b/.test(normalized) ||
+    /\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b.*?\btool_stream\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:invalid|malformed)\s+(?:tool\s+)?schema\b/.test(normalized) ||
+    /\b(?:tool|function)\s+definition\b.*?\btool_stream\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:tool|function)\s+definition\b/.test(normalized) ||
+    /\btool_stream\b.*?\b(?:body\.)?tools?\s*(?:\.|\[)/.test(normalized) ||
+    /\b(?:body\.)?tools?\s*(?:\.|\[).*?\btool_stream\b/.test(normalized) ||
+    /(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\btool_stream\b.*?\b(?:in|at|for)\s+(?:(?:an?|the)\s+)?(?:tool|function)?\s*(?:schema|parameters?|properties?)\b/.test(normalized) ||
+    /\btool_stream\b.*?(?:unexpected (?:field|property|parameter)|extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed).*?\b(?:tool|function)\s+(?:schema|parameters?|properties?)\b/.test(normalized) ||
+    /\b(?:invalid|malformed)\s+parameter\s+tool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    /\badditional properties?\b.*?\btool_stream\b.*?\b(?:in|for)\s+(?:(?:an?|the)\s+)?(?:function|tool)\s+(?!calls?\b|calling\b)\S+/.test(normalized) ||
+    structuredValidation === false
+  ) return false
+  if (structuredValidation === true) return true
+  return (
+    /(?:unsupported|unknown|unrecognized|invalid)\s+(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)(?:\s*[:=])?\s*(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?/.test(normalized) ||
+    /(?:request\s+argument(?:\s+supplied)?|parameter(?:s|\(s\))?)\s+(?:[\[(<]\s*)?tool_stream\b(?:\s*[\])>])?\s+(?:is\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b/.test(normalized) ||
+    /tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid)\s+tool_stream\s+(?:request\s+argument|parameter(?:s|\(s\))?)\b/.test(normalized) ||
+    /(?:^|\n|\bmessage\s*:\s*)\s*tool_stream\s+(?:is\s+)?(?:an?\s+)?(?:unsupported|not\s+supported|unknown|invalid)\b(?!\s+as\s+(?:a\s+)?(?:function|tool)\b)/.test(normalized) ||
+    /(?:unsupported|unknown|unrecognized|invalid|not\s+supported).*?\bparam(?:eter)?\s*[:=]\s*tool_stream\b/.test(normalized) ||
+    /\bparam(?:eter)?\s*[:=]\s*tool_stream\b.*?(?:unsupported|unknown|unrecognized|invalid|not\s+supported)/.test(normalized) ||
+    /(?:extra[_\s-]?forbidden|extra inputs are not permitted|additional properties? (?:are )?not allowed|unexpected (?:field|property|parameter)).*?tool_stream\b/.test(normalized) ||
+    /tool_stream\b.*?(?:extra[_\s-]?forbidden|extra inputs are not permitted|unexpected (?:field|property|parameter))/.test(normalized)
+  )
+}
+
 function isMalformedProviderResponse(body: string): boolean {
   const lower = body.toLowerCase()
   return (
@@ -140,6 +265,34 @@ function isMalformedProviderResponse(body: string): boolean {
   )
 }
 
+/**
+ * Detect provider messages that complain about a missing/required `text`
+ * field on an otherwise image-bearing payload. Xiaomi Mimo surfaces this as
+ * `{"error":{"code":"400","message":"Param Incorrect","param":"`text` is not set"}}`
+ * (with backticks around `text`) when a `role: "tool"` message carries
+ * images but no text part. Other OpenAI-compatible providers may phrase
+ * it differently — match liberally.
+ *
+ * Only meaningful when `hasImages` is true (we never want this branch to fire
+ * for text-only requests, which legitimately lack a text field on vision-only
+ * payloads).
+ */
+function isMissingTextPartMessage(body: string): boolean {
+  // Strip backticks so `\`text\` is not set` matches the same patterns as
+  // `text is not set` — the Xiaomi Mimo 400 body wraps `text` in backticks
+  // inside the `param` field, which trips naive substring matching.
+  const lower = body.toLowerCase().replace(/`/g, '')
+  return (
+    lower.includes('text is not set') ||
+    lower.includes('text is required') ||
+    lower.includes('text parameter is required') ||
+    lower.includes('text parameter is missing') ||
+    lower.includes('missing text') ||
+    lower.includes('"param":"text"') ||
+    lower.includes('"param": "text"')
+  )
+}
+
 function isModelNotFoundMessage(body: string): boolean {
   const lower = body.toLowerCase()
   return (
@@ -150,6 +303,25 @@ function isModelNotFoundMessage(body: string): boolean {
       lower.includes('unknown model') ||
       lower.includes('unavailable model')
     )
+  )
+}
+
+function isQuotaExhaustedMessage(body: string): boolean {
+  const lower = body.toLowerCase()
+  return (
+    lower.includes('limit: 0') ||
+    lower.includes('exceeded your current quota') ||
+    lower.includes('insufficient credit') ||
+    lower.includes('credit limit') ||
+    lower.includes('out of credits') ||
+    lower.includes('payment required') ||
+    lower.includes('usage limit') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('allotment') ||
+    lower.includes('insufficient funds') ||
+    lower.includes('billing limit') ||
+    lower.includes('billing quota') ||
+    lower.includes('billing credits')
   )
 }
 
@@ -264,10 +436,26 @@ export function classifyOpenAIHttpFailure(options: {
   status: number
   body: string
   url?: string
+  hasImages?: boolean
 }): OpenAICompatibilityFailure {
   const body = options.body ?? ''
   const hostname = options.url ? getHostname(options.url) : null
   const isLocalHost = isLocalhostLikeHostname(hostname)
+
+  if (
+    options.status === 402 ||
+    ((options.status === 400 || options.status === 403 || options.status === 429) &&
+      isQuotaExhaustedMessage(body))
+  ) {
+    return {
+      source: 'http',
+      category: 'quota_exhausted',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider quota or usage allotment has run out. Enable billing or switch provider.',
+    }
+  }
 
   if (options.status === 401 || options.status === 403) {
     // OAuth-issued tokens (GitHub Models via /onboard-github, Codex) expire
@@ -313,6 +501,38 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
+  if (options.status === 404 && options.hasImages) {
+    return {
+      source: 'http',
+      category: 'vision_not_supported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      requestUrl: options.url,
+      hint: 'The provider returned 404 for a request containing images. The model may not support vision/image inputs.',
+    }
+  }
+
+  // Xiaomi Mimo and similar OpenAI-compatible providers reject image-bearing
+  // `role: "tool"` messages with a 400 carrying `text is not set` instead of
+  // a 404. Classify the same way as the 404 + hasImages branch so the user
+  // gets actionable guidance rather than the raw API error (issue #1421).
+  if (
+    options.status === 400 &&
+    options.hasImages &&
+    isMissingTextPartMessage(body)
+  ) {
+    return {
+      source: 'http',
+      category: 'vision_not_supported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      requestUrl: options.url,
+      hint: 'The provider rejected a request containing an image (likely a tool result) because it did not include a text part. The model may not support image/vision inputs.',
+    }
+  }
+
   if (options.status === 404) {
     const isRemote = hostname !== null && !isLocalHost
     return {
@@ -343,6 +563,27 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
+  // `tool_stream` is a Z.AI-proprietary streaming extension. Some OpenAI-
+  // compatible gateways (e.g. NVIDIA NIM) reject it with a 400 like
+  // "Unsupported parameter(s): `tool_stream`". Classify it distinctly so the
+  // shim can self-heal by dropping just `tool_stream` and retrying with tools
+  // intact (issue #1950). Match liberally on the parameter name plus an
+  // unsupported/unknown-parameter signal so provider-specific wording still
+  // triggers the fallback.
+  if (
+    (options.status === 400 || options.status === 422) &&
+    isToolStreamUnsupportedMessage(body)
+  ) {
+    return {
+      source: 'http',
+      category: 'tool_stream_unsupported',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider rejected the `tool_stream` parameter. Retrying without it (tool calls are not streamed).',
+    }
+  }
+
   if (options.status === 400 && isToolCompatibilityMessage(body)) {
     return {
       source: 'http',
@@ -354,17 +595,13 @@ export function classifyOpenAIHttpFailure(options: {
     }
   }
 
-  if (options.status >= 400 && isMalformedProviderResponse(body)) {
-    return {
-      source: 'http',
-      category: 'malformed_provider_response',
-      retryable: false,
-      status: options.status,
-      message: body,
-      hint: 'Provider returned malformed or non-JSON response where JSON was expected.',
-    }
-  }
-
+  // 5xx errors are always server-side failures and should be retryable,
+  // even when the body is HTML (common for gateway 502/504 overload pages
+  // that would otherwise classify as malformed_provider_response below).
+  // This must run before the malformed-provider-response check so a 5xx
+  // HTML page is treated as a transient provider_unavailable rather than
+  // a dead-end malformed response. Issue: users see "Provider returned a
+  // malformed response" on overload and have to retry manually.
   if (options.status >= 500) {
     return {
       source: 'http',
@@ -373,6 +610,17 @@ export function classifyOpenAIHttpFailure(options: {
       status: options.status,
       message: body,
       hint: 'Provider reported a server-side failure. Retry after a short delay.',
+    }
+  }
+
+  if (options.status >= 400 && isMalformedProviderResponse(body)) {
+    return {
+      source: 'http',
+      category: 'malformed_provider_response',
+      retryable: false,
+      status: options.status,
+      message: body,
+      hint: 'Provider returned malformed or non-JSON response where JSON was expected.',
     }
   }
 

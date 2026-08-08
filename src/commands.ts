@@ -4,9 +4,11 @@ import autofixPr from './commands/autofix-pr/index.js'
 import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
+import goal from './commands/goal/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
+import clearContextWindow from './commands/clear-context-window/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
 import commitMessage from './commands/commit-message/index.js'
@@ -18,12 +20,14 @@ import config from './commands/config/index.js'
 import { context, contextNonInteractive } from './commands/context/index.js'
 import cost from './commands/cost/index.js'
 import diff from './commands/diff/index.js'
+import diagnostics from './commands/diagnostics/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
+import repomap from './commands/repomap/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
 import init from './commands/init.js'
@@ -43,13 +47,15 @@ import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
 import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
+import replay from './commands/replay/index.js'
 import {
   requestSize,
   requestSizeNonInteractive,
 } from './commands/request-size/index.js'
-import resume from './commands/resume/index.js'
+import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
+import setContextWindow from './commands/set-context-window/index.js'
 import share from './commands/share/index.js'
 import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
@@ -63,6 +69,8 @@ const agentsPlatform =
 /* eslint-enable @typescript-eslint/no-require-imports */
 import securityReview from './commands/security-review.js'
 import bughunter from './commands/bughunter/index.js'
+import bughunterSecurity from './commands/bughunter-security/index.js'
+import bughunterPerf from './commands/bughunter-perf/index.js'
 import terminalSetup from './commands/terminalSetup/index.js'
 import usage from './commands/usage/index.js'
 import theme from './commands/theme/index.js'
@@ -93,9 +101,6 @@ const remoteControlServerCommand =
 const voiceCommand = feature('VOICE_MODE')
   ? require('./commands/voice/index.js').default
   : null
-const forceSnip = feature('HISTORY_SNIP')
-  ? require('./commands/force-snip.js').default
-  : null
 const workflowsCmd = feature('WORKFLOW_SCRIPTS')
   ? (
       require('./commands/workflows/index.js') as typeof import('./commands/workflows/index.js')
@@ -121,11 +126,6 @@ const torch = feature('TORCH') ? require('./commands/torch.js').default : null
 const peersCmd = feature('UDS_INBOX')
   ? (
       require('./commands/peers/index.js') as typeof import('./commands/peers/index.js')
-    ).default
-  : null
-const forkCmd = feature('FORK_SUBAGENT')
-  ? (
-      require('./commands/fork/index.js') as typeof import('./commands/fork/index.js')
     ).default
   : null
 const buddy = isBuddyEnabled()
@@ -154,6 +154,7 @@ import heapDump from './commands/heapdump/index.js'
 import mockLimits from './commands/mock-limits/index.js'
 import bridgeKick from './commands/bridge-kick.js'
 import version from './commands/version.js'
+import update from './commands/update/index.js'
 import wiki from './commands/wiki/index.js'
 import summary from './commands/summary/index.js'
 import {
@@ -166,6 +167,8 @@ import sandboxToggle from './commands/sandbox-toggle/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
+import ads from './commands/ads.js'
+import smartroute from './commands/smartroute/index.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -175,6 +178,10 @@ import {
   getDynamicSkills,
 } from './skills/loadSkillsDir.js'
 import { getBundledSkills } from './skills/bundledSkills.js'
+import {
+  getOpenClaudeCommandDescriptionKey,
+  localize,
+} from './i18n/index.js'
 import { getBuiltinPluginSkillCommands } from './plugins/builtinPlugins.js'
 import {
   getPluginCommands,
@@ -242,14 +249,11 @@ export { getCommandName, isCommandEnabled } from './types/command.js'
 export const INTERNAL_ONLY_COMMANDS = [
   backfillSessions,
   breakCache,
-  bughunter,
   commit,
   commitPushPr,
-  ctx_viz,
   goodClaude,
   issue,
   initVerifiers,
-  ...(forceSnip ? [forceSnip] : []),
   mockLimits,
   bridgeKick,
   version,
@@ -275,24 +279,33 @@ export const INTERNAL_ONLY_COMMANDS = [
 const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
+  ads,
+  smartroute,
   agents,
   autoFix,
   branch,
+  bughunter,
+  bughunterSecurity,
+  bughunterPerf,
   btw,
   cacheProbe,
   cacheStats,
   chrome,
   clear,
+  clearContextWindow,
   color,
   compact,
   commitMessage,
   config,
+  continueCommand,
   copy,
   desktop,
   context,
   contextNonInteractive,
   cost,
+  ctx_viz,
   diff,
+  diagnostics,
   dream,
   doctor,
   effort,
@@ -321,10 +334,13 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  repomap,
+  replay,
   requestSize,
   requestSizeNonInteractive,
   resume,
   session,
+  setContextWindow,
   skills,
   stats,
   status,
@@ -334,11 +350,13 @@ const COMMANDS = memoize((): Command[] => [
   theme,
   logo,
   feedback,
+  goal,
   review,
   ultrareview,
   rewind,
   securityReview,
   terminalSetup,
+  update,
   upgrade,
   extraUsage,
   extraUsageNonInteractive,
@@ -348,7 +366,6 @@ const COMMANDS = memoize((): Command[] => [
   vim,
   wiki,
   ...(webCmd ? [webCmd] : []),
-  ...(forkCmd ? [forkCmd] : []),
   ...(buddy ? [buddy] : []),
   ...(proactive ? [proactive] : []),
   ...(briefCommand ? [briefCommand] : []),
@@ -373,7 +390,12 @@ const COMMANDS = memoize((): Command[] => [
   ...(process.env.USER_TYPE === 'ant' && !process.env.IS_DEMO
     ? INTERNAL_ONLY_COMMANDS
     : []),
-].filter(isCommand))
+].filter(isCommand).map(withOpenClaudeCommandLocalizationKey))
+
+function withOpenClaudeCommandLocalizationKey(cmd: Command): Command {
+  cmd.localizationKey ??= getOpenClaudeCommandDescriptionKey(cmd.name)
+  return cmd
+}
 
 export const builtInCommandNames = memoize(
   (): Set<string> =>
@@ -488,12 +510,12 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   ])
 
   return [
-    ...bundledSkills,
-    ...builtinPluginSkills,
     ...skillDirCommands,
     ...workflowCommands,
     ...pluginCommands,
     ...pluginSkills,
+    ...bundledSkills,
+    ...builtinPluginSkills,
     ...COMMANDS(),
   ]
 })
@@ -551,6 +573,8 @@ export async function getCommands(cwd: string): Promise<Command[]> {
  * Use this when dynamic skills are added to invalidate cached command lists.
  */
 export function clearCommandMemoizationCaches(): void {
+  COMMANDS.cache?.clear?.()
+  builtInCommandNames.cache?.clear?.()
   loadAllCommands.cache?.clear?.()
   getSkillToolCommands.cache?.clear?.()
   getSlashCommandToolSkills.cache?.clear?.()
@@ -656,10 +680,12 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   color, // Change agent color
   vim, // Toggle vim mode
   cost, // Show session cost (local cost tracking)
+  ctx_viz, // Context window usage
   usage, // Show usage info
   copy, // Copy last message
   btw, // Quick note
   feedback, // Send feedback
+  goal, // Manage session goal continuation
   plan, // Plan mode toggle
   keybindings, // Keybinding management
   statusline, // Status line toggle
@@ -684,9 +710,11 @@ export const BRIDGE_SAFE_COMMANDS: Set<Command> = new Set(
     compact, // Shrink context — useful mid-session from a phone
     clear, // Wipe transcript
     cost, // Show session cost
+    ctx_viz, // Context window usage
     summary, // Summarize conversation
     releaseNotes, // Show changelog
     files, // List tracked files
+    goal, // Manage session goal continuation
   ].filter((c): c is Command => c !== null),
 )
 
@@ -758,7 +786,7 @@ export function getCommand(commandName: string, commands: Command[]): Command {
  */
 export function formatDescriptionWithSource(cmd: Command): string {
   if (cmd.type !== 'prompt') {
-    return cmd.description ?? ''
+    return formatOpenClaudeOwnedDescription(cmd)
   }
 
   const desc = cmd.description ?? ''
@@ -776,12 +804,22 @@ export function formatDescriptionWithSource(cmd: Command): string {
   }
 
   if (cmd.source === 'builtin' || cmd.source === 'mcp') {
-    return desc
+    return cmd.source === 'builtin'
+      ? formatOpenClaudeOwnedDescription(cmd)
+      : desc
   }
 
   if (cmd.source === 'bundled') {
-    return `${desc} (bundled)`
+    return `${formatOpenClaudeOwnedDescription(cmd)} (bundled)`
   }
 
   return `${desc} (${getSettingSourceName(cmd.source)})`
+}
+
+function formatOpenClaudeOwnedDescription(cmd: Command): string {
+  const desc = cmd.description ?? ''
+  if (cmd.localizationKey) {
+    return localize(cmd.localizationKey, desc)
+  }
+  return desc
 }

@@ -286,7 +286,13 @@ export function execFileNoThrowWithCwd(
       finalTimeout > 0
         ? setTimeout(() => {
             timedOut = true
-            child.kill()
+            child.kill?.()
+            finish({
+              stdout: finalPreserveOutput ? stdout : '',
+              stderr: finalPreserveOutput ? stderr : '',
+              code: 1,
+              error: `Command timed out after ${finalTimeout}ms`,
+            })
           }, finalTimeout)
         : undefined
 

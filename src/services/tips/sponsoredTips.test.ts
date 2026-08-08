@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
+import * as actualConfig from '../../utils/config.js'
+import * as actualSettings from '../../utils/settings/settings.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -34,6 +36,8 @@ mock.module('../../utils/config.js', () => ({
 afterAll(() => {
   try {
     mock.restore()
+    mock.module('../../utils/settings/settings.js', () => actualSettings)
+    mock.module('../../utils/config.js', () => actualConfig)
   } finally {
     releaseSharedMutationLock()
   }
@@ -104,8 +108,13 @@ describe('sponsored tip catalog', () => {
       (t: { sponsor?: { name: string; url?: string } }) =>
         t.sponsor?.name === 'Xiaomi MiMo',
     )
+    const atlasTips = sponsoredTips.sponsoredTips.filter(
+      (t: { sponsor?: { name: string; url?: string } }) =>
+        t.sponsor?.name === 'Atlas Cloud',
+    )
     expect(atomicTips.length).toBe(4)
     expect(xiaomiTips.length).toBe(5)
+    expect(atlasTips.length).toBe(1)
     expect(
       atomicTips.every(
         (t: { sponsor?: { url?: string } }) =>
@@ -118,6 +127,12 @@ describe('sponsored tip catalog', () => {
           t.sponsor?.url === 'https://api.xiaomimimo.com/v1',
       ),
     ).toBe(true)
+    expect(
+      atlasTips.every(
+        (t: { sponsor?: { url?: string } }) =>
+          t.sponsor?.url === 'https://www.atlascloud.ai/',
+      ),
+    ).toBe(true)
   })
 
   test('all tips have unique sponsor-prefixed ids', async () => {
@@ -128,7 +143,9 @@ describe('sponsored tip catalog', () => {
     expect(
       ids.every(
         (id: string) =>
-          id.startsWith('atomic-') || id.startsWith('xiaomi-mimo-'),
+          id.startsWith('atomic-') ||
+          id.startsWith('xiaomi-mimo-') ||
+          id.startsWith('atlas-cloud-'),
       ),
     ).toBe(true)
   })

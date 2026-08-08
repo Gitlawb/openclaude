@@ -32,7 +32,7 @@ export function TeamMemCountParts(t0) {
   }
   let t1;
   if ($[0] !== hasPrecedingParts || $[1] !== isActiveGroup || $[2] !== tmReadCount || $[3] !== tmSearchCount || $[4] !== tmWriteCount) {
-    const nodes = [];
+    const nodes: React.ReactNode[] = [];
     let count = hasPrecedingParts ? 1 : 0;
     if (tmReadCount > 0) {
       const verb = isActiveGroup ? count === 0 ? "Recalling" : "recalling" : count === 0 ? "Recalled" : "recalled";

@@ -1,6 +1,5 @@
 import { feature } from 'bun:bundle'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.mjs'
-import type { Permutations } from 'src/types/utils.js'
 import { getSessionId } from '../bootstrap/state.js'
 import type { AppState } from '../state/AppState.js'
 import type {
@@ -132,6 +131,22 @@ export function enqueue(command: QueuedCommand): void {
     'enqueue',
     typeof command.value === 'string' ? command.value : undefined,
   )
+}
+
+/**
+ * Restore commands ahead of commands added after they were claimed, without
+ * changing their priority. Commands in the supplied array retain FIFO order.
+ */
+export function prepend(commands: readonly QueuedCommand[]): void {
+  if (commands.length === 0) return
+  commandQueue.unshift(...commands)
+  notifySubscribers()
+  for (const command of commands) {
+    logOperation(
+      'enqueue',
+      typeof command.value === 'string' ? command.value : undefined,
+    )
+  }
 }
 
 /**
@@ -340,9 +355,16 @@ export function resetCommandQueue(): void {
 // Editable mode helpers
 // ============================================================================
 
+// Tuple form of Permutations (types/utils.js builds template-string
+// permutations, which can't type an array literal): every ordering of the
+// full union as a tuple, so the list below must be exhaustive.
+type TuplePermutations<T extends string> = [T] extends [never]
+  ? []
+  : { [K in T]: [K, ...TuplePermutations<Exclude<T, K>>] }[T]
+
 const NON_EDITABLE_MODES = new Set<PromptInputMode>([
   'task-notification',
-] satisfies Permutations<Exclude<PromptInputMode, EditablePromptInputMode>>)
+] satisfies TuplePermutations<Exclude<PromptInputMode, EditablePromptInputMode>>)
 
 export function isPromptInputModeEditable(
   mode: PromptInputMode,

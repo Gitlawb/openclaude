@@ -23,7 +23,7 @@ type Props<A> = {
   noInputMode: boolean;
 };
 export function ShowInIDEPrompt(t0) {
-  const $ = _c(36);
+  const $ = _c(37);
   const {
     onChange,
     options,
@@ -79,12 +79,15 @@ export function ShowInIDEPrompt(t0) {
     t5 = $[8];
   }
   let t6;
-  if ($[9] !== acceptFeedback || $[10] !== input || $[11] !== onChange || $[12] !== options || $[13] !== rejectFeedback) {
+  if ($[9] !== acceptFeedback || $[10] !== input || $[11] !== onChange || $[12] !== options || $[13] !== rejectFeedback || $[36] !== noInputMode) {
     t6 = value => {
       const selected = options.find(opt => opt.value === value);
       if (selected) {
         if (selected.option.type === "reject") {
-          const trimmedFeedback = rejectFeedback.trim();
+          const trimmedFeedback = selected.option.withReason || noInputMode ? rejectFeedback.trim() : "";
+          if (selected.option.withReason && !trimmedFeedback) {
+            return;
+          }
           onChange(selected.option, input, trimmedFeedback || undefined);
           return;
         }
@@ -101,6 +104,7 @@ export function ShowInIDEPrompt(t0) {
     $[11] = onChange;
     $[12] = options;
     $[13] = rejectFeedback;
+    $[36] = noInputMode;
     $[14] = t6;
   } else {
     t6 = $[14];
@@ -126,7 +130,11 @@ export function ShowInIDEPrompt(t0) {
   }
   let t9;
   if ($[20] !== onInputModeToggle || $[21] !== options || $[22] !== t6 || $[23] !== t7 || $[24] !== t8) {
-    t9 = <Select options={options} inlineDescriptions={true} onChange={t6} onCancel={t7} onFocus={t8} onInputModeToggle={onInputModeToggle} />;
+    t9 = <Select options={options} inlineDescriptions={true} onChange={t6} onCancel={t7} onFocus={t8} onInputModeToggle={onInputModeToggle} onEmptyInputSubmit={value_1 => {
+      if (value_1 !== "no-with-reason") {
+        t7();
+      }
+    }} />;
     $[20] = onInputModeToggle;
     $[21] = options;
     $[22] = t6;

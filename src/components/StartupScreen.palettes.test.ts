@@ -24,6 +24,8 @@ describe('startup logo palettes', () => {
   })
 
   test('palette names stay in sync with defined palettes', () => {
-    expect(LOGO_PALETTE_NAMES).toEqual(Object.keys(LOGO_PALETTES))
+    // Widen to string[] so the literal-union array compares against
+    // Object.keys()'s string[] without an overload mismatch.
+    expect<string[]>(LOGO_PALETTE_NAMES).toEqual(Object.keys(LOGO_PALETTES))
   })
 })

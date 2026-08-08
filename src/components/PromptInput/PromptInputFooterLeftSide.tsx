@@ -16,10 +16,8 @@ import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 import { isDefaultMode, permissionModeSymbol, permissionModeTitle, getModeColor } from '../../utils/permissions/PermissionMode.js';
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
 import { isBackgroundTask } from '../../tasks/types.js';
-import { isPanelAgentTask } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
-import { getVisibleAgentTasks } from '../CoordinatorAgentStatus.js';
 import { count } from '../../utils/array.js';
-import { shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
+import { countVisibleBackgroundTasks, shouldHideTasksFooter } from '../tasks/taskStatusUtils.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { TeamStatus } from '../teams/TeamStatus.js';
 import { isInProcessEnabled } from '../../utils/swarm/backends/registry.js';
@@ -41,6 +39,8 @@ import { useHasSelection, useSelection } from '../../ink/hooks/use-selection.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { getPlatform } from '../../utils/platform.js';
 import { PrBadge } from '../PrBadge.js';
+import { resolveRegularFooterActive, resolveVisibleTransientFooterMessage } from './footerVisibility.js';
+import { KeepMounted } from './KeepMounted.js';
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -50,6 +50,7 @@ const NO_OP_SUBSCRIBE = (_cb: () => void) => () => {};
 const NULL = () => null;
 const MAX_VOICE_HINT_SHOWS = 3;
 type Props = {
+  active: boolean;
   exitMessage: {
     show: boolean;
     key?: string;
@@ -71,15 +72,19 @@ type Props = {
   historyFailedMatch: boolean;
   onOpenTasksDialog?: (taskId?: string) => void;
 };
-function ProactiveCountdown() {
-  const $ = _c(7);
+function ProactiveCountdown({
+  active
+}: {
+  active: boolean;
+}) {
+  const $ = _c(8);
   const nextTickAt = useSyncExternalStore(proactiveModule?.subscribeToProactiveChanges ?? NO_OP_SUBSCRIBE, proactiveModule?.getNextTickAt ?? NULL, NULL);
-  const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   let t0;
   let t1;
-  if ($[0] !== nextTickAt) {
+  if ($[0] !== active || $[1] !== nextTickAt) {
     t0 = () => {
-      if (nextTickAt === null) {
+      if (!active || nextTickAt === null) {
         setRemainingSeconds(null);
         return;
       }
@@ -91,13 +96,14 @@ function ProactiveCountdown() {
       const interval = setInterval(update, 1000);
       return () => clearInterval(interval);
     };
-    t1 = [nextTickAt];
-    $[0] = nextTickAt;
-    $[1] = t0;
-    $[2] = t1;
+    t1 = [active, nextTickAt];
+    $[0] = active;
+    $[1] = nextTickAt;
+    $[2] = t0;
+    $[3] = t1;
   } else {
-    t0 = $[1];
-    t1 = $[2];
+    t0 = $[2];
+    t1 = $[3];
   }
   useEffect(t0, t1);
   if (remainingSeconds === null) {
@@ -105,28 +111,29 @@ function ProactiveCountdown() {
   }
   const t2 = remainingSeconds * 1000;
   let t3;
-  if ($[3] !== t2) {
+  if ($[4] !== t2) {
     t3 = formatDuration(t2, {
       mostSignificantOnly: true
     });
-    $[3] = t2;
-    $[4] = t3;
+    $[4] = t2;
+    $[5] = t3;
   } else {
-    t3 = $[4];
+    t3 = $[5];
   }
   let t4;
-  if ($[5] !== t3) {
+  if ($[6] !== t3) {
     t4 = <Text dimColor={true}>waiting{" "}{t3}</Text>;
-    $[5] = t3;
-    $[6] = t4;
+    $[6] = t3;
+    $[7] = t4;
   } else {
-    t4 = $[6];
+    t4 = $[7];
   }
   return t4;
 }
 export function PromptInputFooterLeftSide(t0) {
-  const $ = _c(27);
+  const $ = _c(29);
   const {
+    active,
     exitMessage,
     vimMode,
     mode,
@@ -137,14 +144,20 @@ export function PromptInputFooterLeftSide(t0) {
     teamsSelected,
     tmuxSelected,
     teammateFooterIndex,
-    isPasting,
+    isPasting = false,
     isSearching,
     historyQuery,
     setHistoryQuery,
     historyFailedMatch,
     onOpenTasksDialog
   } = t0;
-  if (exitMessage.show) {
+  let transientMessage: React.ReactNode = null;
+  const transientMessageType = resolveVisibleTransientFooterMessage({
+    isSearching,
+    exitMessageShown: exitMessage.show,
+    isPasting
+  });
+  if (transientMessageType === 'exit') {
     let t1;
     if ($[0] !== exitMessage.key) {
       t1 = <Text dimColor={true} key="exit-message">Press {exitMessage.key} again to exit</Text>;
@@ -153,9 +166,8 @@ export function PromptInputFooterLeftSide(t0) {
     } else {
       t1 = $[1];
     }
-    return t1;
-  }
-  if (isPasting) {
+    transientMessage = t1;
+  } else if (transientMessageType === 'paste') {
     let t1;
     if ($[2] === Symbol.for("react.memo_cache_sentinel")) {
       t1 = <Text dimColor={true} key="pasting-message">Pasting text…</Text>;
@@ -163,7 +175,7 @@ export function PromptInputFooterLeftSide(t0) {
     } else {
       t1 = $[2];
     }
-    return t1;
+    transientMessage = t1;
   }
   let t1;
   if ($[3] !== isSearching || $[4] !== vimMode) {
@@ -176,52 +188,61 @@ export function PromptInputFooterLeftSide(t0) {
   }
   const showVim = t1;
   let t2;
-  if ($[6] !== historyFailedMatch || $[7] !== historyQuery || $[8] !== isSearching || $[9] !== setHistoryQuery) {
-    t2 = isSearching && <HistorySearchInput value={historyQuery} onChange={setHistoryQuery} historyFailedMatch={historyFailedMatch} />;
+  const isRegularFooterActive = resolveRegularFooterActive({
+    parentActive: active,
+    transientMessage: transientMessageType
+  });
+  if ($[6] !== historyFailedMatch || $[7] !== historyQuery || $[8] !== isRegularFooterActive || $[9] !== isSearching || $[10] !== setHistoryQuery) {
+    t2 = isSearching && <HistorySearchInput value={historyQuery} onChange={setHistoryQuery} historyFailedMatch={historyFailedMatch} focus={isRegularFooterActive} />;
     $[6] = historyFailedMatch;
     $[7] = historyQuery;
-    $[8] = isSearching;
-    $[9] = setHistoryQuery;
-    $[10] = t2;
+    $[8] = isRegularFooterActive;
+    $[9] = isSearching;
+    $[10] = setHistoryQuery;
+    $[11] = t2;
   } else {
-    t2 = $[10];
+    t2 = $[11];
   }
   let t3;
-  if ($[11] !== showVim) {
+  if ($[12] !== showVim) {
     t3 = showVim ? <Text dimColor={true} key="vim-insert">-- INSERT --</Text> : null;
-    $[11] = showVim;
-    $[12] = t3;
+    $[12] = showVim;
+    $[13] = t3;
   } else {
-    t3 = $[12];
+    t3 = $[13];
   }
   const t4 = !suppressHint && !showVim;
   let t5;
-  if ($[13] !== isLoading || $[14] !== mode || $[15] !== onOpenTasksDialog || $[16] !== t4 || $[17] !== tasksSelected || $[18] !== teammateFooterIndex || $[19] !== teamsSelected || $[20] !== tmuxSelected || $[21] !== toolPermissionContext) {
-    t5 = <ModeIndicator mode={mode} toolPermissionContext={toolPermissionContext} showHint={t4} isLoading={isLoading} tasksSelected={tasksSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} tmuxSelected={tmuxSelected} onOpenTasksDialog={onOpenTasksDialog} />;
-    $[13] = isLoading;
-    $[14] = mode;
-    $[15] = onOpenTasksDialog;
-    $[16] = t4;
-    $[17] = tasksSelected;
-    $[18] = teammateFooterIndex;
-    $[19] = teamsSelected;
-    $[20] = tmuxSelected;
-    $[21] = toolPermissionContext;
-    $[22] = t5;
+  if ($[14] !== isRegularFooterActive || $[15] !== isLoading || $[16] !== mode || $[17] !== onOpenTasksDialog || $[18] !== t4 || $[19] !== tasksSelected || $[20] !== teammateFooterIndex || $[21] !== teamsSelected || $[22] !== tmuxSelected || $[23] !== toolPermissionContext) {
+    t5 = <ModeIndicator mode={mode} toolPermissionContext={toolPermissionContext} showHint={t4} isLoading={isLoading} tasksSelected={tasksSelected} teamsSelected={teamsSelected} teammateFooterIndex={teammateFooterIndex} onOpenTasksDialog={onOpenTasksDialog} active={isRegularFooterActive} />;
+    $[14] = isRegularFooterActive;
+    $[15] = isLoading;
+    $[16] = mode;
+    $[17] = onOpenTasksDialog;
+    $[18] = t4;
+    $[19] = tasksSelected;
+    $[20] = teammateFooterIndex;
+    $[21] = teamsSelected;
+    $[22] = tmuxSelected;
+    $[23] = toolPermissionContext;
+    $[24] = t5;
   } else {
-    t5 = $[22];
+    t5 = $[24];
   }
   let t6;
-  if ($[23] !== t2 || $[24] !== t3 || $[25] !== t5) {
+  if ($[25] !== t2 || $[26] !== t3 || $[27] !== t5) {
     t6 = <Box justifyContent="flex-start" gap={1}>{t2}{t3}{t5}</Box>;
-    $[23] = t2;
-    $[24] = t3;
-    $[25] = t5;
-    $[26] = t6;
+    $[25] = t2;
+    $[26] = t3;
+    $[27] = t5;
+    $[28] = t6;
   } else {
-    t6 = $[26];
+    t6 = $[28];
   }
-  return t6;
+  return <>
+    <KeepMounted hidden={transientMessage !== null}>{t6}</KeepMounted>
+    {transientMessage}
+  </>;
 }
 type ModeIndicatorProps = {
   mode: PromptInputMode;
@@ -230,9 +251,9 @@ type ModeIndicatorProps = {
   isLoading: boolean;
   tasksSelected: boolean;
   teamsSelected: boolean;
-  tmuxSelected: boolean;
   teammateFooterIndex?: number;
   onOpenTasksDialog?: (taskId?: string) => void;
+  active: boolean;
 };
 function ModeIndicator({
   mode,
@@ -241,9 +262,9 @@ function ModeIndicator({
   isLoading,
   tasksSelected,
   teamsSelected,
-  tmuxSelected,
   teammateFooterIndex,
-  onOpenTasksDialog
+  onOpenTasksDialog,
+  active
 }: ModeIndicatorProps): React.ReactNode {
   const {
     columns
@@ -259,8 +280,7 @@ function ModeIndicator({
   const viewingAgentTaskId = useAppState(s_2 => s_2.viewingAgentTaskId);
   const expandedView = useAppState(s_3 => s_3.expandedView);
   const showSpinnerTree = expandedView === 'teammates';
-  const prStatus = usePrStatus(isLoading, isPrStatusEnabled());
-  const hasTmuxSession = useAppState(s_4 => "external" === 'ant' && s_4.tungstenActiveSession !== undefined);
+  const prStatus = usePrStatus(isLoading, active && isPrStatusEnabled());
   const nextTickAt = useSyncExternalStore(proactiveModule?.subscribeToProactiveChanges ?? NO_OP_SUBSCRIBE, proactiveModule?.getNextTickAt ?? NULL, NULL);
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   const voiceEnabled = feature('VOICE_MODE') ? useVoiceEnabled() : false;
@@ -274,7 +294,7 @@ function ModeIndicator({
   const selGetState = useSelection().getState;
   const hasNextTick = nextTickAt !== null;
   const isCoordinator = feature('COORDINATOR_MODE') ? coordinatorModule?.isCoordinatorMode() === true : false;
-  const runningTaskCount = useMemo(() => count(Object.values(tasks), t => isBackgroundTask(t) && !("external" === 'ant' && isPanelAgentTask(t))), [tasks]);
+  const backgroundTaskCount = useMemo(() => countVisibleBackgroundTasks(tasks), [tasks]);
   const tasksV2 = useTasksV2();
   const hasTaskItems = tasksV2 !== undefined && tasksV2.length > 0;
   const escShortcut = useShortcutDisplay('chat:cancel', 'Chat', 'esc').toLowerCase();
@@ -295,7 +315,7 @@ function ModeIndicator({
   const voiceHintIncrementedRef = feature('VOICE_MODE') ? useRef(false) : null;
   useEffect(() => {
     if (feature('VOICE_MODE')) {
-      if (!voiceEnabled || !voiceHintUnderCap) return;
+      if (!active || !voiceEnabled || !voiceHintUnderCap) return;
       if (voiceHintIncrementedRef?.current) return;
       if (voiceHintIncrementedRef) voiceHintIncrementedRef.current = true;
       const newCount = (getGlobalConfig().voiceFooterHintSeenCount ?? 0) + 1;
@@ -307,7 +327,7 @@ function ModeIndicator({
         };
       });
     }
-  }, [voiceEnabled, voiceHintUnderCap]);
+  }, [active, voiceEnabled, voiceHintUnderCap]);
   const isKillAgentsConfirmShowing = useAppState(s_7 => s_7.notifications.current?.key === 'kill-agents-confirm');
 
   // Derive team info from teamContext (no filesystem I/O needed)
@@ -322,7 +342,7 @@ function ModeIndicator({
   const viewedTask = viewingAgentTaskId ? tasks[viewingAgentTaskId] : undefined;
   const isViewingTeammate = viewSelectionMode === 'viewing-agent' && viewedTask?.type === 'in_process_teammate';
   const isViewingCompletedTeammate = isViewingTeammate && viewedTask != null && viewedTask.status !== 'running';
-  const hasBackgroundTasks = runningTaskCount > 0 || isViewingTeammate;
+  const hasBackgroundTasks = backgroundTaskCount > 0 || isViewingTeammate;
 
   // Count primary items (permission mode or coordinator mode, background tasks, and teams)
   const primaryItemCount = (isCoordinator || hasActiveMode ? 1 : 0) + (hasBackgroundTasks ? 1 : 0) + (hasTeams ? 1 : 0);
@@ -364,8 +384,7 @@ function ModeIndicator({
   // BackgroundTaskStatus is NOT in parts — it renders as a Box sibling so
   // its click-target Box isn't nested inside the <Text wrap="truncate">
   // wrapper (reconciler throws on Box-in-Text).
-  // Tmux pill (internal-only) — appears right after tasks in nav order
-  ...("external" === 'ant' && hasTmuxSession ? [<TungstenPill key="tmux" selected={tmuxSelected} />] : []), ...(isAgentSwarmsEnabled() && hasTeams ? [<TeamStatus key="teams" teamsSelected={teamsSelected} showHint={showHint && !hasBackgroundTasks} />] : []), ...(shouldShowPrStatus ? [<PrBadge key="pr-status" number={prStatus.number!} url={prStatus.url!} reviewState={prStatus.reviewState!} />] : [])];
+  ...(isAgentSwarmsEnabled() && hasTeams ? [<TeamStatus key="teams" teamsSelected={teamsSelected} showHint={showHint && !hasBackgroundTasks} />] : []), ...(shouldShowPrStatus ? [<PrBadge key="pr-status" number={prStatus.number!} url={prStatus.url!} reviewState={prStatus.reviewState!} />] : [])];
 
   // Check if any in-process teammates exist (for hint text cycling)
   const hasAnyInProcessTeammates = Object.values(tasks).some(t_2 => t_2.type === 'in_process_teammate' && t_2.status === 'running');
@@ -378,7 +397,7 @@ function ModeIndicator({
         <KeyboardShortcutHint shortcut={escShortcut} action="return to team lead" />
       </Text>);
   } else if ((feature('PROACTIVE') || feature('KAIROS')) && hasNextTick) {
-    parts.push(<ProactiveCountdown key="proactive" />);
+    parts.push(<ProactiveCountdown key="proactive" active={active} />);
   } else if (!hasTeammatePills && showHint) {
     parts.push(...hintParts);
   }
@@ -397,9 +416,6 @@ function ModeIndicator({
           </Box>}
       </Box>;
   }
-
-  // Add "↓ to manage tasks" hint when panel has visible rows
-  const hasCoordinatorTasks = "external" === 'ant' && getVisibleAgentTasks(tasks).length > 0;
 
   // Tasks pill renders as a Box sibling (not a parts entry) so its
   // click-target Box isn't nested inside <Text wrap="truncate"> — the
@@ -447,7 +463,7 @@ function ModeIndicator({
         hold {voiceKeyShortcut} to speak
       </Text>);
   }
-  if ((tasksPart || hasCoordinatorTasks) && showHint && !hasTeams) {
+  if (tasksPart && showHint && !hasTeams) {
     parts.push(<Text dimColor key="manage-tasks">
         {tasksSelected ? <KeyboardShortcutHint shortcut="Enter" action="view tasks" /> : <KeyboardShortcutHint shortcut="↓" action="manage" />}
       </Text>);

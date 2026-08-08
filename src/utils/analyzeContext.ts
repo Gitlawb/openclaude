@@ -10,7 +10,7 @@ import { getCommandName } from '../commands.js'
 import { getSystemContext } from '../context.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import {
-  AUTOCOMPACT_BUFFER_TOKENS,
+  getAutoCompactThreshold,
   getEffectiveContextWindowSize,
   isAutoCompactEnabled,
   MANUAL_COMPACT_BUFFER_TOKENS,
@@ -176,7 +176,7 @@ export interface SystemPromptSectionDetail {
 
 interface Agent {
   agentType: string
-  source: SettingSource | 'built-in' | 'plugin'
+  source: SettingSource | 'built-in' | 'plugin' | 'sdk'
   tokens: number
 }
 
@@ -307,7 +307,7 @@ async function countSystemTokens(
           content.length > 0 && content !== SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
       )
       .map(content => ({ name: extractSectionName(content), content })),
-    ...Object.entries(systemContext)
+    ...(Object.entries(systemContext) as Array<[string, string]>)
       .filter(([, content]) => content.length > 0)
       .map(([name, content]) => ({ name, content })),
   ]
@@ -639,6 +639,7 @@ export async function countMcpToolTokens(
   agentInfo: AgentDefinitionsResult | null,
   model: string,
   messages?: Message[],
+  countToolDefinitionTokensForContext = countToolDefinitionTokens,
 ): Promise<{
   mcpToolTokens: number
   mcpToolDetails: McpTool[]
@@ -648,7 +649,7 @@ export async function countMcpToolTokens(
   const mcpTools = tools.filter(tool => tool.isMcp)
   const mcpToolDetails: McpTool[] = []
   // Single bulk API call for all MCP tools (instead of N individual calls)
-  const totalTokensRaw = await countToolDefinitionTokens(
+  const totalTokensRaw = await countToolDefinitionTokensForContext(
     mcpTools,
     getToolPermissionContext,
     agentInfo,
@@ -1055,7 +1056,7 @@ export async function analyzeContextUsage(
   // Check if autocompact is enabled and calculate threshold
   const isAutoCompact = isAutoCompactEnabled()
   const autoCompactThreshold = isAutoCompact
-    ? getEffectiveContextWindowSize(model) - AUTOCOMPACT_BUFFER_TOKENS
+    ? getAutoCompactThreshold(model)
     : undefined
 
   // Create categories

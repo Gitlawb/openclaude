@@ -9,9 +9,25 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type GithubModelsCredentialsModule =
+  typeof import('./githubModelsCredentials.js')
+
+function importFreshGithubModelsCredentials(
+  cacheKey: string,
+): Promise<GithubModelsCredentialsModule> {
+  return import(
+    `./githubModelsCredentials.js?${cacheKey}`
+  ) as Promise<GithubModelsCredentialsModule>
+}
+
+function getEnvValue(name: string): string | undefined {
+  return process.env[name]
+}
+
 describe('hydrateGithubModelsTokenFromSecureStorage', () => {
   const orig = {
     CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+    GITHUB_COPILOT_KEY: process.env.GITHUB_COPILOT_KEY,
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GH_TOKEN: process.env.GH_TOKEN,
     CLAUDE_CODE_GITHUB_TOKEN_HYDRATED:
@@ -52,12 +68,37 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
       }),
     }))
 
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import(
-      './githubModelsCredentials.js?hydrate=sets-token'
-    )
+    const { hydrateGithubModelsTokenFromSecureStorage } =
+      await importFreshGithubModelsCredentials('hydrate=sets-token')
     hydrateGithubModelsTokenFromSecureStorage()
-    expect(process.env.GITHUB_TOKEN).toBe('stored-secret')
-    expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBe('1')
+    expect(getEnvValue('GITHUB_TOKEN')).toBe('stored-secret')
+    expect(getEnvValue('CLAUDE_CODE_GITHUB_TOKEN_HYDRATED')).toBe('1')
+  })
+
+  test('sets GITHUB_COPILOT_KEY when secure storage contains a direct Copilot key', async () => {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.GITHUB_TOKEN = 'shell-token'
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    mock.module('./secureStorage/index.js', () => ({
+      getSecureStorage: () => ({
+        read: () => ({
+          githubModels: {
+            accessToken: 'stored-enterprise-key',
+            credentialType: 'copilot_key',
+          },
+        }),
+      }),
+    }))
+
+    const { hydrateGithubModelsTokenFromSecureStorage } =
+      await importFreshGithubModelsCredentials('hydrate=sets-copilot-key')
+    hydrateGithubModelsTokenFromSecureStorage()
+    expect(getEnvValue('GITHUB_COPILOT_KEY')).toBe('stored-enterprise-key')
+    expect(getEnvValue('GITHUB_TOKEN')).toBe('shell-token')
+    expect(getEnvValue('CLAUDE_CODE_GITHUB_TOKEN_HYDRATED')).toBe('1')
   })
 
   test('does not override existing GITHUB_TOKEN', async () => {
@@ -73,11 +114,10 @@ describe('hydrateGithubModelsTokenFromSecureStorage', () => {
       }),
     }))
 
-    const { hydrateGithubModelsTokenFromSecureStorage } = await import(
-      './githubModelsCredentials.js?hydrate=preserve-existing'
-    )
+    const { hydrateGithubModelsTokenFromSecureStorage } =
+      await importFreshGithubModelsCredentials('hydrate=preserve-existing')
     hydrateGithubModelsTokenFromSecureStorage()
-    expect(process.env.GITHUB_TOKEN).toBe('already')
-    expect(process.env.CLAUDE_CODE_GITHUB_TOKEN_HYDRATED).toBeUndefined()
+    expect(getEnvValue('GITHUB_TOKEN')).toBe('already')
+    expect(getEnvValue('CLAUDE_CODE_GITHUB_TOKEN_HYDRATED')).toBeUndefined()
   })
 })

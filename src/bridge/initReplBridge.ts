@@ -36,6 +36,7 @@ import { logForDebugging } from '../utils/debug.js'
 import { stripDisplayTagsAllowEmpty } from '../utils/displayTags.js'
 import { errorMessage } from '../utils/errors.js'
 import { getBranch, getRemoteUrl } from '../utils/git.js'
+import { getGraphemeSegmenter } from '../utils/intl.js'
 import { toSDKMessages } from '../utils/messages/mappers.js'
 import {
   getContentText,
@@ -47,6 +48,7 @@ import { getCurrentSessionTitle } from '../utils/sessionStorage.js'
 import {
   extractConversationText,
   generateSessionTitle,
+  titleOrNullForPromptFallback,
 } from '../utils/sessionTitle.js'
 import { generateShortWordSlug } from '../utils/words.js'
 import {
@@ -81,7 +83,10 @@ export type InitBridgeOptions = {
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   initialMessages?: Message[]
   // Explicit session name from `/remote-control <name>`. When set, overrides
@@ -339,13 +344,14 @@ export async function initReplBridge(
     })
     void generateSessionTitle(input, signal)
       .then(generated => {
+        const titleToPatch = titleOrNullForPromptFallback(generated)
         if (
-          generated &&
+          titleToPatch &&
           gen === genSeq &&
           lastBridgeSessionId === bridgeSessionId &&
           !getCurrentSessionTitle(getSessionId())
         ) {
-          patch(generated, bridgeSessionId, atCount)
+          patch(titleToPatch, bridgeSessionId, atCount)
         }
       })
       .finally(cleanup)
@@ -381,10 +387,11 @@ export async function initReplBridge(
     return userMessageCount >= 3
   }
 
+  // Note: the open-source flag shim resolves from the local feature-flags
+  // file and takes no refresh-window argument.
   const initialHistoryCap = getFeatureValue_CACHED_WITH_REFRESH(
     'tengu_bridge_initial_history_cap',
     200,
-    5 * 60 * 1000,
   )
 
   // Fetch orgUUID before the v1/v2 branch — both paths need it. v1 for
@@ -553,7 +560,8 @@ const TITLE_MAX_LEN = 50
  * is empty (e.g. message was only <local-command-stdout>). Replaced by
  * generateSessionTitle once Haiku resolves (~1-15s).
  */
-function deriveTitle(raw: string): string | undefined {
+// exported for testing
+export function deriveTitle(raw: string): string | undefined {
   // Strip <ide_opened_file>, <session-start-hook>, etc. — these appear in
   // user messages when IDE/hooks inject context. stripDisplayTagsAllowEmpty
   // returns '' (not the original) so pure-tag messages are skipped.
@@ -564,7 +572,31 @@ function deriveTitle(raw: string): string | undefined {
   // Collapse newlines/tabs — titles are single-line in the claude.ai list.
   const flat = firstSentence.replace(/\s+/g, ' ').trim()
   if (!flat) return undefined
-  return flat.length > TITLE_MAX_LEN
-    ? flat.slice(0, TITLE_MAX_LEN - 1) + '\u2026'
-    : flat
+  return truncateTitleToLength(flat, TITLE_MAX_LEN)
+}
+
+/**
+ * Truncate to at most `maxLen` UTF-16 code units without splitting a grapheme.
+ *
+ * TITLE_MAX_LEN bounds the session-title API field in characters, so the cut
+ * must be measured in code units — not terminal columns. A plain
+ * `slice(0, maxLen - 1)` cuts at an arbitrary code-unit index, so an emoji or
+ * astral-plane character straddling the boundary loses half its surrogate pair
+ * and the lone surrogate is transmitted as U+FFFD once the title is
+ * UTF-8-serialized to the claude.ai backend. Walking graphemes keeps the pair
+ * (and any combining marks) intact while still enforcing the character bound —
+ * a display-width measure would instead truncate wide scripts early and let
+ * zero-width input through unbounded.
+ *
+ * exported for testing
+ */
+export function truncateTitleToLength(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  if (maxLen <= 1) return '…'
+  let result = ''
+  for (const { segment } of getGraphemeSegmenter().segment(text)) {
+    if (result.length + segment.length > maxLen - 1) break
+    result += segment
+  }
+  return result + '…'
 }

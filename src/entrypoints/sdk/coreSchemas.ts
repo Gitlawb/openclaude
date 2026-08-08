@@ -62,6 +62,22 @@ export const ConfigScopeSchema = lazySchema(() =>
   z.enum(['local', 'user', 'project']).describe('Config scope for settings.'),
 )
 
+const API_PROVIDER_VALUES = [
+  'firstParty',
+  'bedrock',
+  'vertex',
+  'foundry',
+  'openai',
+  'gemini',
+  'github',
+  'codex',
+  'nvidia-nim',
+  'minimax',
+  'mistral',
+  'xai',
+  'xiaomi-mimo',
+] as const
+
 export const SdkBetaSchema = lazySchema(() =>
   z.literal('context-1m-2025-08-07'),
 )
@@ -336,12 +352,20 @@ export const PermissionResultSchema = lazySchema(() =>
 
 export const PermissionModeSchema = lazySchema(() =>
   z
-    .enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'])
+    .enum([
+      'default',
+      'acceptEdits',
+      'bypassPermissions',
+      'fullAccess',
+      'plan',
+      'dontAsk',
+    ])
     .describe(
       'Permission mode for controlling how tool executions are handled. ' +
         "'default' - Standard behavior, prompts for dangerous operations. " +
         "'acceptEdits' - Auto-accept file edit operations. " +
-        "'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions). " +
+        "'bypassPermissions' - Bypass normal permission prompts while preserving hard safety checks (requires allowDangerouslySkipPermissions). " +
+        "'fullAccess' - Bypass normal permission prompts and hard safety-check prompts (requires allowDangerouslySkipPermissions). " +
         "'plan' - Planning mode, no actual tool execution. " +
         "'dontAsk' - Don't prompt for permissions, deny if not pre-approved.",
     ),
@@ -1057,7 +1081,7 @@ export const ModelInfoSchema = lazySchema(() =>
         .optional()
         .describe('Whether this model supports effort levels'),
       supportedEffortLevels: z
-        .array(z.enum(['low', 'medium', 'high', 'max']))
+        .array(z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']))
         .optional()
         .describe('Available effort levels for this model'),
       supportsAdaptiveThinking: z
@@ -1087,7 +1111,7 @@ export const AccountInfoSchema = lazySchema(() =>
       tokenSource: z.string().optional(),
       apiKeySource: z.string().optional(),
       apiProvider: z
-        .enum(['firstParty', 'bedrock', 'vertex', 'foundry'])
+        .enum(API_PROVIDER_VALUES)
         .optional()
         .describe(
           'Active API backend. Anthropic OAuth login only applies when "firstParty"; for 3P providers the other fields are absent and auth is external (AWS creds, gcloud ADC, etc.).',
@@ -1117,12 +1141,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .array(z.string())
         .optional()
         .describe(
-          'Array of allowed tool names. If omitted, inherits all tools from parent',
+          'Array of allowed tool names. If omitted or set to ["*"], inherits all tools from parent before disallowedTools is applied',
         ),
       disallowedTools: z
         .array(z.string())
         .optional()
-        .describe('Array of tool names to explicitly disallow for this agent'),
+        .describe(
+          'Array of tool names to explicitly disallow for this agent. Deny entries always override tools entries',
+        ),
       prompt: z.string().describe("The agent's system prompt"),
       model: z
         .string()
@@ -1153,6 +1179,14 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .describe(
           'Maximum number of agentic turns (API round-trips) before stopping',
         ),
+      maxSteps: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          'Maximum number of subagent tool-use steps before forcing a concise final summary',
+        ),
       background: z
         .boolean()
         .optional()
@@ -1163,10 +1197,10 @@ export const AgentDefinitionSchema = lazySchema(() =>
         .enum(['user', 'project', 'local'])
         .optional()
         .describe(
-          "Scope for auto-loading agent memory files. 'user' - ~/.claude/agent-memory/<agentType>/, 'project' - .claude/agent-memory/<agentType>/, 'local' - .claude/agent-memory-local/<agentType>/",
+          "Scope for auto-loading agent memory files. 'user' - ~/.openclaude/agent-memory/<agentType>/, 'project' - .openclaude/agent-memory/<agentType>/, 'local' - .openclaude/agent-memory-local/<agentType>/",
         ),
       effort: z
-        .union([z.enum(['low', 'medium', 'high', 'max']), z.number().int()])
+        .union([z.enum(['low', 'medium', 'high', 'xhigh', 'max']), z.number().int()])
         .optional()
         .describe(
           'Reasoning effort level for this agent. Either a named level or an integer',
@@ -1191,9 +1225,9 @@ export const SettingSourceSchema = lazySchema(() =>
     .enum(['user', 'project', 'local'])
     .describe(
       'Source for loading filesystem-based settings. ' +
-        "'user' - Global user settings (~/.claude/settings.json). " +
-        "'project' - Project settings (.claude/settings.json). " +
-        "'local' - Local settings (.claude/settings.local.json).",
+        "'user' - Global user settings (~/.openclaude/settings.json). " +
+        "'project' - Project settings (.openclaude/settings.json). " +
+        "'local' - Local settings (.openclaude/settings.local.json).",
     ),
 )
 
@@ -1746,6 +1780,43 @@ export const SDKSessionStateChangedMessageSchema = lazySchema(() =>
     ),
 )
 
+export const SDKHeartbeatMessageSchema = lazySchema(() =>
+  z
+    .object({
+      type: z.literal('system'),
+      subtype: z.literal('heartbeat'),
+      timestamp: z.string(),
+      elapsed_ms: z.number().int().nonnegative(),
+      since_last_activity_ms: z.number().int().nonnegative(),
+      state: z.enum([
+        'starting',
+        'running',
+        'requires_action',
+        'idle',
+        'shutting_down',
+      ]),
+      phase: z.enum([
+        'startup',
+        'loading_session',
+        'connecting_mcp',
+        'draining_commands',
+        'in_turn',
+        'waiting_for_permission',
+        'waiting_for_agents',
+        'flushing',
+        'shutting_down',
+      ]),
+      heartbeat_index: z.number().int().positive(),
+      pending_permission_requests: z.number().int().nonnegative(),
+      background_tasks: z.record(z.string(), z.number().int().positive()),
+      uuid: UUIDPlaceholder(),
+      session_id: z.string(),
+    })
+    .describe(
+      'Opt-in headless liveness signal emitted while --print output is quiet.',
+    ),
+)
+
 
 export const SDKTaskProgressMessageSchema = lazySchema(() =>
   z.object({
@@ -1884,6 +1955,7 @@ export const SDKMessageSchema = lazySchema(() =>
     SDKTaskStartedMessageSchema(),
     SDKTaskProgressMessageSchema(),
     SDKSessionStateChangedMessageSchema(),
+    SDKHeartbeatMessageSchema(),
     SDKFilesPersistedEventSchema(),
     SDKToolUseSummaryMessageSchema(),
     SDKRateLimitEventSchema(),

@@ -24,7 +24,10 @@ import type { BuiltInAgentDefinition } from './loadAgentsDir.js'
  *   the parent's full conversation context and system prompt
  * - All agent spawns run in the background (async) for a unified
  *   `<task-notification>` interaction model
- * - `/fork <directive>` slash command is available
+ *
+ * (The `/fork <directive>` slash command is not part of this build — its source
+ * is unmirrored. Forking here is implicit, via omitting `subagent_type`; the
+ * `/fork` alias instead routes to `/branch`.)
  *
  * Mutually exclusive with coordinator mode — coordinator already owns the
  * orchestration role and has its own delegation model.

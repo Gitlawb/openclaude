@@ -9,7 +9,13 @@ const command = {
     const autoAllow = SandboxManager.isAutoAllowBashIfSandboxedEnabled()
     const allowUnsandboxed = SandboxManager.areUnsandboxedCommandsAllowed()
     const isLocked = SandboxManager.areSandboxSettingsLockedByPolicy()
-    const hasDeps = SandboxManager.checkDependencies().errors.length === 0
+    // checkDependencies() can return null at runtime (e.g. when the sandbox
+    // backend is unavailable). Treat an absent result as "no missing deps"
+    // so rendering this command's description never throws — a throw here
+    // would propagate up through getCommandFuse() and break ALL slash-command
+    // suggestions for non-empty queries.
+    const depCheck = SandboxManager.checkDependencies()
+    const hasDeps = !depCheck || depCheck.errors.length === 0
 
     // Show warning icon if dependencies missing, otherwise enabled/disabled status
     let icon: string

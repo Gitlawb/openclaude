@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -11,8 +11,10 @@ import {
   convertToolsToResponsesTools,
 } from './codexShim.js'
 import { __test as webSearchToolTest } from '../../tools/WebSearchTool/WebSearchTool.js'
+import { setToolHistoryCompressionEnabledOverrideForTest } from './compressToolHistory.js'
 
 const tempDirs: string[] = []
+const originalFetch = globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
@@ -26,6 +28,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    globalThis.fetch = originalFetch
     if (originalEnv.OPENAI_BASE_URL === undefined) delete process.env.OPENAI_BASE_URL
     else process.env.OPENAI_BASE_URL = originalEnv.OPENAI_BASE_URL
 
@@ -68,6 +71,64 @@ async function collectStreamEventTypes(responseText: string): Promise<string[]> 
     events.push(event.type)
   }
   return events
+}
+
+async function waitForPromise<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+  }
+}
+
+function makeStallingCodexResponse(firstChunk: string): {
+  response: Response
+  cancelReasons: unknown[]
+  close: () => void
+} {
+  const encoder = new TextEncoder()
+  const cancelReasons: unknown[] = []
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
+  let closed = false
+
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        streamController = controller
+        controller.enqueue(encoder.encode(firstChunk))
+      },
+      cancel(reason) {
+        closed = true
+        cancelReasons.push(reason)
+      },
+    }),
+  )
+
+  return {
+    response,
+    cancelReasons,
+    close: () => {
+      if (closed) return
+      closed = true
+      try {
+        streamController?.close()
+      } catch {
+        // The test may already have cancelled the stream.
+      }
+    },
+  }
 }
 
 async function importFreshProviderConfigModule() {
@@ -613,6 +674,50 @@ describe('Codex request translation', () => {
     expect(either.anyOf).toEqual([{ type: 'string' }, { type: 'number' }])
   })
 
+  test('converts plain string user message into Codex input_text chunk type', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      { role: 'user', content: 'hello' },
+    ], false) // forceTextChunks = false
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
+  test('converts plain string user message into standard text chunk type when forceTextChunks=true', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      { role: 'user', content: 'hello' },
+    ], true)
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
+      },
+    ])
+  })
+
+  test('preserves wrapped string message content', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        message: { role: 'user', content: 'hello' }
+      },
+    ])
+
+    expect(items).toEqual([
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ])
+  })
+
   test('converts assistant tool use and user tool result into Responses items', () => {
     const items = convertAnthropicMessagesToResponsesInput([
       {
@@ -649,6 +754,124 @@ describe('Codex request translation', () => {
         output: 'done',
       },
     ])
+  })
+
+  test('joins structured tool-result text with the Responses separator', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_123', name: 'search', input: {} }],
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_123',
+          content: [
+            { type: 'text', text: 'first block' },
+            { type: 'text', text: 'second block' },
+          ],
+        }],
+      },
+    ])
+
+    const output = items.find(item => item.type === 'function_call_output') as
+      | { type: 'function_call_output'; output: string }
+      | undefined
+    expect(output?.output).toBe('first block\nsecond block')
+  })
+
+  test('compresses structured tool results with the Codex Responses separator', async () => {
+    setToolHistoryCompressionEnabledOverrideForTest(true)
+    try {
+      mock.restore()
+      const isolatedModulePath = './codexShim.ts?compression-test'
+      const { performCodexRequest } = await import(isolatedModulePath)
+      const messages = Array.from({ length: 30 }, (_, index) => [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: `call_${index}`, name: 'Read', input: {} }],
+        },
+        {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: `call_${index}`,
+            content: index === 16
+              ? [
+                { type: 'text', text: 'a'.repeat(1_000) },
+                { type: 'text', text: 'b'.repeat(1_500) },
+              ]
+              : 'recent',
+          }],
+        },
+      ]).flat()
+      let body: Record<string, unknown> | undefined
+      globalThis.fetch = (async (_url, init) => {
+        body = JSON.parse(String(init?.body))
+        return new Response('', { status: 200 })
+      }) as typeof globalThis.fetch
+
+      await performCodexRequest({
+        request: {
+          transport: 'codex_responses',
+          requestedModel: 'gpt-4o',
+          resolvedModel: 'gpt-4o',
+          baseUrl: 'https://api.openai.test/v1',
+        },
+        credentials: { apiKey: 'test-key', source: 'env' },
+        params: { model: 'gpt-4o', messages, max_tokens: 100 },
+        defaultHeaders: {},
+      })
+
+      const outputs = (body?.input as Array<{ type?: string; output?: string }>)
+        .filter(item => item.type === 'function_call_output')
+      expect(outputs[16]?.output).toBe(
+        `${'a'.repeat(1_000)}\n${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+      )
+    } finally {
+      setToolHistoryCompressionEnabledOverrideForTest(undefined)
+    }
+  })
+
+  test('renders tool_reference blocks from ToolSearch results as readable text', () => {
+    const items = convertAnthropicMessagesToResponsesInput([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_ts1', name: 'ToolSearch', input: { query: 'memory' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'call_ts1',
+            content: [
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_search' },
+              { type: 'tool_reference', tool_name: 'mcp__example__memory_store' },
+            ],
+          },
+        ],
+      },
+    ])
+
+    const output = items.find(item => item.type === 'function_call_output') as
+      | { type: 'function_call_output'; output: string }
+      | undefined
+    expect(output).toBeDefined()
+    expect(output!.output).toContain('mcp__example__memory_search')
+    expect(output!.output).toContain('mcp__example__memory_store')
+  })
+
+  test('keeps the ToolSearch tool in the Responses tools list', () => {
+    const tools = convertToolsToResponsesTools([
+      { name: 'ToolSearch', description: 'Find deferred tools', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } },
+    ])
+
+    expect(tools.map(t => t.name)).toEqual(['ToolSearch', 'Read'])
   })
 
   test('converts completed Codex tool response into Anthropic message', () => {
@@ -930,6 +1153,111 @@ describe('Codex request translation', () => {
       'message_delta',
       'message_stop',
     ])
+  })
+
+  test('Codex stream: abort signal cancels source while paused after message_start', async () => {
+    const stalled = makeStallingCodexResponse([
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","content_index":0,"delta":"partial","item_id":"msg_1","output_index":0,"sequence_number":0}',
+      '',
+    ].join('\n'))
+    const controller = new AbortController()
+    const iterator = codexStreamToAnthropic(
+      stalled.response,
+      'gpt-5.4',
+      controller.signal,
+    )[Symbol.asyncIterator]()
+
+    try {
+      const first = await waitForPromise(
+        iterator.next(),
+        500,
+        'Codex stream did not produce message_start',
+      )
+      expect(first.done).toBe(false)
+      expect(first.value?.type).toBe('message_start')
+
+      controller.abort()
+      await waitForPromise(
+        (async () => {
+          for (let i = 0; i < 10; i++) {
+            if (stalled.cancelReasons.length > 0) return
+            await new Promise(resolve => setTimeout(resolve, 0))
+          }
+          throw new Error('Codex stream did not cancel source on abort')
+        })(),
+        500,
+        'Codex stream did not cancel source on abort',
+      )
+
+      expect(stalled.cancelReasons).toHaveLength(1)
+      expect((stalled.cancelReasons[0] as { name?: unknown }).name).toBe('AbortError')
+    } finally {
+      await Promise.resolve(iterator.return?.(undefined)).catch(() => {})
+      stalled.close()
+    }
+  })
+
+  test('Codex stream: abort signal stops buffered events after emitted delta', async () => {
+    const stalled = makeStallingCodexResponse([
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","content_index":0,"delta":"first","item_id":"msg_1","output_index":0,"sequence_number":0}',
+      '',
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","content_index":0,"delta":"second","item_id":"msg_1","output_index":0,"sequence_number":1}',
+      '',
+    ].join('\n'))
+    const controller = new AbortController()
+    const iterator = codexStreamToAnthropic(
+      stalled.response,
+      'gpt-5.4',
+      controller.signal,
+    )[Symbol.asyncIterator]()
+
+    try {
+      const messageStart = await waitForPromise(
+        iterator.next(),
+        500,
+        'Codex stream did not produce message_start',
+      )
+      expect(messageStart.done).toBe(false)
+      expect(messageStart.value?.type).toBe('message_start')
+
+      const blockStart = await waitForPromise(
+        iterator.next(),
+        500,
+        'Codex stream did not produce content_block_start',
+      )
+      expect(blockStart.done).toBe(false)
+      expect(blockStart.value?.type).toBe('content_block_start')
+
+      const firstDelta = await waitForPromise(
+        iterator.next(),
+        500,
+        'Codex stream did not produce first delta',
+      )
+      expect(firstDelta.done).toBe(false)
+      expect(firstDelta.value?.type).toBe('content_block_delta')
+      expect((firstDelta.value as { delta?: { text?: string } }).delta?.text).toBe('first')
+
+      controller.abort()
+      const afterAbort = await waitForPromise(
+        iterator.next().then(
+          value => ({ status: 'resolved' as const, value }),
+          error => ({ status: 'rejected' as const, error }),
+        ),
+        500,
+        'Codex stream did not stop after abort',
+      )
+
+      if (afterAbort.status !== 'rejected') {
+        throw new Error(`Codex stream yielded after abort: ${JSON.stringify(afterAbort.value)}`)
+      }
+      expect((afterAbort.error as { name?: unknown }).name).toBe('AbortError')
+    } finally {
+      await Promise.resolve(iterator.return?.(undefined)).catch(() => {})
+      stalled.close()
+    }
   })
 
   test('strips <think> tag block from Codex SSE text stream', async () => {

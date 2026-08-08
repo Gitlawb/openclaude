@@ -18,7 +18,7 @@ type Props = {
     display?: CommandResultDisplay;
   }) => void;
 };
-export function MCPSettings(t0) {
+export function MCPSettings(t0: Props): React.ReactNode {
   const $ = _c(66);
   const {
     onComplete
@@ -35,7 +35,7 @@ export function MCPSettings(t0) {
   } else {
     t1 = $[0];
   }
-  const [viewState, setViewState] = React.useState(t1);
+  const [viewState, setViewState] = React.useState<MCPViewState>(t1);
   let t2;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
     t2 = [];
@@ -43,7 +43,7 @@ export function MCPSettings(t0) {
   } else {
     t2 = $[1];
   }
-  const [servers, setServers] = React.useState(t2);
+  const [servers, setServers] = React.useState<ServerInfo[]>(t2);
   let t3;
   if ($[2] !== agentDefinitions.allAgents) {
     t3 = extractAgentMcpServers(agentDefinitions.allAgents);
@@ -68,12 +68,12 @@ export function MCPSettings(t0) {
     t5 = () => {
       let cancelled = false;
       const prepareServers = async function prepareServers() {
-        const serverInfos = await Promise.all(filteredClients.map(async client_0 => {
+        const serverInfos: ServerInfo[] = await Promise.all(filteredClients.map(async client_0 => {
           const scope = client_0.config.scope;
           const isSSE = client_0.config.type === "sse";
           const isHTTP = client_0.config.type === "http";
           const isClaudeAIProxy = client_0.config.type === "claudeai-proxy";
-          let isAuthenticated = undefined;
+          let isAuthenticated: boolean | undefined = undefined;
           if (isSSE || isHTTP) {
             const authProvider = new ClaudeAuthProvider(client_0.name, client_0.config as McpSSEServerConfig | McpHTTPServerConfig);
             const tokens = await authProvider.tokens();
@@ -98,7 +98,7 @@ export function MCPSettings(t0) {
               return {
                 ...baseInfo,
                 transport: "sse" as const,
-                isAuthenticated,
+                isAuthenticated: isAuthenticated ?? false,
                 config: client_0.config as McpSSEServerConfig
               };
             } else {
@@ -106,7 +106,7 @@ export function MCPSettings(t0) {
                 return {
                   ...baseInfo,
                   transport: "http" as const,
-                  isAuthenticated,
+                  isAuthenticated: isAuthenticated ?? false,
                   config: client_0.config as McpHTTPServerConfig
                 };
               } else {

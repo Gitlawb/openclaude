@@ -25,7 +25,7 @@ async function _temp() {
     return {
       key: "chrome-requires-subscription",
       jsx: <Text color="error">Claude in Chrome requires a claude.ai subscription</Text>,
-      priority: "immediate",
+      priority: "immediate" as const,
       timeoutMs: 5000
     };
   }
@@ -34,7 +34,7 @@ async function _temp() {
     return {
       key: "chrome-extension-not-detected",
       jsx: <Text color="warning">Chrome extension not detected · https://claude.ai/chrome to install</Text>,
-      priority: "immediate",
+      priority: "immediate" as const,
       timeoutMs: 3000
     };
   }
@@ -42,7 +42,7 @@ async function _temp() {
     return {
       key: "claude-in-chrome-default-enabled",
       text: "Claude in Chrome enabled \xB7 /chrome",
-      priority: "low"
+      priority: "low" as const
     };
   }
   return null;

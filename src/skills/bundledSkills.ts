@@ -4,6 +4,7 @@ import { mkdir, open } from 'fs/promises'
 import { dirname, isAbsolute, join, normalize, sep as pathSep } from 'path'
 import type { ToolUseContext } from '../Tool.js'
 import type { Command } from '../types/command.js'
+import { localize, type LocalizationKey } from '../i18n/index.js'
 import { logForDebugging } from '../utils/debug.js'
 import { getBundledSkillsRoot } from '../utils/permissions/filesystem.js'
 import type { HooksSettings } from '../utils/settings/types.js'
@@ -15,8 +16,10 @@ import type { HooksSettings } from '../utils/settings/types.js'
 export type BundledSkillDefinition = {
   name: string
   description: string
+  descriptionKey?: LocalizationKey
   aliases?: string[]
   whenToUse?: string
+  whenToUseKey?: LocalizationKey
   argumentHint?: string
   allowedTools?: string[]
   model?: string
@@ -75,12 +78,22 @@ export function registerBundledSkill(definition: BundledSkillDefinition): void {
   const command: Command = {
     type: 'prompt',
     name: definition.name,
-    description: definition.description,
+    get description() {
+      return localize(definition.descriptionKey, definition.description)
+    },
+    localizationKey: definition.descriptionKey,
     aliases: definition.aliases,
     hasUserSpecifiedDescription: true,
     allowedTools: definition.allowedTools ?? [],
     argumentHint: definition.argumentHint,
-    whenToUse: definition.whenToUse,
+    get whenToUse() {
+      if (definition.whenToUseKey) {
+        return localize(definition.whenToUseKey, definition.whenToUse ?? '')
+      }
+
+      return definition.whenToUse
+    },
+    whenToUseLocalizationKey: definition.whenToUseKey,
     model: definition.model,
     disableModelInvocation: definition.disableModelInvocation ?? false,
     userInvocable: definition.userInvocable ?? true,
@@ -209,7 +222,13 @@ function prependBaseDir(
   blocks: ContentBlockParam[],
   baseDir: string,
 ): ContentBlockParam[] {
-  const prefix = `Base directory for this skill: ${baseDir}\n\n`
+  // Normalize to forward slashes so the path is safe to embed in a JS string
+  // import (e.g. `from '<base-dir>/pdfgen'`). On Windows, raw backslash paths
+  // like `C:\Users\...\pdf` break TypeScript/Bun resolution because backslashes
+  // are treated as escapes inside single-quoted strings. Forward slashes work
+  // cross-platform.
+  const safeBaseDir = baseDir.split('\\').join('/')
+  const prefix = `Base directory for this skill: ${safeBaseDir}\n\n`
   if (blocks.length > 0 && blocks[0]!.type === 'text') {
     return [
       { type: 'text', text: prefix + blocks[0]!.text },

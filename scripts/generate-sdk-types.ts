@@ -13,12 +13,13 @@
  * are replaced via TypeOverrideMap with real TS type references.
  */
 
-import { writeFileSync } from 'fs'
+import { realpathSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import * as schemas from '../src/entrypoints/sdk/coreSchemas.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const scriptPath = fileURLToPath(import.meta.url)
+const __dirname = dirname(scriptPath)
 const outPath = resolve(
   __dirname, '..', 'src', 'entrypoints', 'sdk', 'coreTypes.generated.ts',
 )
@@ -38,8 +39,18 @@ const TypeOverrideMap: Record<string, string> = {
   RawMessageStreamEventPlaceholder:
     'Record<string, unknown>',
   UUIDPlaceholder: 'string',
+  // Self-contained structural stand-in for NonNullableUsage: the generated
+  // file ships to external consumers without sdkUtilityTypes or
+  // @anthropic-ai/sdk, so it must not import either. The four standard
+  // counters are REQUIRED numbers — result messages are populated from
+  // QueryEngine.totalUsage (initialized from EMPTY_USAGE), so they are
+  // always present at runtime and strict consumers may sum them without
+  // undefined guards (covered by tests/sdk/package-consumer-types.test.ts).
+  // Richer nested metadata is modeled explicitly; unanticipated additions
+  // flow through the top-level index signature. The nested objects carry no
+  // index signature so the SDK's interface types remain assignable.
   NonNullableUsagePlaceholder:
-    'Record<string, number>',
+    '{ input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }; server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number }; service_tier?: string; [key: string]: unknown }',
 }
 
 // Materialize placeholder schemas once so we can detect them by identity (===)
@@ -198,6 +209,7 @@ const EXPORT_ORDER = [
   'SDKTaskStartedMessageSchema',
   'SDKTaskProgressMessageSchema',
   'SDKSessionStateChangedMessageSchema',
+  'SDKHeartbeatMessageSchema',
   'SDKToolUseSummaryMessageSchema',
   'SDKElicitationCompleteMessageSchema',
   'SDKPromptSuggestionMessageSchema',
@@ -268,8 +280,10 @@ function convert(schema: any, depth = 0): string {
         .map(v => JSON.stringify(v))
         .join(' | ')
     }
-    case 'array':
-      return `${convert(def.element, depth)}[]`
+    case 'array': {
+      const element = convert(def.element, depth)
+      return `${needsArrayElementParens(element) ? `(${element})` : element}[]`
+    }
     case 'tuple': {
       const items = (def.items as any[]).map(t => convert(t, depth))
       return `[${items.join(', ')}]`
@@ -354,11 +368,15 @@ function needsParens(ts: string): boolean {
   return ts.includes('\n') || ts.includes(' & ')
 }
 
+function needsArrayElementParens(ts: string): boolean {
+  return ts.includes(' | ') || ts.includes(' & ')
+}
+
 // ---------------------------------------------------------------------------
 // Generation
 // ---------------------------------------------------------------------------
 
-function generate(): string {
+export function generateSdkTypes(): string {
   const lines: string[] = [
     '// AUTO-GENERATED — do not edit manually.',
     '// Regenerate with: bun scripts/generate-sdk-types.ts',
@@ -425,7 +443,32 @@ function generate(): string {
 // Main
 // ---------------------------------------------------------------------------
 
-console.log('Generating SDK types from Zod schemas...')
-const output = generate()
-writeFileSync(outPath, output, 'utf-8')
-console.log(`✓ Written to ${outPath}`)
+function writeGeneratedSdkTypes(): void {
+  console.log('Generating SDK types from Zod schemas...')
+  const output = generateSdkTypes()
+  writeFileSync(outPath, output, 'utf-8')
+  console.log(`✓ Written to ${outPath}`)
+}
+
+function isDirectExecution(): boolean {
+  if (!process.argv[1]) {
+    return false
+  }
+  const invokedPath = realpathOrUndefined(resolve(process.argv[1]))
+  const currentScriptPath = realpathOrUndefined(scriptPath)
+  return Boolean(
+    invokedPath && currentScriptPath && invokedPath === currentScriptPath,
+  )
+}
+
+function realpathOrUndefined(path: string): string | undefined {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return undefined
+  }
+}
+
+if (isDirectExecution()) {
+  writeGeneratedSdkTypes()
+}

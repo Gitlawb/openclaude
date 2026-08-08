@@ -82,6 +82,9 @@ export async function* runTools(
 }
 
 type Batch = { isConcurrencySafe: boolean; blocks: ToolUseBlock[] }
+type ToolLookupContext = {
+  options: Pick<ToolUseContext['options'], 'tools'>
+}
 
 /**
  * Partition tool calls into batches where each batch is either:
@@ -90,7 +93,7 @@ type Batch = { isConcurrencySafe: boolean; blocks: ToolUseBlock[] }
  */
 function partitionToolCalls(
   toolUseMessages: ToolUseBlock[],
-  toolUseContext: ToolUseContext,
+  toolUseContext: ToolLookupContext,
 ): Batch[] {
   return toolUseMessages.reduce((acc: Batch[], toolUse) => {
     const tool = findToolByName(toolUseContext.options.tools, toolUse.name)
@@ -186,3 +189,11 @@ function markToolUseAsComplete(
     return next
   })
 }
+
+/**
+ * Internal helpers exposed for tests. `partitionToolCalls` is the batching
+ * boundary that consumes each tool's `isConcurrencySafe()` to decide whether
+ * consecutive tool-use blocks run concurrently or are serialized — see
+ * AgentTool.copilotScheduling.test.ts for the Copilot scheduler contract.
+ */
+export const _test = { partitionToolCalls }

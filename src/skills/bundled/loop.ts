@@ -23,8 +23,8 @@ const DYNAMIC_MAX_DELAY = '1 hour'
 
 const MAINTENANCE_PROMPT = `Scheduled maintenance loop iteration.
 
-If .claude/loop.md exists, read it and follow it.
-Otherwise, if ~/.claude/loop.md exists, read it and follow it.
+If .openclaude/loop.md exists, read it and follow it.
+Otherwise, if ~/.openclaude/loop.md exists, read it and follow it.
 Otherwise:
 - continue any unfinished work from the conversation
 - tend to the current branch's pull request: review comments, failed CI runs, merge conflicts
@@ -161,8 +161,8 @@ ${parsed.prompt}
     : `This is a maintenance loop with no explicit prompt.
 
 Determine the effective prompt in this order:
-1. If .claude/loop.md exists, read it and use it.
-2. Otherwise, if ~/.claude/loop.md exists, read it and use it.
+1. If .openclaude/loop.md exists, read it and use it.
+2. Otherwise, if ~/.openclaude/loop.md exists, read it and use it.
 3. Otherwise, use this built-in maintenance prompt:
 
 --- BEGIN MAINTENANCE PROMPT ---
@@ -206,8 +206,10 @@ export function registerLoopSkill(): void {
     name: 'loop',
     description:
       'Run a prompt on a fixed interval or dynamically reschedule it, including bare maintenance-mode loops.',
+    descriptionKey: 'skills.loop.description',
     whenToUse:
       'When the user wants to poll for status, babysit a workflow, run recurring maintenance, or keep re-running a prompt within the current session.',
+    whenToUseKey: 'skills.loop.whenToUse',
     argumentHint: '[interval] [prompt]',
     userInvocable: true,
     isEnabled: isKairosCronEnabled,

@@ -24,6 +24,7 @@ docs/
   integrations/
     overview.md
     glossary.md
+    reasoning-effort.md
     how-to/
       add-vendor.md
       add-gateway.md
@@ -43,9 +44,11 @@ If you are onboarding to the integration system:
 
 1. Read `docs/architecture/integrations.md` for the system boundaries.
 2. Read `docs/integrations/glossary.md` for the shared vocabulary.
-3. Use the how-to guides for the specific descriptor type you are adding.
-4. Use `docs/integrations/reference-samples.md` once the architecture and the relevant how-to guide are clear.
-5. Read `docs/integrations/common-pitfalls.md` before opening a docs or implementation PR for a new integration.
+3. Read `docs/integrations/reasoning-effort.md` before marking models as
+   reasoning-capable or `/effort`-controllable.
+4. Use the how-to guides for the specific descriptor type you are adding.
+5. Use `docs/integrations/reference-samples.md` once the architecture and the relevant how-to guide are clear.
+6. Read `docs/integrations/common-pitfalls.md` before opening a docs or implementation PR for a new integration.
 
 ## Core Rules
 
@@ -114,6 +117,29 @@ advanced `/provider add` and `/provider edit` fields for OpenAI-compatible
 routes. Fixed direct vendors usually set both to `false`; broad custom routes
 or gateways that intentionally accept user-supplied auth/header details set the
 relevant flag to `true`.
+
+### Reasoning support is per model and per route
+
+`capabilities.supportsReasoning` is descriptive. It says the model is known to
+reason or think, but it does not by itself authorize `/effort` to add request
+fields. Only add `reasoning` metadata when the exact route/model request shape,
+accepted levels, and disable behavior have been verified. See
+`docs/integrations/reasoning-effort.md`.
+
+### Moonshot and Kimi K3 catalogs
+
+The direct Moonshot API exposes Kimi K3 as `kimi-k3`, with a 1,048,576-token
+context window, 32,768 maximum output tokens, and `reasoning_effort` levels
+`low`, `high`, and `max` (defaulting to `max`). Kimi Code K3 uses the same
+controls for two catalog selections: `k3` provides the 1M Allegretto+ window, while
+`k3-256k` keeps Moderato+ sessions within their 256K limit.
+
+Kimi Code also lists `kimi-for-coding-highspeed` for eligible Allegretto+
+subscriptions. [Kimi documents](https://www.kimi.com/code/docs/en/kimi-code/models.html)
+it as HighSpeed with approximately 6× output speed and 3× quota usage; plan
+availability can vary. Retain the selected catalog ID in client-side routing so
+its route-specific limits and capabilities are not lost when the outbound API
+model is normalized.
 
 ## Descriptor Authoring Pattern
 
@@ -187,6 +213,6 @@ Important compatibility surfaces include:
 Contributor docs should describe these as compatibility bridges, not as the
 primary architecture.
 
-Preset ordering pins `anthropic` first, derives the middle entries from preset
-descriptions with standard alphanumeric sorting, and pins `custom` last
-automatically.
+Preset ordering pins `gitlawb-opengateway` first, derives the middle entries from preset
+descriptions with standard alphanumeric sorting, and pins the custom presets
+last: `custom` followed by `custom-anthropic`.

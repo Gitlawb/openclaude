@@ -12,9 +12,11 @@ import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js
 import { getAgentDescriptionsTotalTokens, AGENT_DESCRIPTIONS_THRESHOLD } from './statusNoticeHelpers.js';
 import { isSupportedJetBrainsTerminal, toIDEDisplayName, getTerminalIdeType } from './ide.js';
 import { isJetBrainsPluginInstalledCachedSync } from './jetbrains.js';
+import type { LocalModelContextWarning } from './statusNoticeLocalModel.js';
 import type { PermissionMode } from './permissions/PermissionMode.js';
 import { modelSupportsAutoMode } from './betas.js';
-import { getAPIProvider } from './model/providers.js';
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './model/providers.js';
+import { logForDebugging } from './debug.js';
 
 // Types
 export type StatusNoticeType = 'warning' | 'info';
@@ -22,6 +24,8 @@ export type StatusNoticeContext = {
   config: ReturnType<typeof getGlobalConfig>;
   agentDefinitions?: AgentDefinitionsResult;
   memoryFiles: MemoryFileInfo[];
+  isLocalModel?: boolean;
+  localModelContextLoad?: LocalModelContextWarning | null;
   /** Active session permission mode. Used by the 3P-safety notices. */
   permissionMode?: PermissionMode;
   /** Current main-loop model id. Used by the 3P-safety notices to decide
@@ -56,7 +60,12 @@ function WarningNoticeRow({
 const largeMemoryFilesNotice: StatusNoticeDefinition = {
   id: 'large-memory-files',
   type: 'warning',
-  isActive: ctx => getLargeMemoryFiles(ctx.memoryFiles).length > 0,
+  isActive: ctx => {
+    if (ctx.isLocalModel && ctx.localModelContextLoad) {
+      return false;
+    }
+    return getLargeMemoryFiles(ctx.memoryFiles).length > 0;
+  },
   render: ctx => {
     const largeMemoryFiles = getLargeMemoryFiles(ctx.memoryFiles);
     return <>
@@ -162,6 +171,9 @@ const largeAgentDescriptionsNotice: StatusNoticeDefinition = {
   id: 'large-agent-descriptions',
   type: 'warning',
   isActive: context => {
+    if (context.isLocalModel && context.localModelContextLoad) {
+      return false;
+    }
     const totalTokens = getAgentDescriptionsTotalTokens(context.agentDefinitions);
     return totalTokens > AGENT_DESCRIPTIONS_THRESHOLD;
   },
@@ -207,6 +219,31 @@ const jetbrainsPluginNotice: StatusNoticeDefinition = {
       </Box>;
   }
 };
+const localModelContextLoadNotice: StatusNoticeDefinition = {
+  id: 'local-model-context-load',
+  type: 'warning',
+  isActive: context => context.localModelContextLoad != null,
+  render: context => {
+    const warning = context.localModelContextLoad
+    if (!warning) return null
+    return <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="row">
+          <Text color="warning">{figures.warning}</Text>
+          <Text color="warning">
+            Large context loaded for local model:
+          </Text>
+        </Box>
+        {warning.lines.map((line, i) => (
+          <Box key={i} flexDirection="row" marginLeft={3}>
+            <Text color="warning">{'\u2212'} {line}</Text>
+          </Box>
+        ))}
+        <Box flexDirection="row" marginLeft={3}>
+          <Text dimColor>Run /doctor for details or disable noisy plugins</Text>
+        </Box>
+      </Box>
+  }
+};
 
 // Permissive permission modes (acceptEdits, bypassPermissions, auto) suppress
 // the per-tool consent prompt that normally gives the user a moment to inspect
@@ -232,7 +269,7 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
     if (ctx.mainLoopModel && modelSupportsAutoMode(ctx.mainLoopModel)) {
       return false;
     }
-    return getAPIProvider() !== 'firstParty';
+    return getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl();
   },
   render: ctx => {
     const mode = ctx.permissionMode;
@@ -275,9 +312,18 @@ const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
 };
 
 // All notice definitions
-export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice, dangerouslySkipPermissionsNotice];
+export const statusNoticeDefinitions: StatusNoticeDefinition[] = [largeMemoryFilesNotice, largeAgentDescriptionsNotice, localModelContextLoadNotice, claudeAiSubscriberExternalTokenNotice, apiKeyConflictNotice, bothAuthMethodsNotice, jetbrainsPluginNotice, thirdPartyPermissiveModeNotice, dangerouslySkipPermissionsNotice];
 
 // Helper functions for external use
 export function getActiveNotices(context: StatusNoticeContext): StatusNoticeDefinition[] {
-  return statusNoticeDefinitions.filter(notice => notice.isActive(context));
+  return statusNoticeDefinitions.filter(notice => {
+    try {
+      return notice.isActive(context);
+    } catch (error) {
+      logForDebugging(
+        `status_notice_isActive_failed noticeId=${notice.id} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  });
 }

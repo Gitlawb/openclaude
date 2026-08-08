@@ -1,5 +1,10 @@
 import { getSessionId } from '../../bootstrap/state.js'
-import { resolveProviderRequest } from '../../services/api/providerConfig.js'
+import { firstUsableCredential } from '../../services/api/credentialPool.js'
+import { resolveOpenAICredentialEnvState } from '../../utils/providerProfile.js'
+import {
+  isAzureStyleBaseUrl,
+  resolveProviderRequest,
+} from '../../services/api/providerConfig.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
@@ -37,6 +42,61 @@ function getModelFamily(model: string | undefined): string {
     .replace(/-\d{4,}$/, '')
     .replace(/-latest$/, '')
     .replace(/-preview$/, '')
+}
+
+/**
+ * `prompt_cache_*` and `store` are OpenAI/Azure OpenAI request extensions.
+ * This command sends requests directly (rather than through the OpenAI shim),
+ * so descriptor-level `removeBodyFields` rules do not protect strict
+ * compatible endpoints such as NVIDIA NIM.
+ */
+export function supportsCacheProbeFields(
+  baseUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase()
+    return hostname === 'api.openai.com' ||
+      hostname.endsWith('.api.openai.com') ||
+      isAzureStyleBaseUrl(baseUrl, env)
+  } catch {
+    return false
+  }
+}
+
+
+export function resolveCacheProbeApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const credentialState = resolveOpenAICredentialEnvState(env)
+  if (!credentialState.configured || !credentialState.envVar) {
+    return ''
+  }
+
+  return firstUsableCredential(env[credentialState.envVar]) ?? ''
+}
+
+function resolveGithubCacheProbeApiKey(env: NodeJS.ProcessEnv): string {
+  return (
+    env.GITHUB_COPILOT_KEY?.trim() ||
+    env.GITHUB_TOKEN?.trim() ||
+    env.GH_TOKEN?.trim() ||
+    ''
+  )
+}
+
+export function resolveCacheProbeRequestApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: { isGithub?: boolean },
+): string {
+  if (options?.isGithub) {
+    const githubKey = resolveGithubCacheProbeApiKey(env)
+    if (githubKey) {
+      return githubKey
+    }
+  }
+
+  return resolveCacheProbeApiKey(env)
 }
 
 function getField(obj: unknown, path: string): unknown {
@@ -186,16 +246,11 @@ export const call: LocalCommandCall = async (args) => {
   const request = resolveProviderRequest({ model: modelStr })
   const isGithub = isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB)
 
-  // Resolve API key the same way the OpenAI shim does
-  let apiKey = process.env.OPENAI_API_KEY ?? ''
-  if (!apiKey && isGithub) {
+  // Resolve API key the same way the active provider path does.
+  if (isGithub) {
     hydrateGithubModelsTokenFromSecureStorage()
-    apiKey =
-      process.env.OPENAI_API_KEY ??
-      process.env.GITHUB_TOKEN ??
-      process.env.GH_TOKEN ??
-      ''
   }
+  const apiKey = resolveCacheProbeRequestApiKey(process.env, { isGithub })
 
   if (!apiKey) {
     return {
@@ -203,15 +258,20 @@ export const call: LocalCommandCall = async (args) => {
       value:
         'No API key found. Make sure you are in an active OpenAI-compatible or GitHub Copilot session.\n' +
         'For GitHub Copilot: run /onboard-github first.\n' +
-        'For OpenAI-compatible: set OPENAI_API_KEY.',
+        'For OpenAI-compatible: set OPENAI_API_KEYS or OPENAI_API_KEY.',
     }
   }
 
-  const useResponses = request.transport === 'codex_responses'
+  const useResponses =
+    request.transport === 'codex_responses' ||
+    request.transport === 'responses' ||
+    request.transport === 'responses_compat'
   const endpoint = useResponses ? '/responses' : '/chat/completions'
   const url = `${request.baseUrl}${endpoint}`
   const family = getModelFamily(request.resolvedModel)
   const cacheKey = `${getSessionId()}:${family}`
+  const includeCacheProbeFields =
+    !noKey && supportsCacheProbeFields(request.baseUrl)
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -231,15 +291,20 @@ export const call: LocalCommandCall = async (args) => {
         {
           type: 'message',
           role: 'user',
-          content: [{ type: 'input_text', text: USER_MESSAGE }],
+          content: [{
+            type: request.transport === 'responses_compat' ? 'text' : 'input_text',
+            text: USER_MESSAGE,
+          }],
         },
       ],
       stream: true,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-        prompt_cache_retention: '24h',
-      }),
+      ...(includeCacheProbeFields
+        ? {
+            store: false,
+            prompt_cache_key: cacheKey,
+            prompt_cache_retention: '24h',
+          }
+        : {}),
     }
   } else {
     body = {
@@ -251,21 +316,23 @@ export const call: LocalCommandCall = async (args) => {
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: 20,
-      ...(noKey ? {} : {
-        store: false,
-        prompt_cache_key: cacheKey,
-      }),
+      ...(includeCacheProbeFields
+        ? {
+            store: false,
+            prompt_cache_key: cacheKey,
+          }
+        : {}),
     }
   }
 
   // Log configuration
   const config = [
-    `[cache-probe] Starting cache probe${noKey ? ' (--no-key: cache params OMITTED)' : ''}`,
+    `[cache-probe] Starting cache probe${!includeCacheProbeFields ? ' (cache params OMITTED)' : ''}`,
     `  model: ${request.resolvedModel} (family: ${family})`,
     `  transport: ${request.transport}`,
     `  endpoint: ${url}`,
-    `  prompt_cache_key: ${noKey ? 'NOT SENT' : cacheKey}`,
-    `  store: ${noKey ? 'NOT SENT' : 'false'}`,
+    `  prompt_cache_key: ${includeCacheProbeFields ? cacheKey : 'NOT SENT'}`,
+    `  store: ${includeCacheProbeFields ? 'false' : 'NOT SENT'}`,
     `  system prompt: ~${Math.round(SYSTEM_PROMPT.length / 4)} tokens`,
     `  delay between calls: ${DELAY_MS}ms`,
   ].join('\n')

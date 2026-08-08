@@ -14,18 +14,16 @@ import { Message as MessageComponent } from '../../components/Message.js';
 import { MessageResponse } from '../../components/MessageResponse.js';
 import { ToolUseLoader } from '../../components/ToolUseLoader.js';
 import { Box, Text } from '../../ink.js';
-import { getDumpPromptsPath } from '../../services/api/dumpPrompts.js';
 import { findToolByName, type Tools } from '../../Tool.js';
 import type { Message, ProgressMessage } from '../../types/message.js';
 import type { AgentToolProgress } from '../../types/tools.js';
 import { count } from '../../utils/array.js';
 import { getSearchOrReadFromContent, getSearchReadSummaryText } from '../../utils/collapseReadSearch.js';
-import { getDisplayPath } from '../../utils/file.js';
 import { formatDuration, formatNumber } from '../../utils/format.js';
 import { buildSubagentLookups, createAssistantMessage, EMPTY_LOOKUPS } from '../../utils/messages.js';
 import { getMainLoopModel, parseUserSpecifiedModel, renderModelName } from '../../utils/model/model.js';
 import type { Theme, ThemeName } from '../../utils/theme.js';
-import type { outputSchema, Progress, RemoteLaunchedOutput } from './AgentTool.js';
+import type { outputSchema, Progress } from './AgentTool.js';
 import { inputSchema } from './AgentTool.js';
 import { getAgentColor } from './agentColorManager.js';
 import { GENERAL_PURPOSE_AGENT } from './built-in/generalPurposeAgent.js';
@@ -91,91 +89,11 @@ type ProcessedMessage = {
   message: ProgressMessage<AgentToolProgress>;
 } | SummaryMessage;
 
-/**
- * Process progress messages to group consecutive search/read operations into summaries.
- * For ants only - returns original messages for non-ants.
- * @param isAgentRunning - If true, the last group is always marked as active (in progress)
- */
-function processProgressMessages(messages: ProgressMessage<Progress>[], tools: Tools, isAgentRunning: boolean): ProcessedMessage[] {
-  // Only process for ants
-  if ("external" !== 'ant') {
-    return messages.filter((m): m is ProgressMessage<AgentToolProgress> => hasProgressMessage(m.data) && m.data.message.type !== 'user').map(m => ({
-      type: 'original',
-      message: m
-    }));
-  }
-  const result: ProcessedMessage[] = [];
-  let currentGroup: {
-    searchCount: number;
-    readCount: number;
-    replCount: number;
-    startUuid: string;
-  } | null = null;
-  function flushGroup(isActive: boolean): void {
-    if (currentGroup && (currentGroup.searchCount > 0 || currentGroup.readCount > 0 || currentGroup.replCount > 0)) {
-      result.push({
-        type: 'summary',
-        searchCount: currentGroup.searchCount,
-        readCount: currentGroup.readCount,
-        replCount: currentGroup.replCount,
-        uuid: `summary-${currentGroup.startUuid}`,
-        isActive
-      });
-    }
-    currentGroup = null;
-  }
-  const agentMessages = messages.filter((m): m is ProgressMessage<AgentToolProgress> => hasProgressMessage(m.data));
-
-  // Build tool_use lookup incrementally as we iterate
-  const toolUseByID = new Map<string, ToolUseBlockParam>();
-  for (const msg of agentMessages) {
-    // Track tool_use blocks as we see them
-    if (msg.data.message.type === 'assistant') {
-      for (const c of msg.data.message.message.content) {
-        if (c.type === 'tool_use') {
-          toolUseByID.set(c.id, c as ToolUseBlockParam);
-        }
-      }
-    }
-    const info = getSearchOrReadInfo(msg, tools, toolUseByID);
-    if (info && (info.isSearch || info.isRead || info.isREPL)) {
-      // This is a search/read/REPL operation - add to current group
-      if (!currentGroup) {
-        currentGroup = {
-          searchCount: 0,
-          readCount: 0,
-          replCount: 0,
-          startUuid: msg.uuid
-        };
-      }
-      // Only count tool_result messages (not tool_use) to avoid double counting
-      if (msg.data.message.type === 'user') {
-        if (info.isSearch) {
-          currentGroup.searchCount++;
-        } else if (info.isREPL) {
-          currentGroup.replCount++;
-        } else if (info.isRead) {
-          currentGroup.readCount++;
-        }
-      }
-    } else {
-      // Non-search/read/REPL message - flush current group (completed) and add this message
-      flushGroup(false);
-      // Skip user tool_result messages — subagent progress messages lack
-      // toolUseResult, so UserToolSuccessMessage returns null and the
-      // height=1 Box in renderToolUseProgressMessage shows as a blank line.
-      if (msg.data.message.type !== 'user') {
-        result.push({
-          type: 'original',
-          message: msg
-        });
-      }
-    }
-  }
-
-  // Flush any remaining group - it's active if the agent is still running
-  flushGroup(isAgentRunning);
-  return result;
+function processProgressMessages(messages: ProgressMessage<Progress>[], _tools: Tools, _isAgentRunning: boolean): ProcessedMessage[] {
+  return messages.filter((m): m is ProgressMessage<AgentToolProgress> => hasProgressMessage(m.data) && m.data.message.type !== 'user').map(m => ({
+    type: 'original',
+    message: m
+  }));
 }
 const ESTIMATED_LINES_PER_TOOL = 9;
 const TERMINAL_BUFFER_LINES = 7;
@@ -322,21 +240,6 @@ export function renderToolResultMessage(data: Output, progressMessagesForMessage
   theme: ThemeName;
   isTranscriptMode?: boolean;
 }): React.ReactNode {
-  // Remote-launched agents (internal-only) use a private output type not in the
-  // public schema. Narrow via the internal discriminant.
-  const internal = data as Output | RemoteLaunchedOutput;
-  if (internal.status === 'remote_launched') {
-    return <Box flexDirection="column">
-        <MessageResponse height={1}>
-          <Text>
-            Remote agent launched{' '}
-            <Text dimColor>
-              · {internal.taskId} · {internal.sessionUrl}
-            </Text>
-          </Text>
-        </MessageResponse>
-      </Box>;
-  }
   if (data.status === 'async_launched') {
     const {
       prompt
@@ -364,7 +267,6 @@ export function renderToolResultMessage(data: Output, progressMessagesForMessage
     return null;
   }
   const {
-    agentId,
     totalDurationMs,
     totalToolUseCount,
     totalTokens,
@@ -384,11 +286,6 @@ export function renderToolResultMessage(data: Output, progressMessagesForMessage
     }
   });
   return <Box flexDirection="column">
-      {"external" === 'ant' && <MessageResponse>
-          <Text color="warning">
-            [internal] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
-          </Text>
-        </MessageResponse>}
       {isTranscriptMode && prompt && <MessageResponse>
           <AgentPromptDisplay prompt={prompt} theme={theme} />
         </MessageResponse>}
@@ -586,15 +483,7 @@ export function renderToolUseRejectedMessage(_input: {
   verbose: boolean;
   isTranscriptMode?: boolean;
 }): React.ReactNode {
-  // Get agentId from progress messages if available (agent was running before rejection)
-  const firstData = progressMessagesForMessage[0]?.data;
-  const agentId = firstData && hasProgressMessage(firstData) ? firstData.agentId : undefined;
   return <>
-      {"external" === 'ant' && agentId && <MessageResponse>
-          <Text color="warning">
-            [internal] API calls: {getDisplayPath(getDumpPromptsPath(agentId))}
-          </Text>
-        </MessageResponse>}
       {renderToolUseProgressMessage(progressMessagesForMessage, {
       tools,
       verbose,
@@ -705,7 +594,7 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
     const outputStatus = (result?.output as {
       status?: string;
     } | undefined)?.status;
-    const backgroundedMidExecution = outputStatus === 'async_launched' || outputStatus === 'remote_launched';
+    const backgroundedMidExecution = outputStatus === 'async_launched';
     const isAsync = launchedAsAsync || backgroundedMidExecution || isTeammateSpawn;
     const name = parsedInput.success ? parsedInput.data.name : undefined;
     return {

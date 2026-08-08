@@ -161,9 +161,6 @@ export function registerLSPNotificationHandlers(
       serverInstance.onNotification(
         'textDocument/publishDiagnostics',
         (params: unknown) => {
-          logForDebugging(
-            `[PASSIVE DIAGNOSTICS] Handler invoked for ${serverName}! Params type: ${typeof params}`,
-          )
           try {
             // Validate params structure before casting
             if (
@@ -183,23 +180,18 @@ export function registerLSPNotificationHandlers(
             }
 
             const diagnosticParams = params as PublishDiagnosticsParams
-            logForDebugging(
-              `Received diagnostics from ${serverName}: ${diagnosticParams.diagnostics.length} diagnostic(s) for ${diagnosticParams.uri}`,
-            )
 
             // Convert LSP diagnostics to Claude format (can throw on invalid URIs)
             const diagnosticFiles =
               formatDiagnosticsForAttachment(diagnosticParams)
 
-            // Only send notification if there are diagnostics
+            // Register empty diagnostic snapshots too: in LSP they mean the
+            // file was cleared, and the registry uses them to update state
+            // without producing an empty model attachment.
             const firstFile = diagnosticFiles[0]
-            if (
-              !firstFile ||
-              diagnosticFiles.length === 0 ||
-              firstFile.diagnostics.length === 0
-            ) {
+            if (!firstFile) {
               logForDebugging(
-                `Skipping empty diagnostics from ${serverName} for ${diagnosticParams.uri}`,
+                `Skipping invalid diagnostics from ${serverName} for ${diagnosticParams.uri}`,
               )
               return
             }
@@ -211,10 +203,6 @@ export function registerLSPNotificationHandlers(
                 serverName,
                 files: diagnosticFiles,
               })
-
-              logForDebugging(
-                `LSP Diagnostics: Registered ${diagnosticFiles.length} diagnostic file(s) from ${serverName} for async delivery`,
-              )
 
               // Success - reset failure counter for this server
               diagnosticFailures.delete(serverName)

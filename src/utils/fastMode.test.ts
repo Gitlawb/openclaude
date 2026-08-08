@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import * as realAxios from 'axios'
+import * as realOauthConstants from 'src/constants/oauth.js'
+import * as realGrowthbook from 'src/services/analytics/growthbook.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realAuth from './auth.js'
+import * as realModel from './model/model.js'
 type ProvidersModule = typeof import('./model/providers.js')
 type AxiosModule = typeof import('axios')
 
@@ -223,9 +228,11 @@ afterEach(async () => {
     if (originalProvidersModule) {
       mock.module('./model/providers.js', () => originalProvidersModule!)
     }
-    if (originalAxiosModule) {
-      mock.module('axios', () => originalAxiosModule!)
-    }
+    mock.module('axios', () => originalAxiosModule ?? realAxios)
+    mock.module('src/constants/oauth.js', () => realOauthConstants)
+    mock.module('src/services/analytics/growthbook.js', () => realGrowthbook)
+    mock.module('./auth.js', () => realAuth)
+    mock.module('./model/model.js', () => realModel)
     process.env = { ...originalEnv }
     const { resetStateForTests } = await import('../bootstrap/state.js')
     resetStateForTests()
@@ -234,6 +241,21 @@ afterEach(async () => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+describe('isFastModeSupportedByModel — Opus model gate (#1769)', () => {
+  test('supports the current default Opus (now 4.8), matching the /fast UI', async () => {
+    forceFirstPartyProviderEnv()
+    await installCommonMocks({ cachedEnabled: true, oauthToken: 'tok' })
+    const { isFastModeSupportedByModel } = await importFreshFastModeModule()
+    await prepareFastModeTestState()
+
+    // The 'opus' alias resolves to getDefaultOpusModel() = claude-opus-4-8 for
+    // first-party. The predicate must recognize it, or the "/fast" UI ("Opus
+    // 4.8 only") and runtime behavior disagree. (Pre-fix this returned false
+    // because the predicate only matched opus-4-6.)
+    expect(isFastModeSupportedByModel('opus')).toBe(true)
+  })
 })
 
 describe('fastMode ant-only fallback cleanup', () => {

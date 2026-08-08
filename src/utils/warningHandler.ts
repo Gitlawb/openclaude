@@ -10,6 +10,9 @@ import { getPlatform } from './platform.js'
 // Track warnings to avoid spam — bounded to prevent unbounded memory growth
 export const MAX_WARNING_KEYS = 1000
 const warningCounts = new Map<string, number>()
+const MAX_PERFORMANCE_ENTRY_BUFFER_WARNING =
+  'MaxPerformanceEntryBufferExceededWarning'
+const MAX_WARNING_MESSAGE_LENGTH = 200
 
 // Check if running from a build directory (development mode)
 // This is a sync version of the logic in getCurrentInstallationType()
@@ -43,6 +46,31 @@ const INTERNAL_WARNINGS = [
 function isInternalWarning(warning: Error): boolean {
   const warningStr = `${warning.name}: ${warning.message}`
   return INTERNAL_WARNINGS.some(pattern => pattern.test(warningStr))
+}
+
+function isPerformanceEntryBufferWarning(warning: Error): boolean {
+  return warning.name === MAX_PERFORMANCE_ENTRY_BUFFER_WARNING
+}
+
+function compactWarningMessage(message: string): string {
+  const compact = message.replace(/\s+/g, ' ').trim()
+  if (compact.length <= MAX_WARNING_MESSAGE_LENGTH) {
+    return compact
+  }
+  return `${compact.slice(0, MAX_WARNING_MESSAGE_LENGTH - 3)}...`
+}
+
+function formatDebugWarning(warning: Error, isInternal: boolean): string {
+  if (isPerformanceEntryBufferWarning(warning)) {
+    const message = compactWarningMessage(warning.message)
+    return (
+      `[Warning] ${warning.name}: ${message}. ` +
+      'The Node perf_hooks entry buffer is full; rerun with NODE_OPTIONS=--trace-warnings to identify the producer.'
+    )
+  }
+
+  const prefix = isInternal ? '[Internal Warning]' : '[Warning]'
+  return `${prefix} ${warning.toString()}`
 }
 
 // Store reference to our warning handler so we can detect if it's already installed
@@ -107,8 +135,9 @@ export function initializeWarningHandler(): void {
 
       // In debug mode, show all warnings with context
       if (isEnvTruthy(process.env.CLAUDE_DEBUG)) {
-        const prefix = isInternal ? '[Internal Warning]' : '[Warning]'
-        logForDebugging(`${prefix} ${warning.toString()}`, { level: 'warn' })
+        logForDebugging(formatDebugWarning(warning, isInternal), {
+          level: 'warn',
+        })
       }
       // Hide all warnings from users - they are only logged to Statsig for monitoring
     } catch {

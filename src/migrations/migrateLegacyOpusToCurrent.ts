@@ -4,7 +4,7 @@ import {
 } from '../services/analytics/index.js'
 import { saveGlobalConfig } from '../utils/config.js'
 import { isLegacyModelRemapEnabled } from '../utils/model/model.js'
-import { getAPIProvider } from '../utils/model/providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from '../utils/model/providers.js'
 import {
   getSettingsForSource,
   updateSettingsForSource,
@@ -13,7 +13,7 @@ import {
 /**
  * Migrate first-party users off explicit Opus 4.0/4.1 model strings.
  *
- * The 'opus' alias already resolves to Opus 4.6 for 1P, so anyone still
+ * The 'opus' alias already resolves to Opus 4.8 for 1P, so anyone still
  * on an explicit 4.0/4.1 string pinned it in settings before 4.5 launched.
  * parseUserSpecifiedModel now silently remaps these at runtime anyway —
  * this migration cleans up the settings file so /model shows the right
@@ -27,7 +27,7 @@ import {
  * project.
  */
 export function migrateLegacyOpusToCurrent(): void {
-  if (getAPIProvider() !== 'firstParty') {
+  if (getAPIProvider() !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) {
     return
   }
 

@@ -1,5 +1,6 @@
 import type { Command } from '../commands.js'
 import { getAttributionTexts } from '../utils/attribution.js'
+import { getForbiddenCommitMessagePatterns } from '../utils/governancePolicy.js'
 import { executeShellCommandsInPrompt } from '../utils/promptShellExecution.js'
 import { getUndercoverInstructions, isUndercover } from '../utils/undercover.js'
 
@@ -11,6 +12,11 @@ const ALLOWED_TOOLS = [
 
 function getPromptContent(): string {
   const { commit: commitAttribution } = getAttributionTexts()
+  const forbiddenPatterns = getForbiddenCommitMessagePatterns()
+  const forbiddenPatternText =
+    forbiddenPatterns.length > 0
+      ? `\n- The commit message must not contain these forbidden patterns: ${forbiddenPatterns.map(p => `\`${p}\``).join(', ')}`
+      : ''
 
   let prefix = ''
   if (process.env.USER_TYPE === 'ant' && isUndercover()) {
@@ -31,7 +37,7 @@ function getPromptContent(): string {
 - CRITICAL: ALWAYS create NEW commits. NEVER use git commit --amend, unless the user explicitly requests it
 - Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files
 - If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit
-- Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported
+- Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported${forbiddenPatternText}
 
 ## Your task
 

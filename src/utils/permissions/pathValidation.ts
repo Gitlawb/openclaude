@@ -112,8 +112,8 @@ export function isPathInSandboxWriteAllowlist(resolvedPath: string): boolean {
   // their resolution to avoid N × config.length redundant syscalls per
   // command with N write targets (matching getResolvedWorkingDirPaths).
   const pathsToCheck = getPathsForPermissionCheck(resolvedPath)
-  const resolvedAllow = allowOnly.flatMap(getResolvedSandboxConfigPath)
-  const resolvedDeny = denyWithinAllow.flatMap(getResolvedSandboxConfigPath)
+  const resolvedAllow = allowOnly.flatMap(path => getResolvedSandboxConfigPath(path))
+  const resolvedDeny = denyWithinAllow.flatMap(path => getResolvedSandboxConfigPath(path))
   return pathsToCheck.every(p => {
     for (const denyPath of resolvedDeny) {
       if (pathInWorkingPath(p, denyPath)) return false
@@ -166,7 +166,7 @@ export function isPathAllowed(
   // and internal editable paths live under ~/.claude/ — matching the ordering in
   // checkWritePermissionForTool (filesystem.ts step 1.5)
   if (operationType !== 'read') {
-    const internalEditResult = checkEditableInternalPath(resolvedPath, {})
+    const internalEditResult = checkEditableInternalPath(resolvedPath, {}, context)
     if (internalEditResult.behavior === 'allow') {
       return {
         allowed: true,

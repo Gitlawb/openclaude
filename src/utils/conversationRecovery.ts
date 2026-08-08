@@ -54,6 +54,7 @@ import {
 } from './sessionStorage.js'
 import { jsonStringify } from './slowOperations.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
+import { isDangerousPermissionMode } from './permissions/PermissionMode.js'
 
 // Dead code elimination: internal-only tool names are conditionally required so
 // their strings don't leak into external builds. Static imports always bundle.
@@ -81,6 +82,8 @@ const SEND_USER_FILE_TOOL_NAME: string | null = feature('KAIROS')
 // resume bounded well below the multi-GB failure mode we saw while leaving
 // enough room for normal compacted sessions plus resume hook context.
 const MAX_RESUME_MESSAGE_BYTES = 8 * 1024 * 1024
+
+type PrResumeSelector = true | number | string
 
 export class ResumeTranscriptTooLargeError extends Error {
   constructor(
@@ -111,35 +114,62 @@ function assertResumeMessageSize(messages: Message[]): void {
 /**
  * Transforms legacy attachment types to current types for backward compatibility
  */
-function migrateLegacyAttachmentTypes(message: Message): Message {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function getAttachmentRecord(
+  message: Message,
+): Record<string, unknown> | null {
+  if (message.type !== 'attachment') {
+    return null
+  }
+  const attachment = (message as { attachment?: unknown }).attachment
+  if (!isRecord(attachment) || typeof attachment.type !== 'string') {
+    return null
+  }
+  return attachment
+}
+
+function migrateLegacyAttachmentTypes(message: Message): Message | null {
   if (message.type !== 'attachment') {
     return message
   }
 
-  const attachment = message.attachment as {
-    type: string
-    [key: string]: unknown
-  } // Handle legacy types not in current type system
+  const attachment = getAttachmentRecord(message)
+  if (!attachment) {
+    return null
+  }
 
   // Transform legacy attachment types
   if (attachment.type === 'new_file') {
+    if (!isNonEmptyString(attachment.filename)) {
+      return null
+    }
     return {
       ...message,
       attachment: {
         ...attachment,
         type: 'file',
-        displayPath: relative(getCwd(), attachment.filename as string),
+        displayPath: relative(getCwd(), attachment.filename),
       },
     } as SerializedMessage // Cast entire message since we know the structure is correct
   }
 
   if (attachment.type === 'new_directory') {
+    if (!isNonEmptyString(attachment.path)) {
+      return null
+    }
     return {
       ...message,
       attachment: {
         ...attachment,
         type: 'directory',
-        displayPath: relative(getCwd(), attachment.path as string),
+        displayPath: relative(getCwd(), attachment.path),
       },
     } as SerializedMessage // Cast entire message since we know the structure is correct
   }
@@ -147,12 +177,12 @@ function migrateLegacyAttachmentTypes(message: Message): Message {
   // Backfill displayPath for attachments from old sessions
   if (!('displayPath' in attachment)) {
     const path =
-      'filename' in attachment
-        ? (attachment.filename as string)
-        : 'path' in attachment
-          ? (attachment.path as string)
-          : 'skillDir' in attachment
-            ? (attachment.skillDir as string)
+      isNonEmptyString(attachment.filename)
+        ? attachment.filename
+        : isNonEmptyString(attachment.path)
+          ? attachment.path
+          : isNonEmptyString(attachment.skillDir)
+            ? attachment.skillDir
             : undefined
     if (path) {
       return {
@@ -223,6 +253,67 @@ function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
 }
 
 /**
+ * Strip protected-thinking blocks from history only when the active provider
+ * tolerates it. Mirrors the gate used during session-resume deserialization:
+ * strip for non-preserve third-party providers, leave Anthropic-native and
+ * preserve-reasoning providers (DeepSeek/Kimi/Z.AI GLM — which 400 on a
+ * stripped block, issue #957) untouched.
+ *
+ * Exposed for callers that rewrite history across a model change (e.g. smart
+ * routing's per-turn model swap), so a model-bound thinking signature is never
+ * replayed to a different model without re-creating the preserve-reasoning 400.
+ */
+export function stripThinkingBlocksIfProviderAllows(
+  messages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const provider = getAPIProvider()
+  const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+    processEnv: process.env,
+    model: process.env.OPENAI_MODEL,
+    providerCategory: provider as NonNullable<
+      Parameters<typeof usesAnthropicNativeMessageFormat>[0]
+    >['providerCategory'],
+  })
+  const isThirdPartyProvider = provider !== 'foundry' && !isAnthropicNativeTransport
+  if (isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()) {
+    return stripThinkingBlocks(messages)
+  }
+  return messages
+}
+
+function parsePrIdentifier(value: string): number | null {
+  const directNumber = parseInt(value, 10)
+  if (!isNaN(directNumber) && directNumber > 0) {
+    return directNumber
+  }
+  const urlMatch = value.match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/)
+  if (urlMatch?.[1]) {
+    return parseInt(urlMatch[1], 10)
+  }
+  return null
+}
+
+export function findResumeLogByPrSelector(
+  logs: LogOption[],
+  selector: PrResumeSelector,
+): LogOption | null {
+  const candidates = logs.filter(log => !log.isSidechain)
+  if (selector === true) {
+    return candidates.find(log => log.prNumber !== undefined) ?? null
+  }
+  if (typeof selector === 'number') {
+    return candidates.find(log => log.prNumber === selector) ?? null
+  }
+
+  const prNumber = parsePrIdentifier(selector)
+  if (prNumber !== null) {
+    return candidates.find(log => log.prNumber === prNumber) ?? null
+  }
+
+  return null
+}
+
+/**
  * Deserializes messages from a log file into the format expected by the REPL.
  * Filters unresolved tool uses, orphaned thinking messages, and appends a
  * synthetic assistant sentinel when the last message is from the user.
@@ -243,18 +334,21 @@ export function deserializeMessagesWithInterruptDetection(
 ): DeserializeResult {
   try {
     // Transform legacy attachment types before processing
-    const migratedMessages = serializedMessages.map(
-      migrateLegacyAttachmentTypes,
-    )
+    const migratedMessages = serializedMessages.flatMap(message => {
+      const migratedMessage = migrateLegacyAttachmentTypes(message)
+      return migratedMessage ? [migratedMessage] : []
+    })
 
-    // Strip invalid permissionMode values from deserialized user messages.
-    // The field is unvalidated JSON from disk and may contain modes from a different build.
+    // Strip invalid or dangerous permissionMode values from deserialized user
+    // messages. The field is unvalidated JSON from disk and only
+    // non-dangerous modes are eligible for rewind restoration.
     const validModes = new Set<string>(PERMISSION_MODES)
     for (const msg of migratedMessages) {
       if (
         msg.type === 'user' &&
         msg.permissionMode !== undefined &&
-        !validModes.has(msg.permissionMode)
+        (!validModes.has(msg.permissionMode) ||
+          isDangerousPermissionMode(msg.permissionMode))
       ) {
         msg.permissionMode = undefined
       }
@@ -282,18 +376,7 @@ export function deserializeMessagesWithInterruptDetection(
     // outgoing OpenAI-format message. Stripping the block leaves the shim with
     // no reasoning text to attach, and the provider 400s with
     // "reasoning_content in the thinking mode must be passed back" (issue #957).
-    const provider = getAPIProvider()
-    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
-      processEnv: process.env,
-      model: process.env.OPENAI_MODEL,
-      providerCategory: provider,
-    })
-    const isThirdPartyProvider =
-      provider !== 'foundry' && !isAnthropicNativeTransport
-    const thinkingStripped =
-      isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()
-        ? stripThinkingBlocks(filteredThinking)
-        : filteredThinking
+    const thinkingStripped = stripThinkingBlocksIfProviderAllows(filteredThinking)
 
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.
@@ -349,6 +432,56 @@ export function deserializeMessagesWithInterruptDetection(
     logError(error as Error)
     throw error
   }
+}
+
+type UdsClientModule = typeof import('./udsClient.js')
+type BgRegistryModule = typeof import('../cli/bgRegistry.js')
+
+type CollectLiveBackgroundSessionIdsDeps = {
+  listAllLiveSessions?: UdsClientModule['listAllLiveSessions']
+  refreshBackgroundSessionStatuses?: BgRegistryModule['refreshBackgroundSessionStatuses']
+  isTerminalBackgroundSession?: BgRegistryModule['isTerminalBackgroundSession']
+}
+
+export async function collectLiveBackgroundSessionIds(
+  deps: CollectLiveBackgroundSessionIdsDeps = {},
+): Promise<Set<string>> {
+  const skip = new Set<string>()
+  try {
+    const listAllLiveSessions =
+      deps.listAllLiveSessions ??
+      (await import('./udsClient.js')).listAllLiveSessions
+    const live = await listAllLiveSessions()
+    for (const session of live) {
+      if (session.kind && session.kind !== 'interactive' && session.sessionId) {
+        skip.add(session.sessionId)
+      }
+    }
+  } catch {
+    // UDS unavailable — local registry below still protects local bg sessions.
+  }
+
+  try {
+    let refreshBackgroundSessionStatuses =
+      deps.refreshBackgroundSessionStatuses
+    let isTerminalBackgroundSession = deps.isTerminalBackgroundSession
+    if (!refreshBackgroundSessionStatuses || !isTerminalBackgroundSession) {
+      const bgRegistry = await import('../cli/bgRegistry.js')
+      refreshBackgroundSessionStatuses ??=
+        bgRegistry.refreshBackgroundSessionStatuses
+      isTerminalBackgroundSession ??= bgRegistry.isTerminalBackgroundSession
+    }
+    const sessions = await refreshBackgroundSessionStatuses()
+    for (const session of sessions) {
+      if (!isTerminalBackgroundSession(session)) {
+        skip.add(session.sessionId)
+      }
+    }
+  } catch {
+    // Registry unavailable or unreadable — fall back to UDS-only results.
+  }
+
+  return skip
 }
 
 /**
@@ -484,9 +617,21 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     if (message.type !== 'attachment') {
       continue
     }
-    if (message.attachment.type === 'invoked_skills') {
-      for (const skill of message.attachment.skills) {
-        if (skill.name && skill.path && skill.content) {
+    const attachment = getAttachmentRecord(message)
+    if (!attachment) {
+      continue
+    }
+    if (attachment.type === 'invoked_skills') {
+      if (!Array.isArray(attachment.skills)) {
+        continue
+      }
+      for (const skill of attachment.skills) {
+        if (
+          isRecord(skill) &&
+          isNonEmptyString(skill.name) &&
+          isNonEmptyString(skill.path) &&
+          isNonEmptyString(skill.content)
+        ) {
           // Resume only happens for the main session, so agentId is null
           addInvokedSkill(skill.name, skill.path, skill.content, null)
         }
@@ -496,7 +641,7 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // in the transcript the model is about to see. sentSkillNames is
     // process-local, so without this every resume re-announces the same
     // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
-    if (message.attachment.type === 'skill_listing') {
+    if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
     }
   }
@@ -516,8 +661,13 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
 export async function loadMessagesFromJsonlPath(path: string): Promise<{
   messages: SerializedMessage[]
   sessionId: UUID | undefined
+  goal: LogOption['goal'] | undefined
 }> {
-  const { messages: byUuid, leafUuids } = await loadTranscriptFile(path)
+  const {
+    messages: byUuid,
+    goalStates,
+    leafUuids,
+  } = await loadTranscriptFile(path)
   let tip: (typeof byUuid extends Map<UUID, infer T> ? T : never) | null = null
   let tipTs = 0
   for (const m of byUuid.values()) {
@@ -528,14 +678,16 @@ export async function loadMessagesFromJsonlPath(path: string): Promise<{
       tip = m
     }
   }
-  if (!tip) return { messages: [], sessionId: undefined }
+  if (!tip) return { messages: [], sessionId: undefined, goal: undefined }
   const chain = buildConversationChain(byUuid, tip)
+  const sessionId = tip.sessionId as UUID | undefined
   return {
     messages: removeExtraFields(chain),
     // Leaf's sessionId — forked sessions copy chain[0] from the source
     // transcript, so the root retains the source session's ID. Matches
     // loadFullLog's mostRecentLeaf.sessionId.
-    sessionId: tip.sessionId as UUID | undefined,
+    sessionId,
+    goal: sessionId ? goalStates.get(sessionId) : undefined,
   }
 }
 
@@ -576,6 +728,7 @@ export async function loadConversationForResume(
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  goal?: LogOption['goal']
   // Full path to the session file (for cross-directory resume)
   fullPath?: string
 } | null> {
@@ -583,6 +736,7 @@ export async function loadConversationForResume(
     let log: LogOption | null = null
     let messages: Message[] | null = null
     let sessionId: UUID | undefined
+    let goal: LogOption['goal'] | undefined
 
     if (source === undefined) {
       // --continue: most recent session, skipping live --bg/daemon sessions
@@ -590,19 +744,7 @@ export async function loadConversationForResume(
       const logsPromise = loadMessageLogs()
       let skip = new Set<string>()
       if (feature('BG_SESSIONS')) {
-        try {
-          const { listAllLiveSessions } = await import('./udsClient.js')
-          const live = await listAllLiveSessions()
-          skip = new Set(
-            live.flatMap(s =>
-              s.kind && s.kind !== 'interactive' && s.sessionId
-                ? [s.sessionId]
-                : [],
-            ),
-          )
-        } catch {
-          // UDS unavailable — treat all sessions as continuable
-        }
+        skip = await collectLiveBackgroundSessionIds()
       }
       const logs = await logsPromise
       log =
@@ -617,6 +759,7 @@ export async function loadConversationForResume(
       const loaded = await loadMessagesFromJsonlPath(sourceJsonlFile)
       messages = loaded.messages
       sessionId = loaded.sessionId
+      goal = loaded.goal
     } else if (typeof source === 'string') {
       // Load specific session by ID
       log = await getLastSessionLog(source as UUID)
@@ -640,6 +783,7 @@ export async function loadConversationForResume(
       if (!sessionId) {
         sessionId = getSessionIdFromLog(log) as UUID
       }
+      goal = log.goal
       // Pass the original session ID to ensure the plan slug is associated with
       // the session we're resuming, not the temporary session ID before resume
       if (sessionId) {
@@ -692,6 +836,7 @@ export async function loadConversationForResume(
       prNumber: log?.prNumber,
       prUrl: log?.prUrl,
       prRepository: log?.prRepository,
+      goal,
       // Include full path for cross-directory resume
       fullPath: log?.fullPath,
     }
@@ -699,4 +844,20 @@ export async function loadConversationForResume(
     logError(error as Error)
     throw error
   }
+}
+
+export async function loadConversationForResumeFromPr(
+  selector: true | string,
+): ReturnType<typeof loadConversationForResume> {
+  const log = findResumeLogByPrSelector(await loadMessageLogs(), selector)
+  if (!log) return null
+  return loadConversationForResume(log, undefined)
+}
+
+export async function findResumeSessionIdByPrSelector(
+  selector: true | string,
+): Promise<UUID | null> {
+  const log = findResumeLogByPrSelector(await loadMessageLogs(), selector)
+  if (!log) return null
+  return getSessionIdFromLog(log) ?? null
 }

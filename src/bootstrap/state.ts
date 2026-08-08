@@ -22,6 +22,12 @@ import { createSignal } from 'src/utils/signal.js'
 type RegisteredHookMatcher = HookCallbackMatcher | PluginHookMatcher
 
 import type { SessionId } from 'src/types/ids.js'
+import type { ReplayIndexBuilder } from 'src/utils/replayIndexBuilder.js'
+
+type ReplayIndexBuilderEntry = {
+  builder: ReplayIndexBuilder
+  projectDir: string | null
+}
 
 // DO NOT ADD MORE STATE HERE - BE JUDICIOUS WITH GLOBAL STATE
 
@@ -105,6 +111,10 @@ type State = {
   useCoworkPlugins: boolean
   // Session-only bypass permissions mode flag (not persisted)
   sessionBypassPermissionsMode: boolean
+  // Session startup dangerous permission mode for integrations that need to
+  // preserve the distinction between bypassPermissions and fullAccess before
+  // the app is fully mounted.
+  sessionDangerousPermissionMode: 'bypassPermissions' | 'fullAccess' | null
   // Session-only flag gating the .claude/scheduled_tasks.json watcher
   // (useScheduledTasks). Set by cronScheduler.start() when the JSON has
   // entries, or by CronCreateTool. Not persisted.
@@ -228,6 +238,8 @@ type State = {
   // logAPISuccess to tag the first post-compaction API call so we can
   // distinguish compaction-induced cache misses from TTL expiry.
   pendingPostCompaction: boolean
+  // Replay index builders for tracking tool executions by session
+  replayIndexBuilders: Map<SessionId, ReplayIndexBuilderEntry>
 }
 
 // ALSO HERE - THINK THRICE BEFORE MODIFYING
@@ -267,7 +279,7 @@ function getInitialState(): State {
     totalLinesRemoved: 0,
     hasUnknownModelCost: false,
     cwd: resolvedCwd,
-    modelUsage: {},
+    modelUsage: emptyModelUsage(),
     mainLoopModelOverride: undefined,
     initialMainLoopModel: null,
     modelStrings: null,
@@ -313,6 +325,7 @@ function getInitialState(): State {
     useCoworkPlugins: false,
     // Session-only bypass permissions mode flag (not persisted)
     sessionBypassPermissionsMode: false,
+    sessionDangerousPermissionMode: null,
     // Scheduled tasks disabled until flag or dialog enables them
     scheduledTasksEnabled: false,
     sessionCronTasks: [],
@@ -378,6 +391,8 @@ function getInitialState(): State {
     lastMainRequestId: undefined,
     lastApiCompletionTimestamp: null,
     pendingPostCompaction: false,
+    // Replay index builders for tracking tool executions
+    replayIndexBuilders: new Map(),
   }
 
   return state
@@ -392,7 +407,7 @@ const STATE: State = getInitialState()
  *
  * **Runtime Requirement:** Uses Node.js `async_hooks.AsyncLocalStorage`.
  * Not available in browsers or non-Node JavaScript environments.
- * SDK consumers must run in a Node.js runtime (Node.js 12.17.0+ or 14.0.0+).
+ * SDK consumers must run in OpenClaude's supported Node.js runtime (>=22.0.0).
  */
 type SdkContext = {
   sessionId: SessionId
@@ -855,12 +870,31 @@ export async function waitForScrollIdle(): Promise<void> {
   }
 }
 
+/**
+ * A null-prototype map for per-model usage. Model ids are arbitrary strings for
+ * custom/OpenAI-compatible providers, so `__proto__` and `constructor` can reach
+ * `STATE.modelUsage[model] = ...`. On a normal object `map['__proto__'] = obj`
+ * invokes the prototype setter (corrupting the map's chain) and a later read of
+ * an absent key returns an inherited member; with a null prototype both become
+ * ordinary own-key operations, so cost accounting stays correct and, critically,
+ * Object.prototype is never polluted.
+ */
+function emptyModelUsage(): { [modelName: string]: ModelUsage } {
+  return Object.create(null) as { [modelName: string]: ModelUsage }
+}
+
 export function getModelUsage(): { [modelName: string]: ModelUsage } {
   return STATE.modelUsage
 }
 
 export function getUsageForModel(model: string): ModelUsage | undefined {
-  return STATE.modelUsage[model]
+  // Own-property lookup: a model id of `constructor` / `__proto__` (arbitrary
+  // for custom/OpenAI-compatible providers) must not resolve to an inherited
+  // Object.prototype member, which callers would then mutate -- for `__proto__`
+  // that mutation lands on Object.prototype itself. See emptyModelUsage.
+  return Object.hasOwn(STATE.modelUsage, model)
+    ? STATE.modelUsage[model]
+    : undefined
 }
 
 /**
@@ -902,7 +936,7 @@ export function resetCostState(): void {
   STATE.totalLinesAdded = 0
   STATE.totalLinesRemoved = 0
   STATE.hasUnknownModelCost = false
-  STATE.modelUsage = {}
+  STATE.modelUsage = emptyModelUsage()
   STATE.promptId = null
 }
 
@@ -936,9 +970,16 @@ export function setCostStateForRestore({
   STATE.totalLinesAdded = totalLinesAdded
   STATE.totalLinesRemoved = totalLinesRemoved
 
-  // Restore per-model usage breakdown
+  // Restore per-model usage breakdown. Re-key into a null-prototype map: a
+  // persisted breakdown deserialized from JSON can carry an own `__proto__`
+  // key, and assigning that object wholesale would reintroduce the prototype
+  // hazard emptyModelUsage exists to avoid.
   if (modelUsage) {
-    STATE.modelUsage = modelUsage
+    const restored = emptyModelUsage()
+    for (const [name, usage] of Object.entries(modelUsage)) {
+      restored[name] = usage
+    }
+    STATE.modelUsage = restored
   }
 
   // Adjust startTime to make wall duration accumulate
@@ -1190,6 +1231,19 @@ export function setSessionBypassPermissionsMode(enabled: boolean): void {
 
 export function getSessionBypassPermissionsMode(): boolean {
   return STATE.sessionBypassPermissionsMode
+}
+
+export function setSessionDangerousPermissionMode(
+  mode: 'bypassPermissions' | 'fullAccess' | null,
+): void {
+  STATE.sessionDangerousPermissionMode = mode
+}
+
+export function getSessionDangerousPermissionMode():
+  | 'bypassPermissions'
+  | 'fullAccess'
+  | null {
+  return STATE.sessionDangerousPermissionMode
 }
 
 export function setScheduledTasksEnabled(enabled: boolean): void {
@@ -1652,3 +1706,57 @@ export function getReplBridgeHandle(): null {
   return null
 }
 
+// Replay index builder management
+
+/**
+ * Get the replay index builder for the current session.
+ * Creates a new one if none exists.
+ */
+export function getReplayIndexBuilder(): ReplayIndexBuilder {
+  const sessionId = getSessionId()
+  let entry = STATE.replayIndexBuilders.get(sessionId)
+  if (!entry) {
+    // Lazy import to avoid circular dependencies
+    const { ReplayIndexBuilder } =
+      require('src/utils/replayIndexBuilder.js') as typeof import('src/utils/replayIndexBuilder.js')
+    entry = {
+      builder: new ReplayIndexBuilder(),
+      projectDir: getSessionProjectDir(),
+    }
+    STATE.replayIndexBuilders.set(sessionId, entry)
+  }
+  return entry.builder
+}
+
+/**
+ * Reset and return the replay index builder.
+ * Used during session cleanup to get the final index.
+ */
+export function resetReplayIndexBuilder(
+  sessionId: SessionId = getSessionId(),
+): ReplayIndexBuilderEntry | null {
+  const entry = STATE.replayIndexBuilders.get(sessionId) ?? null
+  STATE.replayIndexBuilders.delete(sessionId)
+  return entry
+}
+
+/**
+ * Reset and return all replay index builders.
+ * Used during process cleanup so sessions switched in-process do not mix.
+ */
+export function resetAllReplayIndexBuilders(): Array<{
+  sessionId: SessionId
+  builder: ReplayIndexBuilder
+  projectDir: string | null
+}> {
+  const entries = Array.from(
+    STATE.replayIndexBuilders,
+    ([sessionId, entry]) => ({
+      sessionId,
+      builder: entry.builder,
+      projectDir: entry.projectDir,
+    }),
+  )
+  STATE.replayIndexBuilders.clear()
+  return entries
+}

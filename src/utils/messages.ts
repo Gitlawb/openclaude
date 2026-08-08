@@ -24,7 +24,10 @@ import { sanitizeToolNameForAnalytics } from 'src/services/analytics/metadata.js
 import type { AgentId } from 'src/types/ids.js'
 import { companionIntroText } from '../buddy/prompt.js'
 import { NO_CONTENT_MESSAGE } from '../constants/messages.js'
-import { OUTPUT_STYLE_CONFIG } from '../constants/outputStyles.js'
+import {
+  OUTPUT_STYLE_CONFIG,
+  resolveOutputStyle,
+} from '../constants/outputStyles.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import {
   checkStatsigFeatureGate_CACHED_MAY_BE_STALE,
@@ -36,6 +39,7 @@ import {
   getPdfPasswordProtectedErrorMessage,
   getPdfTooLargeErrorMessage,
   getRequestTooLargeErrorMessage,
+  getVisionNotSupportedErrorMessages,
 } from '../services/api/errors.js'
 import type { AnyObject, Progress } from '../Tool.js'
 import { isConnectorTextBlock } from '../types/connectorText.js'
@@ -49,9 +53,7 @@ import type {
   NormalizedUserMessage,
   PartialCompactDirection,
   ProgressMessage,
-  RequestStartEvent,
   StopHookInfo,
-  StreamEvent,
   SystemAgentsKilledMessage,
   SystemAPIErrorMessage,
   SystemApiMetricsMessage,
@@ -68,7 +70,6 @@ import type {
   SystemScheduledTaskFireMessage,
   SystemStopHookSummaryMessage,
   SystemTurnDurationMessage,
-  TombstoneMessage,
   ToolUseSummaryMessage,
   UserMessage,
 } from '../types/message.js'
@@ -84,7 +85,6 @@ import {
 } from './attachments.js'
 import { quote } from './bash/shellQuote.js'
 import { formatNumber, formatTokens } from './format.js'
-import { getPewterLedgerVariant } from './planModeV2.js'
 import { jsonStringify } from './slowOperations.js'
 
 // Hook attachments that have a hookName field (excludes HookPermissionDecisionAttachment)
@@ -105,24 +105,15 @@ import type {
   HookEvent,
   SDKAssistantMessageError,
 } from 'src/entrypoints/agentSdkTypes.js'
-import { EXPLORE_AGENT } from 'src/tools/AgentTool/built-in/exploreAgent.js'
-import { PLAN_AGENT } from 'src/tools/AgentTool/built-in/planAgent.js'
-import { areExplorePlanAgentsEnabled } from 'src/tools/AgentTool/builtInAgents.js'
 import { AGENT_TOOL_NAME } from 'src/tools/AgentTool/constants.js'
-import { ASK_USER_QUESTION_TOOL_NAME } from 'src/tools/AskUserQuestionTool/prompt.js'
 import { BashTool } from 'src/tools/BashTool/BashTool.js'
 import { ExitPlanModeV2Tool } from 'src/tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
-import { FileEditTool } from 'src/tools/FileEditTool/FileEditTool.js'
 import {
   FILE_READ_TOOL_NAME,
   MAX_LINES_TO_READ,
 } from 'src/tools/FileReadTool/prompt.js'
-import { FileWriteTool } from 'src/tools/FileWriteTool/FileWriteTool.js'
-import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
-import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import type { DeepImmutable } from 'src/types/utils.js'
 import { getStrictToolResultPairing } from '../bootstrap/state.js'
-import type { SpinnerMode } from '../components/Spinner.js'
 import {
   COMMAND_ARGS_TAG,
   COMMAND_MESSAGE_TAG,
@@ -147,22 +138,46 @@ import { TASK_OUTPUT_TOOL_NAME } from '../tools/TaskOutputTool/constants.js'
 import { TASK_UPDATE_TOOL_NAME } from '../tools/TaskUpdateTool/constants.js'
 import type { PermissionMode } from '../types/permissions.js'
 import { normalizeToolInput, normalizeToolInputForAPI } from './api.js'
-import { getCurrentProjectConfig } from './config.js'
 import { logAntError, logForDebugging } from './debug.js'
-import { stripIdeContextTags } from './displayTags.js'
 import { hasEmbeddedSearchTools } from './embeddedTools.js'
 import { formatFileSize } from './format.js'
 import { validateImagesForAPI } from './imageValidation.js'
 import { safeParseJSON } from './json.js'
 import { logError, logMCPDebug } from './log.js'
 import { normalizeLegacyToolName } from './permissions/permissionRuleParser.js'
+import { isDangerousPermissionMode } from './permissions/PermissionMode.js'
 import {
   getPlanModeV2AgentCount,
   getPlanModeV2ExploreAgentCount,
   isPlanModeInterviewPhaseEnabled,
 } from './planModeV2.js'
-import { escapeRegExp } from './stringUtils.js'
 import { isTodoV2Enabled } from './tasks.js'
+import {
+  CANCEL_MESSAGE,
+  createUserMessage,
+  INTERRUPT_MESSAGE,
+  INTERRUPT_MESSAGE_FOR_TOOL_USE,
+  isSyntheticApiErrorMessage,
+  REJECT_MESSAGE,
+} from './messages/factories.js'
+import {
+  formatToolResultPairingIssue,
+  validateToolResultPairing,
+  type ToolResultPairingValidationContext,
+} from './messages/toolPairing.js'
+import {
+  getAutoModeInstructions,
+  getPlanModeInstructions,
+  wrapInSystemReminder,
+  wrapMessagesInSystemReminder,
+} from './messages/planMode.js'
+import {
+  appendMessageTagToUserMessage,
+  deriveShortMessageId,
+  stripCallerFieldFromAssistantMessage,
+  stripSnipTagsFromContent,
+  stripToolReferenceBlocksFromUserMessage,
+} from './messages/apiTransform.js'
 
 // Lazy import to avoid circular dependency (teammateMailbox -> teammate -> ... -> messages)
 function getTeammateMailbox(): typeof import('./teammateMailbox.js') {
@@ -194,25 +209,14 @@ export function withMemoryCorrectionHint(message: string): string {
   return message
 }
 
-/**
- * Derive a short stable message ID (6-char base36 string) from a UUID.
- * Used for snip tool referencing — injected into API-bound messages as [id:...] tags.
- * Deterministic: same UUID always produces the same short ID.
- */
-export function deriveShortMessageId(uuid: string): string {
-  // Take first 10 hex chars from the UUID (skipping dashes)
-  const hex = uuid.replace(/-/g, '').slice(0, 10)
-  // Convert to base36 for shorter representation, take 6 chars
-  return parseInt(hex, 16).toString(36).slice(0, 6)
+export {
+  appendMessageTagToUserMessage,
+  deriveShortMessageId,
+  stripCallerFieldFromAssistantMessage,
+  stripSnipTagsFromContent,
+  stripToolReferenceBlocksFromUserMessage,
 }
 
-export const INTERRUPT_MESSAGE = '[Request interrupted by user]'
-export const INTERRUPT_MESSAGE_FOR_TOOL_USE =
-  '[Request interrupted by user for tool use]'
-export const CANCEL_MESSAGE =
-  "The user doesn't want to take this action right now. STOP what you are doing and wait for the user to tell you how to proceed."
-export const REJECT_MESSAGE =
-  "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
 export const REJECT_MESSAGE_WITH_REASON_PREFIX =
   "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the user said:\n"
 export const SUBAGENT_REJECT_MESSAGE =
@@ -239,8 +243,6 @@ export function AUTO_REJECT_MESSAGE(toolName: string): string {
 export function DONT_ASK_REJECT_MESSAGE(toolName: string): string {
   return `Permission to use ${toolName} has been denied because Claude Code is running in don't ask mode. ${DENIAL_WORKAROUND_GUIDANCE}`
 }
-export const NO_RESPONSE_REQUESTED = 'No response requested.'
-
 // Synthetic tool_result content inserted by ensureToolResultPairing when a
 // tool_use block has no matching tool_result. Exported so HFI submission can
 // reject any payload containing it — placeholder satisfies pairing structurally
@@ -299,394 +301,39 @@ export function buildClassifierUnavailableMessage(
   )
 }
 
-export const SYNTHETIC_MODEL = '<synthetic>'
-
-export const SYNTHETIC_MESSAGES = new Set([
+export {
+  CANCEL_MESSAGE,
   INTERRUPT_MESSAGE,
   INTERRUPT_MESSAGE_FOR_TOOL_USE,
-  CANCEL_MESSAGE,
-  REJECT_MESSAGE,
   NO_RESPONSE_REQUESTED,
-])
+  REJECT_MESSAGE,
+  SYNTHETIC_MESSAGES,
+  SYNTHETIC_MODEL,
+  createAssistantAPIErrorMessage,
+  createAssistantMessage,
+  createModelSwitchBreadcrumbs,
+  createProgressMessage,
+  createSyntheticUserCaveatMessage,
+  createToolResultStopMessage,
+  createUserInterruptionMessage,
+  createUserMessage,
+  formatCommandInputTags,
+  getLastAssistantMessage,
+  hasToolCallsInLastAssistantTurn,
+  isSyntheticMessage,
+  prepareUserContent,
+} from './messages/factories.js'
 
-export function isSyntheticMessage(message: Message): boolean {
-  return (
-    message.type !== 'progress' &&
-    message.type !== 'attachment' &&
-    message.type !== 'system' &&
-    Array.isArray(message.message.content) &&
-    message.message.content[0]?.type === 'text' &&
-    SYNTHETIC_MESSAGES.has(message.message.content[0].text)
-  )
-}
-
-function isSyntheticApiErrorMessage(
-  message: Message,
-): message is AssistantMessage & { isApiErrorMessage: true } {
-  return (
-    message.type === 'assistant' &&
-    message.isApiErrorMessage === true &&
-    message.message.model === SYNTHETIC_MODEL
-  )
-}
-
-export function getLastAssistantMessage(
-  messages: Message[],
-): AssistantMessage | undefined {
-  // findLast exits early from the end — much faster than filter + last for
-  // large message arrays (called on every REPL render via useFeedbackSurvey).
-  return messages.findLast(
-    (msg): msg is AssistantMessage => msg.type === 'assistant',
-  )
-}
-
-export function hasToolCallsInLastAssistantTurn(messages: Message[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message && message.type === 'assistant') {
-      const assistantMessage = message as AssistantMessage
-      const content = assistantMessage.message.content
-      if (Array.isArray(content)) {
-        return content.some(block => block.type === 'tool_use')
-      }
-    }
-  }
-  return false
-}
-
-function baseCreateAssistantMessage({
-  content,
-  isApiErrorMessage = false,
-  apiError,
-  error,
-  errorDetails,
-  isVirtual,
-  usage = {
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
-    server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 },
-    service_tier: null,
-    cache_creation: {
-      ephemeral_1h_input_tokens: 0,
-      ephemeral_5m_input_tokens: 0,
-    },
-    inference_geo: null,
-    iterations: null,
-    speed: null,
-  },
-}: {
-  content: BetaContentBlock[]
-  isApiErrorMessage?: boolean
-  apiError?: AssistantMessage['apiError']
-  error?: SDKAssistantMessageError
-  errorDetails?: string
-  isVirtual?: true
-  usage?: Usage
-}): AssistantMessage {
-  return {
-    type: 'assistant',
-    uuid: randomUUID(),
-    timestamp: new Date().toISOString(),
-    message: {
-      id: randomUUID(),
-      container: null,
-      model: SYNTHETIC_MODEL,
-      role: 'assistant',
-      stop_reason: 'stop_sequence',
-      stop_sequence: '',
-      type: 'message',
-      usage,
-      content,
-      context_management: null,
-    },
-    requestId: undefined,
-    apiError,
-    error,
-    errorDetails,
-    isApiErrorMessage,
-    isVirtual,
-  }
-}
-
-export function createAssistantMessage({
-  content,
-  usage,
-  isVirtual,
-}: {
-  content: string | BetaContentBlock[]
-  usage?: Usage
-  isVirtual?: true
-}): AssistantMessage {
-  return baseCreateAssistantMessage({
-    content:
-      typeof content === 'string'
-        ? [
-            {
-              type: 'text' as const,
-              text: content === '' ? NO_CONTENT_MESSAGE : content,
-            } as BetaContentBlock, // NOTE: citations field is not supported in Bedrock API
-          ]
-        : content,
-    usage,
-    isVirtual,
-  })
-}
-
-export function createAssistantAPIErrorMessage({
-  content,
-  apiError,
-  error,
-  errorDetails,
-}: {
-  content: string
-  apiError?: AssistantMessage['apiError']
-  error?: SDKAssistantMessageError
-  errorDetails?: string
-}): AssistantMessage {
-  return baseCreateAssistantMessage({
-    content: [
-      {
-        type: 'text' as const,
-        text: content === '' ? NO_CONTENT_MESSAGE : content,
-      } as BetaContentBlock, // NOTE: citations field is not supported in Bedrock API
-    ],
-    isApiErrorMessage: true,
-    apiError,
-    error,
-    errorDetails,
-  })
-}
-
-export function createUserMessage({
-  content,
-  isMeta,
-  isVisibleInTranscriptOnly,
-  isVirtual,
-  isCompactSummary,
-  summarizeMetadata,
-  toolUseResult,
-  mcpMeta,
-  uuid,
-  timestamp,
-  imagePasteIds,
-  sourceToolAssistantUUID,
-  permissionMode,
-  origin,
-}: {
-  content: string | ContentBlockParam[]
-  isMeta?: true
-  isVisibleInTranscriptOnly?: true
-  isVirtual?: true
-  isCompactSummary?: true
-  toolUseResult?: unknown // Matches tool's `Output` type
-  /** MCP protocol metadata to pass through to SDK consumers (never sent to model) */
-  mcpMeta?: {
-    _meta?: Record<string, unknown>
-    structuredContent?: Record<string, unknown>
-  }
-  uuid?: UUID | string
-  timestamp?: string
-  imagePasteIds?: number[]
-  // For tool_result messages: the UUID of the assistant message containing the matching tool_use
-  sourceToolAssistantUUID?: UUID
-  // Permission mode when message was sent (for rewind restoration)
-  permissionMode?: PermissionMode
-  summarizeMetadata?: {
-    messagesSummarized: number
-    userContext?: string
-    direction?: PartialCompactDirection
-  }
-  // Provenance of this message. undefined = human (keyboard).
-  origin?: MessageOrigin
-}): UserMessage {
-  const m: UserMessage = {
-    type: 'user',
-    message: {
-      role: 'user',
-      content: content || NO_CONTENT_MESSAGE, // Make sure we don't send empty messages
-    },
-    isMeta,
-    isVisibleInTranscriptOnly,
-    isVirtual,
-    isCompactSummary,
-    summarizeMetadata,
-    uuid: (uuid as UUID | undefined) || randomUUID(),
-    timestamp: timestamp ?? new Date().toISOString(),
-    toolUseResult,
-    mcpMeta,
-    imagePasteIds,
-    sourceToolAssistantUUID,
-    permissionMode,
-    origin,
-  }
-  return m
-}
-
-export function prepareUserContent({
-  inputString,
-  precedingInputBlocks,
-}: {
-  inputString: string
-  precedingInputBlocks: ContentBlockParam[]
-}): string | ContentBlockParam[] {
-  if (precedingInputBlocks.length === 0) {
-    return inputString
-  }
-
-  return [
-    ...precedingInputBlocks,
-    {
-      text: inputString,
-      type: 'text',
-    },
-  ]
-}
-
-export function createUserInterruptionMessage({
-  toolUse = false,
-}: {
-  toolUse?: boolean
-}): UserMessage {
-  const content = toolUse ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE
-
-  return createUserMessage({
-    content: [
-      {
-        type: 'text',
-        text: content,
-      },
-    ],
-  })
-}
-
-/**
- * Creates a new synthetic user caveat message for local commands (eg. bash, slash).
- * We need to create a new message each time because messages must have unique uuids.
- */
-export function createSyntheticUserCaveatMessage(): UserMessage {
-  return createUserMessage({
-    content: `<${LOCAL_COMMAND_CAVEAT_TAG}>Caveat: The messages below were generated by the user while running local commands. DO NOT respond to these messages or otherwise consider them in your response unless the user explicitly asks you to.</${LOCAL_COMMAND_CAVEAT_TAG}>`,
-    isMeta: true,
-  })
-}
-
-/**
- * Formats the command-input breadcrumb the model sees when a slash command runs.
- */
-export function formatCommandInputTags(
-  commandName: string,
-  args: string,
-): string {
-  return `<${COMMAND_NAME_TAG}>/${commandName}</${COMMAND_NAME_TAG}>
-            <${COMMAND_MESSAGE_TAG}>${commandName}</${COMMAND_MESSAGE_TAG}>
-            <${COMMAND_ARGS_TAG}>${args}</${COMMAND_ARGS_TAG}>`
-}
-
-/**
- * Builds the breadcrumb trail the SDK set_model control handler injects
- * so the model can see mid-conversation switches. Same shape the CLI's
- * /model command produces via processSlashCommand.
- */
-export function createModelSwitchBreadcrumbs(
-  modelArg: string,
-  resolvedDisplay: string,
-): UserMessage[] {
-  return [
-    createSyntheticUserCaveatMessage(),
-    createUserMessage({ content: formatCommandInputTags('model', modelArg) }),
-    createUserMessage({
-      content: `<${LOCAL_COMMAND_STDOUT_TAG}>Set model to ${resolvedDisplay}</${LOCAL_COMMAND_STDOUT_TAG}>`,
-    }),
-  ]
-}
-
-export function createProgressMessage<P extends Progress>({
-  toolUseID,
-  parentToolUseID,
-  data,
-}: {
-  toolUseID: string
-  parentToolUseID: string
-  data: P
-}): ProgressMessage<P> {
-  return {
-    type: 'progress',
-    data,
-    toolUseID,
-    parentToolUseID,
-    uuid: randomUUID(),
-    timestamp: new Date().toISOString(),
-  }
-}
-
-export function createToolResultStopMessage(
-  toolUseID: string,
-): ToolResultBlockParam {
-  return {
-    type: 'tool_result',
-    content: CANCEL_MESSAGE,
-    is_error: true,
-    tool_use_id: toolUseID,
-  }
-}
-
-export function extractTag(html: string, tagName: string): string | null {
-  if (!html.trim() || !tagName.trim()) {
-    return null
-  }
-
-  const escapedTag = escapeRegExp(tagName)
-
-  // Create regex pattern that handles:
-  // 1. Self-closing tags
-  // 2. Tags with attributes
-  // 3. Nested tags of the same type
-  // 4. Multiline content
-  const pattern = new RegExp(
-    `<${escapedTag}(?:\\s+[^>]*)?>` + // Opening tag with optional attributes
-      '([\\s\\S]*?)' + // Content (non-greedy match)
-      `<\\/${escapedTag}>`, // Closing tag
-    'gi',
-  )
-
-  let match
-  let depth = 0
-  let lastIndex = 0
-  const openingTag = new RegExp(`<${escapedTag}(?:\\s+[^>]*?)?>`, 'gi')
-  const closingTag = new RegExp(`<\\/${escapedTag}>`, 'gi')
-
-  while ((match = pattern.exec(html)) !== null) {
-    // Check for nested tags
-    const content = match[1]
-    const beforeMatch = html.slice(lastIndex, match.index)
-
-    // Reset depth counter
-    depth = 0
-
-    // Count opening tags before this match
-    openingTag.lastIndex = 0
-    while (openingTag.exec(beforeMatch) !== null) {
-      depth++
-    }
-
-    // Count closing tags before this match
-    closingTag.lastIndex = 0
-    while (closingTag.exec(beforeMatch) !== null) {
-      depth--
-    }
-
-    // Only include content if we're at the correct nesting level
-    if (depth === 0 && content) {
-      return content
-    }
-
-    lastIndex = match.index + match[0].length
-  }
-
-  return null
-}
+export {
+  extractTag,
+  extractTextContent,
+  getAssistantMessageText,
+  getContentText,
+  getUserMessageText,
+  isEmptyMessageText,
+  stripPromptXMLTags,
+  textForResubmit,
+} from './messages/content.js'
 
 export function isNotEmptyMessage(message: Message): boolean {
   if (
@@ -721,108 +368,7 @@ export function isNotEmptyMessage(message: Message): boolean {
   )
 }
 
-// Deterministic UUID derivation. Produces a stable UUID-shaped string from a
-// parent UUID + content block index so that the same input always produces the
-// same key across calls. Used by normalizeMessages and synthetic message creation.
-export function deriveUUID(parentUUID: UUID, index: number): UUID {
-  const hex = index.toString(16).padStart(12, '0')
-  return `${parentUUID.slice(0, 24)}${hex}` as UUID
-}
-
-// Split messages, so each content block gets its own message
-export function normalizeMessages(
-  messages: AssistantMessage[],
-): NormalizedAssistantMessage[]
-export function normalizeMessages(
-  messages: UserMessage[],
-): NormalizedUserMessage[]
-export function normalizeMessages(
-  messages: (AssistantMessage | UserMessage)[],
-): (NormalizedAssistantMessage | NormalizedUserMessage)[]
-export function normalizeMessages(messages: Message[]): NormalizedMessage[]
-export function normalizeMessages(messages: Message[]): NormalizedMessage[] {
-  // isNewChain tracks whether we need to generate new UUIDs for messages when normalizing.
-  // When a message has multiple content blocks, we split it into multiple messages,
-  // each with a single content block. When this happens, we need to generate new UUIDs
-  // for all subsequent messages to maintain proper ordering and prevent duplicate UUIDs.
-  // This flag is set to true once we encounter a message with multiple content blocks,
-  // and remains true for all subsequent messages in the normalization process.
-  let isNewChain = false
-  return messages.flatMap(message => {
-    switch (message.type) {
-      case 'assistant': {
-        isNewChain = isNewChain || message.message.content.length > 1
-        return message.message.content.map((_, index) => {
-          const uuid = isNewChain
-            ? deriveUUID(message.uuid, index)
-            : message.uuid
-          return {
-            type: 'assistant' as const,
-            timestamp: message.timestamp,
-            message: {
-              ...message.message,
-              content: [_],
-              context_management: message.message.context_management ?? null,
-            },
-            isMeta: message.isMeta,
-            isVirtual: message.isVirtual,
-            requestId: message.requestId,
-            uuid,
-            error: message.error,
-            isApiErrorMessage: message.isApiErrorMessage,
-            advisorModel: message.advisorModel,
-          } as NormalizedAssistantMessage
-        })
-      }
-      case 'attachment':
-        return [message]
-      case 'progress':
-        return [message]
-      case 'system':
-        return [message]
-      case 'user': {
-        if (typeof message.message.content === 'string') {
-          const uuid = isNewChain ? deriveUUID(message.uuid, 0) : message.uuid
-          return [
-            {
-              ...message,
-              uuid,
-              message: {
-                ...message.message,
-                content: [{ type: 'text', text: message.message.content }],
-              },
-            } as NormalizedMessage,
-          ]
-        }
-        isNewChain = isNewChain || message.message.content.length > 1
-        let imageIndex = 0
-        return message.message.content.map((_, index) => {
-          const isImage = _.type === 'image'
-          // For image content blocks, extract just the ID for this image
-          const imageId =
-            isImage && message.imagePasteIds
-              ? message.imagePasteIds[imageIndex]
-              : undefined
-          if (isImage) imageIndex++
-          return {
-            ...createUserMessage({
-              content: [_],
-              toolUseResult: message.toolUseResult,
-              mcpMeta: message.mcpMeta,
-              isMeta: message.isMeta,
-              isVisibleInTranscriptOnly: message.isVisibleInTranscriptOnly,
-              isVirtual: message.isVirtual,
-              timestamp: message.timestamp,
-              imagePasteIds: imageId !== undefined ? [imageId] : undefined,
-              origin: message.origin,
-            }),
-            uuid: isNewChain ? deriveUUID(message.uuid, index) : message.uuid,
-          } as NormalizedMessage
-        })
-      }
-    }
-  })
-}
+export { deriveUUID, normalizeMessages, normalizeMessagesCached } from './messages/normalize.js'
 
 type ToolUseRequestMessage = NormalizedAssistantMessage & {
   message: { content: [ToolUseBlock] }
@@ -855,19 +401,14 @@ export function isToolUseResultMessage(
 
 // Re-order, to move result messages to be after their tool use messages
 export function reorderMessagesInUI(
-  messages: (
-    | NormalizedUserMessage
-    | NormalizedAssistantMessage
-    | AttachmentMessage
-    | SystemMessage
-  )[],
+  messages: any[],  // eslint-disable-line @typescript-eslint/no-explicit-any
   syntheticStreamingToolUseMessages: NormalizedAssistantMessage[],
-): (
-  | NormalizedUserMessage
-  | NormalizedAssistantMessage
-  | AttachmentMessage
-  | SystemMessage
-)[] {
+): any[] {  // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Boolean wrappers to avoid type-predicate narrowing (all message types are `any` stubs,
+  // so `Exclude<any, any>` = `never` after type guards)
+  const isToolUse = (m: any): boolean => isToolUseRequestMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
+  const isHook = (m: any): boolean => isHookAttachmentMessage(m) // eslint-disable-line @typescript-eslint/no-explicit-any
+
   // Maps tool use ID to its related messages
   const toolUseGroups = new Map<
     string,
@@ -880,9 +421,10 @@ export function reorderMessagesInUI(
   >()
 
   // First pass: group messages by tool use ID
-  for (const message of messages) {
+  for (const _msg of messages) {
+    const message: any = _msg // eslint-disable-line @typescript-eslint/no-explicit-any
     // Handle tool use messages
-    if (isToolUseRequestMessage(message)) {
+    if (isToolUse(message)) {
       const toolUseID = message.message.content[0]?.id
       if (toolUseID) {
         if (!toolUseGroups.has(toolUseID)) {
@@ -900,7 +442,7 @@ export function reorderMessagesInUI(
 
     // Handle pre-tool-use hooks
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       message.attachment.hookEvent === 'PreToolUse'
     ) {
       const toolUseID = message.attachment.toolUseID
@@ -936,7 +478,7 @@ export function reorderMessagesInUI(
 
     // Handle post-tool-use hooks
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       message.attachment.hookEvent === 'PostToolUse'
     ) {
       const toolUseID = message.attachment.toolUseID
@@ -954,17 +496,13 @@ export function reorderMessagesInUI(
   }
 
   // Second pass: reconstruct the message list in the correct order
-  const result: (
-    | NormalizedUserMessage
-    | NormalizedAssistantMessage
-    | AttachmentMessage
-    | SystemMessage
-  )[] = []
+  const result: any[] = [] // eslint-disable-line @typescript-eslint/no-explicit-any
   const processedToolUses = new Set<string>()
 
-  for (const message of messages) {
+  for (const _msg of messages) {
+    const message: any = _msg // eslint-disable-line @typescript-eslint/no-explicit-any
     // Check if this is a tool use
-    if (isToolUseRequestMessage(message)) {
+    if (isToolUse(message)) {
       const toolUseID = message.message.content[0]?.id
       if (toolUseID && !processedToolUses.has(toolUseID)) {
         processedToolUses.add(toolUseID)
@@ -984,7 +522,7 @@ export function reorderMessagesInUI(
 
     // Check if this message is part of a tool use group
     if (
-      isHookAttachmentMessage(message) &&
+      isHook(message) &&
       (message.attachment.hookEvent === 'PreToolUse' ||
         message.attachment.hookEvent === 'PostToolUse')
     ) {
@@ -1535,6 +1073,19 @@ export function isSystemLocalCommandMessage(
 }
 
 /**
+ * A context-collapse summary placeholder. Like local-command system messages,
+ * its content must survive model-input normalization (converted to a user
+ * message) so the collapsed-span summary stays visible to the model.
+ */
+export function isCollapseSummaryMessage(message: Message): boolean {
+  return (
+    message.type === 'system' &&
+    message.subtype === 'informational' &&
+    (message as { isCollapseSummary?: boolean }).isCollapseSummary === true
+  )
+}
+
+/**
  * Strips tool_reference blocks for tools that no longer exist from tool_result content.
  * This handles the case where a session was saved with MCP tools that are no longer
  * available (e.g., MCP server was disconnected, renamed, or removed).
@@ -1608,166 +1159,6 @@ function stripUnavailableToolReferencesFromUserMessage(
         return {
           ...block,
           content: filteredContent,
-        }
-      }),
-    },
-  }
-}
-
-/**
- * Appends a [id:...] message ID tag to the last text block of a user message.
- * Only mutates the API-bound copy, not the stored message.
- * This lets Claude reference message IDs when calling the snip tool.
- */
-function appendMessageTagToUserMessage(message: UserMessage): UserMessage {
-  if (message.isMeta) {
-    return message
-  }
-
-  const tag = `\n[id:${deriveShortMessageId(message.uuid)}]`
-
-  const content = message.message.content
-
-  // Handle string content (most common for simple text input)
-  if (typeof content === 'string') {
-    return {
-      ...message,
-      message: {
-        ...message.message,
-        content: content + tag,
-      },
-    }
-  }
-
-  if (!Array.isArray(content) || content.length === 0) {
-    return message
-  }
-
-  // Find the last text block
-  let lastTextIdx = -1
-  for (let i = content.length - 1; i >= 0; i--) {
-    if (content[i]!.type === 'text') {
-      lastTextIdx = i
-      break
-    }
-  }
-  if (lastTextIdx === -1) {
-    return message
-  }
-
-  const newContent = [...content]
-  const textBlock = newContent[lastTextIdx] as TextBlockParam
-  newContent[lastTextIdx] = {
-    ...textBlock,
-    text: textBlock.text + tag,
-  }
-
-  return {
-    ...message,
-    message: {
-      ...message.message,
-      content: newContent as typeof content,
-    },
-  }
-}
-
-/**
- * Strips tool_reference blocks from tool_result content in a user message.
- * tool_reference blocks are only valid when the tool search beta is enabled.
- * When tool search is disabled, we need to remove these blocks to avoid API errors.
- */
-export function stripToolReferenceBlocksFromUserMessage(
-  message: UserMessage,
-): UserMessage {
-  const content = message.message.content
-  if (!Array.isArray(content)) {
-    return message
-  }
-
-  const hasToolReference = content.some(
-    block =>
-      block.type === 'tool_result' &&
-      Array.isArray(block.content) &&
-      block.content.some(isToolReferenceBlock),
-  )
-
-  if (!hasToolReference) {
-    return message
-  }
-
-  return {
-    ...message,
-    message: {
-      ...message.message,
-      content: content.map(block => {
-        if (block.type !== 'tool_result' || !Array.isArray(block.content)) {
-          return block
-        }
-
-        // Filter out tool_reference blocks from tool_result content
-        const filteredContent = block.content.filter(
-          c => !isToolReferenceBlock(c),
-        )
-
-        // If all content was tool_reference blocks, replace with a placeholder
-        if (filteredContent.length === 0) {
-          return {
-            ...block,
-            content: [
-              {
-                type: 'text' as const,
-                text: '[Tool references removed - tool search not enabled]',
-              },
-            ],
-          }
-        }
-
-        return {
-          ...block,
-          content: filteredContent,
-        }
-      }),
-    },
-  }
-}
-
-/**
- * Strips the 'caller' field from tool_use blocks in an assistant message.
- * The 'caller' field is only valid when the tool search beta is enabled.
- * When tool search is disabled, we need to remove this field to avoid API errors.
- *
- * NOTE: This function only strips the 'caller' field - it does NOT normalize
- * tool inputs (that's done by normalizeToolInputForAPI in normalizeMessagesForAPI).
- * This is intentional: this helper is used for model-specific post-processing
- * AFTER normalizeMessagesForAPI has already run, so inputs are already normalized.
- */
-export function stripCallerFieldFromAssistantMessage(
-  message: AssistantMessage,
-): AssistantMessage {
-  const hasCallerField = message.message.content.some(
-    block =>
-      block.type === 'tool_use' && 'caller' in block && block.caller !== null,
-  )
-
-  if (!hasCallerField) {
-    return message
-  }
-
-  return {
-    ...message,
-    message: {
-      ...message.message,
-      content: message.message.content.map(block => {
-        if (block.type !== 'tool_use') {
-          return block
-        }
-        // Explicitly construct with only standard API fields
-        return {
-          type: 'tool_use' as const,
-          id: block.id,
-          name: block.name,
-          input: block.input,
-          ...(block.extra_content ? { extra_content: block.extra_content } : {})
         }
       }),
     },
@@ -1993,8 +1384,82 @@ export function normalizeMessagesForAPI(
   messages: Message[],
   tools: Tools = [],
 ): (UserMessage | AssistantMessage)[] {
+  const containsStripTarget = (
+    content: ContentBlockParam[],
+    types: Set<string>,
+  ): boolean => content.some(block =>
+    types.has(block.type) ||
+    (block.type === 'tool_result' &&
+      Array.isArray(block.content) &&
+      containsStripTarget(block.content as ContentBlockParam[], types)),
+  )
+  const stripTargetsFromContent = (
+    content: ContentBlockParam[],
+    types: Set<string>,
+  ): ContentBlockParam[] => content
+    .filter(block => !types.has(block.type))
+    .map(block => {
+      if (block.type !== 'tool_result' || !Array.isArray(block.content)) {
+        return block
+      }
+      const strippedContent = stripTargetsFromContent(
+        block.content as ContentBlockParam[],
+        types,
+      )
+      return {
+        ...block,
+        // A tool result must retain content to preserve the paired tool-use
+        // contract and avoid OpenAI-compatible providers rejecting an empty
+        // role: tool message after media is removed.
+        content: (strippedContent.length > 0
+          ? strippedContent
+          : [{ type: 'text', text: '[Media removed after provider rejection.]' }]
+        ) as typeof block.content,
+      }
+    })
+  const stripMediaFromUserMessage = (
+    message: UserMessage,
+    types: Set<string>,
+  ): UserMessage => {
+    const content = message.message.content
+    if (!Array.isArray(content)) return message
+    let imageIndex = 0
+    const imageOwners: Array<string | null> = []
+    for (const block of content) {
+      if (block.type !== 'image') continue
+      const owner = message.imagePermissionToolUseIds?.[imageIndex++] ?? null
+      if (!types.has(block.type)) imageOwners.push(owner)
+    }
+    const filtered = stripTargetsFromContent(content, types)
+    return {
+      ...message,
+      imagePermissionToolUseIds:
+        imageOwners.length > 0 ? imageOwners : undefined,
+      message: {
+        ...message.message,
+        content: filtered.length > 0
+          ? filtered
+          : [{
+              type: 'text',
+              text: '[Media removed after provider rejection.]',
+            }],
+      },
+    }
+  }
   // Build set of available tool names for filtering unavailable tool references
   const availableToolNames = new Set(tools.map(t => t.name))
+
+  // Whether to inject internal snip ids this pass. Gate must match
+  // SnipTool.isEnabled() and skip test mode — markers change message content
+  // hashes, breaking VCR fixture lookup. Computed once here so the pre-merge
+  // injection (in the user case) and the post-merge sweep below share it.
+  let injectSnipTags = false
+  if (feature('HISTORY_SNIP') && process.env.NODE_ENV !== 'test') {
+    const { isSnipRuntimeEnabled } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
+    injectSnipTags = isSnipRuntimeEnabled()
+  }
 
   // First, reorder attachments to bubble up until they hit a tool result or assistant message
   // Then strip virtual messages — they're display-only (e.g. REPL inner tool
@@ -2010,11 +1475,32 @@ export function normalizeMessagesForAPI(
     [getPdfInvalidErrorMessage()]: new Set(['document']),
     [getImageTooLargeErrorMessage()]: new Set(['image']),
     [getRequestTooLargeErrorMessage()]: new Set(['document', 'image']),
+    // Issue #1421: existing transcripts poisoned by a 400 "text is not set"
+    // (Xiaomi Mimo + non-vision model) carry an image-only tool_result that
+    // would re-trigger the same 400 on every retry. Match the canonical
+    // message so `normalizeMessagesForAPI` strips the `image` blocks from
+    // the preceding tool_result user message on resume / next turn.
+    ...Object.fromEntries(
+      getVisionNotSupportedErrorMessages().map(message => [
+        message,
+        new Set(['image']),
+      ]),
+    ),
   }
 
   // Walk the reordered messages to build a targeted strip map:
   // userMessageUUID → set of block types to strip from that message.
   const stripTargets = new Map<string, Set<string>>()
+  const addStripTarget = (uuid: string, types: Set<string>): void => {
+    const existing = stripTargets.get(uuid)
+    if (existing) {
+      for (const type of types) {
+        existing.add(type)
+      }
+      return
+    }
+    stripTargets.set(uuid, new Set(types))
+  }
   for (let i = 0; i < reorderedMessages.length; i++) {
     const msg = reorderedMessages[i]!
     if (!isSyntheticApiErrorMessage(msg)) {
@@ -2033,26 +1519,43 @@ export function normalizeMessagesForAPI(
     if (!blockTypesToStrip) {
       continue
     }
-    // Walk backward to find the nearest preceding isMeta user message
+    // Provider errors do not identify the rejected attachment. Strip the
+    // matching block type from every contiguous user message in this failed
+    // turn: choosing only one adjacent message can retain the bad payload and
+    // make every retry fail again.
     for (let j = i - 1; j >= 0; j--) {
       const candidate = reorderedMessages[j]!
-      if (candidate.type === 'user' && candidate.isMeta) {
-        const existing = stripTargets.get(candidate.uuid)
-        if (existing) {
-          for (const t of blockTypesToStrip) {
-            existing.add(t)
-          }
-        } else {
-          stripTargets.set(candidate.uuid, new Set(blockTypesToStrip))
+      if (candidate.type === 'user') {
+        const content = candidate.message.content
+        if (
+          !Array.isArray(content) ||
+          !containsStripTarget(content, blockTypesToStrip)
+        ) {
+          continue
         }
-        break
+        addStripTarget(candidate.uuid, blockTypesToStrip)
+        continue
       }
-      // Skip over other synthetic error messages or non-meta messages
+      if (candidate.type === 'attachment') {
+        const normalized = normalizeAttachmentForAPI(candidate.attachment)
+        if (normalized.some(message =>
+          Array.isArray(message.message.content) &&
+          containsStripTarget(message.message.content, blockTypesToStrip)
+        )) {
+          addStripTarget(candidate.uuid, blockTypesToStrip)
+        }
+        continue
+      }
+      // Skip over other synthetic error messages.
       if (isSyntheticApiErrorMessage(candidate)) {
         continue
       }
-      // Stop if we hit an assistant message or non-meta user message
-      break
+      // Only an assistant message starts an earlier API turn. Progress and
+      // filtered system records are not sent to the provider and must not
+      // prevent cleanup of media in the failed request.
+      if (candidate.type === 'assistant') {
+        break
+      }
     }
   }
 
@@ -2065,10 +1568,13 @@ export function normalizeMessagesForAPI(
         | UserMessage
         | AssistantMessage
         | AttachmentMessage
-        | SystemLocalCommandMessage => {
+        | SystemLocalCommandMessage
+        | SystemInformationalMessage => {
         if (
           _.type === 'progress' ||
-          (_.type === 'system' && !isSystemLocalCommandMessage(_)) ||
+          (_.type === 'system' &&
+            !isSystemLocalCommandMessage(_) &&
+            !isCollapseSummaryMessage(_)) ||
           isSyntheticApiErrorMessage(_)
         ) {
           return false
@@ -2080,11 +1586,25 @@ export function normalizeMessagesForAPI(
       switch (message.type) {
         case 'system': {
           // local_command system messages need to be included as user messages
-          // so the model can reference previous command output in later turns
+          // so the model can reference previous command output in later turns.
+          // Context-collapse summaries take the same path so the <collapsed>
+          // summary stays visible after its archived span is removed.
+          //
+          // Preserve isMeta: collapse-summary placeholders are created isMeta so
+          // the snip-tag sweep (appendMessageTagToUserMessage skips isMeta) does
+          // not mark the only replacement for an archived span as snippable,
+          // which would let the model remove the summary collapse relies on.
+          // local_command messages carry no isMeta and stay snippable as before.
           const userMsg = createUserMessage({
             content: message.content,
             uuid: message.uuid,
             timestamp: message.timestamp,
+            isMeta: message.isMeta,
+            // Carry the collapse-summary marker onto the user message so it
+            // stays non-snippable even after a merge clears isMeta (a merge
+            // with an adjacent real user turn would otherwise expose the
+            // <collapsed> summary under a snippable id).
+            isCollapseSummary: isCollapseSummaryMessage(message),
           })
           const lastMessage = last(result)
           if (lastMessage?.type === 'user') {
@@ -2113,30 +1633,15 @@ export function normalizeMessagesForAPI(
             )
           }
 
-          // Strip document/image blocks from the specific meta user message that
+          // Strip document/image blocks from the specific user message that
           // preceded a PDF/image/request-too-large error, to prevent re-sending
           // the problematic content on every subsequent API call.
           const typesToStrip = stripTargets.get(normalizedMessage.uuid)
-          if (typesToStrip && normalizedMessage.isMeta) {
-            const content = normalizedMessage.message.content
-            if (Array.isArray(content)) {
-              const filtered = content.filter(
-                block => !typesToStrip.has(block.type),
-              )
-              if (filtered.length === 0) {
-                // All content blocks were stripped; skip this message entirely
-                return
-              }
-              if (filtered.length < content.length) {
-                normalizedMessage = {
-                  ...normalizedMessage,
-                  message: {
-                    ...normalizedMessage.message,
-                    content: filtered,
-                  },
-                }
-              }
-            }
+          if (typesToStrip) {
+            normalizedMessage = stripMediaFromUserMessage(
+              normalizedMessage,
+              typesToStrip,
+            )
           }
 
           // Server renders tool_reference expansion as <functions>...</functions>
@@ -2150,8 +1655,8 @@ export function normalizeMessagesForAPI(
           // tool_reference inside the block is a server ValueError.
           // Idempotent: query.ts calls this per-tool-result; the output flows
           // back through here via claude.ts on the next API request. The first
-          // pass's sibling gets a \n[id:xxx] suffix from appendMessageTag below,
-          // so startsWith matches both bare and tagged forms.
+          // pass's sibling gets an internal snip marker from appendMessageTag
+          // below, so startsWith matches both bare and marked forms.
           //
           // Gated OFF when tengu_toolref_defer_j8m is active — that gate
           // enables relocateToolReferenceSiblings in post-processing below,
@@ -2185,6 +1690,22 @@ export function normalizeMessagesForAPI(
                 },
               }
             }
+          }
+
+          // Inject the internal snip id BEFORE merging consecutive user messages.
+          // A parallel-tool assistant turn yields several adjacent tool_result
+          // user messages; mergeUserMessages keeps only the first operand's uuid,
+          // so tagging only after the merge (the sweep below) would expose just
+          // one sibling's id. snipCompactIfNeeded refuses to drop a single result
+          // of such a turn (it would orphan the surviving tool_use), so the model
+          // needs every sibling's id to request the whole-turn removal the snip
+          // prompt tells it to make. Tagging each message here preserves all ids
+          // through the merge (joinTextAtSeam keeps both text blocks) and matches
+          // the live path, where each result is tagged individually at push time
+          // (query.ts). appendMessageTagToUserMessage is idempotent, so the
+          // post-merge sweep below is a no-op for messages already marked here.
+          if (injectSnipTags) {
+            normalizedMessage = appendMessageTagToUserMessage(normalizedMessage)
           }
 
           // If the last message is also a user message, merge them
@@ -2276,11 +1797,20 @@ export function normalizeMessagesForAPI(
           const rawAttachmentMessage = normalizeAttachmentForAPI(
             message.attachment,
           )
+          const typesToStrip = stripTargets.get(message.uuid)
+          const strippedAttachmentMessage = typesToStrip
+            ? rawAttachmentMessage.map(attachmentMessage => {
+                return stripMediaFromUserMessage(
+                  attachmentMessage,
+                  typesToStrip,
+                )
+              })
+            : rawAttachmentMessage
           const attachmentMessage = checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
             'tengu_chair_sermon',
           )
-            ? rawAttachmentMessage.map(ensureSystemReminderWrap)
-            : rawAttachmentMessage
+            ? strippedAttachmentMessage.map(ensureSystemReminderWrap)
+            : strippedAttachmentMessage
 
           // If the last message is also a user message, merge them
           const lastMessage = last(result)
@@ -2348,23 +1878,18 @@ export function normalizeMessagesForAPI(
   // image-in-error tool_result 400s forever.
   const sanitized = sanitizeErrorToolResultContent(smooshed)
 
-  // Append message ID tags for snip tool visibility (after all merging,
-  // so tags always match the surviving message's messageId field).
-  // Skip in test mode — tags change message content hashes, breaking
-  // VCR fixture lookup. Gate must match SnipTool.isEnabled() — don't
-  // inject [id:] tags when the tool isn't available (confuses the model
-  // and wastes tokens on every non-meta user message for every ant).
-  if (feature('HISTORY_SNIP') && process.env.NODE_ENV !== 'test') {
-    const { isSnipRuntimeEnabled } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
-    if (isSnipRuntimeEnabled()) {
-      for (let i = 0; i < sanitized.length; i++) {
-        if (sanitized[i]!.type === 'user') {
-          sanitized[i] = appendMessageTagToUserMessage(
-            sanitized[i] as UserMessage,
-          )
-        }
+  // Post-merge sweep for internal snip ids. User messages folded in the loop
+  // above are already marked pre-merge (so every parallel-tool sibling's id
+  // survives the merge); this catches user messages synthesized during
+  // normalization that never went through that path — local_command system
+  // messages and attachments promoted to user turns. appendMessageTagToUserMessage
+  // is idempotent, so it is a no-op for anything already marked above.
+  if (injectSnipTags) {
+    for (let i = 0; i < sanitized.length; i++) {
+      if (sanitized[i]!.type === 'user') {
+        sanitized[i] = appendMessageTagToUserMessage(
+          sanitized[i] as UserMessage,
+        )
       }
     }
   }
@@ -2383,6 +1908,7 @@ export function mergeUserMessagesAndToolResults(
   const currentContent = normalizeUserTextContent(b.message.content)
   return {
     ...a,
+    imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
     message: {
       ...a.message,
       content: hoistToolResults(
@@ -2390,6 +1916,20 @@ export function mergeUserMessagesAndToolResults(
       ),
     },
   }
+}
+
+function mergeImagePermissionToolUseIds(
+  a: UserMessage,
+  b: UserMessage,
+): Array<string | null> | undefined {
+  const getImageOwners = (message: UserMessage): Array<string | null> => {
+    if (message.imagePermissionToolUseIds) return message.imagePermissionToolUseIds
+    const content = message.message.content
+    if (!Array.isArray(content)) return []
+    return content.filter(block => block.type === 'image').map(() => null)
+  }
+  const ids = [...getImageOwners(a), ...getImageOwners(b)]
+  return ids.length > 0 ? ids : undefined
 }
 
 export function mergeAssistantMessages(
@@ -2417,26 +1957,36 @@ function isToolResultMessage(msg: Message): boolean {
 export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   const lastContent = normalizeUserTextContent(a.message.content)
   const currentContent = normalizeUserTextContent(b.message.content)
+  // A merge that absorbs a collapse summary stays non-snippable: the combined
+  // block holds the only replacement for an archived span, so it must keep the
+  // marker and shed any snip id a real-user operand was tagged with pre-merge.
+  const isCollapseSummary =
+    a.isCollapseSummary || b.isCollapseSummary ? (true as const) : undefined
+  const finalize = (
+    content: string | ContentBlockParam[],
+  ): string | ContentBlockParam[] =>
+    isCollapseSummary ? stripSnipTagsFromContent(content) : content
   if (feature('HISTORY_SNIP')) {
     // A merged message is only meta if ALL merged messages are meta. If any
     // operand is real user content, the result must not be flagged isMeta
-    // (so [id:] tags get injected and it's treated as user-visible content).
+    // (so internal snip ids get injected and it's treated as user-visible content).
     // Gated behind the full runtime check because changing isMeta semantics
-    // affects downstream callers (e.g., VCR fixture hashing in SDK harness
-    // tests), so this must only fire when snip is actually enabled — not
-    // for all ants.
+    // affects downstream callers (including attachment error recovery), so it
+    // must only fire when snip is actually enabled.
     const { isSnipRuntimeEnabled } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../services/compact/snipCompact.js') as typeof import('../services/compact/snipCompact.js')
     if (isSnipRuntimeEnabled()) {
       return {
         ...a,
+        imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
         isMeta: a.isMeta && b.isMeta ? (true as const) : undefined,
+        isCollapseSummary,
         uuid: a.isMeta ? b.uuid : a.uuid,
         message: {
           ...a.message,
-          content: hoistToolResults(
-            joinTextAtSeam(lastContent, currentContent),
+          content: finalize(
+            hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
           ),
         },
       }
@@ -2444,12 +1994,16 @@ export function mergeUserMessages(a: UserMessage, b: UserMessage): UserMessage {
   }
   return {
     ...a,
-    // Preserve the non-meta message's uuid so [id:] tags (derived from uuid)
+    imagePermissionToolUseIds: mergeImagePermissionToolUseIds(a, b),
+    isCollapseSummary,
+    // Preserve the non-meta message's uuid so snip ids (derived from uuid)
     // stay stable across API calls (meta messages like system context get fresh uuids each call)
     uuid: a.isMeta ? b.uuid : a.uuid,
     message: {
       ...a.message,
-      content: hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
+      content: finalize(
+        hoistToolResults(joinTextAtSeam(lastContent, currentContent)),
+      ),
     },
   }
 }
@@ -2634,11 +2188,12 @@ export function mergeUserContentBlocks(
     return [...a, ...b]
   }
 
-  // Universal smoosh (gated): fold all non-tool_result block types (text,
-  // image, document, search_result) into tool_result.content. tool_result
-  // blocks stay as siblings (hoisted later by hoistToolResults).
-  const toSmoosh = b.filter(x => x.type !== 'tool_result')
+  // Universal smoosh (gated): fold textual/document siblings into the result,
+  // but keep images top-level. Compression must retain their provenance so an
+  // independent attachment is never mistaken for tool-result payload.
+  const toSmoosh = b.filter(x => x.type !== 'tool_result' && x.type !== 'image')
   const toolResults = b.filter(x => x.type === 'tool_result')
+  const images = b.filter(x => x.type === 'image')
   if (toSmoosh.length === 0) {
     return [...a, ...b]
   }
@@ -2649,7 +2204,7 @@ export function mergeUserContentBlocks(
     return [...a, ...b]
   }
 
-  return [...a.slice(0, -1), smooshed, ...toolResults]
+  return [...a.slice(0, -1), smooshed, ...toolResults, ...images]
 }
 
 // Sometimes the API returns empty messages (eg. "\n\n"). We need to filter these out,
@@ -2756,18 +2311,6 @@ export function normalizeContentFromAPI(
   })
 }
 
-export function isEmptyMessageText(text: string): boolean {
-  return (
-    stripPromptXMLTags(text).trim() === '' || text.trim() === NO_CONTENT_MESSAGE
-  )
-}
-const STRIPPED_TAGS_RE =
-  /<(commit_analysis|context|function_analysis|pr_analysis)>.*?<\/\1>\n?/gs
-
-export function stripPromptXMLTags(content: string): string {
-  return content.replace(STRIPPED_TAGS_RE, '').trim()
-}
-
 export function getToolUseID(message: NormalizedMessage): string | null {
   switch (message.type) {
     case 'attachment':
@@ -2795,6 +2338,8 @@ export function getToolUseID(message: NormalizedMessage): string | null {
       return message.subtype === 'informational'
         ? (message.toolUseID ?? null)
         : null
+    default:
+      return null
   }
 }
 
@@ -2846,615 +2391,17 @@ export function filterUnresolvedToolUses(messages: Message[]): Message[] {
   })
 }
 
-export function getAssistantMessageText(message: Message): string | null {
-  if (message.type !== 'assistant') {
-    return null
-  }
 
-  // For content blocks array, extract and concatenate text blocks
-  if (Array.isArray(message.message.content)) {
-    return (
-      message.message.content
-        .filter(block => block.type === 'text')
-        .map(block => (block.type === 'text' ? block.text : ''))
-        .join('\n')
-        .trim() || null
-    )
-  }
-  return null
-}
-
-export function getUserMessageText(
-  message: Message | NormalizedMessage,
-): string | null {
-  if (message.type !== 'user') {
-    return null
-  }
-
-  const content = message.message.content
-
-  return getContentText(content)
-}
-
-export function textForResubmit(
-  msg: UserMessage,
-): { text: string; mode: 'bash' | 'prompt' } | null {
-  const content = getUserMessageText(msg)
-  if (content === null) return null
-  const bash = extractTag(content, 'bash-input')
-  if (bash) return { text: bash, mode: 'bash' }
-  const cmd = extractTag(content, COMMAND_NAME_TAG)
-  if (cmd) {
-    const args = extractTag(content, COMMAND_ARGS_TAG) ?? ''
-    return { text: `${cmd} ${args}`, mode: 'prompt' }
-  }
-  return { text: stripIdeContextTags(content), mode: 'prompt' }
-}
-
-/**
- * Extract text from an array of content blocks, joining text blocks with the
- * given separator. Works with ContentBlock, ContentBlockParam, BetaContentBlock,
- * and their readonly/DeepImmutable variants via structural typing.
- */
-export function extractTextContent(
-  blocks: readonly { readonly type: string }[],
-  separator = '',
-): string {
-  return blocks
-    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-    .map(b => b.text)
-    .join(separator)
-}
-
-export function getContentText(
-  content: string | DeepImmutable<Array<ContentBlockParam>>,
-): string | null {
-  if (typeof content === 'string') {
-    return content
-  }
-  if (Array.isArray(content)) {
-    return extractTextContent(content, '\n').trim() || null
-  }
-  return null
-}
-
-export type StreamingToolUse = {
-  index: number
-  contentBlock: BetaToolUseBlock
-  unparsedToolInput: string
-}
-
-export type StreamingThinking = {
-  thinking: string
-  isStreaming: boolean
-  streamingEndedAt?: number
-}
-
-/**
- * Handles messages from a stream, updating response length for deltas and appending completed messages
- */
-export function handleMessageFromStream(
-  message:
-    | Message
-    | TombstoneMessage
-    | StreamEvent
-    | RequestStartEvent
-    | ToolUseSummaryMessage,
-  onMessage: (message: Message) => void,
-  onUpdateLength: (newContent: string) => void,
-  onSetStreamMode: (mode: SpinnerMode) => void,
-  onStreamingToolUses: (
-    f: (streamingToolUse: StreamingToolUse[]) => StreamingToolUse[],
-  ) => void,
-  onTombstone?: (message: Message) => void,
-  onStreamingThinking?: (
-    f: (current: StreamingThinking | null) => StreamingThinking | null,
-  ) => void,
-  onApiMetrics?: (metrics: { ttftMs: number }) => void,
-  onStreamingText?: (f: (current: string | null) => string | null) => void,
-): void {
-  if (
-    message.type !== 'stream_event' &&
-    message.type !== 'stream_request_start'
-  ) {
-    // Handle tombstone messages - remove the targeted message instead of adding
-    if (message.type === 'tombstone') {
-      onTombstone?.(message.message)
-      return
-    }
-    // Tool use summary messages are SDK-only, ignore them in stream handling
-    if (message.type === 'tool_use_summary') {
-      return
-    }
-    // Capture complete thinking blocks for real-time display in transcript mode
-    if (message.type === 'assistant') {
-      const thinkingBlock = message.message.content.find(
-        block => block.type === 'thinking',
-      )
-      if (thinkingBlock && thinkingBlock.type === 'thinking') {
-        onStreamingThinking?.(() => ({
-          thinking: thinkingBlock.thinking,
-          isStreaming: false,
-          streamingEndedAt: Date.now(),
-        }))
-      }
-    }
-    // Clear streaming text NOW so the render can switch displayedMessages
-    // from deferredMessages to messages in the same batch, making the
-    // transition from streaming text → final message atomic (no gap, no duplication).
-    onStreamingText?.(() => null)
-    onMessage(message)
-    return
-  }
-
-  if (message.type === 'stream_request_start') {
-    onSetStreamMode('requesting')
-    return
-  }
-
-  if (message.event.type === 'message_start') {
-    if (message.ttftMs != null) {
-      onApiMetrics?.({ ttftMs: message.ttftMs })
-    }
-  }
-
-  if (message.event.type === 'message_stop') {
-    onSetStreamMode('tool-use')
-    onStreamingToolUses(() => [])
-    return
-  }
-
-  switch (message.event.type) {
-    case 'content_block_start':
-      onStreamingText?.(() => null)
-      if (
-        feature('CONNECTOR_TEXT') &&
-        isConnectorTextBlock(message.event.content_block)
-      ) {
-        onSetStreamMode('responding')
-        return
-      }
-      switch (message.event.content_block.type) {
-        case 'thinking':
-        case 'redacted_thinking':
-          onSetStreamMode('thinking')
-          return
-        case 'text':
-          onSetStreamMode('responding')
-          return
-        case 'tool_use': {
-          onSetStreamMode('tool-input')
-          const contentBlock = message.event.content_block
-          const index = message.event.index
-          onStreamingToolUses(_ => [
-            ..._,
-            {
-              index,
-              contentBlock,
-              unparsedToolInput: '',
-            },
-          ])
-          return
-        }
-        case 'server_tool_use':
-        case 'web_search_tool_result':
-        case 'code_execution_tool_result':
-        case 'mcp_tool_use':
-        case 'mcp_tool_result':
-        case 'container_upload':
-        case 'web_fetch_tool_result':
-        case 'bash_code_execution_tool_result':
-        case 'text_editor_code_execution_tool_result':
-        case 'tool_search_tool_result':
-        case 'compaction':
-          onSetStreamMode('tool-input')
-          return
-      }
-      return
-    case 'content_block_delta':
-      switch (message.event.delta.type) {
-        case 'text_delta': {
-          const deltaText = message.event.delta.text
-          onUpdateLength(deltaText)
-          onStreamingText?.(text => (text ?? '') + deltaText)
-          return
-        }
-        case 'input_json_delta': {
-          const delta = message.event.delta.partial_json
-          const index = message.event.index
-          onUpdateLength(delta)
-          onStreamingToolUses(_ => {
-            const element = _.find(_ => _.index === index)
-            if (!element) {
-              return _
-            }
-            return [
-              ..._.filter(_ => _ !== element),
-              {
-                ...element,
-                unparsedToolInput: element.unparsedToolInput + delta,
-              },
-            ]
-          })
-          return
-        }
-        case 'thinking_delta':
-          onUpdateLength(message.event.delta.thinking)
-          return
-        case 'signature_delta':
-          // Signatures are cryptographic authentication strings, not model
-          // output. Excluding them from onUpdateLength prevents them from
-          // inflating the OTPS metric and the animated token counter.
-          return
-        default:
-          return
-      }
-    case 'content_block_stop':
-      return
-    case 'message_delta':
-      onSetStreamMode('responding')
-      return
-    default:
-      onSetStreamMode('responding')
-      return
-  }
-}
-
-export function wrapInSystemReminder(content: string): string {
-  return `<system-reminder>\n${content}\n</system-reminder>`
-}
-
-export function wrapMessagesInSystemReminder(
-  messages: UserMessage[],
-): UserMessage[] {
-  return messages.map(msg => {
-    if (typeof msg.message.content === 'string') {
-      return {
-        ...msg,
-        message: {
-          ...msg.message,
-          content: wrapInSystemReminder(msg.message.content),
-        },
-      }
-    } else if (Array.isArray(msg.message.content)) {
-      // For array content, wrap text blocks in system-reminder
-      const wrappedContent = msg.message.content.map(block => {
-        if (block.type === 'text') {
-          return {
-            ...block,
-            text: wrapInSystemReminder(block.text),
-          }
-        }
-        return block
-      })
-      return {
-        ...msg,
-        message: {
-          ...msg.message,
-          content: wrappedContent,
-        },
-      }
-    }
-    return msg
-  })
-}
-
-function getPlanModeInstructions(attachment: {
-  reminderType: 'full' | 'sparse'
-  isSubAgent?: boolean
-  planFilePath: string
-  planExists: boolean
-}): UserMessage[] {
-  if (attachment.isSubAgent) {
-    return getPlanModeV2SubAgentInstructions(attachment)
-  }
-  if (attachment.reminderType === 'sparse') {
-    return getPlanModeV2SparseInstructions(attachment)
-  }
-  return getPlanModeV2Instructions(attachment)
-}
-
-// --
-// Plan file structure experiment arms.
-// Each arm returns the full Phase 4 section so the surrounding template
-// stays a flat string interpolation with no conditionals inline.
-
-export const PLAN_PHASE4_CONTROL = `### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Begin with a **Context** section: explain why this change is being made — the problem or need it addresses, what prompted it, and the intended outcome
-- Include only your recommended approach, not all alternatives
-- Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
-- Include the paths of critical files to be modified
-- Reference existing functions and utilities you found that should be reused, with their file paths
-- Include a verification section describing how to test the changes end-to-end (run the code, use MCP tools, run tests)`
-
-const PLAN_PHASE4_TRIM = `### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- One-line **Context**: what is being changed and why
-- Include only your recommended approach, not all alternatives
-- List the paths of files to be modified
-- Reference existing functions and utilities to reuse, with their file paths
-- End with **Verification**: the single command to run to confirm the change works (no numbered test procedures)`
-
-const PLAN_PHASE4_CUT = `### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Do NOT write a Context or Background section. The user just told you what they want.
-- List the paths of files to be modified and what changes in each (one line per file)
-- Reference existing functions and utilities to reuse, with their file paths
-- End with **Verification**: the single command that confirms the change works
-- Most good plans are under 40 lines. Prose is a sign you are padding.`
-
-const PLAN_PHASE4_CAP = `### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Do NOT write a Context, Background, or Overview section. The user just told you what they want.
-- Do NOT restate the user's request. Do NOT write prose paragraphs.
-- List the paths of files to be modified and what changes in each (one bullet per file)
-- Reference existing functions to reuse, with file:line
-- End with the single verification command
-- **Hard limit: 40 lines.** If the plan is longer, delete prose — not file paths.`
-
-function getPlanPhase4Section(): string {
-  const variant = getPewterLedgerVariant()
-  switch (variant) {
-    case 'trim':
-      return PLAN_PHASE4_TRIM
-    case 'cut':
-      return PLAN_PHASE4_CUT
-    case 'cap':
-      return PLAN_PHASE4_CAP
-    case null:
-      return PLAN_PHASE4_CONTROL
-    default:
-      variant satisfies never
-      return PLAN_PHASE4_CONTROL
-  }
-}
-
-function getPlanModeV2Instructions(attachment: {
-  isSubAgent?: boolean
-  planFilePath?: string
-  planExists?: boolean
-}): UserMessage[] {
-  if (attachment.isSubAgent) {
-    return []
-  }
-
-  // When interview phase is enabled, use the iterative workflow.
-  if (isPlanModeInterviewPhaseEnabled()) {
-    return getPlanModeInterviewInstructions(attachment)
-  }
-
-  const agentCount = getPlanModeV2AgentCount()
-  const exploreAgentCount = getPlanModeV2ExploreAgentCount()
-  const planFileInfo = attachment.planExists
-    ? `A plan file already exists at ${attachment.planFilePath}. You can read it and make incremental edits using the ${FileEditTool.name} tool.`
-    : `No plan file exists yet. You should create your plan at ${attachment.planFilePath} using the ${FileWriteTool.name} tool.`
-
-  const content = `Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.
-
-## Plan File Info:
-${planFileInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
-
-## Plan Workflow
-
-### Phase 1: Initial Understanding
-Goal: Gain a comprehensive understanding of the user's request by reading through code and asking them questions. Critical: In this phase you should only use the ${EXPLORE_AGENT.agentType} subagent type.
-
-1. Focus on understanding the user's request and the code associated with their request. Actively search for existing functions, utilities, and patterns that can be reused — avoid proposing new code when suitable implementations already exist.
-
-2. **Launch up to ${exploreAgentCount} ${EXPLORE_AGENT.agentType} agents IN PARALLEL** (single message, multiple tool calls) to efficiently explore the codebase.
-   - Use 1 agent when the task is isolated to known files, the user provided specific file paths, or you're making a small targeted change.
-   - Use multiple agents when: the scope is uncertain, multiple areas of the codebase are involved, or you need to understand existing patterns before planning.
-   - Quality over quantity - ${exploreAgentCount} agents maximum, but you should try to use the minimum number of agents necessary (usually just 1)
-   - If using multiple agents: Provide each agent with a specific search focus or area to explore. Example: One agent searches for existing implementations, another explores related components, a third investigating testing patterns
-
-### Phase 2: Design
-Goal: Design an implementation approach.
-
-Launch ${PLAN_AGENT.agentType} agent(s) to design the implementation based on the user's intent and your exploration results from Phase 1.
-
-You can launch up to ${agentCount} agent(s) in parallel.
-
-**Guidelines:**
-- **Default**: Launch at least 1 Plan agent for most tasks - it helps validate your understanding and consider alternatives
-- **Skip agents**: Only for truly trivial tasks (typo fixes, single-line changes, simple renames)
-${
-  agentCount > 1
-    ? `- **Multiple agents**: Use up to ${agentCount} agents for complex tasks that benefit from different perspectives
-
-Examples of when to use multiple agents:
-- The task touches multiple parts of the codebase
-- It's a large refactor or architectural change
-- There are many edge cases to consider
-- You'd benefit from exploring different approaches
-
-Example perspectives by task type:
-- New feature: simplicity vs performance vs maintainability
-- Bug fix: root cause vs workaround vs prevention
-- Refactoring: minimal change vs clean architecture
-`
-    : ''
-}
-In the agent prompt:
-- Provide comprehensive background context from Phase 1 exploration including filenames and code path traces
-- Describe requirements and constraints
-- Request a detailed implementation plan
-
-### Phase 3: Review
-Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
-1. Read the critical files identified by agents to deepen your understanding
-2. Ensure that the plans align with the user's original request
-3. Use ${ASK_USER_QUESTION_TOOL_NAME} to clarify any remaining questions with the user
-
-${getPlanPhase4Section()}
-
-### Phase 5: Call ${ExitPlanModeV2Tool.name}
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call ${ExitPlanModeV2Tool.name} to indicate to the user that you are done planning.
-This is critical - your turn should only end with either using the ${ASK_USER_QUESTION_TOOL_NAME} tool OR calling ${ExitPlanModeV2Tool.name}. Do not stop unless it's for these 2 reasons
-
-**Important:** Use ${ASK_USER_QUESTION_TOOL_NAME} ONLY to clarify requirements or choose between approaches. Use ${ExitPlanModeV2Tool.name} to request plan approval. Do NOT ask about plan approval in any other way - no text questions, no AskUserQuestion. Phrases like "Is this plan okay?", "Should I proceed?", "How does this plan look?", "Any changes before we start?", or similar MUST use ${ExitPlanModeV2Tool.name}.
-
-NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications using the ${ASK_USER_QUESTION_TOOL_NAME} tool. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
-
-function getReadOnlyToolNames(): string {
-  // Ant-native builds alias find/grep to embedded bfs/ugrep and remove the
-  // dedicated Glob/Grep tools from the registry, so point at find/grep via
-  // Bash instead.
-  const tools = hasEmbeddedSearchTools()
-    ? [FILE_READ_TOOL_NAME, '`find`', '`grep`']
-    : [FILE_READ_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME]
-  const { allowedTools } = getCurrentProjectConfig()
-  // allowedTools is a tool-name allowlist. find/grep are shell commands, not
-  // tool names, so the filter is only meaningful for the non-embedded branch.
-  const filtered =
-    allowedTools && allowedTools.length > 0 && !hasEmbeddedSearchTools()
-      ? tools.filter(t => allowedTools.includes(t))
-      : tools
-  return filtered.join(', ')
-}
-
-/**
- * Iterative interview-based plan mode workflow.
- * Instead of forcing Explore/Plan agents, this workflow has the model:
- * 1. Read files and ask questions iteratively
- * 2. Build up the spec/plan file incrementally as understanding grows
- * 3. Use AskUserQuestion throughout to clarify and gather input
- */
-function getPlanModeInterviewInstructions(attachment: {
-  planFilePath?: string
-  planExists?: boolean
-}): UserMessage[] {
-  const planFileInfo = attachment.planExists
-    ? `A plan file already exists at ${attachment.planFilePath}. You can read it and make incremental edits using the ${FileEditTool.name} tool.`
-    : `No plan file exists yet. You should create your plan at ${attachment.planFilePath} using the ${FileWriteTool.name} tool.`
-
-  const content = `Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.
-
-## Plan File Info:
-${planFileInfo}
-
-## Iterative Planning Workflow
-
-You are pair-planning with the user. Explore the code to build context, ask the user questions when you hit decisions you can't make alone, and write your findings into the plan file as you go. The plan file (above) is the ONLY file you may edit — it starts as a rough skeleton and gradually becomes the final plan.
-
-### The Loop
-
-Repeat this cycle until the plan is complete:
-
-1. **Explore** — Use ${getReadOnlyToolNames()} to read code. Look for existing functions, utilities, and patterns to reuse.${areExplorePlanAgentsEnabled() ? ` You can use the ${EXPLORE_AGENT.agentType} agent type to parallelize complex searches without filling your context, though for straightforward queries direct tools are simpler.` : ''}
-2. **Update the plan file** — After each discovery, immediately capture what you learned. Don't wait until the end.
-3. **Ask the user** — When you hit an ambiguity or decision you can't resolve from code alone, use ${ASK_USER_QUESTION_TOOL_NAME}. Then go back to step 1.
-
-### First Turn
-
-Start by quickly scanning a few key files to form an initial understanding of the task scope. Then write a skeleton plan (headers and rough notes) and ask the user your first round of questions. Don't explore exhaustively before engaging the user.
-
-### Asking Good Questions
-
-- Never ask what you could find out by reading the code
-- Batch related questions together (use multi-question ${ASK_USER_QUESTION_TOOL_NAME} calls)
-- Focus on things only the user can answer: requirements, preferences, tradeoffs, edge case priorities
-- Scale depth to the task — a vague feature request needs many rounds; a focused bug fix may need one or none
-
-### Plan File Structure
-Your plan file should be divided into clear sections using markdown headers, based on the request. Fill out these sections as you go.
-- Begin with a **Context** section: explain why this change is being made — the problem or need it addresses, what prompted it, and the intended outcome
-- Include only your recommended approach, not all alternatives
-- Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
-- Include the paths of critical files to be modified
-- Reference existing functions and utilities you found that should be reused, with their file paths
-- Include a verification section describing how to test the changes end-to-end (run the code, use MCP tools, run tests)
-
-### When to Converge
-
-Your plan is ready when you've addressed all ambiguities and it covers: what to change, which files to modify, what existing code to reuse (with file paths), and how to verify the changes. Call ${ExitPlanModeV2Tool.name} when the plan is ready for approval.
-
-### Ending Your Turn
-
-Your turn should only end by either:
-- Using ${ASK_USER_QUESTION_TOOL_NAME} to gather more information
-- Calling ${ExitPlanModeV2Tool.name} when the plan is ready for approval
-
-**Important:** Use ${ExitPlanModeV2Tool.name} to request plan approval. Do NOT ask about plan approval via text or AskUserQuestion.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
-
-function getPlanModeV2SparseInstructions(attachment: {
-  planFilePath: string
-}): UserMessage[] {
-  const workflowDescription = isPlanModeInterviewPhaseEnabled()
-    ? 'Follow iterative workflow: explore codebase, interview user, write to plan incrementally.'
-    : 'Follow 5-phase workflow.'
-
-  const content = `Plan mode still active (see full instructions earlier in conversation). Read-only except plan file (${attachment.planFilePath}). ${workflowDescription} End turns with ${ASK_USER_QUESTION_TOOL_NAME} (for clarifications) or ${ExitPlanModeV2Tool.name} (for plan approval). Never ask about plan approval via text or AskUserQuestion.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
-
-function getPlanModeV2SubAgentInstructions(attachment: {
-  planFilePath: string
-  planExists: boolean
-}): UserMessage[] {
-  const planFileInfo = attachment.planExists
-    ? `A plan file already exists at ${attachment.planFilePath}. You can read it and make incremental edits using the ${FileEditTool.name} tool if you need to.`
-    : `No plan file exists yet. You should create your plan at ${attachment.planFilePath} using the ${FileWriteTool.name} tool if you need to.`
-
-  const content = `Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received (for example, to make edits). Instead, you should:
-
-## Plan File Info:
-${planFileInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
-Answer the user's query comprehensively, using the ${ASK_USER_QUESTION_TOOL_NAME} tool if you need to ask the user clarifying questions. If you do use the ${ASK_USER_QUESTION_TOOL_NAME}, make sure to ask all clarifying questions you need to fully understand the user's intent before proceeding.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
-
-function getAutoModeInstructions(attachment: {
-  reminderType: 'full' | 'sparse'
-}): UserMessage[] {
-  if (attachment.reminderType === 'sparse') {
-    return getAutoModeSparseInstructions()
-  }
-  return getAutoModeFullInstructions()
-}
-
-function getAutoModeFullInstructions(): UserMessage[] {
-  const content = `## Auto Mode Active
-
-Auto mode is active. The user chose continuous, autonomous execution. You should:
-
-1. **Execute immediately** — Start implementing right away. Make reasonable assumptions and proceed on low-risk work.
-2. **Minimize interruptions** — Prefer making reasonable assumptions over asking questions for routine decisions.
-3. **Prefer action over planning** — Do not enter plan mode unless the user explicitly asks. When in doubt, start coding.
-4. **Expect course corrections** — The user may provide suggestions or course corrections at any point; treat those as normal input.
-5. **Do not take overly destructive actions** — Auto mode is not a license to destroy. Anything that deletes data or modifies shared or production systems still needs explicit user confirmation. If you reach such a decision point, ask and wait, or course correct to a safer method instead.
-6. **Avoid data exfiltration** — Post even routine messages to chat platforms or work tickets only if the user has directed you to. You must not share secrets (e.g. credentials, internal documentation) unless the user has explicitly authorized both that specific secret and its destination.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
-
-function getAutoModeSparseInstructions(): UserMessage[] {
-  const content = `Auto mode still active (see full instructions earlier in conversation). Execute autonomously, minimize interruptions, prefer action over planning.`
-
-  return wrapMessagesInSystemReminder([
-    createUserMessage({ content, isMeta: true }),
-  ])
-}
+export { handleMessageFromStream } from './messages/streaming.js'
+export type { StreamingThinking, StreamingToolUse } from './messages/streaming.js'
+
+export {
+  PLAN_PHASE4_CONTROL,
+  getAutoModeInstructions,
+  getPlanModeInstructions,
+  wrapInSystemReminder,
+  wrapMessagesInSystemReminder,
+} from "./messages/planMode.js"
 
 export function normalizeAttachmentForAPI(
   attachment: Attachment,
@@ -3807,10 +2754,15 @@ Read the team config to discover your teammates' names. Check the task list peri
       ])
     }
     case 'output_style': {
-      const outputStyle =
-        OUTPUT_STYLE_CONFIG[
-          attachment.style as keyof typeof OUTPUT_STYLE_CONFIG
-        ]
+      // Own-property lookup: OUTPUT_STYLE_CONFIG is a plain object and
+      // `attachment.style` carries the free-form settings value, so a bare
+      // index resolves inherited Object.prototype members. Those are truthy, so
+      // the guard below would pass and the reminder would announce a style that
+      // does not exist ("Object output style is active").
+      const outputStyle = resolveOutputStyle(
+        OUTPUT_STYLE_CONFIG,
+        attachment.style,
+      )
       if (!outputStyle) {
         return []
       }
@@ -4187,6 +3139,15 @@ You have exited auto mode. The user may now want to interact more directly. You 
         }),
       ])
     }
+    case 'ultracode_mode': {
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content:
+            'You are running in ultracode mode. You have standing permission to orchestrate multi-agent workflows for this session: you may spawn subagents, parallelize tasks, and coordinate parallel tool calls without asking for confirmation.',
+          isMeta: true,
+        }),
+      ])
+    }
     case 'deferred_tools_delta': {
       const parts: string[] = []
       if (attachment.addedLines.length > 0) {
@@ -4270,6 +3231,7 @@ You have exited auto mode. The user may now want to interact more directly. You 
     case 'hook_system_message':
     case 'structured_output':
     case 'hook_permission_decision':
+    case 'max_turns_reached':
       return []
   }
 
@@ -4344,328 +3306,25 @@ function createToolUseMessage(
   })
 }
 
-export function createSystemMessage(
-  content: string,
-  level: SystemMessageLevel,
-  toolUseID?: string,
-  preventContinuation?: boolean,
-): SystemInformationalMessage {
-  return {
-    type: 'system',
-    subtype: 'informational',
-    content,
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    toolUseID,
-    level,
-    ...(preventContinuation && { preventContinuation }),
-  }
-}
-
-export function createPermissionRetryMessage(
-  commands: string[],
-): SystemPermissionRetryMessage {
-  return {
-    type: 'system',
-    subtype: 'permission_retry',
-    content: `Allowed ${commands.join(', ')}`,
-    commands,
-    level: 'info',
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-  }
-}
-
-export function createBridgeStatusMessage(
-  url: string,
-  upgradeNudge?: string,
-): SystemBridgeStatusMessage {
-  return {
-    type: 'system',
-    subtype: 'bridge_status',
-    content: `/remote-control is active. Code in CLI or at ${url}`,
-    url,
-    upgradeNudge,
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-  }
-}
-
-export function createScheduledTaskFireMessage(
-  content: string,
-): SystemScheduledTaskFireMessage {
-  return {
-    type: 'system',
-    subtype: 'scheduled_task_fire',
-    content,
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-  }
-}
-
-export function createStopHookSummaryMessage(
-  hookCount: number,
-  hookInfos: StopHookInfo[],
-  hookErrors: string[],
-  preventedContinuation: boolean,
-  stopReason: string | undefined,
-  hasOutput: boolean,
-  level: SystemMessageLevel,
-  toolUseID?: string,
-  hookLabel?: string,
-  totalDurationMs?: number,
-): SystemStopHookSummaryMessage {
-  return {
-    type: 'system',
-    subtype: 'stop_hook_summary',
-    hookCount,
-    hookInfos,
-    hookErrors,
-    preventedContinuation,
-    stopReason,
-    hasOutput,
-    level,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    toolUseID,
-    hookLabel,
-    totalDurationMs,
-  }
-}
-
-export function createTurnDurationMessage(
-  durationMs: number,
-  budget?: { tokens: number; limit: number; nudges: number },
-  messageCount?: number,
-): SystemTurnDurationMessage {
-  return {
-    type: 'system',
-    subtype: 'turn_duration',
-    durationMs,
-    budgetTokens: budget?.tokens,
-    budgetLimit: budget?.limit,
-    budgetNudges: budget?.nudges,
-    messageCount,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createAwaySummaryMessage(
-  content: string,
-): SystemAwaySummaryMessage {
-  return {
-    type: 'system',
-    subtype: 'away_summary',
-    content,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createMemorySavedMessage(
-  writtenPaths: string[],
-): SystemMemorySavedMessage {
-  return {
-    type: 'system',
-    subtype: 'memory_saved',
-    writtenPaths,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createAgentsKilledMessage(): SystemAgentsKilledMessage {
-  return {
-    type: 'system',
-    subtype: 'agents_killed',
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createApiMetricsMessage(metrics: {
-  ttftMs: number
-  otps: number
-  isP50?: boolean
-  hookDurationMs?: number
-  turnDurationMs?: number
-  toolDurationMs?: number
-  classifierDurationMs?: number
-  toolCount?: number
-  hookCount?: number
-  classifierCount?: number
-  configWriteCount?: number
-}): SystemApiMetricsMessage {
-  return {
-    type: 'system',
-    subtype: 'api_metrics',
-    ttftMs: metrics.ttftMs,
-    otps: metrics.otps,
-    isP50: metrics.isP50,
-    hookDurationMs: metrics.hookDurationMs,
-    turnDurationMs: metrics.turnDurationMs,
-    toolDurationMs: metrics.toolDurationMs,
-    classifierDurationMs: metrics.classifierDurationMs,
-    toolCount: metrics.toolCount,
-    hookCount: metrics.hookCount,
-    classifierCount: metrics.classifierCount,
-    configWriteCount: metrics.configWriteCount,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createCommandInputMessage(
-  content: string,
-): SystemLocalCommandMessage {
-  return {
-    type: 'system',
-    subtype: 'local_command',
-    content,
-    level: 'info',
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    isMeta: false,
-  }
-}
-
-export function createCompactBoundaryMessage(
-  trigger: 'manual' | 'auto',
-  preTokens: number,
-  lastPreCompactMessageUuid?: UUID,
-  userContext?: string,
-  messagesSummarized?: number,
-): SystemCompactBoundaryMessage {
-  return {
-    type: 'system',
-    subtype: 'compact_boundary',
-    content: `Conversation compacted`,
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    level: 'info',
-    compactMetadata: {
-      trigger,
-      preTokens,
-      userContext,
-      messagesSummarized,
-    },
-    ...(lastPreCompactMessageUuid && {
-      logicalParentUuid: lastPreCompactMessageUuid,
-    }),
-  }
-}
-
-export function createMicrocompactBoundaryMessage(
-  trigger: 'auto',
-  preTokens: number,
-  tokensSaved: number,
-  compactedToolIds: string[],
-  clearedAttachmentUUIDs: string[],
-): SystemMicrocompactBoundaryMessage {
-  logForDebugging(
-    `[microcompact] saved ~${formatTokens(tokensSaved)} tokens (cleared ${compactedToolIds.length} tool results)`,
-  )
-  return {
-    type: 'system',
-    subtype: 'microcompact_boundary',
-    content: 'Context microcompacted',
-    isMeta: false,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-    level: 'info',
-    microcompactMetadata: {
-      trigger,
-      preTokens,
-      tokensSaved,
-      compactedToolIds,
-      clearedAttachmentUUIDs,
-    },
-  }
-}
-
-export function createSystemAPIErrorMessage(
-  error: APIError,
-  retryInMs: number,
-  retryAttempt: number,
-  maxRetries: number,
-): SystemAPIErrorMessage {
-  return {
-    type: 'system',
-    subtype: 'api_error',
-    level: 'error',
-    cause: error.cause instanceof Error ? error.cause : undefined,
-    error,
-    retryInMs,
-    retryAttempt,
-    maxRetries,
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-  }
-}
-
-/**
- * Checks if a message is a compact boundary marker
- */
-export function isCompactBoundaryMessage(
-  message: Message | NormalizedMessage,
-): message is SystemCompactBoundaryMessage {
-  return message?.type === 'system' && message.subtype === 'compact_boundary'
-}
-
-/**
- * Finds the index of the last compact boundary marker in the messages array
- * @returns The index of the last compact boundary, or -1 if none found
- */
-export function findLastCompactBoundaryIndex<
-  T extends Message | NormalizedMessage,
->(messages: T[]): number {
-  // Scan backwards to find the most recent compact boundary
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message && isCompactBoundaryMessage(message)) {
-      return i
-    }
-  }
-  return -1 // No boundary found
-}
-
-/**
- * Returns messages from the last compact boundary onward (including the boundary).
- * If no boundary exists, returns all messages.
- *
- * Also filters snipped messages by default (when HISTORY_SNIP is enabled) —
- * the REPL keeps full history for UI scrollback, so model-facing paths need
- * both compact-slice AND snip-filter applied. Pass `{ includeSnipped: true }`
- * to opt out (e.g., REPL.tsx fullscreen compact handler which preserves
- * snipped messages in scrollback).
- *
- * Note: The boundary itself is a system message and will be filtered by normalizeMessagesForAPI.
- */
-export function getMessagesAfterCompactBoundary<
-  T extends Message | NormalizedMessage,
->(messages: T[], options?: { includeSnipped?: boolean }): T[] {
-  const boundaryIndex = findLastCompactBoundaryIndex(messages)
-  const sliced = boundaryIndex === -1 ? messages : messages.slice(boundaryIndex)
-  if (!options?.includeSnipped && feature('HISTORY_SNIP')) {
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    const { projectSnippedView } =
-      require('../services/compact/snipProjection.js') as typeof import('../services/compact/snipProjection.js')
-    /* eslint-enable @typescript-eslint/no-require-imports */
-    return projectSnippedView(sliced as Message[]) as T[]
-  }
-  return sliced
-}
+export {
+  createAgentsKilledMessage,
+  createApiMetricsMessage,
+  createAwaySummaryMessage,
+  createBridgeStatusMessage,
+  createCommandInputMessage,
+  createCompactBoundaryMessage,
+  createMemorySavedMessage,
+  createMicrocompactBoundaryMessage,
+  createPermissionRetryMessage,
+  createScheduledTaskFireMessage,
+  createStopHookSummaryMessage,
+  createSystemAPIErrorMessage,
+  createSystemMessage,
+  createTurnDurationMessage,
+  findLastCompactBoundaryIndex,
+  getMessagesAfterCompactBoundary,
+  isCompactBoundaryMessage,
+} from "./messages/systemFactories.js"
 
 export function shouldShowUserMessage(
   message: NormalizedMessage,
@@ -5127,6 +3786,21 @@ export function createToolUseSummaryMessage(
   }
 }
 
+export {
+  selectToolPairSafeMessageRange,
+  validateToolResultPairing,
+  formatToolResultPairingIssue,
+} from './messages/toolPairing.js'
+export type {
+  ToolPairSafeMessageRangeDiagnostics,
+  ToolPairSafeMessageRangeOptions,
+  ToolPairSafeMessageRangeResult,
+  ToolResultPairingIssue,
+  ToolResultPairingIssueKind,
+  ToolResultPairingValidationContext,
+  ToolResultPairingValidationResult,
+} from './messages/toolPairing.js'
+
 /**
  * Defensive validation: ensure tool_use/tool_result pairing is correct.
  *
@@ -5144,6 +3818,7 @@ export function createToolUseSummaryMessage(
  */
 export function ensureToolResultPairing(
   messages: (UserMessage | AssistantMessage)[],
+  context: ToolResultPairingValidationContext = {},
 ): (UserMessage | AssistantMessage)[] {
   const result: (UserMessage | AssistantMessage)[] = []
   let repaired = false
@@ -5412,6 +4087,7 @@ export function ensureToolResultPairing(
   }
 
   if (repaired) {
+    const validation = validateToolResultPairing(messages, context)
     // Capture diagnostic info to help identify root cause
     const messageTypes = messages.map((m, idx) => {
       if (m.type === 'assistant') {
@@ -5450,20 +4126,46 @@ export function ensureToolResultPairing(
       throw new Error(
         `ensureToolResultPairing: tool_use/tool_result pairing mismatch detected (strict mode). ` +
           `Refusing to repair — would inject synthetic placeholders into model context. ` +
+          `Phase: ${validation.context.phase ?? 'unknown'}. ` +
+          `Issues: ${validation.issues.map(formatToolResultPairingIssue).join('; ') || 'none'}. ` +
           `Message structure: ${messageTypes.join('; ')}. See inc-4977.`,
       )
     }
 
+    const issueKinds = [
+      ...new Set(validation.issues.map(issue => issue.kind)),
+    ].join(',')
+    const issueSummary =
+      validation.issues.map(formatToolResultPairingIssue).join('; ') || 'none'
+    const diagnosticContext =
+      `Phase: ${validation.context.phase ?? 'unknown'}. ` +
+      `Query source: ${validation.context.querySource ?? 'unknown'}. ` +
+      `Provider: ${validation.context.provider ?? 'unknown'}. ` +
+      `Model: ${validation.context.model ?? 'unknown'}. ` +
+      `Issues: ${issueSummary}.`
     logEvent('tengu_tool_result_pairing_repaired', {
       messageCount: messages.length,
       repairedMessageCount: result.length,
+      issueCount: validation.issues.length,
+      phase: (validation.context.phase ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      querySource: (validation.context.querySource ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      agentId: (validation.context.agentId ??
+        'none') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model: (validation.context.model ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      provider: (validation.context.provider ??
+        'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      issueKinds: (issueKinds ||
+        'none') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       messageTypes: messageTypes.join(
         '; ',
       ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
     logError(
       new Error(
-        `ensureToolResultPairing: repaired missing tool_result blocks (${messages.length} -> ${result.length} messages). Message structure: ${messageTypes.join('; ')}`,
+        `ensureToolResultPairing: repaired missing tool_result blocks (${messages.length} -> ${result.length} messages). ${diagnosticContext} Message structure: ${messageTypes.join('; ')}`,
       ),
     )
   }

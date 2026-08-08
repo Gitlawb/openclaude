@@ -109,7 +109,7 @@ export type PermissionResult = ({
     destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
   }) | ({
     type: 'setMode'
-    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
+    mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'fullAccess' | 'plan' | 'dontAsk'
     destination: 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg'
   }) | ({
     type: 'addDirectories'
@@ -187,16 +187,38 @@ export type SessionMessage = {
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
 import type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
   SDKMessage,
   SDKUserMessage,
   SDKResultMessage,
 } from './sdk/coreTypes.generated.js'
 
 export type {
+  AccountInfo,
+  AgentInfo,
+  FastModeState,
+  ModelInfo,
+  SlashCommand,
   SDKMessage,
   SDKUserMessage,
   SDKResultMessage,
 } from './sdk/coreTypes.generated.js'
+
+export type SDKControlInitializeResponse = {
+  commands: SlashCommand[]
+  agents: AgentInfo[]
+  output_style: string
+  available_output_styles: string[]
+  models: ModelInfo[]
+  account: AccountInfo
+  /** @internal CLI process PID for tmux socket isolation. */
+  pid?: number
+  fast_mode_state?: FastModeState
+}
 
 // ============================================================================
 // Query types
@@ -208,6 +230,8 @@ export type QueryPermissionMode =
   | 'auto-accept'
   | 'bypass-permissions'
   | 'bypassPermissions'
+  | 'full-access'
+  | 'fullAccess'
   | 'acceptEdits'
 
 export type QueryOptions = {
@@ -264,12 +288,18 @@ export type QueryOptions = {
     | { type: 'custom'; content: string }
   /** Agent definitions to register with the query engine. */
   agents?: Record<string, {
-    description: string
+    description?: string
     prompt: string
+    /**
+     * Tool allowlist for this agent. If omitted or set to ['*'], the agent can use
+     * all tools available to subagents after disallowedTools is applied.
+     */
     tools?: string[]
+    /** Tool denylist for this agent. Deny entries always override tools entries. */
     disallowedTools?: string[]
     model?: string
     maxTurns?: number
+    maxSteps?: number
   }>
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
@@ -355,6 +385,7 @@ export type SDKSessionOptions = {
   cwd: string
   model?: string
   permissionMode?: QueryPermissionMode
+  allowDangerouslySkipPermissions?: boolean
   abortController?: AbortController
   /**
    * Callback invoked before each tool use. Return `{ behavior: 'allow' }` to
@@ -378,6 +409,21 @@ export type SDKSessionOptions = {
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
   /** Tools to disallow (blanket deny by tool name). */
   disallowedTools?: string[]
+  /** Agent definitions to register with the session engine. */
+  agents?: Record<string, {
+    description?: string
+    prompt: string
+    /**
+     * Tool allowlist for this agent. If omitted or set to ['*'], the agent can use
+     * all tools available to subagents after disallowedTools is applied.
+     */
+    tools?: string[]
+    /** Tool denylist for this agent. Deny entries always override tools entries. */
+    disallowedTools?: string[]
+    model?: string
+    maxTurns?: number
+    maxSteps?: number
+  }>
 }
 
 export interface SDKSession {

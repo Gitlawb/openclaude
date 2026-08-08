@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
-import stripAnsi from 'strip-ansi'
+import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { createRoot, render, useApp } from '../../ink.js'
 import { AppStateProvider } from '../../state/AppState.js'
@@ -330,6 +330,52 @@ test('buildProfileSaveMessage maps provider fields without echoing secrets', () 
   expect(message).not.toContain('sk-secret-12345678')
 })
 
+test('buildProfileSaveMessage reports pooled OpenAI credentials as configured', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'sk-secret-a,sk-secret-b',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('sk-secret-a')
+  expect(message).not.toContain('sk-secret-b')
+})
+test('buildProfileSaveMessage redacts individual pooled OpenAI credentials in display fields', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: 'lowercasecredentialaaaaaaaaaaaa,lowercasecredentialbbbbbbbbbbbb',
+      OPENAI_MODEL: 'lowercasecredentialaaaaaaaaaaaa',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('lowercasecredentialaaaaaaaaaaaa')
+  expect(message).not.toContain('lowercasecredentialbbbbbbbbbbbb')
+  expect(message).toContain('Model: low...aaa')
+})
+test('buildProfileSaveMessage ignores delimiter-only pooled OpenAI credentials', () => {
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEYS: ', ,',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved OpenAI profile.')
+  expect(message).not.toContain('Credentials: configured')
+})
 test('buildProfileSaveMessage labels local openai-compatible profiles consistently', () => {
   const message = buildProfileSaveMessage(
     'openai',
@@ -382,6 +428,32 @@ test('buildProfileSaveMessage labels descriptor-backed Venice profiles consisten
   expect(message).not.toContain('sk-venice-secret-12345678')
 })
 
+test('buildProfileSaveMessage labels descriptor-backed Cloudflare Workers AI profiles consistently', () => {
+  // Cloudflare URLs embed the user's account id, so the saved profile reflects
+  // the literal substituted URL. Make sure the label still routes through the
+  // descriptor preset rather than falling back to a generic "OpenAI-compatible"
+  // string, matching the Venice / MiMo / Bankr coverage above.
+  const message = buildProfileSaveMessage(
+    'openai',
+    {
+      OPENAI_API_KEY: 'cf-secret-token-12345678',
+      CLOUDFLARE_API_TOKEN: 'cf-secret-token-12345678',
+      OPENAI_MODEL: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      OPENAI_BASE_URL:
+        'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+    },
+    'D:/codings/Opensource/openclaude/.openclaude-profile.json',
+  )
+
+  expect(message).toContain('Saved Cloudflare Workers AI profile.')
+  expect(message).toContain('Model: @cf/meta/llama-3.3-70b-instruct-fp8-fast')
+  expect(message).toContain(
+    'Endpoint: https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1',
+  )
+  expect(message).toContain('Credentials: configured')
+  expect(message).not.toContain('cf-secret-token-12345678')
+})
+
 test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly', () => {
   const message = buildProfileSaveMessage(
     'gemini',
@@ -393,7 +465,7 @@ test('buildProfileSaveMessage describes Gemini access token / ADC mode clearly',
     'D:/codings/Opensource/openclaude/.openclaude-profile.json',
   )
 
-  expect(message).toContain('Saved Google Gemini profile.')
+  expect(message).toContain('Saved Google AI / Gemini profile.')
   expect(message).toContain('Model: gemini-2.5-flash')
   expect(message).toContain('Credentials: access token (stored securely)')
   expect(message).not.toContain('AIza')
@@ -647,7 +719,7 @@ test('buildCurrentProviderSummary recognizes Gemini mode', () => {
     persisted: null,
   })
 
-  expect(summary.providerLabel).toBe('Google Gemini')
+  expect(summary.providerLabel).toBe('Google AI / Gemini')
   expect(summary.modelLabel).toBe('gemini-2.5-pro')
   expect(summary.endpointLabel).toBe(
     'https://generativelanguage.googleapis.com/v1beta/openai',

@@ -58,6 +58,12 @@ import {
 } from '../../utils/api.js'
 import { getOauthAccountInfo } from '../../utils/auth.js'
 import {
+  getStreamingAbortMessage,
+  isExpectedSideTaskAbortReason,
+  normalizeAbortReason,
+  shouldCreateUserInterruptionMessage,
+} from '../../utils/abortReasons.js'
+import {
   getBedrockExtraBodyParamsBetas,
   getMergedBetas,
   getModelBetas,
@@ -67,9 +73,10 @@ import {
   CAPPED_DEFAULT_MAX_TOKENS,
   getModelMaxOutputTokens,
   getSonnet1mExpTreatmentEnabled,
+  shouldUseIntegrationRuntimeLimits,
 } from '../../utils/context.js'
 import { resolveAppliedEffort } from '../../utils/effort.js'
-import { isEnvTruthy } from '../../utils/envUtils.js'
+import { isEnvDefinedFalsy, isEnvTruthy } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { computeFingerprintFromMessages } from '../../utils/fingerprint.js'
 import { captureAPIRequest, logError } from '../../utils/log.js'
@@ -101,6 +108,7 @@ import {
   extractQuotaStatusFromHeaders,
 } from '../claudeAiLimits.js'
 import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
+import { getStreamIdleTimeoutMs } from './openaiShim.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
@@ -110,7 +118,6 @@ const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER')
 import { feature } from 'bun:bundle'
 import type { ClientOptions } from '@anthropic-ai/sdk'
 import {
-  APIConnectionTimeoutError,
   APIError,
   APIUserAbortError,
 } from '@anthropic-ai/sdk/error'
@@ -119,6 +126,7 @@ import {
   getCacheEditingHeaderLatched,
   getFastModeHeaderLatched,
   getLastApiCompletionTimestamp,
+  getSdkBetas,
   getPromptCache1hAllowlist,
   getPromptCache1hEligible,
   getSessionId,
@@ -164,10 +172,11 @@ import {
 } from 'src/utils/betas.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from 'src/utils/claudeInChrome/common.js'
 import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
-import { getMaxThinkingTokensForModel } from 'src/utils/context.js'
+import { COMPACT_MAX_OUTPUT_TOKENS, getContextWindowForModel, getMaxThinkingTokensForModel } from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
+import type { QueryLifecycleOperationTracker } from 'src/utils/queryLifecycle.js'
 import {
   isFastModeAvailable,
   isFastModeCooldown,
@@ -257,6 +266,13 @@ type JsonValue = string | number | boolean | null | JsonObject | JsonArray
 type JsonObject = { [key: string]: JsonValue }
 type JsonArray = JsonValue[]
 
+class StreamIdleTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Stream idle timeout - no chunks received for ${timeoutMs / 1000}s`)
+    this.name = 'StreamIdleTimeoutError'
+  }
+}
+
 /**
  * Assemble the extra body parameters for the API request, based on the
  * CLAUDE_CODE_EXTRA_BODY environment variable if present and on any beta
@@ -336,7 +352,12 @@ export function getPromptCachingEnabled(model: string): boolean {
   // format, so cache_control blocks are supported.
   const provider = getAPIProvider()
   const isNativeGithub = isGithubNativeAnthropicMode(model)
-  if (provider !== 'firstParty' && provider !== 'bedrock' && provider !== 'vertex' && !isNativeGithub) {
+  if (
+    (provider !== 'firstParty' || !isFirstPartyAnthropicBaseUrl()) &&
+    provider !== 'bedrock' &&
+    provider !== 'vertex' &&
+    !isNativeGithub
+  ) {
     return false
   }
 
@@ -447,7 +468,7 @@ function should1hCacheTTL(querySource?: QuerySource): boolean {
  *
  */
 function configureEffortParams(
-  effortValue: EffortValue | undefined,
+  effortValue: Exclude<EffortValue, 'ultracode'> | undefined,
   outputConfig: BetaOutputConfig,
   extraBodyParams: Record<string, unknown>,
   betas: string[],
@@ -714,6 +735,13 @@ export type Options = {
   // (query.ts decrements across the agentic loop).
   taskBudget?: { total: number; remaining?: number }
   providerOverride?: { model: string; baseURL: string; apiKey: string }
+  queryLifecycle?: QueryLifecycleOperationTracker
+  messageNormalizationTools?: Tools
+  /**
+   * Synchronous ownership check invoked immediately before an outbound
+   * provider request. Returning false skips the request without retrying.
+   */
+  onProviderRequestStart?: () => boolean
 }
 
 export async function queryModelWithoutStreaming({
@@ -789,6 +817,45 @@ export async function* queryModelWithStreaming({
   })
 }
 
+export function getClaudeStreamingAbortLogMessage(
+  signal: Pick<AbortSignal, 'reason'>,
+  streamingError: unknown,
+): string {
+  return getStreamingAbortMessage(signal.reason, errorMessage(streamingError))
+}
+
+export function getClaudeExpectedSideTaskApiAbortLogMessage(
+  signal: Pick<AbortSignal, 'aborted' | 'reason'>,
+  errorFromRetry: unknown,
+): string | null {
+  if (!signal.aborted || !isExpectedSideTaskAbortReason(signal.reason)) {
+    return null
+  }
+  const error =
+    errorFromRetry instanceof CannotRetryError
+      ? errorFromRetry.originalError
+      : errorFromRetry
+  if (!(error instanceof APIUserAbortError)) {
+    return null
+  }
+  return `Expected side-task API abort (${normalizeAbortReason(signal.reason)}): ${errorMessage(error)}`
+}
+
+function handleClaudeExpectedSideTaskApiAbort(
+  signal: Pick<AbortSignal, 'aborted' | 'reason'>,
+  errorFromRetry: unknown,
+  releaseStreamResources: () => void,
+): boolean {
+  const expectedSideTaskAbortLogMessage =
+    getClaudeExpectedSideTaskApiAbortLogMessage(signal, errorFromRetry)
+  if (!expectedSideTaskAbortLogMessage) return false
+  if (!(errorFromRetry instanceof CannotRetryError)) {
+    logForDebugging(expectedSideTaskAbortLogMessage)
+  }
+  releaseStreamResources()
+  return true
+}
+
 /**
  * Determines if an LSP tool should be deferred (tool appears with defer_loading: true)
  * because LSP initialization is not yet complete.
@@ -850,7 +917,9 @@ export async function* executeNonStreamingRequest(
    * from. Emitted in tengu_nonstreaming_fallback_error for funnel correlation.
    */
   originatingRequestId?: string | null,
-): AsyncGenerator<SystemAPIErrorMessage, BetaMessage> {
+  queryLifecycle?: QueryLifecycleOperationTracker,
+  onProviderRequestStart?: () => boolean,
+): AsyncGenerator<SystemAPIErrorMessage, BetaMessage | null> {
   const fallbackTimeoutMs = getNonstreamingFallbackTimeoutMs()
   const generator = withRetry(
     () =>
@@ -864,6 +933,7 @@ export async function* executeNonStreamingRequest(
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
+      if (onProviderRequestStart?.() === false) return null
       const retryParams = paramsFromContext(context)
       captureRequest(retryParams)
       onAttempt(attempt, start, retryParams.max_tokens)
@@ -872,6 +942,12 @@ export async function* executeNonStreamingRequest(
         retryParams,
         MAX_NON_STREAMING_TOKENS,
       )
+      const activeApiCallKey =
+        queryLifecycle?.startApiCall({
+          model: context.model,
+          querySource: retryOptions.querySource,
+          startedAt: start,
+        }) ?? null
 
       try {
         // biome-ignore lint/plugin: non-streaming API call
@@ -906,6 +982,10 @@ export async function* executeNonStreamingRequest(
             'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         })
         throw err
+      } finally {
+        if (activeApiCallKey) {
+          queryLifecycle?.endApiCall(activeApiCallKey)
+        }
       }
     },
     {
@@ -927,7 +1007,7 @@ export async function* executeNonStreamingRequest(
     }
   } while (!e.done)
 
-  return e.value as BetaMessage
+  return e.value as BetaMessage | null
 }
 
 /**
@@ -951,9 +1031,11 @@ function getPreviousRequestIdFromMessages(
   return undefined
 }
 
-function isMedia(
-  block: BetaContentBlockParam,
-): block is BetaImageBlockParam | BetaRequestDocumentBlock {
+// Generic so it accepts both top-level content blocks and the narrower
+// (beta or non-beta) unions nested inside tool_result content.
+function isMedia<T extends { type: string }>(
+  block: T,
+): block is T & (BetaImageBlockParam | BetaRequestDocumentBlock) {
   return block.type === 'image' || block.type === 'document'
 }
 
@@ -978,7 +1060,7 @@ export function stripExcessMediaItems(
       if (isMedia(block)) toRemove++
       if (isToolResult(block) && Array.isArray(block.content)) {
         for (const nested of block.content) {
-          if (isMedia(nested)) toRemove++
+          if (isMedia(nested as BetaContentBlockParam)) toRemove++
         }
       }
     }
@@ -1001,7 +1083,7 @@ export function stripExcessMediaItems(
         )
           return block
         const filtered = block.content.filter(n => {
-          if (toRemove > 0 && isMedia(n)) {
+          if (toRemove > 0 && isMedia(n as BetaContentBlockParam)) {
             toRemove--
             return false
           }
@@ -1028,6 +1110,39 @@ export function stripExcessMediaItems(
   }) as (UserMessage | AssistantMessage)[]
 }
 
+/**
+ * Tool-history compression routing for Anthropic-native transports (exported
+ * for focused tests — queryModel itself needs a live client to exercise).
+ * Native transports (first-party, Bedrock, Vertex, GitHub-native-Anthropic)
+ * compress only while prompt caching is inactive: retroactive tier rewrites
+ * diverge the cached request prefix and cost more than they save. Requests
+ * carrying a per-agent providerOverride are shim-routed and compress at the
+ * shim layer instead.
+ */
+export function shouldCompressNativeToolHistory(options: {
+  apiProvider: string
+  // firstParty alone is not enough: a custom ANTHROPIC_BASE_URL (proxy /
+  // compatible endpoint) also reports firstParty, but getPromptCachingEnabled
+  // already returns false there — treating it as native would compress every
+  // request against an endpoint we make no assumptions about. Mirror the
+  // same base-URL guard prompt caching itself uses.
+  isFirstPartyBaseUrl: boolean
+  isGithubNativeAnthropic: boolean
+  hasProviderOverride: boolean
+  promptCachingEnabled: boolean
+}): boolean {
+  const isNativeTransport =
+    (options.apiProvider === 'firstParty' && options.isFirstPartyBaseUrl) ||
+    options.apiProvider === 'bedrock' ||
+    options.apiProvider === 'vertex' ||
+    options.isGithubNativeAnthropic
+  return (
+    isNativeTransport &&
+    !options.hasProviderOverride &&
+    !options.promptCachingEnabled
+  )
+}
+
 async function* queryModel(
   messages: Message[],
   systemPrompt: SystemPrompt,
@@ -1043,6 +1158,7 @@ async function* queryModel(
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
   if (
+    isFirstPartyAnthropicBaseUrl() &&
     !isClaudeAISubscriber() &&
     isNonCustomOpusModel(options.model) &&
     (
@@ -1214,7 +1330,7 @@ async function* queryModel(
     cachedMCEnabled = featureEnabled && modelSupported
     const config = getCachedMCConfig()
     logForDebugging(
-      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify(config?.supportedModels)}`,
+      `Cached MC gate: enabled=${featureEnabled} modelSupported=${modelSupported} model=${options.model} supportedModels=${jsonStringify((config as Record<string, unknown> | null)?.supportedModels)}`,
     )
   }
 
@@ -1270,6 +1386,32 @@ async function* queryModel(
 
   queryCheckpoint('query_tool_schema_build_end')
 
+  // Compress old tool outputs for Anthropic-native transports, but only when
+  // prompt caching is inactive. Rewriting old messages as they cross tier
+  // boundaries diverges the request prefix on every call, which breaks the
+  // prompt cache and costs more than the compression saves — cached native
+  // sessions rely on microCompact (cache-aware) instead. Shim-routed traffic
+  // (OpenAI-compatible env providers, per-agent providerOverride, Codex)
+  // compresses at its own layer, where the local fast-path opt-out applies.
+  // compressToolHistory is generic over AnyMessage — cast to satisfy the type
+  // checker since OpenClaude's Message union is a superset of what the
+  // function actually inspects.
+  const compressNativeToolHistory = shouldCompressNativeToolHistory({
+    apiProvider: getAPIProvider(),
+    isFirstPartyBaseUrl: isFirstPartyAnthropicBaseUrl(),
+    isGithubNativeAnthropic: isGithubNativeAnthropicMode(options.model),
+    hasProviderOverride: Boolean(options.providerOverride),
+    promptCachingEnabled: getPromptCachingEnabled(options.model),
+  })
+  if (compressNativeToolHistory) {
+    const { compressToolHistory } = await import('./compressToolHistory.js')
+    messages = compressToolHistory(
+      messages as unknown as Parameters<typeof compressToolHistory>[0],
+      options.model,
+      { effectiveContextWindowSize: getContextWindowForModel(options.model, getSdkBetas()) },
+    ) as typeof messages
+  }
+
   // Normalize messages before building system prompt (needed for fingerprinting)
   // Instrumentation: Track message count before normalization
   logEvent('tengu_api_before_normalize', {
@@ -1277,7 +1419,10 @@ async function* queryModel(
   })
 
   queryCheckpoint('query_message_normalization_start')
-  let messagesForAPI = normalizeMessagesForAPI(messages, filteredTools)
+  let messagesForAPI = normalizeMessagesForAPI(
+    messages,
+    options.messageNormalizationTools ?? filteredTools,
+  )
   queryCheckpoint('query_message_normalization_end')
 
   // Apply hybrid context strategy for optimal cache/fresh balance
@@ -1287,12 +1432,17 @@ async function* queryModel(
     const strategyResult = applyHybridStrategy(messagesForAPI, {
       cacheWeight: 0.4,
       freshWeight: 0.6,
-      maxTotalTokens: Math.min(
-        getContextWindowForModel(model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
-        200000
+      maxTotalTokens: Math.max(
+        0,
+        Math.min(
+          getContextWindowForModel(options.model, getSdkBetas()) - COMPACT_MAX_OUTPUT_TOKENS,
+          200000,
+        ),
       ),
     })
-    messagesForAPI = strategyResult.selectedMessages
+    // applyHybridStrategy is typed over the full Message union but only ever
+    // receives (and returns) the user/assistant subset passed in here.
+    messagesForAPI = strategyResult.selectedMessages as typeof messagesForAPI
   }
 
   // Model-specific post-processing: strip tool-search-specific fields if the
@@ -1327,7 +1477,13 @@ async function* queryModel(
   // Repair tool_use/tool_result pairing mismatches that can occur when resuming
   // remote/teleport sessions. Inserts synthetic error tool_results for orphaned
   // tool_uses and strips orphaned tool_results referencing non-existent tool_uses.
-  messagesForAPI = ensureToolResultPairing(messagesForAPI)
+  messagesForAPI = ensureToolResultPairing(messagesForAPI, {
+    phase: 'api_before_repair',
+    querySource: options.querySource,
+    agentId: options.agentId,
+    model: options.model,
+    provider: getAPIProvider(),
+  })
 
   // Strip advisor blocks — the API rejects them without the beta header.
   if (!betas.includes(ADVISOR_BETA_HEADER)) {
@@ -1460,6 +1616,7 @@ async function* queryModel(
       !cacheEditingHeaderLatched &&
       cachedMCEnabled &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread'
     ) {
       cacheEditingHeaderLatched = true
@@ -1522,8 +1679,23 @@ async function* queryModel(
   let stream: Stream<BetaRawMessageStreamEvent> | undefined = undefined
   let streamRequestId: string | null | undefined = undefined
   let clientRequestId: string | undefined = undefined
-  // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in Node 18+ and is used by the SDK
+  let activeApiCallKey: string | null = null
+  // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins -- Response is available in supported Node runtimes and is used by the SDK
   let streamResponse: Response | undefined = undefined
+
+  function endActiveApiCall(key = activeApiCallKey): void {
+    if (!key) return
+    options.queryLifecycle?.endApiCall(key)
+    if (activeApiCallKey === key) {
+      activeApiCallKey = null
+    }
+  }
+
+  function startActiveApiCall(call: Parameters<QueryLifecycleOperationTracker['startApiCall']>[0]): string | null {
+    endActiveApiCall()
+    activeApiCallKey = options.queryLifecycle?.startApiCall(call) ?? null
+    return activeApiCallKey
+  }
 
   // Release all stream resources to prevent native memory leaks.
   // The Response object holds native TLS/socket buffers that live outside the
@@ -1684,10 +1856,12 @@ async function* queryModel(
     const useCachedMC =
       cachedMCEnabled &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread'
     if (
       cacheEditingHeaderLatched &&
       getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl() &&
       options.querySource === 'repl_main_thread' &&
       !betasParams.includes(cacheEditingBetaHeader)
     ) {
@@ -1719,8 +1893,11 @@ async function* queryModel(
         enablePromptCaching,
         options.querySource,
         useCachedMC,
-        consumedCacheEdits,
-        consumedPinnedEdits,
+        // The stub's CacheEditsBlock/PinnedCacheEdits type edits as unknown[];
+        // the local types pin the delete-edit shape. The stub only ever
+        // yields null/[] today.
+        consumedCacheEdits as CachedMCEditsBlock | null,
+        consumedPinnedEdits as CachedMCPinnedEdits[],
         options.skipCacheWrite,
       ),
       tools: allTools,
@@ -1743,36 +1920,6 @@ async function* queryModel(
     }
   }
 
-  // Compute log scalars synchronously so the fire-and-forget .then() closure
-  // captures only primitives instead of paramsFromContext's full closure scope
-  // (messagesForAPI, system, allTools, betas — the entire request-building
-  // context), which would otherwise be pinned until the promise resolves.
-  {
-    const queryParams = paramsFromContext({
-      model: options.model,
-      thinkingConfig,
-    })
-    const logMessagesLength = queryParams.messages.length
-    const logBetas = useBetas ? (queryParams.betas ?? []) : []
-    const logThinkingType = queryParams.thinking?.type ?? 'disabled'
-    const logEffortValue = queryParams.output_config?.effort
-    void options.getToolPermissionContext().then(permissionContext => {
-      logAPIQuery({
-        model: options.model,
-        messagesLength: logMessagesLength,
-        temperature: options.temperatureOverride ?? 1,
-        betas: logBetas,
-        permissionMode: permissionContext.mode,
-        querySource: options.querySource,
-        queryTracking: options.queryTracking,
-        thinkingType: logThinkingType,
-        effortValue: logEffortValue,
-        fastMode: isFastMode,
-        previousRequestId,
-      })
-    })
-  }
-
   const newMessages: AssistantMessage[] = []
   let ttftMs = 0
   let partialMessage: BetaMessage | undefined = undefined
@@ -1787,10 +1934,11 @@ async function* queryModel(
   let research: unknown = undefined
   let isFastModeRequest = isFastMode // Keep separate state as it may change if falling back
   let isAdvisorInProgress = false
+  let apiQueryLogged = false
 
   try {
     queryCheckpoint('query_client_creation_start')
-    const generator = withRetry(
+    const generator = withRetry<Stream<BetaRawMessageStreamEvent> | null>(
       () =>
         getAnthropicClient({
           maxRetries: 0, // Disabled auto-retry in favor of manual implementation
@@ -1811,10 +1959,43 @@ async function* queryModel(
         // client_creation_start is meaningful on attempt 1.
         queryCheckpoint('query_client_creation_end')
 
+        // Keep this immediately adjacent to the SDK call below. query.ts uses
+        // it to atomically reserve a shared foreground/background turn only
+        // after every asynchronous provider-preparation step has completed.
+        if (options.onProviderRequestStart?.() === false) {
+          return null
+        }
+
+        // Everything below is synchronous until the SDK request is created,
+        // so ownership cannot change between this request build and dispatch.
         const params = paramsFromContext(context)
         captureAPIRequest(params, options.querySource) // Capture for bug reports
-
         maxOutputTokens = params.max_tokens
+
+        if (!apiQueryLogged) {
+          apiQueryLogged = true
+          // Capture primitives only: the fire-and-forget permission lookup
+          // must not retain the full request-building closure.
+          const logMessagesLength = params.messages.length
+          const logBetas = useBetas ? (params.betas ?? []) : []
+          const logThinkingType = params.thinking?.type ?? 'disabled'
+          const logEffortValue = params.output_config?.effort
+          void options.getToolPermissionContext().then(permissionContext => {
+            logAPIQuery({
+              model: options.model,
+              messagesLength: logMessagesLength,
+              temperature: options.temperatureOverride ?? 1,
+              betas: logBetas,
+              permissionMode: permissionContext.mode,
+              querySource: options.querySource,
+              queryTracking: options.queryTracking,
+              thinkingType: logThinkingType,
+              effortValue: logEffortValue,
+              fastMode: isFastMode,
+              previousRequestId,
+            })
+          })
+        }
 
         // Fire immediately before the fetch is dispatched. .withResponse() below
         // awaits until response headers arrive, so this MUST be before the await
@@ -1831,26 +2012,42 @@ async function* queryModel(
           getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()
             ? randomUUID()
             : undefined
+        const attemptApiCallKey = startActiveApiCall({
+          clientRequestId,
+          model: options.model,
+          querySource: options.querySource,
+          startedAt: start,
+        })
 
         // Use raw stream instead of BetaMessageStream to avoid O(n²) partial JSON parsing
         // BetaMessageStream calls partialParse() on every input_json_delta, which we don't need
         // since we handle tool input accumulation ourselves
         // biome-ignore lint/plugin: main conversation loop handles attribution separately
-        const result = await anthropic.beta.messages
-          .create(
-            { ...params, stream: true },
-            {
-              signal,
-              ...(clientRequestId && {
-                headers: { [CLIENT_REQUEST_ID_HEADER]: clientRequestId },
-              }),
-            },
-          )
-          .withResponse()
-        queryCheckpoint('query_response_headers_received')
-        streamRequestId = result.request_id
-        streamResponse = result.response
-        return result.data
+        try {
+          const result = await anthropic.beta.messages
+            .create(
+              { ...params, stream: true },
+              {
+                signal,
+                ...(clientRequestId && {
+                  headers: { [CLIENT_REQUEST_ID_HEADER]: clientRequestId },
+                }),
+              },
+            )
+            .withResponse()
+          queryCheckpoint('query_response_headers_received')
+          streamRequestId = result.request_id
+          if (attemptApiCallKey) {
+            options.queryLifecycle?.updateApiCall(attemptApiCallKey, {
+              requestId: streamRequestId,
+            })
+          }
+          streamResponse = result.response
+          return result.data
+        } catch (err) {
+          endActiveApiCall(attemptApiCallKey)
+          throw err
+        }
       },
       {
         model: options.model,
@@ -1867,10 +2064,11 @@ async function* queryModel(
       e = await generator.next()
 
       // yield API error messages (the stream has a 'controller' property, error messages don't)
-      if (!('controller' in e.value)) {
+      if (!e.done && !('controller' in e.value)) {
         yield e.value
       }
     } while (!e.done)
+    if (e.value === null) return
     stream = e.value as Stream<BetaRawMessageStreamEvent>
 
     // reset state
@@ -1888,17 +2086,23 @@ async function* queryModel(
     // kill hung streams. Without this, a silently dropped connection can hang
     // the session indefinitely since the SDK's request timeout only covers the
     // initial fetch(), not the streaming body.
-    const streamWatchdogEnabled = isEnvTruthy(
-      process.env.CLAUDE_ENABLE_STREAM_WATCHDOG,
-    )
-    const STREAM_IDLE_TIMEOUT_MS =
-      parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || '', 10) || 90_000
+    // Enabled by default, matching the always-on idle timeout already used by
+    // the OpenAI/Codex shims. A silently dropped Anthropic
+    // stream now aborts and falls back to a non-streaming retry within
+    // STREAM_IDLE_TIMEOUT_MS, instead of hanging until QueryGuard's 5-minute
+    // idle timeout. Opt out with CLAUDE_DISABLE_STREAM_WATCHDOG=1 (or by
+    // explicitly setting CLAUDE_ENABLE_STREAM_WATCHDOG to a falsy value).
+    const streamWatchdogEnabled =
+      !isEnvTruthy(process.env.CLAUDE_DISABLE_STREAM_WATCHDOG) &&
+      !isEnvDefinedFalsy(process.env.CLAUDE_ENABLE_STREAM_WATCHDOG)
+    const STREAM_IDLE_TIMEOUT_MS = getStreamIdleTimeoutMs()
     const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
     let streamIdleAborted = false
     // performance.now() snapshot when watchdog fires, for measuring abort propagation delay
     let streamWatchdogFiredAt: number | null = null
     let streamIdleWarningTimer: ReturnType<typeof setTimeout> | null = null
     let streamIdleTimer: ReturnType<typeof setTimeout> | null = null
+
     function clearStreamIdleTimers(): void {
       if (streamIdleWarningTimer !== null) {
         clearTimeout(streamIdleWarningTimer)
@@ -1909,41 +2113,128 @@ async function* queryModel(
         streamIdleTimer = null
       }
     }
-    function resetStreamIdleTimer(): void {
-      clearStreamIdleTimers()
-      if (!streamWatchdogEnabled) {
-        return
-      }
-      streamIdleWarningTimer = setTimeout(
-        warnMs => {
-          logForDebugging(
-            `Streaming idle warning: no chunks received for ${warnMs / 1000}s`,
-            { level: 'warn' },
-          )
-          logForDiagnosticsNoPII('warn', 'cli_streaming_idle_warning')
-        },
-        STREAM_IDLE_WARNING_MS,
-        STREAM_IDLE_WARNING_MS,
+
+    function logStreamIdleWarning(warnMs: number): void {
+      logForDebugging(
+        `Streaming idle warning: no chunks received for ${warnMs / 1000}s`,
+        { level: 'warn' },
       )
-      streamIdleTimer = setTimeout(() => {
-        streamIdleAborted = true
-        streamWatchdogFiredAt = performance.now()
-        logForDebugging(
-          `Streaming idle timeout: no chunks received for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, aborting stream`,
-          { level: 'error' },
-        )
-        logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
-        logEvent('tengu_streaming_idle_timeout', {
-          model:
-            options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          request_id: (streamRequestId ??
-            'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-          timeout_ms: STREAM_IDLE_TIMEOUT_MS,
-        })
-        releaseStreamResources()
-      }, STREAM_IDLE_TIMEOUT_MS)
+      logForDiagnosticsNoPII('warn', 'cli_streaming_idle_warning')
     }
-    resetStreamIdleTimer()
+
+    function closeStreamIterator(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+      reason: Error,
+    ): void {
+      const activeStream = stream
+      releaseStreamResources()
+      try {
+        activeStream?.controller?.abort(reason)
+      } catch {
+        // Ignore - the stream may already be closed by the SDK.
+      }
+
+      try {
+        const returned = iterator.return?.()
+        if (returned) {
+          void Promise.resolve(returned).catch(() => {})
+        }
+      } catch {
+        // Ignore - iterator.return() is best-effort cleanup.
+      }
+    }
+
+    function abortTimedOutStream(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+      timeoutError: StreamIdleTimeoutError,
+    ): void {
+      streamIdleAborted = true
+      streamWatchdogFiredAt = performance.now()
+      logForDebugging(
+        `Streaming idle timeout: no chunks received for ${STREAM_IDLE_TIMEOUT_MS / 1000}s, aborting stream`,
+        { level: 'error' },
+      )
+      logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
+      logEvent('tengu_streaming_idle_timeout', {
+        model:
+          options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        request_id: (streamRequestId ??
+          'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        timeout_ms: STREAM_IDLE_TIMEOUT_MS,
+      })
+
+      closeStreamIterator(iterator, timeoutError)
+    }
+
+    function readNextStreamPart(
+      iterator: AsyncIterator<BetaRawMessageStreamEvent>,
+    ): Promise<IteratorResult<BetaRawMessageStreamEvent>> {
+      if (signal.aborted) {
+        const abortError = new APIUserAbortError()
+        closeStreamIterator(iterator, abortError)
+        return Promise.reject(abortError)
+      }
+
+      return new Promise((resolve, reject) => {
+        let settled = false
+        const cleanup = () => {
+          clearStreamIdleTimers()
+          signal.removeEventListener('abort', onAbort)
+        }
+        const settleResolve = (
+          result: IteratorResult<BetaRawMessageStreamEvent>,
+        ) => {
+          if (settled) return
+          settled = true
+          cleanup()
+          resolve(result)
+        }
+        const settleReject = (error: unknown) => {
+          if (settled) return
+          settled = true
+          cleanup()
+          reject(error)
+        }
+        const onAbort = () => {
+          const abortError = new APIUserAbortError()
+          closeStreamIterator(iterator, abortError)
+          settleReject(abortError)
+        }
+
+        signal.addEventListener('abort', onAbort, { once: true })
+
+        clearStreamIdleTimers()
+        if (streamWatchdogEnabled) {
+          streamIdleWarningTimer = setTimeout(
+            warnMs => {
+              logStreamIdleWarning(warnMs)
+            },
+            STREAM_IDLE_WARNING_MS,
+            STREAM_IDLE_WARNING_MS,
+          )
+          streamIdleTimer = setTimeout(() => {
+            const timeoutError = new StreamIdleTimeoutError(
+              STREAM_IDLE_TIMEOUT_MS,
+            )
+            abortTimedOutStream(iterator, timeoutError)
+            settleReject(timeoutError)
+          }, STREAM_IDLE_TIMEOUT_MS)
+        }
+
+        let nextPromise: Promise<IteratorResult<BetaRawMessageStreamEvent>>
+        try {
+          nextPromise = Promise.resolve(iterator.next())
+        } catch (error) {
+          settleReject(signal.aborted ? new APIUserAbortError() : error)
+          return
+        }
+
+        nextPromise.then(
+          result => settleResolve(result),
+          error => settleReject(signal.aborted ? new APIUserAbortError() : error),
+        )
+      })
+    }
 
     startSessionActivity('api_call')
     try {
@@ -1954,8 +2245,13 @@ async function* queryModel(
       let totalStallTime = 0
       let stallCount = 0
 
-      for await (const part of stream) {
-        resetStreamIdleTimer()
+      const streamIterator = stream[Symbol.asyncIterator]()
+      while (true) {
+        const streamResult = await readNextStreamPart(streamIterator)
+        if (streamResult.done) {
+          break
+        }
+        const part = streamResult.value
         const now = Date.now()
 
         // Detect and log streaming stalls (only after first event to avoid counting TTFB)
@@ -2284,8 +2580,10 @@ async function* queryModel(
               logEvent('tengu_max_tokens_reached', {
                 max_tokens: maxOutputTokens,
               })
+              const is3pProvider = shouldUseIntegrationRuntimeLimits()
+              const providerNoun = is3pProvider ? "Model's" : "OpenClaude's"
               yield createAssistantAPIErrorMessage({
-                content: `${API_ERROR_MESSAGE_PREFIX}: Claude's response exceeded the ${
+                content: `${API_ERROR_MESSAGE_PREFIX}: ${providerNoun} response exceeded the ${
                   maxOutputTokens
                 } output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.`,
                 apiError: 'max_output_tokens',
@@ -2298,13 +2596,10 @@ async function* queryModel(
                 max_tokens: maxOutputTokens,
                 output_tokens: usage.output_tokens,
               })
-              // Reuse the max_output_tokens recovery path — from the model's
-              // perspective, both mean "response was cut off, continue from
-              // where you left off."
               yield createAssistantAPIErrorMessage({
                 content: `${API_ERROR_MESSAGE_PREFIX}: The model has reached its context window limit.`,
-                apiError: 'max_output_tokens',
-                error: 'max_output_tokens',
+                apiError: 'context_overflow',
+                error: 'invalid_request',
               })
             }
             break
@@ -2449,15 +2744,16 @@ async function* queryModel(
       }
 
       if (streamingError instanceof APIUserAbortError) {
-        // Check if the abort signal was triggered by the user (ESC key)
-        // If the signal is aborted, it's a user-initiated abort
+        // If the signal is aborted, classify by the AbortSignal reason.
         // If not, it's likely a timeout from the SDK
         if (signal.aborted) {
-          // This is a real user abort (ESC key was pressed)
           logForDebugging(
-            `Streaming aborted by user: ${errorMessage(streamingError)}`,
+            getClaudeStreamingAbortLogMessage(signal, streamingError),
           )
-          if (isAdvisorInProgress) {
+          if (
+            isAdvisorInProgress &&
+            shouldCreateUserInterruptionMessage(signal.reason)
+          ) {
             logEvent('tengu_advisor_tool_interrupted', {
               model:
                 options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2473,9 +2769,16 @@ async function* queryModel(
             `Streaming timeout (SDK abort): ${streamingError.message}`,
             { level: 'error' },
           )
-          // Throw a more specific error for timeout
-          throw new APIConnectionTimeoutError({ message: 'Request timed out' })
+          // Treat provider/SDK stream timeouts like other streaming failures:
+          // fall back below while the parent query signal is still live.
         }
+      }
+
+      if (signal.aborted) {
+        logForDebugging(
+          getClaudeStreamingAbortLogMessage(signal, streamingError),
+        )
+        throw new APIUserAbortError()
       }
 
       // When the flag is enabled, skip the non-streaming fallback and let the
@@ -2565,6 +2868,7 @@ async function* queryModel(
           ? 'watchdog'
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
+      endActiveApiCall()
       const result = yield* executeNonStreamingRequest(
         { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
         {
@@ -2583,7 +2887,11 @@ async function* queryModel(
         },
         params => captureAPIRequest(params, options.querySource),
         streamRequestId,
+        options.queryLifecycle,
+        options.onProviderRequestStart,
       )
+
+      if (result === null) return
 
       const m: AssistantMessage = {
         message: {
@@ -2619,6 +2927,21 @@ async function* queryModel(
     // an error message with no actual retry on the fallback model.
     if (errorFromRetry instanceof FallbackTriggeredError) {
       throw errorFromRetry
+    }
+
+    if (
+      handleClaudeExpectedSideTaskApiAbort(
+        signal,
+        errorFromRetry,
+        releaseStreamResources,
+      )
+    ) {
+      return
+    }
+
+    if (signal.aborted) {
+      releaseStreamResources()
+      return
     }
 
     // Check if this is a 404 error during stream creation that should trigger
@@ -2664,14 +2987,21 @@ async function* queryModel(
 
       try {
         // Fall back to non-streaming mode
+        endActiveApiCall()
         const result = yield* executeNonStreamingRequest(
-          { model: options.model, source: options.querySource, effortValue: effort },
+          {
+            model: options.model,
+            source: options.querySource,
+            providerOverride: options.providerOverride,
+            effortValue: effort,
+          },
           {
             model: options.model,
             fallbackModel: options.fallbackModel,
             thinkingConfig,
             ...(isFastModeEnabled() && { fastMode: isFastMode }),
             signal,
+            querySource: options.querySource,
           },
           paramsFromContext,
           (attempt, _startTime, tokens) => {
@@ -2680,7 +3010,11 @@ async function* queryModel(
           },
           params => captureAPIRequest(params, options.querySource),
           failedRequestId,
+          options.queryLifecycle,
+          options.onProviderRequestStart,
         )
+
+        if (result === null) return
 
         const m: AssistantMessage = {
           message: {
@@ -2708,6 +3042,16 @@ async function* queryModel(
         // Propagate model-fallback signal to query.ts (see comment above).
         if (fallbackError instanceof FallbackTriggeredError) {
           throw fallbackError
+        }
+
+        if (
+          handleClaudeExpectedSideTaskApiAbort(
+            signal,
+            fallbackError,
+            releaseStreamResources,
+          )
+        ) {
+          return
         }
 
         // Fallback also failed, handle as normal error
@@ -2821,6 +3165,7 @@ async function* queryModel(
       return
     }
   } finally {
+    endActiveApiCall()
     stopSessionActivity('api_call')
     // Must be in the finally block: if the generator is terminated early
     // via .return() (e.g. consumer breaks out of for-await-of, or query.ts

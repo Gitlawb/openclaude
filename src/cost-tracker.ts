@@ -9,6 +9,8 @@ import {
   resetSessionCacheStats,
 } from './services/api/cacheStatsTracker.js'
 import { getAPIProvider, isGithubNativeAnthropicMode } from './utils/model/providers.js'
+import { getRoutingSummaryForDisplay, resetRoutingTally } from './services/api/smartRouting/index.js'
+import { getSettings_DEPRECATED } from './utils/settings/settings.js'
 import {
   addToTotalCostState,
   addToTotalLinesChanged,
@@ -83,6 +85,9 @@ export {
 export function resetCostState(): void {
   baseResetCostState()
   resetSessionCacheStats()
+  // Keep the routing summary scoped to the same session window as the cost
+  // block it renders beside — otherwise /cost shows stale cross-session counts.
+  resetRoutingTally()
 }
 
 type StoredCostState = {
@@ -201,11 +206,18 @@ function formatModelUsage(): string {
     return 'Usage:                 0 input, 0 output'
   }
 
-  // Accumulate usage by short name
-  const usageByShortName: { [shortName: string]: ModelUsage } = {}
+  // Accumulate usage by short name. Null-prototype so an unrecognised custom
+  // provider id that canonicalizes to `__proto__` / `constructor` becomes an
+  // ordinary own key: on a plain object the truthiness check below would read an
+  // inherited Object.prototype member, skip initialization, and mutate it (for
+  // `__proto__`, polluting Object.prototype process-wide), while dropping the
+  // model from the displayed breakdown.
+  const usageByShortName: { [shortName: string]: ModelUsage } = Object.create(
+    null,
+  ) as { [shortName: string]: ModelUsage }
   for (const [model, usage] of Object.entries(modelUsageMap)) {
     const shortName = getCanonicalName(model)
-    if (!usageByShortName[shortName]) {
+    if (!Object.hasOwn(usageByShortName, shortName)) {
       usageByShortName[shortName] = {
         inputTokens: 0,
         outputTokens: 0,
@@ -246,6 +258,15 @@ function formatModelUsage(): string {
   return result
 }
 
+function formatTokenBar(label: string, tokens: number, maxTokens: number, colorFn: (text: string) => string): string {
+  const barWidth = 20
+  const ratio = maxTokens > 0 ? Math.min(tokens / maxTokens, 1) : 0
+  const filled = Math.round(ratio * barWidth)
+  const empty = barWidth - filled
+  const bar = colorFn('█'.repeat(filled)) + chalk.gray('░'.repeat(empty))
+  return `  ${label.padEnd(14)} ${bar} ${formatNumber(tokens)}`
+}
+
 export function formatTotalCost(): string {
   const costDisplay =
     formatCost(getTotalCostUSD()) +
@@ -254,14 +275,35 @@ export function formatTotalCost(): string {
       : '')
 
   const modelUsageDisplay = formatModelUsage()
+  const totalInput = getTotalInputTokens()
+  const totalOutput = getTotalOutputTokens()
+  const totalCacheRead = getTotalCacheReadInputTokens()
+  const totalCacheCreation = getTotalCacheCreationInputTokens()
+  const totalTokens = totalInput + totalOutput + totalCacheRead + totalCacheCreation
+  const tokenSection = totalTokens > 0 ? (() => {
+    const maxTokens = Math.max(totalInput, totalOutput, totalCacheRead, totalCacheCreation, 1)
+    const tokenBars = [
+      formatTokenBar('Input tokens', totalInput, maxTokens, chalk.blue),
+      formatTokenBar('Output tokens', totalOutput, maxTokens, chalk.green),
+      totalCacheRead > 0 ? formatTokenBar('Cache read', totalCacheRead, maxTokens, chalk.cyan) : null,
+      totalCacheCreation > 0 ? formatTokenBar('Cache write', totalCacheCreation, maxTokens, chalk.yellow) : null,
+    ].filter(Boolean).join('\n')
+    return `\nToken usage:\n${tokenBars}`
+  })() : ''
 
-  return chalk.dim(
+  const statsBlock = chalk.dim(
     `Total cost:            ${costDisplay}\n` +
       `Total duration (API):  ${formatDuration(getTotalAPIDuration())}
 Total duration (wall): ${formatDuration(getTotalDuration())}
-Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed
-${modelUsageDisplay}`,
+Total code changes:    ${getTotalLinesAdded()} ${getTotalLinesAdded() === 1 ? 'line' : 'lines'} added, ${getTotalLinesRemoved()} ${getTotalLinesRemoved() === 1 ? 'line' : 'lines'} removed`,
   )
+
+  const routingSummary = getRoutingSummaryForDisplay(getSettings_DEPRECATED())
+  const routingSection = routingSummary ? `\n\n${chalk.dim(routingSummary)}` : ''
+
+  return `${statsBlock}${tokenSection}
+
+${modelUsageDisplay}${routingSection}`
 }
 
 function round(number: number, precision: number): number {

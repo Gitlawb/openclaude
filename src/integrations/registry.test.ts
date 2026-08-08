@@ -20,6 +20,7 @@ import {
   registerGateway,
   registerModel,
   registerVendor,
+  setRegistryLazyLoader,
   validateIntegrationRegistry,
 } from './registry.js'
 import {
@@ -366,6 +367,26 @@ describe('validateIntegrationRegistry', () => {
     expect(result.warnings.some(w => w.includes('has no models and no discovery config'))).toBe(false)
   })
 
+  test('catches dynamic catalogs with curated models', () => {
+    registerGateway(
+      makeGateway('gw-dynamic-curated', {
+        catalog: {
+          source: 'dynamic',
+          discovery: { kind: 'openai-compatible' },
+          models: [{ id: 'curated-model', apiName: 'curated-model' }],
+        },
+      }),
+    )
+
+    const result = validateIntegrationRegistry()
+    expect(result.valid).toBe(false)
+    expect(
+      result.errors.some(e =>
+        e.includes('must use source "hybrid" when declaring curated models'),
+      ),
+    ).toBe(true)
+  })
+
   test('catches duplicate preset ids across routes', () => {
     registerVendor(
       makeVendor('vendor-one', {
@@ -425,5 +446,31 @@ describe('validateIntegrationRegistry', () => {
     const result = validateIntegrationRegistry()
     expect(result.valid).toBe(false)
     expect(result.errors.some(error => error.includes('defaultBaseUrl or preset.fallbackBaseUrl'))).toBe(true)
+  })
+})
+
+describe('lazy loader', () => {
+  test('stays armed and retries after a failed load', () => {
+    _clearRegistryForTesting()
+    let calls = 0
+    setRegistryLazyLoader(() => {
+      calls++
+      if (calls === 1) {
+        throw new Error('loader boom')
+      }
+      registerBrand(makeBrand('lazy-retry-brand'))
+    })
+
+    // First read runs the loader, which throws; the error must propagate AND the
+    // loader must stay armed (not be cleared mid-failure) so a retry is possible.
+    expect(() => getBrand('lazy-retry-brand')).toThrow('loader boom')
+
+    // Second read retries the loader, which now succeeds and registers.
+    expect(getBrand('lazy-retry-brand')?.id).toBe('lazy-retry-brand')
+    expect(calls).toBe(2)
+
+    // Once loaded, the loader is cleared and not invoked again.
+    getBrand('lazy-retry-brand')
+    expect(calls).toBe(2)
   })
 })

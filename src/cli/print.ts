@@ -68,6 +68,7 @@ import type { Stream } from 'src/utils/stream.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import {
   loadConversationForResume,
+  loadConversationForResumeFromPr,
   type TurnInterruptionState,
 } from 'src/utils/conversationRecovery.js'
 import type {
@@ -148,7 +149,10 @@ import {
 } from 'src/utils/permissions/PermissionPromptToolResultSchema.js'
 import { createAbortController } from 'src/utils/abortController.js'
 import { createCombinedAbortSignal } from 'src/utils/combinedAbortSignal.js'
-import { generateSessionTitle } from 'src/utils/sessionTitle.js'
+import {
+  generateSessionTitle,
+  titleOrNullForPromptFallback,
+} from 'src/utils/sessionTitle.js'
 import { buildSideQuestionFallbackParams } from 'src/utils/queryContext.js'
 import { runSideQuestion } from 'src/utils/sideQuestion.js'
 import {
@@ -174,12 +178,11 @@ import {
   getFastModeState,
 } from 'src/utils/fastMode.js'
 import {
-  isAutoModeGateEnabled,
-  getAutoModeUnavailableNotification,
-  getAutoModeUnavailableReason,
-  isBypassPermissionsModeDisabled,
-  transitionPermissionMode,
+  applyPermissionModeChange,
+  getPermissionModeChangeRequestDecision,
 } from 'src/utils/permissions/permissionSetup.js'
+import { requestPermissionModeChange } from 'src/utils/permissions/permissionModeChange.js'
+import { permissionModeFromString } from 'src/utils/permissions/PermissionMode.js'
 import {
   tryGenerateSuggestion,
   logSuggestionOutcome,
@@ -206,6 +209,7 @@ import {
   hydrateRemoteSession,
   hydrateFromCCRv2InternalEvents,
   resetSessionFilePointer,
+  recordContentReplacement,
   doesMessageExistInSession,
   findUnresolvedToolUse,
   recordAttributionSnapshot,
@@ -270,11 +274,13 @@ import {
   modelDisplayString,
   parseUserSpecifiedModel,
 } from 'src/utils/model/model.js'
-import { getModelOptions } from 'src/utils/model/modelOptions.js'
+import {
+  getModelOptions,
+  type ModelOption,
+} from 'src/utils/model/modelOptions.js'
 import {
   modelSupportsEffort,
-  modelSupportsMaxEffort,
-  EFFORT_LEVELS,
+  getAvailableEffortLevels,
   resolveAppliedEffort,
 } from 'src/utils/effort.js'
 import { modelSupportsAdaptiveThinking } from 'src/utils/thinking.js'
@@ -306,9 +312,11 @@ import {
   fileHistoryGetDiffStats,
 } from 'src/utils/fileHistory.js'
 import {
+  createForkSessionInfoMessage,
   restoreAgentFromSession,
   restoreSessionStateFromLog,
 } from 'src/utils/sessionRestore.js'
+import { filterContentReplacementsForMessages } from 'src/utils/toolResultStorage.js'
 import { SandboxManager } from 'src/utils/sandbox/sandbox-adapter.js'
 import {
   headlessProfilerStartTurn,
@@ -318,6 +326,7 @@ import {
 import {
   startQueryProfile,
   logQueryProfileReport,
+  clearQueryProfile,
 } from 'src/utils/queryProfiler.js'
 import { asSessionId } from 'src/types/ids.js'
 import { jsonStringify } from '../utils/slowOperations.js'
@@ -331,6 +340,14 @@ import {
 import { installPluginsForHeadless } from '../utils/plugins/headlessPluginInstall.js'
 import { refreshActivePlugins } from '../utils/plugins/refresh.js'
 import { loadAllPluginsCacheOnly } from '../utils/plugins/pluginLoader.js'
+import {
+  createHeadlessHeartbeat,
+  isHeadlessHeartbeatMessage,
+  shouldSelectHeadlessFinalMessage,
+  type HeadlessHeartbeat,
+  type HeadlessHeartbeatEvent,
+  type HeadlessHeartbeatState,
+} from './headlessHeartbeat.js'
 import {
   isTeamLead,
   hasActiveInProcessTeammates,
@@ -369,6 +386,23 @@ const extractMemoriesModule = feature('EXTRACT_MEMORIES')
   ? (require('../services/extractMemories/extractMemories.js') as typeof import('../services/extractMemories/extractMemories.js'))
   : null
 /* eslint-enable @typescript-eslint/no-require-imports */
+
+/**
+ * Select the model options that are safe to expose through the SDK `models`
+ * response. `getModelOptions()` also returns inactive-provider-profile entries
+ * whose `value` is an encoded `__switch_profile__:<id>:<model>` string (issue
+ * #1119). Those are UI-only affordances for the interactive `/model` switcher —
+ * they are not real, selectable model ids — so they must never reach SDK
+ * consumers. Exported so the exclusion is unit-testable.
+ *
+ * Filter on the explicit `switchToProfileId` marker rather than the encoded
+ * `value` prefix: a legitimate custom model id that happens to start with
+ * `__switch_profile__:` must still reach SDK consumers, and only the synthesized
+ * profile-switch options carry `switchToProfileId`.
+ */
+export function selectSdkModelOptions(options: ModelOption[]): ModelOption[] {
+  return options.filter(option => option.switchToProfileId === undefined)
+}
 
 const SHUTDOWN_TEAM_PROMPT = `<system-reminder>
 You are running in non-interactive mode and cannot return a response to the user until your team is shut down.
@@ -457,6 +491,7 @@ export async function runHeadless(
   options: {
     continue: boolean | undefined
     resume: string | boolean | undefined
+    fromPr: string | boolean | undefined
     resumeSessionAt: string | undefined
     verbose: boolean | undefined
     outputFormat: string | undefined
@@ -483,6 +518,7 @@ export async function runHeadless(
     setupTrigger?: 'init' | 'maintenance' | undefined
     sessionStartHooksPromise?: ReturnType<typeof processSessionStartHooks>
     setSDKStatus?: (status: SDKStatus) => void
+    heartbeatIntervalMs?: number | undefined
   },
 ): Promise<void> {
   if (
@@ -565,14 +601,20 @@ export async function runHeadless(
   // Without this, the disk cache is empty and all flags fall back to defaults.
   void initializeGrowthBook()
 
-  if (options.resumeSessionAt && !options.resume) {
-    process.stderr.write(`Error: --resume-session-at requires --resume\n`)
+  const hasRequestedResumeSource = Boolean(options.resume || options.fromPr)
+
+  if (options.resumeSessionAt && !hasRequestedResumeSource) {
+    process.stderr.write(
+      `Error: --resume-session-at requires --resume or --from-pr\n`,
+    )
     gracefulShutdownSync(1)
     return
   }
 
-  if (options.rewindFiles && !options.resume) {
-    process.stderr.write(`Error: --rewind-files requires --resume\n`)
+  if (options.rewindFiles && !hasRequestedResumeSource) {
+    process.stderr.write(
+      `Error: --rewind-files requires --resume or --from-pr\n`,
+    )
     gracefulShutdownSync(1)
     return
   }
@@ -596,6 +638,31 @@ export async function runHeadless(
     installStreamJsonStdoutGuard()
   }
 
+  let streamJsonDrainStarted = false
+  const emitStructuredHeartbeat = createHeadlessHeartbeatStructuredEmitter(
+    structuredIO,
+    () => streamJsonDrainStarted,
+  )
+  const heartbeat = options.heartbeatIntervalMs
+    ? createRunHeadlessHeartbeat({
+        intervalMs: options.heartbeatIntervalMs,
+        outputFormat: options.outputFormat,
+        verbose: options.verbose,
+        getSessionId,
+        getState: () => (isShuttingDown() ? 'shutting_down' : getSessionState()),
+        getPendingPermissionRequests: () =>
+          structuredIO.getPendingPermissionRequests(),
+        getBackgroundTaskCounts: () => getBackgroundTaskCounts(getAppState()),
+        emitStructured: emitStructuredHeartbeat,
+      })
+    : undefined
+  const deferHeartbeatStartUntilStreamDrain =
+    options.outputFormat === 'stream-json'
+  if (!deferHeartbeatStartUntilStreamDrain) {
+    heartbeat?.start()
+  }
+  registerCleanup(async () => heartbeat?.stop())
+
   // #34044: if user explicitly set sandbox.enabled=true but deps are missing,
   // isSandboxingEnabled() returns false silently. Surface the reason so users
   // know their security config isn't being enforced.
@@ -606,6 +673,7 @@ export async function runHeadless(
         `\nError: sandbox required but unavailable: ${sandboxUnavailableReason}\n` +
           `  sandbox.failIfUnavailable is set — refusing to start without a working sandbox.\n\n`,
       )
+      heartbeat?.stop()
       gracefulShutdownSync(1)
       return
     }
@@ -621,6 +689,7 @@ export async function runHeadless(
       await SandboxManager.initialize(structuredIO.createSandboxAskCallback())
     } catch (err) {
       process.stderr.write(`\n❌ Sandbox Error: ${errorMessage(err)}\n`)
+      heartbeat?.stop()
       gracefulShutdownSync(1, 'other')
       return
     }
@@ -670,30 +739,44 @@ export async function runHeadless(
             }
         }
       })()
-      void structuredIO.write(message)
+      void structuredIO
+        .write(message)
+        .then(() => heartbeat?.markActivity())
+        .catch(() => {})
     })
   }
 
   if (options.setupTrigger) {
-    await processSetupHooks(options.setupTrigger)
+    heartbeat?.setPhase('startup')
+    await runWithHeartbeatErrorCleanup(heartbeat, () =>
+      processSetupHooks(options.setupTrigger!),
+    )
   }
 
   headlessProfilerCheckpoint('before_loadInitialMessages')
+  heartbeat?.setPhase('loading_session')
   const appState = getAppState()
+  const initialMessagesResult = await runWithHeartbeatErrorCleanup(
+    heartbeat,
+    () =>
+      loadInitialMessages(setAppState, {
+        getAppState,
+        continue: options.continue,
+        teleport: options.teleport,
+        resume: options.resume,
+        fromPr: options.fromPr,
+        resumeSessionAt: options.resumeSessionAt,
+        forkSession: options.forkSession,
+        outputFormat: options.outputFormat,
+        sessionStartHooksPromise: options.sessionStartHooksPromise,
+        restoredWorkerState: structuredIO.restoredWorkerState,
+      }),
+  )
   const {
     messages: initialMessages,
     turnInterruptionState,
     agentSetting: resumedAgentSetting,
-  } = await loadInitialMessages(setAppState, {
-    continue: options.continue,
-    teleport: options.teleport,
-    resume: options.resume,
-    resumeSessionAt: options.resumeSessionAt,
-    forkSession: options.forkSession,
-    outputFormat: options.outputFormat,
-    sessionStartHooksPromise: options.sessionStartHooksPromise,
-    restoredWorkerState: structuredIO.restoredWorkerState,
-  })
+  } = initialMessagesResult
 
   // SessionStart hooks can emit initialUserMessage — the first user turn for
   // headless orchestrator sessions where stdin is empty and additionalContext
@@ -731,6 +814,7 @@ export async function runHeadless(
   // If a loadInitialMessages error path triggered it, bail early to avoid
   // unnecessary work while the process winds down.
   if (initialMessages.length === 0 && process.exitCode !== undefined) {
+    heartbeat?.stop()
     return
   }
 
@@ -746,19 +830,23 @@ export async function runHeadless(
       process.stderr.write(
         `Error: --rewind-files requires a user message UUID, but ${options.rewindFiles} is not a user message in this session\n`,
       )
+      heartbeat?.stop()
       gracefulShutdownSync(1)
       return
     }
 
     const currentAppState = getAppState()
-    const result = await handleRewindFiles(
-      options.rewindFiles as UUID,
-      currentAppState,
-      setAppState,
-      false,
+    const result = await runWithHeartbeatErrorCleanup(heartbeat, () =>
+      handleRewindFiles(
+        options.rewindFiles as UUID,
+        currentAppState,
+        setAppState,
+        false,
+      ),
     )
     if (!result.canRewind) {
       process.stderr.write(`Error: ${result.error || 'Unexpected error'}\n`)
+      heartbeat?.stop()
       gracefulShutdownSync(1)
       return
     }
@@ -767,6 +855,7 @@ export async function runHeadless(
     process.stdout.write(
       `Files rewound to state at message ${options.rewindFiles}\n`,
     )
+    heartbeat?.stop()
     gracefulShutdownSync(0)
     return
   }
@@ -775,12 +864,15 @@ export async function runHeadless(
   const hasValidResumeSessionId =
     typeof options.resume === 'string' &&
     (Boolean(validateUuid(options.resume)) || options.resume.endsWith('.jsonl'))
+  const hasValidResumeSource =
+    hasValidResumeSessionId || Boolean(options.fromPr)
   const isUsingSdkUrl = Boolean(options.sdkUrl)
 
-  if (!inputPrompt && !hasValidResumeSessionId && !isUsingSdkUrl) {
+  if (!inputPrompt && !hasValidResumeSource && !isUsingSdkUrl) {
     process.stderr.write(
       `Error: Input must be provided either through stdin or as a prompt argument when using --print\n`,
     )
+    heartbeat?.stop()
     gracefulShutdownSync(1)
     return
   }
@@ -789,6 +881,7 @@ export async function runHeadless(
     process.stderr.write(
       'Error: When using --print, --output-format=stream-json requires --verbose\n',
     )
+    heartbeat?.stop()
     gracefulShutdownSync(1)
     return
   }
@@ -807,6 +900,7 @@ export async function runHeadless(
 
   // Callback for when a permission prompt is shown
   const onPermissionPrompt = (details: RequiresActionDetails) => {
+    heartbeat?.setPhase('waiting_for_permission')
     if (feature('COMMIT_ATTRIBUTION')) {
       setAppState(prev => ({
         ...prev,
@@ -839,7 +933,7 @@ export async function runHeadless(
 
   // Ensure model strings are initialized before generating model options.
   // For Bedrock users, this waits for the profile fetch to get correct region strings.
-  await ensureModelStringsInitialized()
+  await runWithHeartbeatErrorCleanup(heartbeat, ensureModelStringsInitialized)
   headlessProfilerCheckpoint('after_modelStrings')
 
   // UDS inbox store registration is deferred until after `run` is defined
@@ -862,57 +956,60 @@ export async function runHeadless(
       : null
 
   headlessProfilerCheckpoint('before_runHeadlessStreaming')
-  for await (const message of runHeadlessStreaming(
-    structuredIO,
-    appState.mcp.clients,
-    [...commands, ...appState.mcp.commands],
-    filteredTools,
-    initialMessages,
-    canUseTool,
-    sdkMcpConfigs,
-    getAppState,
-    setAppState,
-    agents,
-    options,
-    turnInterruptionState,
-  )) {
-    if (transformToStreamlined) {
-      // Streamlined mode: transform messages and stream immediately
-      const transformed = transformToStreamlined(message)
-      if (transformed) {
-        await structuredIO.write(transformed)
+  streamJsonDrainStarted = true
+  if (deferHeartbeatStartUntilStreamDrain) {
+    heartbeat?.start()
+    heartbeat?.setPhase('draining_commands')
+  }
+  try {
+    for await (const message of runHeadlessStreaming(
+      structuredIO,
+      appState.mcp.clients,
+      [...commands, ...appState.mcp.commands],
+      filteredTools,
+      initialMessages,
+      canUseTool,
+      sdkMcpConfigs,
+      getAppState,
+      setAppState,
+      agents,
+      { ...options, heartbeat },
+      turnInterruptionState,
+    )) {
+      if (transformToStreamlined) {
+        if (isHeadlessHeartbeatMessage(message)) {
+          await structuredIO.write(message)
+          continue
+        }
+        // Streamlined mode: transform messages and stream immediately
+        const transformed = transformToStreamlined(message)
+        if (transformed) {
+          await structuredIO.write(transformed)
+          if (!isHeadlessHeartbeatMessage(transformed)) {
+            heartbeat?.markActivity()
+          }
+        }
+      } else if (options.outputFormat === 'stream-json' && options.verbose) {
+        await structuredIO.write(message)
+        if (!isHeadlessHeartbeatMessage(message)) {
+          heartbeat?.markActivity()
+        }
       }
-    } else if (options.outputFormat === 'stream-json' && options.verbose) {
-      await structuredIO.write(message)
-    }
-    // Should not be getting control messages or stream events in non-stream mode.
-    // Also filter out streamlined types since they're only produced by the transformer.
-    // SDK-only system events are excluded so lastMessage stays at the result
-    // (session_state_changed(idle) and any late task_notification drain after
-    // result in the finally block).
-    if (
-      message.type !== 'control_response' &&
-      message.type !== 'control_request' &&
-      message.type !== 'control_cancel_request' &&
-      !(
-        message.type === 'system' &&
-        (message.subtype === 'session_state_changed' ||
-          message.subtype === 'task_notification' ||
-          message.subtype === 'task_started' ||
-          message.subtype === 'task_progress' ||
-          message.subtype === 'post_turn_summary')
-      ) &&
-      message.type !== 'stream_event' &&
-      message.type !== 'keep_alive' &&
-      message.type !== 'streamlined_text' &&
-      message.type !== 'streamlined_tool_use_summary' &&
-      message.type !== 'prompt_suggestion'
-    ) {
-      if (needsFullArray) {
-        messages.push(message)
+      // Should not be getting control messages or stream events in non-stream mode.
+      // Also filter out streamlined types since they're only produced by the transformer.
+      // SDK-only system events are excluded so lastMessage stays at the result
+      // (session_state_changed(idle) and any late task_notification drain after
+      // result in the finally block).
+      if (shouldSelectHeadlessFinalMessage(message)) {
+        if (needsFullArray) {
+          messages.push(message)
+        }
+        lastMessage = message
       }
-      lastMessage = message
     }
+  } finally {
+    heartbeat?.setPhase('flushing')
+    heartbeat?.stop()
   }
 
   switch (options.outputFormat) {
@@ -974,6 +1071,93 @@ export async function runHeadless(
   )
 }
 
+type HeadlessHeartbeatStructuredTarget = {
+  write: (message: HeadlessHeartbeatEvent) => void | Promise<void>
+  outbound: {
+    enqueue: (message: HeadlessHeartbeatEvent) => void
+  }
+}
+
+type RunHeadlessHeartbeatOptions = {
+  intervalMs: number | undefined
+  outputFormat: string | undefined
+  verbose: boolean | undefined
+  getSessionId: () => string | undefined
+  getState: () => HeadlessHeartbeatState
+  getPendingPermissionRequests: () => number | readonly unknown[]
+  getBackgroundTaskCounts: () => Record<string, number>
+  emitStructured: (message: HeadlessHeartbeatEvent) => void | Promise<void>
+  now?: () => number
+  setInterval?: (callback: () => void, intervalMs: number) => unknown
+  clearInterval?: (timer: unknown) => void
+  createUuid?: () => string
+}
+
+/** @internal */
+export async function runWithHeartbeatErrorCleanup<T>(
+  heartbeat: Pick<HeadlessHeartbeat, 'stop'> | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    heartbeat?.stop()
+    throw error
+  }
+}
+
+/** @internal */
+export function createHeadlessHeartbeatStructuredEmitter(
+  structuredIO: HeadlessHeartbeatStructuredTarget,
+  hasDrainStarted: () => boolean,
+): (message: HeadlessHeartbeatEvent) => void | Promise<void> {
+  return message => {
+    if (!hasDrainStarted()) {
+      // Before drain starts, write directly so startup signals in
+      // stream-json mode are not silently dropped.
+      return structuredIO.write(message)
+    }
+    structuredIO.outbound.enqueue(message)
+  }
+}
+
+/** @internal */
+export function createRunHeadlessHeartbeat(
+  options: RunHeadlessHeartbeatOptions,
+): HeadlessHeartbeat | undefined {
+  if (options.intervalMs === undefined) {
+    return undefined
+  }
+
+  return createHeadlessHeartbeat({
+    intervalMs: options.intervalMs,
+    outputFormat:
+      options.outputFormat === 'stream-json' && !options.verbose
+        ? 'text'
+        : options.outputFormat,
+    getSessionId: options.getSessionId,
+    getState: options.getState,
+    initialPhase: 'startup',
+    getPendingPermissionRequests: options.getPendingPermissionRequests,
+    getBackgroundTaskCounts: options.getBackgroundTaskCounts,
+    emitStructured: options.emitStructured,
+    now: options.now,
+    setInterval: options.setInterval,
+    clearInterval: options.clearInterval,
+    createUuid: options.createUuid,
+  })
+}
+
+function getBackgroundTaskCounts(appState: AppState): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const task of getRunningTasks(appState)) {
+    if (isBackgroundTask(task)) {
+      counts[task.type] = (counts[task.type] ?? 0) + 1
+    }
+  }
+  return counts
+}
+
 function runHeadlessStreaming(
   structuredIO: StructuredIO,
   mcpClients: MCPServerConnection[],
@@ -1005,6 +1189,7 @@ function runHeadlessStreaming(
     setSDKStatus?: (status: SDKStatus) => void
     promptSuggestions?: boolean | undefined
     workload?: string | undefined
+    heartbeat?: HeadlessHeartbeat | undefined
   },
   turnInterruptionState?: TurnInterruptionState,
 ): AsyncIterable<StdoutMessage> {
@@ -1027,8 +1212,9 @@ function runHeadlessStreaming(
   // failsafe timer that force-exits if cleanup hangs.
   const sigintHandler = () => {
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGINT' })
+    options.heartbeat?.setPhase('shutting_down')
     if (abortController && !abortController.signal.aborted) {
-      abortController.abort()
+      abortController.abort('interrupt')
     }
     void gracefulShutdown(0)
   }
@@ -1064,6 +1250,7 @@ function runHeadlessStreaming(
       newMode === 'default' ||
       newMode === 'acceptEdits' ||
       newMode === 'bypassPermissions' ||
+      newMode === 'fullAccess' ||
       newMode === 'plan' ||
       newMode === (feature('TRANSCRIPT_CLASSIFIER') && 'auto') ||
       newMode === 'dontAsk'
@@ -1192,8 +1379,8 @@ function runHeadlessStreaming(
     })
   }
 
-  const modelOptions = getModelOptions()
-  const modelInfos = modelOptions.map(option => {
+  const modelOptions = selectSdkModelOptions(getModelOptions())
+  const modelInfos: ModelInfo[] = modelOptions.map((option): ModelInfo => {
     const modelId = option.value === null ? 'default' : option.value
     const resolvedModel =
       modelId === 'default'
@@ -1209,9 +1396,7 @@ function runHeadlessStreaming(
       description: option.description,
       ...(hasEffort && {
         supportsEffort: true,
-        supportedEffortLevels: modelSupportsMaxEffort(resolvedModel)
-          ? [...EFFORT_LEVELS]
-          : EFFORT_LEVELS.filter(l => l !== 'max'),
+        supportedEffortLevels: getAvailableEffortLevels(resolvedModel),
       }),
       ...(hasAdaptiveThinking && { supportsAdaptiveThinking: true }),
       ...(hasFastMode && { supportsFastMode: true }),
@@ -1870,6 +2055,7 @@ function runHeadlessStreaming(
 
     running = true
     runPhase = undefined
+    options.heartbeat?.setPhase('draining_commands')
     notifySessionStateChanged('running')
     idleTimeout.stop()
 
@@ -2136,6 +2322,7 @@ function runHeadlessStreaming(
             ? Date.now()
             : undefined
 
+          options.heartbeat?.setPhase('in_turn')
           headlessProfilerCheckpoint('before_ask')
           startQueryProfile()
           // Per-iteration ALS context so bg agents spawned inside ask()
@@ -2377,6 +2564,7 @@ function runHeadlessStreaming(
         }
 
         runPhase = 'draining_commands'
+        options.heartbeat?.setPhase('draining_commands')
         await drainCommandQueue()
 
         // Check for running background tasks before exiting.
@@ -2398,6 +2586,7 @@ function runHeadlessStreaming(
             waitingForAgents = true
             if (!hasMainThreadQueued) {
               runPhase = 'waiting_for_agents'
+              options.heartbeat?.setPhase('waiting_for_agents')
               // No commands ready yet, wait for tasks to complete
               await sleep(100)
             }
@@ -2423,6 +2612,7 @@ function runHeadlessStreaming(
         }
       }
     } catch (error) {
+      options.heartbeat?.setPhase('shutting_down')
       // Emit error result message before shutting down
       // Write directly to structuredIO to ensure immediate delivery
       try {
@@ -2445,6 +2635,7 @@ function runHeadlessStreaming(
             ...getInMemoryErrors().map(_ => _.error),
           ],
         })
+        options.heartbeat?.markActivity()
       } catch {
         // If we can't emit the error result, continue with shutdown anyway
       }
@@ -2453,6 +2644,8 @@ function runHeadlessStreaming(
       return
     } finally {
       runPhase = 'finally_flush'
+      options.heartbeat?.setPhase('flushing')
+      clearQueryProfile()
       // Flush pending internal events before going idle
       await structuredIO.flushInternalEvents()
       runPhase = 'finally_post_flush'
@@ -2837,7 +3030,7 @@ function runHeadlessStreaming(
             }))
           }
           if (abortController) {
-            abortController.abort()
+            abortController.abort('interrupt')
           }
           suggestionState.abortController?.abort()
           suggestionState.abortController = null
@@ -2914,14 +3107,15 @@ function runHeadlessStreaming(
           }
         } else if (message.request.subtype === 'set_permission_mode') {
           const m = message.request // for typescript (TODO: use readonly types to avoid this)
+          const nextToolPermissionContext = await handleSetPermissionMode(
+            m,
+            message.request_id,
+            getAppState().toolPermissionContext,
+            output,
+          )
           setAppState(prev => ({
             ...prev,
-            toolPermissionContext: handleSetPermissionMode(
-              m,
-              message.request_id,
-              prev.toolPermissionContext,
-              output,
-            ),
+            toolPermissionContext: nextToolPermissionContext,
             isUltraplanMode: m.ultraplan ?? prev.isUltraplanMode,
           }))
           // handleSetPermissionMode sends the control_response; the
@@ -3784,7 +3978,7 @@ function runHeadlessStreaming(
           const { description, persist } = message.request
           // Reuse the live controller only if it has not already been aborted
           // (e.g. by interrupt()); an aborted signal would cause queryHaiku to
-          // immediately throw APIUserAbortError → {title: null}.
+          // immediately throw APIUserAbortError and return the default title.
           const titleSignal = (
             abortController && !abortController.signal.aborted
               ? abortController
@@ -3793,9 +3987,10 @@ function runHeadlessStreaming(
           void (async () => {
             try {
               const title = await generateSessionTitle(description, titleSignal)
-              if (title && persist) {
+              const titleToPersist = titleOrNullForPromptFallback(title)
+              if (titleToPersist && persist) {
                 try {
-                  saveAiGeneratedTitle(getSessionId() as UUID, title)
+                  saveAiGeneratedTitle(getSessionId() as UUID, titleToPersist)
                 } catch (e) {
                   logError(e)
                 }
@@ -3803,7 +3998,7 @@ function runHeadlessStreaming(
               sendControlResponseSuccess(message, { title })
             } catch (e) {
               // Unreachable in practice — generateSessionTitle wraps its
-              // own body and returns null, saveAiGeneratedTitle is wrapped
+              // own body and returns a default title, saveAiGeneratedTitle is wrapped
               // above. Propagate (not swallow) so unexpected failures are
               // visible to the SDK caller (hostComms.ts catches and logs).
               sendControlResponseError(message, errorMessage(e))
@@ -3932,7 +4127,7 @@ function runHeadlessStreaming(
                     structuredIO.injectControlResponse(response)
                   },
                   onInterrupt() {
-                    abortController?.abort()
+                    abortController?.abort('interrupt')
                   },
                   onSetModel(model) {
                     const resolved =
@@ -4154,15 +4349,19 @@ export function createCanUseToolWithPermissionPrompt(
     toolUseId,
     forceDecision,
   ) => {
+    const shouldBypassForcedAsk =
+      forceDecision?.behavior === 'ask' &&
+      toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
     const mainPermissionResult =
-      forceDecision ??
-      (await hasPermissionsToUseTool(
+      forceDecision !== undefined && !shouldBypassForcedAsk
+        ? forceDecision
+        : await hasPermissionsToUseTool(
         tool,
         input,
         toolUseContext,
         assistantMessage,
         toolUseId,
-      ))
+      )
 
     // If the tool is allowed or denied, return the result
     if (
@@ -4247,7 +4446,7 @@ export function createCanUseToolWithPermissionPrompt(
         'Permission prompt tool returned an invalid result. Expected a single text block param with type="text" and a string text value.',
       )
     }
-    return permissionPromptToolResultToPermissionDecision(
+    return await permissionPromptToolResultToPermissionDecision(
       permissionToolOutputSchema().parse(
         safeParseJSON(permissionToolResultBlockParam.content[0].text),
       ),
@@ -4278,15 +4477,20 @@ export function getCanUseToolFn(
       assistantMessage,
       toolUseId,
       forceDecision,
-    ) =>
-      forceDecision ??
-      (await hasPermissionsToUseTool(
+    ) => {
+      const shouldBypassForcedAsk =
+        forceDecision?.behavior === 'ask' &&
+        toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
+      return forceDecision !== undefined && !shouldBypassForcedAsk
+        ? forceDecision
+        : await hasPermissionsToUseTool(
         tool,
         input,
         toolUseContext,
         assistantMessage,
         toolUseId,
-      ))
+      )
+    }
   }
   // Lazy lookup: MCP connects are per-server incremental in print mode, so
   // the tool may not be in appState yet at init time. Resolve on first call
@@ -4562,55 +4766,37 @@ async function handleRewindFiles(
   return { canRewind: true }
 }
 
-function handleSetPermissionMode(
+async function handleSetPermissionMode(
   request: { mode: InternalPermissionMode },
   requestId: string,
   toolPermissionContext: ToolPermissionContext,
   output: Stream<StdoutMessage>,
-): ToolPermissionContext {
-  // Check if trying to switch to bypassPermissions mode
-  if (request.mode === 'bypassPermissions') {
-    if (isBypassPermissionsModeDisabled()) {
-      output.enqueue({
-        type: 'control_response',
-        response: {
-          subtype: 'error',
-          request_id: requestId,
-          error:
-            'Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration',
-        },
-      })
-      return toolPermissionContext
-    }
-    if (!toolPermissionContext.isBypassPermissionsModeAvailable) {
-      output.enqueue({
-        type: 'control_response',
-        response: {
-          subtype: 'error',
-          request_id: requestId,
-          error:
-            'Cannot set permission mode to bypassPermissions. Enable it with --allow-dangerously-skip-permissions or set permissions.allowBypassPermissionsMode in settings.json',
-        },
-      })
-      return toolPermissionContext
-    }
-  }
+): Promise<ToolPermissionContext> {
+  let nextToolPermissionContext = toolPermissionContext
+  let blockedError: string | undefined
 
-  // Check if trying to switch to auto mode without the classifier gate
-  if (
-    feature('TRANSCRIPT_CLASSIFIER') &&
-    request.mode === 'auto' &&
-    !isAutoModeGateEnabled()
-  ) {
-    const reason = getAutoModeUnavailableReason()
+  const result = await requestPermissionModeChange({
+    mode: request.mode,
+    toolPermissionContext,
+    allowDangerousModeConfirmation: false,
+    onApply: () => {
+      nextToolPermissionContext = applyPermissionModeChange(
+        toolPermissionContext,
+        request.mode,
+      )
+    },
+    onBlocked: error => {
+      blockedError = error
+    },
+  })
+
+  if (result.status !== 'applied') {
     output.enqueue({
       type: 'control_response',
       response: {
         subtype: 'error',
         request_id: requestId,
-        error: reason
-          ? `Cannot set permission mode to auto: ${getAutoModeUnavailableNotification(reason)}`
-          : 'Cannot set permission mode to auto',
+        error: blockedError ?? `Cannot set permission mode to ${request.mode}`,
       },
     })
     return toolPermissionContext
@@ -4628,13 +4814,38 @@ function handleSetPermissionMode(
     },
   })
 
+  return nextToolPermissionContext
+}
+
+async function sanitizeResumedExternalMetadata(
+  metadata: SessionExternalMetadata,
+  toolPermissionContext: ToolPermissionContext,
+): Promise<SessionExternalMetadata> {
+  if (typeof metadata.permission_mode !== 'string') {
+    return metadata
+  }
+
+  const resumedMode = permissionModeFromString(metadata.permission_mode)
+  if (resumedMode !== 'bypassPermissions' && resumedMode !== 'fullAccess') {
+    return metadata
+  }
+
+  const modeDecision = await getPermissionModeChangeRequestDecision({
+    mode: resumedMode,
+    toolPermissionContext,
+  })
+  if (modeDecision.status !== 'blocked') {
+    return metadata
+  }
+
+  logForDebugging(
+    `Discarding resumed dangerous permission mode ${resumedMode}: ${modeDecision.error}`,
+    { level: 'warn' },
+  )
+  notifySessionMetadataChanged({ permission_mode: 'default' })
   return {
-    ...transitionPermissionMode(
-      toolPermissionContext.mode,
-      request.mode,
-      toolPermissionContext,
-    ),
-    mode: request.mode,
+    ...metadata,
+    permission_mode: 'default',
   }
 }
 
@@ -4793,7 +5004,7 @@ function reregisterChannelHandlerAfterReconnect(
   )
   if (gate.action !== 'register') return
 
-  const entry = findChannelEntry(connection.name, getAllowedChannels())
+  const entry = findChannelEntry(connection.name, getAllowedChannels(), connection.config.pluginSource)
   const pluginId =
     entry?.kind === 'plugin'
       ? (`${entry.name}@${entry.marketplace}` as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
@@ -4890,9 +5101,11 @@ type LoadInitialMessagesResult = {
 async function loadInitialMessages(
   setAppState: (f: (prev: AppState) => AppState) => void,
   options: {
+    getAppState: () => AppState
     continue: boolean | undefined
     teleport: string | true | null | undefined
     resume: string | boolean | undefined
+    fromPr: string | boolean | undefined
     resumeSessionAt: string | undefined
     forkSession: boolean | undefined
     outputFormat: string | undefined
@@ -4950,6 +5163,17 @@ async function loadInitialMessages(
               await resetSessionFilePointer()
             }
           }
+        } else {
+          if (persistSession && result.contentReplacements?.length) {
+            result.contentReplacements = filterContentReplacementsForMessages(
+              result.messages,
+              result.contentReplacements,
+            )
+            if (result.contentReplacements.length) {
+              await recordContentReplacement(result.contentReplacements)
+            }
+          }
+          result.messages.push(createForkSessionInfoMessage(result.sessionId))
         }
         restoreSessionStateFromLog(result, setAppState)
 
@@ -5021,58 +5245,82 @@ async function loadInitialMessages(
     }
   }
 
-  // Handle resume in print mode (accepts session ID or URL)
+  // Handle resume in print mode (accepts session ID, URL, or PR selector)
   // URLs are [internal-only]
-  if (options.resume) {
+  if (options.resume || options.fromPr) {
     try {
-      logEvent('tengu_resume_print', {})
+      let result: Awaited<ReturnType<typeof loadConversationForResume>> = null
+      let parsedSessionId: ReturnType<typeof parseSessionIdentifier> = null
 
-      // In print mode - we require a valid session ID, JSONL file or URL
-      const parsedSessionId = parseSessionIdentifier(
-        typeof options.resume === 'string' ? options.resume : '',
-      )
-      if (!parsedSessionId) {
-        let errorMessage =
-          'Error: --resume requires a valid session ID when used with --print. Usage: openclaude -p --resume <session-id>'
-        if (typeof options.resume === 'string') {
-          errorMessage += `. Session IDs must be in UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000). Provided value "${options.resume}" is not a valid UUID`
-        }
-        emitLoadError(errorMessage, options.outputFormat)
-        gracefulShutdownSync(1)
-        return { messages: [] }
-      }
+      if (options.resume) {
+        logEvent('tengu_resume_print', {})
 
-      // Hydrate local transcript from remote before loading
-      if (isEnvTruthy(process.env.CLAUDE_CODE_USE_CCR_V2)) {
-        // Await restore alongside hydration so SSE catchup lands on
-        // restored state, not a fresh default.
-        const [, metadata] = await Promise.all([
-          hydrateFromCCRv2InternalEvents(parsedSessionId.sessionId),
-          options.restoredWorkerState,
-        ])
-        if (metadata) {
-          setAppState(externalMetadataToAppState(metadata))
-          if (typeof metadata.model === 'string') {
-            setMainLoopModelOverride(metadata.model)
-          }
-        }
-      } else if (
-        parsedSessionId.isUrl &&
-        parsedSessionId.ingressUrl &&
-        isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE)
-      ) {
-        // v1: fetch session logs from Session Ingress
-        await hydrateRemoteSession(
-          parsedSessionId.sessionId,
-          parsedSessionId.ingressUrl,
+        // In print mode - we require a valid session ID, JSONL file or URL
+        parsedSessionId = parseSessionIdentifier(
+          typeof options.resume === 'string' ? options.resume : '',
         )
-      }
+        if (!parsedSessionId) {
+          let errorMessage =
+            'Error: --resume requires a valid session ID when used with --print. Usage: openclaude -p --resume <session-id>'
+          if (typeof options.resume === 'string') {
+            errorMessage += `. Session IDs must be in UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000). Provided value "${options.resume}" is not a valid UUID`
+          }
+          emitLoadError(errorMessage, options.outputFormat)
+          gracefulShutdownSync(1)
+          return { messages: [] }
+        }
 
-      // Load the conversation with the specified session ID
-      const result = await loadConversationForResume(
-        parsedSessionId.sessionId,
-        parsedSessionId.jsonlFile || undefined,
-      )
+        // Hydrate local transcript from remote before loading
+        if (isEnvTruthy(process.env.CLAUDE_CODE_USE_CCR_V2)) {
+          // Await restore alongside hydration so SSE catchup lands on
+          // restored state, not a fresh default.
+          const [, metadata] = await Promise.all([
+            hydrateFromCCRv2InternalEvents(parsedSessionId.sessionId),
+            options.restoredWorkerState,
+          ])
+          if (metadata) {
+            const sanitizedMetadata = await sanitizeResumedExternalMetadata(
+              metadata,
+              options.getAppState().toolPermissionContext,
+            )
+            setAppState(externalMetadataToAppState(sanitizedMetadata))
+            if (typeof metadata.model === 'string') {
+              setMainLoopModelOverride(metadata.model)
+            }
+          }
+        } else if (
+          parsedSessionId.isUrl &&
+          parsedSessionId.ingressUrl &&
+          isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE)
+        ) {
+          // v1: fetch session logs from Session Ingress
+          await hydrateRemoteSession(
+            parsedSessionId.sessionId,
+            parsedSessionId.ingressUrl,
+          )
+        }
+
+        // Load the conversation with the specified session ID
+        result = await loadConversationForResume(
+          parsedSessionId.sessionId,
+          parsedSessionId.jsonlFile || undefined,
+        )
+      } else if (options.fromPr) {
+        logEvent('tengu_resume_from_pr_print', {})
+        const selector =
+          options.fromPr === true ? true : String(options.fromPr)
+        result = await loadConversationForResumeFromPr(selector)
+        if (!result || result.messages.length === 0) {
+          const description =
+            selector === true ? 'any PR' : `PR selector: ${selector}`
+          emitLoadError(
+            `No conversation found linked to ${description}`,
+            options.outputFormat,
+          )
+          gracefulShutdownSync(1)
+          return { messages: [] }
+        }
+      }
 
       // hydrateFromCCRv2InternalEvents writes an empty transcript file for
       // fresh sessions (writeFile(sessionFile, '') with zero events), so
@@ -5081,7 +5329,7 @@ async function loadInitialMessages(
       if (!result || result.messages.length === 0) {
         // For URL-based or CCR v2 resume, start with empty session (it was hydrated but empty)
         if (
-          parsedSessionId.isUrl ||
+          parsedSessionId?.isUrl ||
           isEnvTruthy(process.env.CLAUDE_CODE_USE_CCR_V2)
         ) {
           // Execute SessionStart hooks for startup since we're starting a new session
@@ -5091,7 +5339,9 @@ async function loadInitialMessages(
           }
         } else {
           emitLoadError(
-            `No conversation found with session ID: ${parsedSessionId.sessionId}`,
+            parsedSessionId
+              ? `No conversation found with session ID: ${parsedSessionId.sessionId}`
+              : 'No conversation found for selected PR-linked session',
             options.outputFormat,
           )
           gracefulShutdownSync(1)
@@ -5150,6 +5400,21 @@ async function loadInitialMessages(
         if (persistSession) {
           await resetSessionFilePointer()
         }
+      } else if (options.forkSession) {
+        if (persistSession && result.contentReplacements?.length) {
+          result.contentReplacements = filterContentReplacementsForMessages(
+            result.messages,
+            result.contentReplacements,
+          )
+          if (result.contentReplacements.length) {
+            await recordContentReplacement(result.contentReplacements)
+          }
+        }
+        result.messages.push(
+          createForkSessionInfoMessage(
+            parsedSessionId?.sessionId ?? result.sessionId,
+          ),
+        )
       }
       restoreSessionStateFromLog(result, setAppState)
 

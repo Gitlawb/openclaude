@@ -166,7 +166,7 @@ export function BackgroundTasksDialog({
 
   // Register as modal overlay so parent Chat keybindings (up/down for history)
   // are deactivated while this dialog is open
-  useRegisterOverlay('background-tasks-dialog');
+  useRegisterOverlay('background-tasks-dialog', true);
 
   // Memoize the sorted and categorized items together to ensure stable references
   const {

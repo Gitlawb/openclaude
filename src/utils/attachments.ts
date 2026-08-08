@@ -3,6 +3,7 @@ import {
   logEvent,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 } from 'src/services/analytics/index.js'
+import { getFileExtensionForAnalytics } from 'src/services/analytics/metadata.js'
 import {
   toolMatchesName,
   type Tools,
@@ -44,7 +45,7 @@ import {
   getConditionalRulesForCwdLevelDirectory,
   type MemoryFileInfo,
 } from './claudemd.js'
-import { dirname, parse, relative, resolve } from 'path'
+import nodePath, { dirname, parse, relative, resolve } from 'path'
 import { getCwd } from 'src/utils/cwd.js'
 import { getViewedTeammateTask } from '../state/selectors.js'
 import { logError } from './log.js'
@@ -64,6 +65,8 @@ import {
 } from 'src/types/textInputTypes.js'
 import { randomUUID, type UUID } from 'crypto'
 import { getSettings_DEPRECATED } from './settings/settings.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from './model/providers.js'
+import { getEffortEnvOverride, modelSupportsXHighEffort } from './effort.js'
 import { getSnippetForTwoFileDiff } from 'src/tools/FileEditTool/utils.js'
 import type {
   ContentBlockParam,
@@ -83,14 +86,16 @@ import { getSkillToolCommands, getMcpSkillCommands } from '../commands.js'
 import type { Command } from '../types/command.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { getProjectRoot } from '../bootstrap/state.js'
-import { formatCommandsWithinBudget } from '../tools/SkillTool/prompt.js'
+import {
+  formatCommandsWithinBudget,
+  SUBAGENT_SKILL_LISTING_CHAR_BUDGET,
+} from '../tools/SkillTool/prompt.js'
 import { getContextWindowForModel } from './context.js'
 import type { DiscoverySignal } from '../services/skillSearch/signals.js'
 // Conditional require for DCE. All skill-search string literals that would
 // otherwise leak into external builds live inside these modules. The only
-// surfaces in THIS file are: the maybe() call (gated via spread below) and
-// the skill_listing suppression check (uses the same skillSearchModules null
-// check). The type-only DiscoverySignal import above is erased at compile time.
+// direct surface in THIS file is the maybe() call gated via spread below. The
+// type-only DiscoverySignal import above is erased at compile time.
 /* eslint-disable @typescript-eslint/no-require-imports */
 const skillSearchModules = feature('EXPERIMENTAL_SKILL_SEARCH')
   ? {
@@ -114,6 +119,11 @@ import {
   createAbortController,
   createChildAbortController,
 } from './abortController.js'
+import {
+  mapWithConcurrency,
+  raceAbort,
+  throwIfAborted,
+} from './boundedAsync.js'
 import { isAbortError } from './errors.js'
 import {
   getFileModificationTimeAsync,
@@ -185,9 +195,12 @@ import {
 } from './hooks/AsyncHookRegistry.js'
 import {
   checkForLSPDiagnostics,
-  clearAllLSPDiagnostics,
+  DIAGNOSTIC_DELIVERY_DEBOUNCE_MS,
+  getNextLSPDiagnosticDeliveryDelay,
+  type LSPDiagnosticSet,
 } from '../services/lsp/LSPDiagnosticRegistry.js'
 import { logForDebugging } from './debug.js'
+import { sleep } from './sleep.js'
 import {
   extractTextContent,
   getUserMessageText,
@@ -213,6 +226,7 @@ import {
   tokenCountWithEstimation,
 } from './tokens.js'
 import {
+  getAutoCompactThreshold,
   getEffectiveContextWindowSize,
   isAutoCompactEnabled,
 } from '../services/compact/autoCompact.js'
@@ -266,6 +280,21 @@ export const AUTO_MODE_ATTACHMENT_CONFIG = {
   TURNS_BETWEEN_ATTACHMENTS: 5,
   FULL_REMINDER_EVERY_N_ATTACHMENTS: 5,
 } as const
+
+const SKILL_LISTING_SUPPRESSED_QUERY_SOURCES = new Set([
+  'compact',
+  'extract_memories',
+  'session_memory',
+])
+
+export function shouldIncludeSkillListingAttachment(
+  querySource?: QuerySource,
+): boolean {
+  return !(
+    typeof querySource === 'string' &&
+    SKILL_LISTING_SUPPRESSED_QUERY_SOURCES.has(querySource)
+  )
+}
 
 const MAX_MEMORY_LINES = 200
 // Line cap alone doesn't bound size (200 × 500-char lines = 100KB).  The
@@ -684,6 +713,9 @@ export type Attachment =
       level: 'high'
     }
   | {
+      type: 'ultracode_mode'
+    }
+  | {
       type: 'deferred_tools_delta'
       addedNames: string[]
       addedLines: string[]
@@ -737,6 +769,8 @@ export type TeamContextAttachment = {
   taskListPath: string
 }
 
+const ATTACHMENT_FILE_IO_CONCURRENCY = 8
+
 /**
  * This is janky
  * TODO: Generate attachments when we create messages
@@ -767,19 +801,23 @@ export async function getAttachments(
   const abortController = createAbortController()
   const timeoutId = setTimeout(ac => ac.abort(), 1000, abortController)
   const context = { ...toolUseContext, abortController }
+  const maybeAttachment = <A>(
+    label: string,
+    f: () => Promise<A[]>,
+  ): Promise<A[]> => maybe(label, f)
 
   const isMainThread = !toolUseContext.agentId
 
   // Attachments which are added in response to on user input
   const userInputAttachments = input
     ? [
-        maybe('at_mentioned_files', () =>
+        maybeAttachment('at_mentioned_files', () =>
           processAtMentionedFiles(input, context),
         ),
-        maybe('mcp_resources', () =>
+        maybeAttachment('mcp_resources', () =>
           processMcpResourceAttachments(input, context),
         ),
-        maybe('agent_mentions', () =>
+        maybeAttachment('agent_mentions', () =>
           Promise.resolve(
             processAgentMentions(
               input,
@@ -803,7 +841,7 @@ export async function getAttachments(
         skillSearchModules &&
         !options?.skipSkillDiscovery
           ? [
-              maybe('skill_discovery', () =>
+              maybeAttachment('skill_discovery', () =>
                 skillSearchModules.prefetch.getTurnZeroSkillDiscovery(
                   input,
                   messages ?? [],
@@ -827,14 +865,19 @@ export async function getAttachments(
     // main thread gets agentId===undefined, subagents get their own agentId.
     // Must run for all threads or subagent notifications drain into the void
     // (removed from queue by removeFromQueue but never attached).
-    maybe('queued_commands', () => getQueuedCommandAttachments(queuedCommands)),
-    maybe('date_change', () =>
+    maybeAttachment('queued_commands', () =>
+      getQueuedCommandAttachments(queuedCommands),
+    ),
+    maybeAttachment('date_change', () =>
       Promise.resolve(getDateChangeAttachments(messages)),
     ),
-    maybe('ultrathink_effort', () =>
+    maybeAttachment('ultrathink_effort', () =>
       Promise.resolve(getUltrathinkEffortAttachment(input)),
     ),
-    maybe('deferred_tools_delta', () =>
+    maybeAttachment('ultracode_mode', () =>
+      Promise.resolve(getUltracodePermissionAttachment(toolUseContext)),
+    ),
+    maybeAttachment('deferred_tools_delta', () =>
       Promise.resolve(
         getDeferredToolsDeltaAttachment(
           toolUseContext.options.tools,
@@ -849,10 +892,10 @@ export async function getAttachments(
         ),
       ),
     ),
-    maybe('agent_listing_delta', () =>
+    maybeAttachment('agent_listing_delta', () =>
       Promise.resolve(getAgentListingDeltaAttachment(toolUseContext, messages)),
     ),
-    maybe('mcp_instructions_delta', () =>
+    maybeAttachment('mcp_instructions_delta', () =>
       Promise.resolve(
         getMcpInstructionsDeltaAttachment(
           toolUseContext.options.mcpClients,
@@ -864,34 +907,48 @@ export async function getAttachments(
     ),
     ...(isBuddyEnabled()
         ? [
-            maybe('companion_intro', () =>
+            maybeAttachment('companion_intro', () =>
               Promise.resolve(getCompanionIntroAttachment(messages)),
           ),
         ]
       : []),
-    maybe('changed_files', () => getChangedFiles(context)),
-    maybe('nested_memory', () => getNestedMemoryAttachments(context)),
+    maybeAttachment('changed_files', () => getChangedFiles(context)),
+    maybeAttachment('nested_memory', () =>
+      getNestedMemoryAttachments(context),
+    ),
     // relevant_memories moved to async prefetch (startRelevantMemoryPrefetch)
-    maybe('dynamic_skill', () => getDynamicSkillAttachments(context)),
-    maybe('skill_listing', () => getSkillListingAttachments(context)),
+    maybeAttachment('dynamic_skill', () =>
+      getDynamicSkillAttachments(context),
+    ),
+    ...(shouldIncludeSkillListingAttachment(querySource)
+      ? [
+          maybeAttachment('skill_listing', () =>
+            getSkillListingAttachments(context),
+          ),
+        ]
+      : []),
     // Inter-turn skill discovery now runs via startSkillDiscoveryPrefetch
     // (query.ts, concurrent with the main turn). The blocking call that
     // previously lived here was the assistant_turn signal — 97% of those
     // Haiku calls found nothing in prod. Prefetch + await-at-collection
     // replaces it; see src/services/skillSearch/prefetch.ts.
-    maybe('plan_mode', () => getPlanModeAttachments(messages, toolUseContext)),
-    maybe('plan_mode_exit', () => getPlanModeExitAttachment(toolUseContext)),
+    maybeAttachment('plan_mode', () =>
+      getPlanModeAttachments(messages, toolUseContext),
+    ),
+    maybeAttachment('plan_mode_exit', () =>
+      getPlanModeExitAttachment(toolUseContext),
+    ),
     ...(feature('TRANSCRIPT_CLASSIFIER')
       ? [
-          maybe('auto_mode', () =>
+          maybeAttachment('auto_mode', () =>
             getAutoModeAttachments(messages, toolUseContext),
           ),
-          maybe('auto_mode_exit', () =>
+          maybeAttachment('auto_mode_exit', () =>
             getAutoModeExitAttachment(toolUseContext),
           ),
         ]
       : []),
-    maybe('todo_reminders', () =>
+    maybeAttachment('todo_reminders', () =>
       isTodoV2Enabled()
         ? getTaskReminderAttachments(messages, toolUseContext)
         : getTodoReminderAttachments(messages, toolUseContext),
@@ -905,24 +962,24 @@ export async function getAttachments(
           ...(querySource === 'session_memory'
             ? []
             : [
-                maybe('teammate_mailbox', async () =>
+                maybeAttachment('teammate_mailbox', async () =>
                   getTeammateMailboxAttachments(toolUseContext),
                 ),
               ]),
-          maybe('team_context', async () =>
+          maybeAttachment('team_context', async () =>
             getTeamContextAttachment(messages ?? []),
           ),
         ]
       : []),
-    maybe('agent_pending_messages', async () =>
+    maybeAttachment('agent_pending_messages', async () =>
       getAgentPendingMessageAttachments(toolUseContext),
     ),
-    maybe('critical_system_reminder', () =>
+    maybeAttachment('critical_system_reminder', () =>
       Promise.resolve(getCriticalSystemReminderAttachment(toolUseContext)),
     ),
     ...(feature('COMPACTION_REMINDERS')
       ? [
-          maybe('compaction_reminder', () =>
+          maybeAttachment('compaction_reminder', () =>
             Promise.resolve(
               getCompactionReminderAttachment(
                 messages ?? [],
@@ -934,8 +991,13 @@ export async function getAttachments(
       : []),
     ...(feature('HISTORY_SNIP')
       ? [
-          maybe('context_efficiency', () =>
-            Promise.resolve(getContextEfficiencyAttachment(messages ?? [])),
+          maybeAttachment('context_efficiency', () =>
+            Promise.resolve(
+              getContextEfficiencyAttachment(
+                messages ?? [],
+                toolUseContext.options.mainLoopModel,
+              ),
+            ),
           ),
         ]
       : []),
@@ -944,28 +1006,28 @@ export async function getAttachments(
   // Attachments which are semantically only for the main conversation or don't have concurrency-safe implementations
   const mainThreadAttachments = isMainThread
     ? [
-        maybe('ide_selection', async () =>
+        maybeAttachment('ide_selection', async () =>
           getSelectedLinesFromIDE(ideSelection, toolUseContext),
         ),
-        maybe('ide_opened_file', async () =>
+        maybeAttachment('ide_opened_file', async () =>
           getOpenedFileFromIDE(ideSelection, toolUseContext),
         ),
-        maybe('output_style', async () =>
+        maybeAttachment('output_style', async () =>
           Promise.resolve(getOutputStyleAttachment()),
         ),
-        maybe('diagnostics', async () =>
+        maybeAttachment('diagnostics', async () =>
           getDiagnosticAttachments(toolUseContext),
         ),
-        maybe('lsp_diagnostics', async () =>
+        maybeAttachment('lsp_diagnostics', async () =>
           getLSPDiagnosticAttachments(toolUseContext),
         ),
-        maybe('unified_tasks', async () =>
+        maybeAttachment('unified_tasks', async () =>
           getUnifiedTaskAttachments(toolUseContext),
         ),
-        maybe('async_hook_responses', async () =>
+        maybeAttachment('async_hook_responses', async () =>
           getAsyncHookResponseAttachments(),
         ),
-        maybe('token_usage', async () =>
+        maybeAttachment('token_usage', async () =>
           Promise.resolve(
             getTokenUsageAttachment(
               messages ?? [],
@@ -973,15 +1035,15 @@ export async function getAttachments(
             ),
           ),
         ),
-        maybe('budget_usd', async () =>
+        maybeAttachment('budget_usd', async () =>
           Promise.resolve(
             getMaxBudgetUsdAttachment(toolUseContext.options.maxBudgetUsd),
           ),
         ),
-        maybe('output_token_usage', async () =>
+        maybeAttachment('output_token_usage', async () =>
           Promise.resolve(getOutputTokenUsageAttachment()),
         ),
-        maybe('verify_plan_reminder', async () =>
+        maybeAttachment('verify_plan_reminder', async () =>
           getVerifyPlanReminderAttachment(messages, toolUseContext),
         ),
       ]
@@ -1003,10 +1065,15 @@ export async function getAttachments(
   ].filter(a => a !== undefined && a !== null)
 }
 
-async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
+async function maybe<A>(
+  label: string,
+  f: () => Promise<A[]>,
+  signal?: AbortSignal,
+): Promise<A[]> {
   const startTime = Date.now()
   try {
-    const result = await f()
+    throwIfAborted(signal, `Attachment ${label} timed out`)
+    const result = await raceAbort(f(), signal, `Attachment ${label} timed out`)
     const duration = Date.now() - startTime
     // Log only 5% of events to reduce volume
     if (Math.random() < 0.05) {
@@ -1034,9 +1101,11 @@ async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
         error: true,
       } as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
     }
-    logError(e)
-    // For Ant users, log the full error to help with debugging
-    logAntError(`Attachment error in ${label}`, e)
+    if (!isAbortError(e)) {
+      logError(e)
+      // For Ant users, log the full error to help with debugging
+      logAntError(`Attachment error in ${label}`, e)
+    }
 
     return []
   }
@@ -1444,12 +1513,58 @@ export function getDateChangeAttachments(
   return [{ type: 'date_change', newDate: currentDate }]
 }
 
-function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
-  if (!isUltrathinkEnabled() || !input || !hasUltrathinkKeyword(input)) {
+export function getUltrathinkEffortAttachment(
+  input: string | null,
+  logActivation: boolean = true,
+): Attachment[] {
+  // This helper is also used by speculative paths, which do not call
+  // getAttachments(). Keep their behavior aligned with its global opt-out.
+  if (
+    isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ATTACHMENTS) ||
+    isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)
+  ) {
     return []
   }
-  logEvent('tengu_ultrathink', {})
+  // Gate the model-facing attachment behind the same rollout flag as the UI.
+  // Without this, the hidden `ultrathink_effort` attachment would still raise
+  // the turn to high effort even when the ULTRATHINK build flag / GrowthBook
+  // rollout is disabled.
+  if (!input || !isUltrathinkEnabled() || !hasUltrathinkKeyword(input)) {
+    return []
+  }
+  if (logActivation) {
+    logEvent('tengu_ultrathink', {})
+  }
   return [{ type: 'ultrathink_effort', level: 'high' }]
+}
+
+// Exported for focused testing of the first-party / provider-override gating.
+export function getUltracodePermissionAttachment(toolUseContext: ToolUseContext): Attachment[] {
+  const effortValue = toolUseContext.getAppState().effortValue
+  const envOverride = getEffortEnvOverride()
+  // Mirror resolveAppliedEffort's precedence so the permission tracks the effort
+  // the API actually runs with: a set CLAUDE_CODE_EFFORT_LEVEL wins over app
+  // state, and `null` (auto/unset) clears it. Otherwise `/effort ultracode` with
+  // CLAUDE_CODE_EFFORT_LEVEL=high would still leak ultracode_mode for a turn the
+  // API runs at high.
+  const effectiveEffort =
+    envOverride === null ? undefined : (envOverride ?? effortValue)
+  const isUltracode = effectiveEffort === 'ultracode'
+  if (
+    !isUltracode ||
+    getAPIProvider() !== 'firstParty' ||
+    !isFirstPartyAnthropicBaseUrl() ||
+    // A per-agent providerOverride routes the actual request through a
+    // third-party shim (runAgent.ts sets it; query.ts forwards it to
+    // getAnthropicClient()), so the process-wide first-party check above is not
+    // enough. Suppress the first-party-only ultracode permission reminder
+    // whenever an override is in effect so it cannot leak into routed calls.
+    Boolean(toolUseContext.options.providerOverride) ||
+    !modelSupportsXHighEffort(toolUseContext.options.mainLoopModel)
+  ) {
+    return []
+  }
+  return [{ type: 'ultracode_mode' }]
 }
 
 // Exported for compact.ts — the gate must be identical at both call sites.
@@ -1654,6 +1769,57 @@ async function getSelectedLinesFromIDE(
  * @param originalCwd The original current working directory
  * @returns Object with nestedDirs and cwdLevelDirs arrays, both ordered from parent to child
  */
+/**
+ * True when `child` sits strictly beneath `parent`, compared on path
+ * boundaries.
+ *
+ * Deliberately not the permissions predicate (`pathInWorkingPath`): that one
+ * case-folds both operands on every platform to stop case-variant spellings
+ * from slipping past a security check. Applying it here would go the wrong way
+ * — on a case-sensitive filesystem `/work/MyApp` and `/work/myapp` are two
+ * unrelated projects, and folding them together would load the other project's
+ * CLAUDE.md/AGENTS.md as nested memory.
+ *
+ * `relative()` gets the boundary right but is not case-faithful on Windows: it
+ * compares components case-insensitively, so `C:\work\MyApp` -> `C:\work\myapp\src`
+ * returns `src` as though it were nested. NTFS supports per-directory case
+ * sensitivity, so those can be distinct trees there too. Rebuilding the child
+ * from the parent and comparing exactly keeps the boundary logic while
+ * restoring the lexical case distinction.
+ *
+ * `pathApi` is injectable so the Windows semantics can be covered from any
+ * host. Exported for testing.
+ */
+export function isPathUnder(
+  child: string,
+  parent: string,
+  pathApi: Pick<
+    typeof nodePath,
+    'relative' | 'join' | 'normalize' | 'isAbsolute' | 'sep'
+  > = nodePath,
+): boolean {
+  const rel = pathApi.relative(parent, child)
+  // Compare on segment boundaries, not a string prefix: a directory legitimately
+  // named `..hello` yields the relative path `..hello`, which starts with `..`
+  // without being an upward traversal.
+  if (
+    rel === '' ||
+    rel === '..' ||
+    rel.startsWith('..' + pathApi.sep) ||
+    pathApi.isAbsolute(rel)
+  ) {
+    return false
+  }
+  const stripTrailingSep = (value: string): string =>
+    value.length > 1 && value.endsWith(pathApi.sep)
+      ? value.slice(0, -pathApi.sep.length)
+      : value
+  return (
+    stripTrailingSep(pathApi.join(parent, rel)) ===
+    stripTrailingSep(pathApi.normalize(child))
+  )
+}
+
 export function getDirectoriesToProcess(
   targetPath: string,
   originalCwd: string,
@@ -1663,9 +1829,14 @@ export function getDirectoriesToProcess(
   const nestedDirs: string[] = []
   let currentDir = targetDir
 
-  // Walk up from target directory to original CWD
+  // Walk up from target directory to original CWD.
+  // Containment must be tested on path boundaries, not string prefixes: a
+  // sibling whose name merely starts with the CWD's name (cwd `/work/myapp`,
+  // target in `/work/myapp-backend`) is not "between CWD and targetPath", but
+  // startsWith accepts it — so its CLAUDE.md loaded as Project memory purely
+  // because of how the directory happened to be spelled.
   while (currentDir !== originalCwd && currentDir !== parse(currentDir).root) {
-    if (currentDir.startsWith(originalCwd)) {
+    if (isPathUnder(currentDir, originalCwd)) {
       nestedDirs.push(currentDir)
     }
     currentDir = dirname(currentDir)
@@ -1892,16 +2063,83 @@ async function getOpenedFileFromIDE(
   ]
 }
 
+type AttachmentFileContext = {
+  abortController: AbortController
+  getAppState: () => { toolPermissionContext: ToolPermissionContext }
+}
+
+type AtMentionedFileStat = {
+  isDirectory: () => boolean
+}
+
+type AtMentionedFileDirent = {
+  name: string
+}
+
+type AtMentionedFileDeps = {
+  stat: (path: string) => Promise<AtMentionedFileStat>
+  readdir: (
+    path: string,
+    options: { withFileTypes: true },
+  ) => Promise<AtMentionedFileDirent[]>
+  generateFileAttachment: (
+    filename: string,
+    toolUseContext: AttachmentFileContext,
+    successEventName: string,
+    errorEventName: string,
+    mode: 'compact' | 'at-mention',
+    options?: {
+      offset?: number
+      limit?: number
+    },
+  ) => ReturnType<typeof generateFileAttachment>
+}
+
+const defaultAtMentionedFileDeps: AtMentionedFileDeps = {
+  stat,
+  readdir,
+  generateFileAttachment: (
+    filename,
+    toolUseContext,
+    successEventName,
+    errorEventName,
+    mode,
+    options,
+  ) =>
+    generateFileAttachment(
+      filename,
+      toolUseContext as ToolUseContext,
+      successEventName,
+      errorEventName,
+      mode,
+      options,
+    ),
+}
+
 async function processAtMentionedFiles(
   input: string,
   toolUseContext: ToolUseContext,
+): Promise<Attachment[]> {
+  return processAtMentionedFilesWithDependencies(
+    input,
+    toolUseContext,
+    defaultAtMentionedFileDeps,
+  )
+}
+
+async function processAtMentionedFilesWithDependencies(
+  input: string,
+  toolUseContext: AttachmentFileContext,
+  deps: AtMentionedFileDeps,
 ): Promise<Attachment[]> {
   const files = extractAtMentionedFiles(input)
   if (files.length === 0) return []
 
   const appState = toolUseContext.getAppState()
-  const results = await Promise.all(
-    files.map(async file => {
+  const results = await mapWithConcurrency(
+    files,
+    ATTACHMENT_FILE_IO_CONCURRENCY,
+    async file => {
       try {
         const { filename, lineStart, lineEnd } = parseAtMentionedFileLines(file)
         const absoluteFilename = expandPath(filename)
@@ -1914,10 +2152,10 @@ async function processAtMentionedFiles(
 
         // Check if it's a directory
         try {
-          const stats = await stat(absoluteFilename)
+          const stats = await deps.stat(absoluteFilename)
           if (stats.isDirectory()) {
             try {
-              const entries = await readdir(absoluteFilename, {
+              const entries = await deps.readdir(absoluteFilename, {
                 withFileTypes: true,
               })
               const MAX_DIR_ENTRIES = 1000
@@ -1945,7 +2183,7 @@ async function processAtMentionedFiles(
           // If stat fails, continue with file logic
         }
 
-        return await generateFileAttachment(
+        return await deps.generateFileAttachment(
           absoluteFilename,
           toolUseContext,
           'tengu_at_mention_extracting_filename_success',
@@ -1959,9 +2197,10 @@ async function processAtMentionedFiles(
       } catch {
         logEvent('tengu_at_mention_extracting_filename_error', {})
       }
-    }),
+      return null
+    },
   )
-  return results.filter(Boolean) as Attachment[]
+  return results.filter(result => result != null) as Attachment[]
 }
 
 function processAgentMentions(
@@ -2061,15 +2300,99 @@ async function processMcpResourceAttachments(
   ) as Attachment[]
 }
 
+// Read a changed/watched image file for a background diff attachment.
+//
+// Contract: this path DEGRADES on any failure — returning null skips the
+// attachment rather than interrupting the turn. That deliberately includes
+// ImageProcessorUnavailableError (no image processor installed): a background
+// attachment must never abort the conversation over a missing optional package.
+// The explicit FileReadTool path is the opposite — it lets that error surface so
+// the user sees the install hint when they directly read an image.
+export async function tryReadEditedImageAttachment(
+  normalizedPath: string,
+  // Injectable for tests so the degrade path (and its sanitized telemetry) can
+  // be exercised for a specific error type without a real file.
+  deps: {
+    read?: typeof readImageWithTokenBudget
+    log?: typeof logError
+    track?: typeof logEvent
+  } = {},
+): Promise<{
+  type: 'edited_image_file'
+  filename: string
+  content: Awaited<ReturnType<typeof readImageWithTokenBudget>>
+} | null> {
+  const read = deps.read ?? readImageWithTokenBudget
+  const log = deps.log ?? logError
+  const track = deps.track ?? logEvent
+  try {
+    const data = await read(normalizedPath)
+    return {
+      type: 'edited_image_file' as const,
+      filename: normalizedPath,
+      content: data,
+    }
+  } catch (compressionError) {
+    // Log only the error TYPE, never the raw error: readImageWithTokenBudget can
+    // throw path-bearing messages/stacks (e.g. "Image file is empty: <path>"),
+    // and logError persists message/stack, which would leak local file paths.
+    const errorName =
+      compressionError instanceof Error ? compressionError.name : 'UnknownError'
+    log(new Error(`watched-file image attachment skipped (${errorName})`))
+    // Likewise only the file extension goes to analytics — never the path.
+    const analyticsExt = getFileExtensionForAnalytics(normalizedPath)
+    track('tengu_watched_file_compression_failed', {
+      ...(analyticsExt !== undefined && { ext: analyticsExt }),
+    })
+    return null
+  }
+}
+
+type ChangedFileReadInput = {
+  file_path: string
+}
+
+type ChangedFileDeps = {
+  getFileModificationTime: (path: string) => Promise<number>
+  validateFileReadInput: (
+    input: ChangedFileReadInput,
+    toolUseContext: ToolUseContext,
+  ) => ReturnType<typeof FileReadTool.validateInput>
+  readFile: (
+    input: ChangedFileReadInput,
+    toolUseContext: ToolUseContext,
+  ) => ReturnType<typeof FileReadTool.call>
+  readEditedImageAttachment: (
+    path: string,
+  ) => ReturnType<typeof tryReadEditedImageAttachment>
+}
+
+const defaultChangedFileDeps: ChangedFileDeps = {
+  getFileModificationTime: getFileModificationTimeAsync,
+  validateFileReadInput: (input, context) =>
+    FileReadTool.validateInput(input, context),
+  readFile: (input, context) => FileReadTool.call(input, context),
+  readEditedImageAttachment: tryReadEditedImageAttachment,
+}
+
 export async function getChangedFiles(
   toolUseContext: ToolUseContext,
+): Promise<Attachment[]> {
+  return getChangedFilesWithDependencies(toolUseContext, defaultChangedFileDeps)
+}
+
+async function getChangedFilesWithDependencies(
+  toolUseContext: ToolUseContext,
+  deps: ChangedFileDeps,
 ): Promise<Attachment[]> {
   const filePaths = cacheKeys(toolUseContext.readFileState)
   if (filePaths.length === 0) return []
 
   const appState = toolUseContext.getAppState()
-  const results = await Promise.all(
-    filePaths.map(async filePath => {
+  const results = await mapWithConcurrency(
+    filePaths,
+    ATTACHMENT_FILE_IO_CONCURRENCY,
+    async filePath => {
       const fileState = toolUseContext.readFileState.get(filePath)
       if (!fileState) return null
 
@@ -2086,7 +2409,7 @@ export async function getChangedFiles(
       }
 
       try {
-        const mtime = await getFileModificationTimeAsync(normalizedPath)
+        const mtime = await deps.getFileModificationTime(normalizedPath)
         if (mtime <= fileState.timestamp) {
           return null
         }
@@ -2094,7 +2417,7 @@ export async function getChangedFiles(
         const fileInput = { file_path: normalizedPath }
 
         // Validate file path is valid
-        const isValid = await FileReadTool.validateInput(
+        const isValid = await deps.validateFileReadInput(
           fileInput,
           toolUseContext,
         )
@@ -2102,7 +2425,7 @@ export async function getChangedFiles(
           return null
         }
 
-        const result = await FileReadTool.call(fileInput, toolUseContext)
+        const result = await deps.readFile(fileInput, toolUseContext)
         // Extract only the changed section
         if (result.data.type === 'text') {
           const snippet = getSnippetForTwoFileDiff(
@@ -2122,22 +2445,10 @@ export async function getChangedFiles(
           }
         }
 
-        // For non-text files (images), apply the same token limit logic as FileReadTool
+        // For non-text files (images), apply the same token limit logic as
+        // FileReadTool. Degrades to null on failure (see the helper's contract).
         if (result.data.type === 'image') {
-          try {
-            const data = await readImageWithTokenBudget(normalizedPath)
-            return {
-              type: 'edited_image_file' as const,
-              filename: normalizedPath,
-              content: data,
-            }
-          } catch (compressionError) {
-            logError(compressionError)
-            logEvent('tengu_watched_file_compression_failed', {
-              file: normalizedPath,
-            } as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS)
-            return null
-          }
+          return deps.readEditedImageAttachment(normalizedPath)
         }
 
         // notebook / pdf / parts — no diff representation; explicitly
@@ -2156,7 +2467,7 @@ export async function getChangedFiles(
         }
         return null
       }
-    }),
+    },
   )
   return results.filter(result => result != null) as Attachment[]
 }
@@ -2734,12 +3045,19 @@ async function getSkillListingAttachments(
     `Sending ${newSkills.length} skills via attachment (${isInitial ? 'initial' : 'dynamic'}, ${sent.size} total sent)`,
   )
 
-  // Format within budget using existing logic
+  // Subagents can each receive their own initial listing. Keep those
+  // discoverability hints compact; the Skill tool still loads full content.
   const contextWindowTokens = getContextWindowForModel(
     toolUseContext.options.mainLoopModel,
     getSdkBetas(),
   )
-  const content = formatCommandsWithinBudget(newSkills, contextWindowTokens)
+  const content = formatCommandsWithinBudget(
+    newSkills,
+    contextWindowTokens,
+    toolUseContext.agentId
+      ? { maxCharBudget: SUBAGENT_SKILL_LISTING_CHAR_BUDGET }
+      : undefined,
+  )
 
   return [
     {
@@ -2900,8 +3218,57 @@ async function getDiagnosticAttachments(
  * Get LSP diagnostic attachments from passive LSP servers.
  * Follows the AsyncHookRegistry pattern for consistent async attachment delivery.
  */
+type LSPDiagnosticAttachmentDeps = {
+  now?: () => number
+  wait?: (ms: number, signal?: AbortSignal) => Promise<void>
+}
+
+const LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS = DIAGNOSTIC_DELIVERY_DEBOUNCE_MS
+
+function getLSPDiagnosticCheckOptions(now?: () => number): {
+  respectDebounce: true
+  now?: number
+} {
+  const currentTime = now?.()
+  return currentTime === undefined
+    ? { respectDebounce: true }
+    : { respectDebounce: true, now: currentTime }
+}
+
+async function checkForStableLSPDiagnosticsAtQueryBoundary(
+  toolUseContext: ToolUseContext,
+  deps: LSPDiagnosticAttachmentDeps,
+): Promise<LSPDiagnosticSet[]> {
+  const diagnosticSets = checkForLSPDiagnostics(
+    getLSPDiagnosticCheckOptions(deps.now),
+  )
+  if (diagnosticSets.length > 0) {
+    return diagnosticSets
+  }
+
+  const nextDelay = getNextLSPDiagnosticDeliveryDelay(deps.now?.())
+  if (nextDelay === null) {
+    return []
+  }
+
+  const waitMs = Math.min(nextDelay, LSP_DIAGNOSTIC_ATTACHMENT_MAX_WAIT_MS)
+  if (waitMs > 0) {
+    logForDebugging(
+      `LSP Diagnostics: Waiting ${waitMs}ms for pending diagnostics to stabilize`,
+    )
+    const wait =
+      deps.wait ??
+      ((ms: number, signal?: AbortSignal) =>
+        sleep(ms, signal, { unref: true }))
+    await wait(waitMs, toolUseContext.abortController.signal)
+  }
+
+  return checkForLSPDiagnostics(getLSPDiagnosticCheckOptions(deps.now))
+}
+
 async function getLSPDiagnosticAttachments(
   toolUseContext: ToolUseContext,
+  deps: LSPDiagnosticAttachmentDeps = {},
 ): Promise<Attachment[]> {
   // LSP diagnostics are only useful if the agent has the Bash tool to act on them
   if (
@@ -2913,9 +3280,31 @@ async function getLSPDiagnosticAttachments(
   logForDebugging('LSP Diagnostics: getLSPDiagnosticAttachments called')
 
   try {
-    const diagnosticSets = checkForLSPDiagnostics()
+    const diagnosticSets = await checkForStableLSPDiagnosticsAtQueryBoundary(
+      toolUseContext,
+      deps,
+    )
 
     if (diagnosticSets.length === 0) {
+      return []
+    }
+
+    // checkForLSPDiagnostics normally enforces this invariant. Keep a final
+    // attachment-boundary guard so future registry changes cannot send empty
+    // diagnostics attachments to the model.
+    const finalDiagnosticCount = diagnosticSets.reduce(
+      (count, set) =>
+        count +
+        set.files.reduce(
+          (fileCount, file) => fileCount + file.diagnostics.length,
+          0,
+        ),
+      0,
+    )
+    if (finalDiagnosticCount === 0) {
+      logForDebugging(
+        `LSP Diagnostics: No diagnostic attachments to return after filtering empty diagnostic payloads`,
+      )
       return []
     }
 
@@ -2930,15 +3319,6 @@ async function getLSPDiagnosticAttachments(
       isNew: true,
     }))
 
-    // Clear delivered diagnostics from registry to prevent memory leak
-    // Follows same pattern as removeDeliveredAsyncHooks
-    if (diagnosticSets.length > 0) {
-      clearAllLSPDiagnostics()
-      logForDebugging(
-        `LSP Diagnostics: Cleared ${diagnosticSets.length} delivered diagnostic(s) from registry`,
-      )
-    }
-
     logForDebugging(
       `LSP Diagnostics: Returning ${attachments.length} diagnostic attachment(s)`,
     )
@@ -2952,6 +3332,14 @@ async function getLSPDiagnosticAttachments(
     // Return empty array to allow other attachments to proceed
     return []
   }
+}
+
+export const __test = {
+  ATTACHMENT_FILE_IO_CONCURRENCY,
+  getChangedFilesWithDependencies,
+  getLSPDiagnosticAttachments,
+  maybe,
+  processAtMentionedFilesWithDependencies,
 }
 
 export async function* getAttachmentMessages(
@@ -3975,13 +4363,48 @@ export function getCompactionReminderAttachment(
 }
 
 /**
- * Context-efficiency nudge. Injected after every N tokens of growth without
- * a snip. Pacing is handled entirely by shouldNudgeForSnips — the 10k
- * interval resets on prior nudges, snip markers, snip boundaries, and
- * compact boundaries.
+ * Context-efficiency nudge. Injected only once the active model is under
+ * meaningful context pressure, then paced by new content since the last reset
+ * point. shouldNudgeForSnips preserves the reset behavior for prior nudges,
+ * snip markers, snip boundaries, and compact boundaries.
  */
+const MIN_SNIP_NUDGE_TOKENS = 10_000
+const MAX_SNIP_NUDGE_REPEAT_TOKENS = 100_000
+const SNIP_NUDGE_START_FRACTION = 0.60
+const SNIP_NUDGE_REPEAT_FRACTION = 0.10
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+export function getSnipNudgeRepeatInterval(model: string): number {
+  const effectiveWindow = getEffectiveContextWindowSize(model)
+  return clamp(
+    Math.floor(effectiveWindow * SNIP_NUDGE_REPEAT_FRACTION),
+    MIN_SNIP_NUDGE_TOKENS,
+    MAX_SNIP_NUDGE_REPEAT_TOKENS,
+  )
+}
+
+export function getSnipNudgeStartThreshold(model: string): number {
+  const effectiveWindow = getEffectiveContextWindowSize(model)
+  const autoCompactThreshold = getAutoCompactThreshold(model)
+  const leadTokens = getSnipNudgeRepeatInterval(model)
+  const fractionalStart = Math.floor(effectiveWindow * SNIP_NUDGE_START_FRACTION)
+  const preAutoCompactStart = Math.max(
+    MIN_SNIP_NUDGE_TOKENS,
+    autoCompactThreshold - leadTokens,
+  )
+
+  return Math.max(
+    MIN_SNIP_NUDGE_TOKENS,
+    Math.min(fractionalStart, preAutoCompactStart),
+  )
+}
+
 export function getContextEfficiencyAttachment(
   messages: Message[],
+  model: string,
 ): Attachment[] {
   if (!feature('HISTORY_SNIP')) {
     return []
@@ -3995,7 +4418,14 @@ export function getContextEfficiencyAttachment(
     return []
   }
 
-  if (!shouldNudgeForSnips(messages)) {
+  const usedTokens = tokenCountWithEstimation(messages)
+  const startThreshold = getSnipNudgeStartThreshold(model)
+  if (usedTokens < startThreshold) {
+    return []
+  }
+
+  const repeatInterval = getSnipNudgeRepeatInterval(model)
+  if (!shouldNudgeForSnips(messages, repeatInterval)) {
     return []
   }
 

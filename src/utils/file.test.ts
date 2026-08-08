@@ -3,6 +3,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as actualGrowthbook from '../services/analytics/growthbook.js'
 
 async function importFileModuleWithKillswitchEnabled(
   killswitchEnabled: boolean,
@@ -25,6 +26,7 @@ beforeAll(async () => {
 afterAll(() => {
   try {
     mock.restore()
+    mock.module('../services/analytics/growthbook.js', () => actualGrowthbook)
   } finally {
     releaseSharedMutationLock()
   }

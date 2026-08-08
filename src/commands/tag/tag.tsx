@@ -76,7 +76,8 @@ function ToggleTagAndClose(t0) {
     onDone
   } = t0;
   const [showConfirm, setShowConfirm] = React.useState(false);
-  const [sessionId, setSessionId] = React.useState(null);
+  // Only ever set from `getSessionId() as UUID` below; saveTag requires UUID.
+  const [sessionId, setSessionId] = React.useState<UUID | null>(null);
   let t1;
   if ($[0] !== tagName) {
     t1 = recursivelySanitizeUnicode(tagName).trim();

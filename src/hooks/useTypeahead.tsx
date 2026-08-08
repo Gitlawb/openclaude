@@ -4,7 +4,7 @@ import { useNotifications } from 'src/context/notifications.js';
 import { Text } from 'src/ink.js';
 import { logEvent } from 'src/services/analytics/index.js';
 import { useDebounceCallback } from 'usehooks-ts';
-import { type Command, getCommandName } from '../commands.js';
+import type { Command } from '../commands.js';
 import { getModeFromInput, getValueFromInput } from '../components/PromptInput/inputModes.js';
 import type { SuggestionItem, SuggestionType } from '../components/PromptInput/PromptInputFooterSuggestions.js';
 import { useIsModalOverlayActive, useRegisterOverlay } from '../context/overlayContext.js';
@@ -22,12 +22,21 @@ import { generateProgressiveArgumentHint, parseArguments } from '../utils/argume
 import { getShellCompletions, type ShellCompletionType } from '../utils/bash/shellCompletion.js';
 import { formatLogMetadata } from '../utils/format.js';
 import { getSessionIdFromLog, searchSessionsByCustomTitle } from '../utils/sessionStorage.js';
-import { applyCommandSuggestion, findMidInputSlashCommand, generateCommandSuggestions, getBestCommandMatch, isCommandInput } from '../utils/suggestions/commandSuggestions.js';
+import {
+  applyCommandSuggestion,
+  findCommandByExactName,
+  findMidInputSlashCommand,
+  generateCommandSuggestions,
+  getBestCommandMatch,
+  getCommandSuggestionForEnter,
+  getCommandSuggestionsMaxWidth,
+  isCommandInput
+} from '../utils/suggestions/commandSuggestions.js';
 import { getDirectoryCompletions, getPathCompletions, isPathLikeToken } from '../utils/suggestions/directoryCompletion.js';
 import { getShellHistoryCompletion } from '../utils/suggestions/shellHistoryCompletion.js';
 import { getSlackChannelSuggestions, hasSlackMcpServer } from '../utils/suggestions/slackChannelSuggestions.js';
 import { TEAM_LEAD_NAME } from '../utils/swarm/constants.js';
-import { applyFileSuggestion, findLongestCommonPrefix, onIndexBuildComplete, startBackgroundCacheRefresh } from './fileSuggestions.js';
+import { applyFileSuggestion, findLongestCommonPrefix, onIndexBuildComplete } from './fileSuggestions.js';
 import { generateUnifiedSuggestions } from './unifiedSuggestions.js';
 
 // Unicode-aware character class for file path tokens:
@@ -80,7 +89,7 @@ function buildResumeInputFromSuggestion(suggestion: SuggestionItem): string {
 }
 type Props = {
   onInputChange: (value: string) => void;
-  onSubmit: (value: string, isSubmittingSlashCommand?: boolean) => void;
+  onSubmit: (value: string, isSubmittingSlashCommand?: boolean, slashCommandOverride?: Command) => void;
   setCursorOffset: (offset: number) => void;
   input: string;
   cursorOffset: number;
@@ -377,12 +386,7 @@ export function useTypeahead({
 
   // Compute max column width from ALL commands once (not filtered results)
   // This prevents layout shift when filtering
-  const allCommandsMaxWidth = useMemo(() => {
-    const visibleCommands = commands.filter(cmd => !cmd.isHidden);
-    if (visibleCommands.length === 0) return undefined;
-    const maxLen = Math.max(...visibleCommands.map(cmd => getCommandName(cmd).length));
-    return maxLen + 6; // +1 for "/" prefix, +5 for padding
-  }, [commands]);
+  const allCommandsMaxWidth = useMemo(() => getCommandSuggestionsMaxWidth(commands), [commands]);
   const [maxColumnWidth, setMaxColumnWidth] = useState<number | undefined>(undefined);
   const mcpResources = useAppState(s => s.mcp.resources);
   const store = useAppStateStore();
@@ -477,24 +481,9 @@ export function useTypeahead({
     setMaxColumnWidth(undefined); // No fixed width for file suggestions
   }, [mcpResources, setSuggestionsState, setSuggestionType, setMaxColumnWidth, agents]);
 
-  // Pre-warm the file index on mount so the first @-mention doesn't block.
-  // The build runs in background with ~4ms event-loop yields, so it doesn't
-  // delay first render — it just races the user's first @ keystroke.
-  //
-  // If the user types before the build finishes, they get partial results
-  // from the ready chunks; when the build completes, re-fire the last
-  // search so partial upgrades to full. Clears the token ref so the same
-  // query isn't discarded as stale.
-  //
-  // Skipped under NODE_ENV=test: REPL-mounting tests would spawn git ls-files
-  // against the real CI workspace (270k+ files on Windows runners), and the
-  // background build outlives the test — its setImmediate chain leaks into
-  // subsequent tests in the shard. The subscriber still registers so
-  // fileSuggestions tests that trigger a refresh directly work correctly.
+  // When a lazy file-index build completes, re-run the latest search so
+  // partial results upgrade to the full corpus.
   useEffect(() => {
-    if ("production" !== 'test') {
-      startBackgroundCacheRefresh();
-    }
     return onIndexBuildComplete(() => {
       const token = latestSearchTokenRef.current;
       if (token !== null) {
@@ -746,7 +735,7 @@ export function useTypeahead({
         // If input has a space after the command, don't show suggestions
         // This prevents Enter from selecting a different command after Tab completion
         if (spaceIndex !== -1) {
-          const exactMatch = commands.find(cmd => getCommandName(cmd) === commandName);
+          const exactMatch = findCommandByExactName(commands, commandName);
           if (exactMatch || hasRealArguments) {
             // Priority 1: Static argumentHint (only on first trailing space for backwards compat)
             if (exactMatch?.argumentHint && hasExactlyOneTrailingSpace) {
@@ -773,6 +762,11 @@ export function useTypeahead({
         // (set above when hasExactlyOneTrailingSpace is true)
       }
       const commandItems = generateCommandSuggestions(value, commands);
+      // Command results are re-ranked by relevance on every keystroke, so the
+      // highlight must snap to the top (best) match — NOT follow the previously
+      // selected command by id. Preserving selection here makes the highlight
+      // "stick" to e.g. /simplify (the recently-used top entry for bare "/")
+      // as the user narrows, instead of moving to the best prefix match.
       setSuggestionsState(() => ({
         commandArgumentHint,
         suggestions: commandItems,
@@ -1138,8 +1132,10 @@ export function useTypeahead({
     if (selectedSuggestion < 0 || suggestions.length === 0) return;
     const suggestion = suggestions[selectedSuggestion];
     if (suggestionType === 'command' && selectedSuggestion < suggestions.length) {
-      if (suggestion) {
-        applyCommandSuggestion(suggestion, true,
+      const commandSuggestion = getCommandSuggestionForEnter(input, suggestion, commands);
+
+      if (commandSuggestion) {
+        applyCommandSuggestion(commandSuggestion, true,
         // execute on return
         commands, onInputChange, setCursorOffset, onSubmit);
         debouncedFetchFileSuggestions.cancel();

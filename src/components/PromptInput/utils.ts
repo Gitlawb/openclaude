@@ -3,8 +3,13 @@ import {
   isShiftEnterKeyBindingInstalled,
 } from '../../commands/terminalSetup/terminalSetup.js'
 import type { Key } from '../../ink.js'
+import type {
+  PromptInputMode,
+  TextInputChangeContext,
+} from '../../types/textInputTypes.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { env } from '../../utils/env.js'
+import type { ModeEntryDecision } from './inputModes.js'
 /**
  * Helper function to check if vim mode is currently enabled
  * @returns boolean indicating if vim mode is active
@@ -56,5 +61,68 @@ export function isNonSpacePrintable(input: string, key: Key): boolean {
   ) {
     return false
   }
-  return input.length > 0 && !/^\s/.test(input) && !input.startsWith('\x1b')
+  const delIndex = input.indexOf('\x7f')
+  const leadingInput = delIndex === -1 ? input : input.slice(0, delIndex)
+  return (
+    leadingInput.length > 0 &&
+    !/^\s/.test(leadingInput) &&
+    !leadingInput.startsWith('\x1b')
+  )
+}
+
+export function normalizePromptInputChunk(
+  input: string,
+  key: Key,
+  prependLazySpace: boolean,
+): string {
+  const normalizedInput = input.replaceAll('\t', '    ')
+  return prependLazySpace && isNonSpacePrintable(normalizedInput, key)
+    ? ` ${normalizedInput}`
+    : normalizedInput
+}
+
+export function resolveHelpToggleChange(
+  value: string,
+  changeContext?: TextInputChangeContext,
+):
+  | {
+      restore?: { value: string; cursorOffset: number }
+      suppressSubmit: boolean
+    }
+  | null {
+  if (value !== '?') return null
+
+  return {
+    restore: changeContext
+      ? {
+          value: changeContext.previousValue,
+          cursorOffset: changeContext.cursorOffset,
+        }
+      : undefined,
+    suppressSubmit: changeContext?.willSubmit === true,
+  }
+}
+
+export function resolveCoalescedModeSubmission(
+  input: string,
+  renderedMode: PromptInputMode,
+  pendingModeEntry: ModeEntryDecision | null,
+): {
+  input: string
+  mode: PromptInputMode
+  inputModeOverride?: PromptInputMode
+} {
+  if (!pendingModeEntry) {
+    return { input, mode: renderedMode }
+  }
+
+  return {
+    input: pendingModeEntry.strippedValue.replaceAll('\t', '    '),
+    mode: pendingModeEntry.mode,
+    inputModeOverride: pendingModeEntry.mode,
+  }
+}
+
+export function canAcceptPromptSuggestion(mode: PromptInputMode): boolean {
+  return mode === 'prompt'
 }

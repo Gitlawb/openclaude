@@ -30,6 +30,13 @@ type PersistedDiscoveryCache = {
 }
 
 let discoveryCacheLockPromise: Promise<void> | null = null
+const SYNC_CACHE_STAT_INTERVAL_MS = 1_000
+let syncDiscoveryCacheSnapshot: {
+  cachePath: string
+  mtimeMs: number | null
+  checkedAtMs: number
+  cache: PersistedDiscoveryCache
+} | null = null
 
 export async function withDiscoveryCacheLock<T>(
   fn: () => Promise<T>,
@@ -169,6 +176,69 @@ async function loadDiscoveryCache(): Promise<PersistedDiscoveryCache> {
   }
 }
 
+function loadDiscoveryCacheSync(): PersistedDiscoveryCache {
+  const fs = getFsImplementation()
+  const cachePath = getDiscoveryCachePath()
+  const now = Date.now()
+
+  if (
+    syncDiscoveryCacheSnapshot?.cachePath === cachePath &&
+    now - syncDiscoveryCacheSnapshot.checkedAtMs < SYNC_CACHE_STAT_INTERVAL_MS
+  ) {
+    return syncDiscoveryCacheSnapshot.cache
+  }
+
+  try {
+    if (!fs.existsSync(cachePath)) {
+      const cache = getEmptyDiscoveryCache()
+      syncDiscoveryCacheSnapshot = {
+        cachePath,
+        mtimeMs: null,
+        checkedAtMs: now,
+        cache,
+      }
+      return cache
+    }
+
+    const mtimeMs = fs.statSync(cachePath).mtimeMs
+    if (
+      syncDiscoveryCacheSnapshot?.cachePath === cachePath &&
+      syncDiscoveryCacheSnapshot.mtimeMs === mtimeMs
+    ) {
+      syncDiscoveryCacheSnapshot = {
+        ...syncDiscoveryCacheSnapshot,
+        checkedAtMs: now,
+      }
+      return syncDiscoveryCacheSnapshot.cache
+    }
+
+    const content = fs.readFileSync(cachePath, { encoding: 'utf-8' })
+    const parsed = jsonParse(content) as {
+      version?: unknown
+      entries?: unknown
+    }
+
+    const cache = migrateDiscoveryCache(parsed) ?? getEmptyDiscoveryCache()
+    syncDiscoveryCacheSnapshot = {
+      cachePath,
+      mtimeMs,
+      checkedAtMs: now,
+      cache,
+    }
+    return cache
+  } catch (error) {
+    logForDebugging(`Failed to load discovery cache: ${errorMessage(error)}`)
+    const cache = getEmptyDiscoveryCache()
+    syncDiscoveryCacheSnapshot = {
+      cachePath,
+      mtimeMs: null,
+      checkedAtMs: now,
+      cache,
+    }
+    return cache
+  }
+}
+
 async function saveDiscoveryCache(
   cache: PersistedDiscoveryCache,
 ): Promise<void> {
@@ -189,6 +259,7 @@ async function saveDiscoveryCache(
     }
 
     await fs.rename(tempPath, cachePath)
+    syncDiscoveryCacheSnapshot = null
   } catch (error) {
     logError(error)
     try {
@@ -245,6 +316,34 @@ export async function getCachedModels(
   },
 ): Promise<DiscoveryCacheEntry | null> {
   const cache = await loadDiscoveryCache()
+  const entry = cache.entries[routeId]
+  if (!entry) {
+    return null
+  }
+
+  if (options?.includeStale) {
+    return entry
+  }
+
+  if (entry.updatedAt === null) {
+    return null
+  }
+
+  if (Date.now() - entry.updatedAt > ttlMs) {
+    return null
+  }
+
+  return entry
+}
+
+export function getCachedModelsSync(
+  routeId: string,
+  ttlMs: number,
+  options?: {
+    includeStale?: boolean
+  },
+): DiscoveryCacheEntry | null {
+  const cache = loadDiscoveryCacheSync()
   const entry = cache.entries[routeId]
   if (!entry) {
     return null

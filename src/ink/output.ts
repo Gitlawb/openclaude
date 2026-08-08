@@ -59,6 +59,38 @@ type Options = {
   screen: Screen
 }
 
+export type HighWriteRatioReason =
+  | 'first-render'
+  | 'resize'
+  | 'remount'
+  | 'debug-full-redraw'
+  | 'suspicious-terminal-columns'
+  | 'unknown'
+
+export type GetOptions = {
+  highWriteRatioReason?: HighWriteRatioReason
+  suppressHighWriteRatioDiagnostics?: boolean
+}
+
+type HighWriteRatioStats = {
+  blitCells: number
+  writeCells: number
+  screenHeight: number
+  screenWidth: number
+}
+
+const HIGH_WRITE_RATIO_MIN_CELLS = 1000
+const HIGH_WRITE_RATIO_STREAK_THRESHOLD = 3
+const HIGH_WRITE_RATIO_REPEAT_INTERVAL = 20
+const SUSPICIOUS_TERMINAL_COLUMNS = 1000
+
+const EXPECTED_HIGH_WRITE_REASONS = new Set<HighWriteRatioReason>([
+  'first-render',
+  'resize',
+  'remount',
+  'debug-full-redraw',
+])
+
 export type Operation =
   | WriteOperation
   | ClipOperation
@@ -176,6 +208,9 @@ export default class Output {
   private readonly operations: Operation[] = []
 
   private charCache: Map<string, ClusteredChar[]> = new Map()
+  private highWriteRatioStreak = 0
+  private highWriteRatioStreakReason: HighWriteRatioReason = 'unknown'
+  private suspiciousColumnsLogged = false
 
   constructor(options: Options) {
     const { width, height, stylePool, screen } = options
@@ -196,12 +231,19 @@ export default class Output {
    * becomes a cache hit.
    */
   reset(width: number, height: number, screen: Screen): void {
+    const dimensionsChanged = width !== this.width || height !== this.height
     this.width = width
     this.height = height
     this.screen = screen
     this.operations.length = 0
     resetScreen(screen, width, height)
     if (this.charCache.size > 16384) this.charCache.clear()
+    if (dimensionsChanged) {
+      this.resetHighWriteRatioStreak()
+      if (width <= SUSPICIOUS_TERMINAL_COLUMNS) {
+        this.suspiciousColumnsLogged = false
+      }
+    }
   }
 
   /**
@@ -265,7 +307,7 @@ export default class Output {
     })
   }
 
-  get(): Screen {
+  get(options: GetOptions = {}): Screen {
     const screen = this.screen
     const screenWidth = this.width
     const screenHeight = this.height
@@ -519,15 +561,106 @@ export default class Output {
       }
     }
 
-    // Log blit/write ratio for debugging - high write count suggests blitting isn't working
-    const totalCells = blitCells + writeCells
-    if (totalCells > 1000 && writeCells > blitCells) {
-      logForDebugging(
-        `High write ratio: blit=${blitCells}, write=${writeCells} (${((writeCells / totalCells) * 100).toFixed(1)}% writes), screen=${screenHeight}x${screenWidth}`,
-      )
-    }
+    this.maybeLogHighWriteRatio(
+      { blitCells, writeCells, screenHeight, screenWidth },
+      options,
+    )
 
     return screen
+  }
+
+  private maybeLogHighWriteRatio(
+    stats: HighWriteRatioStats,
+    options: GetOptions,
+  ): void {
+    if (options.suppressHighWriteRatioDiagnostics) {
+      this.resetHighWriteRatioStreak()
+      return
+    }
+
+    const { blitCells, writeCells, screenWidth } = stats
+    const totalCells = blitCells + writeCells
+    if (
+      totalCells <= HIGH_WRITE_RATIO_MIN_CELLS ||
+      writeCells <= blitCells
+    ) {
+      this.resetHighWriteRatioStreak()
+      return
+    }
+
+    if (screenWidth > SUSPICIOUS_TERMINAL_COLUMNS) {
+      if (!this.suspiciousColumnsLogged) {
+        this.logHighWriteRatio(stats, {
+          reason: 'suspicious-terminal-columns',
+          expected: false,
+          frames: 1,
+          level: 'warn',
+        })
+        this.suspiciousColumnsLogged = true
+      }
+    }
+
+    const reason = options.highWriteRatioReason ?? 'unknown'
+    if (EXPECTED_HIGH_WRITE_REASONS.has(reason)) {
+      this.logHighWriteRatio(stats, {
+        reason,
+        expected: true,
+        frames: 1,
+        level: 'debug',
+      })
+      this.resetHighWriteRatioStreak()
+      return
+    }
+
+    if (this.highWriteRatioStreakReason !== reason) {
+      this.highWriteRatioStreakReason = reason
+      this.highWriteRatioStreak = 0
+    }
+
+    this.highWriteRatioStreak++
+    if (
+      this.highWriteRatioStreak === HIGH_WRITE_RATIO_STREAK_THRESHOLD ||
+      (this.highWriteRatioStreak > HIGH_WRITE_RATIO_STREAK_THRESHOLD &&
+        (this.highWriteRatioStreak - HIGH_WRITE_RATIO_STREAK_THRESHOLD) %
+          HIGH_WRITE_RATIO_REPEAT_INTERVAL ===
+          0)
+    ) {
+      this.logHighWriteRatio(stats, {
+        reason,
+        expected: false,
+        frames: this.highWriteRatioStreak,
+        level: 'warn',
+      })
+    }
+  }
+
+  private resetHighWriteRatioStreak(): void {
+    this.highWriteRatioStreak = 0
+    this.highWriteRatioStreakReason = 'unknown'
+  }
+
+  private logHighWriteRatio(
+    stats: HighWriteRatioStats,
+    {
+      reason,
+      expected,
+      frames,
+      level,
+    }: {
+      reason: HighWriteRatioReason
+      expected: boolean
+      frames: number
+      level: 'debug' | 'warn'
+    },
+  ): void {
+    const { blitCells, writeCells, screenHeight, screenWidth } = stats
+    const totalCells = blitCells + writeCells
+    logForDebugging(
+      `render.high_write_ratio: reason=${reason} expected=${expected} frames=${frames} ` +
+        `blit=${blitCells} write=${writeCells} ratio=${((writeCells / totalCells) * 100).toFixed(1)}% ` +
+        `screen=${screenHeight}x${screenWidth}`,
+      { level },
+    )
   }
 }
 

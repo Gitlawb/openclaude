@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -6,26 +6,38 @@ import {
 
 import { braveProvider } from './brave.ts'
 
+await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
+
 const originalEnv = {
   BRAVE_API_KEY: process.env.BRAVE_API_KEY,
+  WEB_SEARCH_TIMEOUT_SEC: process.env.WEB_SEARCH_TIMEOUT_SEC,
 }
 
 const originalFetch = globalThis.fetch
 
-beforeEach(async () => {
-  await acquireSharedMutationLock('WebSearchTool/providers/brave.test.ts')
-})
+function stalledJsonResponse(status = 200): Response {
+  return new Response(new ReadableStream({ start() {} }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function pendingResponseUntilAbort(signal: AbortSignal | undefined): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+  })
+}
 
 afterEach(() => {
-  try {
-    for (const [k, v] of Object.entries(originalEnv)) {
-      if (v === undefined) delete process.env[k]
-      else process.env[k] = v
-    }
-    globalThis.fetch = originalFetch
-  } finally {
-    releaseSharedMutationLock()
+  for (const [k, v] of Object.entries(originalEnv)) {
+    if (v === undefined) delete process.env[k]
+    else process.env[k] = v
   }
+  globalThis.fetch = originalFetch
+})
+
+afterAll(() => {
+  releaseSharedMutationLock()
 })
 
 describe('braveProvider isConfigured', () => {
@@ -102,6 +114,37 @@ describe('braveProvider search', () => {
     globalThis.fetch = (async (_input: any, _init: any) =>
       new Response('rate limited', { status: 429 })) as typeof fetch
     await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(/429/)
+  })
+
+  test('rejects when the provider-level timeout elapses', async () => {
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+    globalThis.fetch = ((_: any, init: any) =>
+      pendingResponseUntilAbort(init?.signal as AbortSignal | undefined)) as typeof fetch
+
+    await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
+      /Brave search timed out/,
+    )
+  })
+
+  test('rejects when the response body stalls after headers arrive', async () => {
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+
+    globalThis.fetch = (async (_input: any, _init: any) => {
+      return stalledJsonResponse()
+    }) as typeof fetch
+
+    await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
+      /Brave search timed out/,
+    )
+  })
+
+  test('rejects when a non-2xx error body stalls after headers arrive', async () => {
+    process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
+    globalThis.fetch = (async (_input: any, _init: any) => stalledJsonResponse(500)) as typeof fetch
+
+    await expect(braveProvider.search({ query: 'q' })).rejects.toThrow(
+      /Brave search timed out/,
+    )
   })
 
   test('returns empty hits when web.results is missing', async () => {

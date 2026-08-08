@@ -51,10 +51,10 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       isAvailable: true,
     },
     ...availableLevels.map(level => {
-      const displayLevel = usesOpenAIEffort
-        ? (level === 'xhigh' ? 'max' : level)
-        : level
-      const isCurrent = currentDisplayedLevel === displayLevel
+      // xhigh is now the persisted level for OpenAI/Codex, so compare against
+      // it directly. The 'max' alias path is kept only for legacy settings
+      // that still hold a persisted 'max' from before xhigh was introduced.
+      const isCurrent = currentDisplayedLevel === level || (usesOpenAIEffort && level === 'xhigh' && currentDisplayedLevel === 'max')
       return {
         label: (
           <EffortOptionLabel
@@ -78,9 +78,9 @@ export function EffortPicker({ onSelect, onCancel }: Props) {
       }))
       onSelect(undefined)
     } else {
-      // Normalize OpenAI-shaped 'xhigh' to the standard EffortLevel ('max')
-      // so AppState + settings.json always hold a persistable value. The shim
-      // converts back to 'xhigh' at the request boundary.
+      // Normalize OpenAI-shaped effort to a standard EffortLevel for AppState
+      // and settings.json persistence. 'xhigh' passes through as-is; the shim
+      // converts it to 'max' at the Anthropic request boundary if needed.
       const effortLevel = isOpenAIEffortLevel(value)
         ? openAIEffortToStandard(value)
         : (value as EffortLevel)

@@ -3,10 +3,13 @@ import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { createRoot, Text } from '../ink.js'
+import * as realState from '../bootstrap/state.js'
+import * as realClaudeApi from '../services/api/claude.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import * as realAuth from '../utils/auth.js'
 
 type AuthState = {
   anthropicAuthEnabled: boolean
@@ -64,6 +67,9 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    mock.module('../utils/auth.js', () => realAuth)
+    mock.module('../bootstrap/state.js', () => realState)
+    mock.module('../services/api/claude.js', () => realClaudeApi)
   } finally {
     releaseSharedMutationLock()
   }
@@ -94,8 +100,8 @@ test('useApiKeyVerification resets stale missing status when the session switche
     verifyApiKey: async () => true,
   }))
 
-  // @ts-expect-error cache-busting query string for Bun module mocks
   const { useApiKeyVerification } = await import(
+    // @ts-expect-error -- query-string cache-buster so mock.module applies to a fresh instance
     './useApiKeyVerification.ts?switch-to-third-party'
   )
 

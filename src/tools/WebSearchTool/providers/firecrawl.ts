@@ -1,5 +1,7 @@
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, type ProviderOutput } from './types.js'
+import { firecrawlSearch } from '../../firecrawl/client.js'
+import { withWebSearchTimeout } from './timeout.js'
 
 export const firecrawlProvider: SearchProvider = {
   name: 'firecrawl',
@@ -11,12 +13,6 @@ export const firecrawlProvider: SearchProvider = {
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
     const start = performance.now()
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    // TODO: @mendable/firecrawl-js SDK doesn't accept AbortSignal — can't cancel in-flight searches
-    const { FirecrawlClient } = await import('@mendable/firecrawl-js')
-    const app = new FirecrawlClient({
-      apiKey: process.env.FIRECRAWL_API_KEY,
-      apiUrl: process.env.FIRECRAWL_API_URL,
-    })
 
     let query = input.query
     if (input.blocked_domains?.length) {
@@ -24,10 +20,19 @@ export const firecrawlProvider: SearchProvider = {
       query = `${query} ${exclusions}`
     }
 
-    const data = await app.search(query, { limit: 15 })
+    const data = await withWebSearchTimeout(
+      combinedSignal => firecrawlSearch(query, {
+        apiKey: process.env.FIRECRAWL_API_KEY,
+        apiUrl: process.env.FIRECRAWL_API_URL,
+        limit: 15,
+        signal: combinedSignal,
+      }),
+      signal,
+      { providerName: 'Firecrawl' },
+    )
 
     const hits = applyDomainFilters(
-      (data.web ?? []).map((r: { url: string; title?: string; description?: string }) => ({
+      (data.web ?? []).map(r => ({
         title: r.title ?? r.url,
         url: r.url,
         description: r.description,

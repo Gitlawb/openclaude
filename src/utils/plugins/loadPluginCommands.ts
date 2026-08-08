@@ -8,7 +8,7 @@ import {
   substituteArguments,
 } from '../argumentSubstitution.js'
 import { logForDebugging } from '../debug.js'
-import { EFFORT_LEVELS, parseEffortValue } from '../effort.js'
+import { EFFORT_LEVELS, parseFrontmatterEffortValue } from '../effort.js'
 import { isBareMode } from '../envUtils.js'
 import { isENOENT } from '../errors.js'
 import {
@@ -281,10 +281,12 @@ function createPluginCommand(
 
     const effortRaw = frontmatter['effort']
     const effort =
-      effortRaw !== undefined ? parseEffortValue(effortRaw) : undefined
+      effortRaw !== undefined ? parseFrontmatterEffortValue(effortRaw) : undefined
     if (effortRaw !== undefined && effort === undefined) {
       logForDebugging(
-        `Plugin command ${commandName} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.join(', ')} or an integer`,
+        String(effortRaw).toLowerCase() === 'ultracode'
+          ? `Plugin command ${commandName} requested effort 'ultracode', a session-only mode not supported in frontmatter; ignoring.`
+          : `Plugin command ${commandName} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.filter(l => l !== 'ultracode').join(', ')} or an integer`,
       )
     }
 
@@ -525,7 +527,7 @@ export const getPluginCommands = memoize(async (): Promise<Command[]> => {
                   // Convert metadata.source (relative to plugin root) to absolute path for comparison
                   for (const [name, metadata] of Object.entries(
                     plugin.commandsMetadata,
-                  )) {
+                  ) as [string, CommandMetadata][]) {
                     if (metadata.source) {
                       const fullMetadataPath = join(
                         plugin.path,
@@ -610,7 +612,7 @@ export const getPluginCommands = memoize(async (): Promise<Command[]> => {
       if (plugin.commandsMetadata) {
         for (const [name, metadata] of Object.entries(
           plugin.commandsMetadata,
-        )) {
+        ) as [string, CommandMetadata][]) {
           // Only process entries with inline content (no source)
           if (metadata.content && !metadata.source) {
             try {

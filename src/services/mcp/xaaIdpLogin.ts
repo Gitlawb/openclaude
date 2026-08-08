@@ -29,7 +29,6 @@ import { getSecureStorage } from '../../utils/secureStorage/index.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import { jsonParse } from '../../utils/slowOperations.js'
 import {
-  shouldCompleteXaaIdpCallback,
   validateXaaIdpCallbackParams,
 } from './xaaIdpCallback.js'
 import { buildRedirectUri, findAvailablePort } from './oauthPort.js'
@@ -206,10 +205,11 @@ export function clearIdpClientSecret(idpIssuer: string): void {
 // the fix. Exported because auth.ts needs the same discovery.
 export async function discoverOidc(
   idpIssuer: string,
+  abortSignal?: AbortSignal,
 ): Promise<OpenIdProviderDiscoveryMetadata> {
   const base = idpIssuer.endsWith('/') ? idpIssuer : idpIssuer + '/'
   const url = new URL('.well-known/openid-configuration', base)
-  const { signal, cleanup } = createCombinedAbortSignal(undefined, {
+  const { signal, cleanup } = createCombinedAbortSignal(abortSignal, {
     timeoutMs: IDP_REQUEST_TIMEOUT_MS,
   })
   try {
@@ -346,7 +346,7 @@ function waitForCallback(
         expectedState,
       )
 
-      if (!shouldCompleteXaaIdpCallback(result)) {
+      if (result.type === 'state_mismatch') {
         res.writeHead(400, { 'Content-Type': 'text/html' })
         res.end('<html><body><h3>State mismatch</h3></body></html>')
         return
@@ -481,7 +481,7 @@ export async function acquireIdpIdToken(
     codeVerifier,
     redirectUri,
     fetchFn: (url, init) => {
-      const { signal, cleanup } = createCombinedAbortSignal(init?.signal, {
+      const { signal, cleanup } = createCombinedAbortSignal(init?.signal ?? undefined, {
         timeoutMs: IDP_REQUEST_TIMEOUT_MS,
       })
       // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins

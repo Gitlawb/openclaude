@@ -49,6 +49,10 @@ type ModeState = {
   event: HookEvent;
   hook: IndividualHookConfig;
 };
+type HooksByEventAndMatcher = Record<
+  HookEvent,
+  Record<string, IndividualHookConfig[]>
+>;
 export function HooksConfigMenu(t0) {
   const $ = _c(100);
   const {
@@ -106,7 +110,7 @@ export function HooksConfigMenu(t0) {
   } else {
     t4 = $[7];
   }
-  const hooksByEventAndMatcher = t4;
+  const hooksByEventAndMatcher: HooksByEventAndMatcher = t4;
   let t5;
   if ($[8] !== hooksByEventAndMatcher || $[9] !== selectedEvent) {
     t5 = getSortedMatchersForEvent(hooksByEventAndMatcher, selectedEvent);
@@ -259,7 +263,7 @@ export function HooksConfigMenu(t0) {
   const hooksDisabled_1 = settings_1?.disableAllHooks === true;
   let t20;
   if ($[33] !== hooksByEventAndMatcher) {
-    const byEvent = {};
+    const byEvent: Partial<Record<HookEvent, number>> = {};
     let total = 0;
     for (const [event_0, matchers] of Object.entries(hooksByEventAndMatcher)) {
       const eventCount = Object.values(matchers).reduce(_temp5, 0);
@@ -559,7 +563,7 @@ export function HooksConfigMenu(t0) {
 function _temp6() {
   return <Text>Esc to close</Text>;
 }
-function _temp5(sum, hooks) {
+function _temp5(sum: number, hooks: IndividualHookConfig[]): number {
   return sum + hooks.length;
 }
 function _temp4(tool) {

@@ -11,6 +11,10 @@ import { randomUUID } from 'crypto'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import type { PermissionDecision, PermissionMode } from '../../types/permissions.js'
 import {
+  hasPermissionsToUseTool,
+  revalidatePlanModePermissionAllowWithRaceGuard,
+} from '../../utils/permissions/permissions.js'
+import {
   getEmptyToolPermissionContext,
   type ToolPermissionContext,
   type Tool,
@@ -173,9 +177,33 @@ export interface PermissionContextOptions {
   disallowedTools?: string[]
 }
 
+function isDangerousPermissionMode(
+  mode: QueryPermissionMode | undefined,
+): mode is
+  | 'bypass-permissions'
+  | 'bypassPermissions'
+  | 'full-access'
+  | 'fullAccess' {
+  return (
+    mode === 'bypass-permissions' ||
+    mode === 'bypassPermissions' ||
+    mode === 'full-access' ||
+    mode === 'fullAccess'
+  )
+}
+
 export function buildPermissionContext(options: PermissionContextOptions): ToolPermissionContext {
   const base: ToolPermissionContext = getEmptyToolPermissionContext()
   const mode = options.permissionMode ?? 'default'
+
+  if (
+    isDangerousPermissionMode(mode) &&
+    options.allowDangerouslySkipPermissions !== true
+  ) {
+    throw new Error(
+      `SDK permissionMode "${mode}" requires allowDangerouslySkipPermissions: true`,
+    )
+  }
 
   // Map SDK permission mode to internal PermissionMode
   let internalMode: string = 'default'
@@ -190,6 +218,10 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
     case 'bypass-permissions':
     case 'bypassPermissions':
       internalMode = 'bypassPermissions'
+      break
+    case 'full-access':
+    case 'fullAccess':
+      internalMode = 'fullAccess'
       break
     default:
       internalMode = 'default'
@@ -207,7 +239,7 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
     ...base,
     mode: internalMode as ToolPermissionContext['mode'],
     isBypassPermissionsModeAvailable:
-      mode === 'bypass-permissions' || mode === 'bypassPermissions' || options.allowDangerouslySkipPermissions === true,
+      options.allowDangerouslySkipPermissions === true,
     alwaysDenyRules: {
       ...base.alwaysDenyRules,
       cliArg: options.disallowedTools ?? [],
@@ -229,7 +261,7 @@ export function buildPermissionContext(options: PermissionContextOptions): ToolP
  *
  * The flow:
  * 1. QueryEngine calls canUseTool(tool, input, ..., toolUseID, forceDecision)
- * 2. If forceDecision is set, honor it immediately
+ * 2. If forceDecision is set, honor it immediately, except Full Access ask prompts are allowed
  * 3. If user canUseTool callback exists, delegate to it
  * 4. Otherwise, emit permission_request message and await external resolution
  *
@@ -258,15 +290,64 @@ export function createExternalCanUseTool(
   return async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision): Promise<PermissionDecision> => {
     // Cast input to ensure type compatibility with PermissionDecision
     const typedInput = input as Record<string, unknown>
-    // If a forced decision was passed in, honor it
-    if (forceDecision) return forceDecision
+    let effectiveInput = typedInput
+    const revalidateExternalAllow = async (
+      originalInput: Record<string, unknown>,
+      finalInput: Record<string, unknown>,
+    ): Promise<PermissionDecision | null> => {
+      const planModeWasActive =
+        typeof toolUseContext.getAppState === 'function' &&
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      return await revalidatePlanModePermissionAllowWithRaceGuard(
+        tool,
+        originalInput,
+        finalInput,
+        toolUseContext,
+        planModeWasActive,
+      )
+    }
+    const isFullAccessMode =
+      typeof toolUseContext.getAppState === 'function' &&
+      toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
+    if (isFullAccessMode) {
+      if (forceDecision?.behavior === 'ask') {
+        effectiveInput = forceDecision.updatedInput ?? typedInput
+      }
+      const fullAccessDecision = await hasPermissionsToUseTool(
+        tool,
+        effectiveInput,
+        toolUseContext,
+        assistantMessage,
+        toolUseID,
+      )
+      if (fullAccessDecision.behavior === 'deny') {
+        return fullAccessDecision
+      }
+      effectiveInput = fullAccessDecision.updatedInput ?? effectiveInput
+    }
+
+    if (forceDecision) {
+      if (!(forceDecision.behavior === 'ask' && isFullAccessMode)) {
+        return forceDecision
+      }
+    }
 
     // If the user provided a synchronous canUseTool callback, use it
     if (userFn) {
       try {
-        const result = await userFn(tool.name, typedInput, { toolUseID })
+        const result = await userFn(tool.name, effectiveInput, { toolUseID })
         if (result.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: (result.updatedInput as Record<string, unknown> | undefined) ?? typedInput }
+          const finalInput =
+            (result.updatedInput as Record<string, unknown> | undefined) ??
+            effectiveInput
+          const revalidation = await revalidateExternalAllow(
+            effectiveInput,
+            finalInput,
+          )
+          if (revalidation) {
+            return revalidation
+          }
+          return { behavior: 'allow' as const, updatedInput: finalInput }
         }
         return {
           behavior: 'deny' as const,
@@ -302,7 +383,7 @@ export function createExternalCanUseTool(
           request_id: requestId,
           tool_name: tool.name,
           tool_use_id: toolUseID,
-          input: input as Record<string, unknown>,
+          input: effectiveInput,
           uuid: messageUuid,
           session_id: resolveSessionId(),
         })
@@ -335,7 +416,15 @@ export function createExternalCanUseTool(
         // Convert PermissionResolveDecision to PermissionDecision
         const res = raceResult.result
         if (res.behavior === 'allow') {
-          return { behavior: 'allow' as const, updatedInput: res.updatedInput ?? typedInput }
+          const finalInput = res.updatedInput ?? effectiveInput
+          const revalidation = await revalidateExternalAllow(
+            effectiveInput,
+            finalInput,
+          )
+          if (revalidation) {
+            return revalidation
+          }
+          return { behavior: 'allow' as const, updatedInput: finalInput }
         }
         return {
           behavior: 'deny' as const,
@@ -360,14 +449,26 @@ export function createExternalCanUseTool(
         'Denying by default. Provide a canUseTool callback or respond to permission_request ' +
         'messages within the timeout window.',
       )
-      permissionTarget.denyPendingPermission(
-        toolUseID,
-        `SDK: Permission resolution timed out for tool "${tool.name}". Pass canUseTool in options to control tool permissions.`,
-      )
+      const timeoutMessage = `SDK: Permission resolution timed out for tool "${tool.name}". Pass canUseTool in options to control tool permissions.`
+      permissionTarget.denyPendingPermission(toolUseID, timeoutMessage)
+      // Return the timeout decision rather than falling through. The deny above
+      // resolves the promise registered by registerPendingPermission, but the
+      // race has already settled with {timedOut: true}, so nothing is awaiting
+      // it -- the decision would be discarded. The fallback is
+      // createDefaultCanUseTool, whose contract is "the host provided no
+      // permission callback at all": it reports that as the reason the tool was
+      // denied even though onPermissionRequest was wired up, and it burns the
+      // one-shot warning latch so a genuinely misconfigured later query in the
+      // same process is never warned.
+      return {
+        behavior: 'deny' as const,
+        message: timeoutMessage,
+        decisionReason: { type: 'mode' as const, mode: 'default' },
+      }
     }
 
     // No callback or no toolUseID — fall through to default permission logic
-    return fallback(tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision)
+    return fallback(tool, effectiveInput, toolUseContext, assistantMessage, toolUseID, forceDecision)
   }
 }
 
@@ -564,8 +665,29 @@ export function createDefaultCanUseTool(
   logger?: SDKLogger,
 ): CanUseToolFn {
   const log = logger ?? defaultLogger
-  return async (tool, input, _toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
-    if (forceDecision) return forceDecision
+  return async (tool, input, toolUseContext, _assistantMessage, _toolUseID, forceDecision) => {
+    const isFullAccessMode =
+      typeof toolUseContext.getAppState === 'function' &&
+      toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
+    if (forceDecision) {
+      if (
+        forceDecision.behavior === 'ask' &&
+        isFullAccessMode
+      ) {
+        const fullAccessDecision = await hasPermissionsToUseTool(
+          tool,
+          forceDecision.updatedInput ?? input,
+          toolUseContext,
+          _assistantMessage,
+          _toolUseID,
+        )
+        if (fullAccessDecision.behavior === 'deny') {
+          return fullAccessDecision
+        }
+      } else {
+        return forceDecision
+      }
+    }
     if (!warnedDefaultPermissions) {
       warnedDefaultPermissions = true
       log.warn(

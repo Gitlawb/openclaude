@@ -4,6 +4,13 @@
  * thin wrapper so call sites stay stable and downstream embeds running older Node
  * (despite the warning) don't crash.
  */
+// Local copy of the ES2024 lib type — tsconfig lib is ES2023, which predates it.
+export interface PromiseWithResolvers<T> {
+  promise: Promise<T>
+  resolve: (value: T | PromiseLike<T>) => void
+  reject: (reason?: unknown) => void
+}
+
 export function withResolvers<T>(): PromiseWithResolvers<T> {
   let resolve!: (value: T | PromiseLike<T>) => void
   let reject!: (reason?: unknown) => void

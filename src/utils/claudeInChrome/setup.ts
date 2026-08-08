@@ -4,9 +4,9 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
 import {
+  getSessionDangerousPermissionMode,
   getIsInteractive,
   getIsNonInteractiveSession,
-  getSessionBypassPermissionsMode,
 } from '../../bootstrap/state.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import type { ScopedMcpServerConfig } from '../../services/mcp/types.js'
@@ -77,8 +77,7 @@ export function shouldAutoEnableClaudeInChrome(): boolean {
   shouldAutoEnable =
     getIsInteractive() &&
     isChromeExtensionInstalled_CACHED_MAY_BE_STALE() &&
-    (process.env.USER_TYPE === 'ant' ||
-      getFeatureValue_CACHED_MAY_BE_STALE('tengu_chrome_auto_enable', false))
+    getFeatureValue_CACHED_MAY_BE_STALE('tengu_chrome_auto_enable', false)
 
   return shouldAutoEnable
 }
@@ -99,7 +98,7 @@ export function setupClaudeInChrome(): {
   )
 
   const env: Record<string, string> = {}
-  if (getSessionBypassPermissionsMode()) {
+  if (getSessionDangerousPermissionMode() === 'fullAccess') {
     env.CLAUDE_CHROME_PERMISSION_MODE = 'skip_all_permission_checks'
   }
   const hasEnv = Object.keys(env).length > 0

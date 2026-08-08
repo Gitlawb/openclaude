@@ -13,7 +13,10 @@ import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { partitionContext } from '../../utils/contextPartitioning.js'
-import { pruneByRelevance } from '../../utils/relevancePruning.js'
+import {
+  normalizeCompactTailTurns,
+  pruneByRelevance,
+} from '../../utils/relevancePruning.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
@@ -32,12 +35,19 @@ import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 const MAX_OUTPUT_TOKENS_FOR_SUMMARY = 20_000
 
 // Returns the context window size minus the max output tokens for the model
-export function getEffectiveContextWindowSize(model: string): number {
+export function getEffectiveContextWindowSize(
+  model: string,
+  runtimeLimits?: { contextWindow?: number; maxOutputTokens?: number },
+): number {
   const reservedTokensForSummary = Math.min(
-    getMaxOutputTokensForModel(model),
+    runtimeLimits?.maxOutputTokens ?? getMaxOutputTokensForModel(model),
     MAX_OUTPUT_TOKENS_FOR_SUMMARY,
   )
-  let contextWindow = getContextWindowForModel(model, getSdkBetas())
+  let contextWindow = getContextWindowForModel(
+    model,
+    getSdkBetas(),
+    runtimeLimits,
+  )
 
   const autoCompactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
   if (autoCompactWindow) {
@@ -49,8 +59,12 @@ export function getEffectiveContextWindowSize(model: string): number {
 
   // Floor: effective context must be at least the summary reservation plus a
   // usable buffer. If it goes lower, the auto-compact threshold becomes
-  // negative and fires on every message (issue #635).
-  const autocompactBuffer = 13_000 // must match AUTOCOMPACT_BUFFER_TOKENS
+  // negative and fires on every message (issue #635). This floor buffer is
+  // intentionally decoupled from AUTOCOMPACT_BUFFER_TOKENS: the latter is the
+  // (larger) threshold buffer used by getAutoCompactThreshold(), while this
+  // stays at the conservative 13k so getEffectiveContextWindowSize() —
+  // also consumed by tool-history compression — is unchanged (issue #1949).
+  const autocompactBuffer = AUTOCOMPACT_FLOOR_BUFFER_TOKENS
   const effectiveContext = contextWindow - reservedTokensForSummary
   return Math.max(effectiveContext, reservedTokensForSummary + autocompactBuffer)
 }
@@ -68,14 +82,36 @@ export type AutoCompactTrackingState = {
   // threaded through query() callers rather than serialized into transcripts.
   nextRetryAtMs?: number
   lastFailureAtMs?: number
+  // When set, bypasses the normal token threshold. Message-count and
+  // provider-overflow recovery also bypass user-disable; process-memory
+  // pressure respects that setting.
+  forceReason?: 'memory-pressure' | 'message-count' | 'context-overflow'
 }
 
-export const AUTOCOMPACT_BUFFER_TOKENS = 13_000
+// Threshold buffer: auto-compact fires when token usage reaches this far below
+// the effective context window. Bumped from 13_000 -> 30_000 so compaction runs
+// earlier and with less accumulated history, bounding per-turn latency growth
+// in a single session (issue #1949). Kept below the effective-context floor
+// (AUTOCOMPACT_FLOOR_BUFFER_TOKENS) for large-context models; for small-context
+// models getAutoCompactThreshold() falls back to the floor buffer so the
+// threshold can never go negative (issue #635).
+export const AUTOCOMPACT_BUFFER_TOKENS = 30_000
+
+// Conservative floor buffer for getEffectiveContextWindowSize(). Must guarantee
+// a non-negative auto-compact threshold for small-context models, so it stays at
+// the pre-#1949 value of 13_000 and is decoupled from AUTOCOMPACT_BUFFER_TOKENS.
+const AUTOCOMPACT_FLOOR_BUFFER_TOKENS = 13_000
+
 export const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000
 export const ERROR_THRESHOLD_BUFFER_TOKENS = 20_000
 export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 
 export const AUTOCOMPACT_FAILURE_COOLDOWN_MS = 5 * 60 * 1000
+
+// Minimum cooldown override allowed via OPENCLAUDE_AUTOCOMPACT_FAILURE_COOLDOWN_MS.
+// Values below this floor are rejected (function falls back to the default) so
+// misconfiguration cannot effectively disable the circuit breaker.
+export const MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS = 10_000
 
 // Pause autocompact after this many consecutive failures.
 // BQ 2026-03-10: 1,279 sessions had 50+ consecutive failures (up to 3,272)
@@ -87,7 +123,11 @@ export function getAutoCompactFailureCooldownMs(): number {
   if (override) {
     const trimmed = override.trim()
     const parsed = Number(trimmed)
-    if (/^[1-9]\d*$/.test(trimmed) && Number.isSafeInteger(parsed)) {
+    if (
+      /^[1-9]\d*$/.test(trimmed) &&
+      Number.isSafeInteger(parsed) &&
+      parsed >= MIN_AUTOCOMPACT_FAILURE_COOLDOWN_MS
+    ) {
       return parsed
     }
   }
@@ -157,8 +197,19 @@ export function resolveAutoCompactCircuitBreakerState(args: {
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
 
-  const autocompactThreshold =
-    effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS
+  // Increase the buffer gradually between the old 13k and new 30k values.
+  // This keeps the threshold monotonic and preserves the 20k warning/error
+  // headroom consumed by calculateTokenWarningState(). A direct switch would
+  // make a one-token window increase cause an earlier compact, and can make
+  // the warning threshold negative for mid-sized context windows.
+  const buffer = Math.min(
+    AUTOCOMPACT_BUFFER_TOKENS,
+    Math.max(
+      AUTOCOMPACT_FLOOR_BUFFER_TOKENS,
+      effectiveContextWindow - AUTOCOMPACT_BUFFER_TOKENS,
+    ),
+  )
+  const autocompactThreshold = effectiveContextWindow - buffer
 
   // Override for easier testing of autocompact
   const envPercent = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
@@ -255,6 +306,10 @@ export async function shouldAutoCompact(
   // pre-snip context, so tokenCountWithEstimation can't see the savings.
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
+  // When set, skip the token threshold but still run recursion and
+  // context-collapse guards. Only message-count and provider-overflow also
+  // bypass a user-disabled auto-compact setting.
+  forceReason?: AutoCompactTrackingState['forceReason'],
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -272,7 +327,15 @@ export async function shouldAutoCompact(
     }
   }
 
-  if (!isAutoCompactEnabled()) {
+  // Process memory pressure is not evidence that this conversation exhausted
+  // its context. Keep cache pruning available, but honor the user's disabled
+  // auto-compact choice rather than unexpectedly summarizing a short
+  // conversation (#1985). Explicit message-count and provider-overflow
+  // recovery remain forced compaction paths.
+  if (
+    !isAutoCompactEnabled() &&
+    (!forceReason || forceReason === 'memory-pressure')
+  ) {
     return false
   }
 
@@ -283,7 +346,10 @@ export async function shouldAutoCompact(
   // trySessionMemoryCompaction in the query loop — the /compact call site
   // still tries session memory first. Revisit if reactive-only graduates.
   if (feature('REACTIVE_COMPACT')) {
-    if (getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_raccoon', false)) {
+    if (
+      !forceReason &&
+      getFeatureValue_CACHED_MAY_BE_STALE('tengu_cobalt_raccoon', false)
+    ) {
       return false
     }
   }
@@ -298,18 +364,31 @@ export async function shouldAutoCompact(
   // fallback (it consults isAutoCompactEnabled directly) and leaves
   // sessionMemory + manual /compact working.
   //
-  // Consult isContextCollapseEnabled (not the raw gate) so the
-  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too. require()
-  // inside the block breaks the init-time cycle (this file exports
+  // hasActiveReduction() folds in the enablement check (so the
+  // CLAUDE_CONTEXT_COLLAPSE env override is honored here too) but also
+  // requires collapse to actually hold a committed/staged reduction.
+  // require() inside the block breaks the init-time cycle (this file exports
   // getEffectiveContextWindowSize which collapse's index imports).
   if (feature('CONTEXT_COLLAPSE')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
-    const { isContextCollapseEnabled } =
+    const { hasActiveReduction, isMainThreadSource } =
       require('../contextCollapse/index.js') as typeof import('../contextCollapse/index.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
-    if (isContextCollapseEnabled()) {
+    // Suppress only when collapse actually holds the headroom (a committed or
+    // staged reduction) AND this is the main thread that owns it. The store is
+    // shared across in-process subagents (agent:*); a subagent must still
+    // autocompact its own oversized transcript instead of being suppressed by a
+    // reduction that only applies to the main transcript.
+    if (isMainThreadSource(querySource) && hasActiveReduction()) {
       return false
     }
+  }
+
+  if (forceReason) {
+    logForDebugging(
+      `autocompact: skipping token threshold check (forced by ${forceReason})`,
+    )
+    return true
   }
 
   const tokenCount = tokenCountWithEstimation(messages) - snipTokensFreed
@@ -344,16 +423,25 @@ export async function autoCompactIfNeeded(
   circuitBreakerActive?: boolean
   circuitBreakerTripped?: boolean
 }> {
-  if (isEnvTruthy(process.env.DISABLE_COMPACT)) {
+  const model = toolUseContext.options.mainLoopModel
+  // Force compaction if a pressure/count signal set forceReason.
+  // Intentionally consume the caller-owned flag in place so the same tracking
+  // object cannot force multiple compaction cycles in one query loop pass.
+  // Message-count and provider-overflow bypass user-disable gates; memory
+  // pressure does not. All forced paths preserve recursion/collapse guards.
+  const forcedBy = tracking?.forceReason
+  if (tracking?.forceReason) {
+    tracking.forceReason = undefined
+  }
+  if (!forcedBy && isEnvTruthy(process.env.DISABLE_COMPACT)) {
     return { wasCompacted: false }
   }
-
-  const model = toolUseContext.options.mainLoopModel
   const shouldCompact = await shouldAutoCompact(
     messages,
     model,
     querySource,
     snipTokensFreed,
+    forcedBy,
   )
 
   if (!shouldCompact) {
@@ -410,9 +498,12 @@ export async function autoCompactIfNeeded(
     const systemMessages = messages.filter(m => m.message?.role === 'system')
     const nonSystemMessages = messages.filter(m => m.message?.role !== 'system')
     
+    // Config may be hand-edited; normalizeCompactTailTurns is the single
+    // rule (shared with the /config UI) — a stray `0.5` must not floor to a
+    // zero-message tail, and invalid values fall back to the default.
     const pruned = pruneByRelevance(nonSystemMessages, {
       targetTokens: availableSpace,
-      preserveRecent: 3,
+      preserveRecent: normalizeCompactTailTurns(getGlobalConfig().compactTailTurns),
       preserveTools: true,
       preserveErrors: true,
     })

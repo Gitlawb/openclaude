@@ -1,7 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { MODEL_ALIASES } from './aliases.js'
 import { isModelAllowed } from './modelAllowlist.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isFirstPartyAnthropicProvider } from './providers.js'
 import { sideQuery } from '../sideQuery.js'
 import {
   NotFoundError,
@@ -11,7 +11,11 @@ import {
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
-import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
+import {
+  getCachedNvidiaNimModelOptions,
+  getDiscoveredNvidiaNimModelIds,
+  isNvidiaNimProvider,
+} from './nvidiaNimModels.js'
 import { getCachedMiniMaxModelOptions, isMiniMaxProvider } from './minimaxModels.js'
 
 // Cache valid models to avoid repeated API calls
@@ -49,20 +53,36 @@ export async function validateModel(
     // If cache is empty, fall through to API validation
   }
 
-  // For NVIDIA NIM provider, validate against cached model list
+  // For NVIDIA NIM provider, validate against cached model list (static
+  // catalog first, then the persisted discovery cache so that ids surfaced
+  // only via dynamic discovery are still accepted on the inline `/model <id>`
+  // path).
   if (isNvidiaNimProvider()) {
     const nvidiaModels = getCachedNvidiaNimModelOptions()
-    const found = nvidiaModels.some(m => m.value === normalizedModel)
-    if (found) {
+    if (nvidiaModels.some(m => m.value === normalizedModel)) {
       validModelCache.set(normalizedModel, true)
       return { valid: true }
     }
-    if (nvidiaModels.length > 0) {
+    const discoveredIds = await getDiscoveredNvidiaNimModelIds()
+    if (discoveredIds.includes(normalizedModel)) {
+      validModelCache.set(normalizedModel, true)
+      return { valid: true }
+    }
+    if (nvidiaModels.length > 0 || discoveredIds.length > 0) {
+      const names = [
+        ...nvidiaModels.map(m => m.value),
+        ...discoveredIds.filter(
+          id => !nvidiaModels.some(m => m.value === id),
+        ),
+      ]
       const MAX_SHOWN = 5
-      const names = nvidiaModels.map(m => m.value)
       const shown = names.slice(0, MAX_SHOWN).join(', ')
-      const suffix = names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
-      return { valid: false, error: `Model '${normalizedModel}' not found in NVIDIA NIM catalog. Available: ${shown}${suffix}` }
+      const suffix =
+        names.length > MAX_SHOWN ? ` and ${names.length - MAX_SHOWN} more` : ''
+      return {
+        valid: false,
+        error: `Model '${normalizedModel}' not found in NVIDIA NIM catalog. Available: ${shown}${suffix}`,
+      }
     }
   }
 
@@ -198,10 +218,13 @@ function handleValidationError(
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */
 function get3PFallbackSuggestion(model: string): string | undefined {
-  if (getAPIProvider() === 'firstParty') {
+  if (isFirstPartyAnthropicProvider()) {
     return undefined
   }
   const lowerModel = model.toLowerCase()
+  if (lowerModel.includes('opus-4-8') || lowerModel.includes('opus_4_8')) {
+    return getModelStrings().opus47
+  }
   if (lowerModel.includes('opus-4-7') || lowerModel.includes('opus_4_7')) {
     return getModelStrings().opus46
   }

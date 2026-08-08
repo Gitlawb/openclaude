@@ -62,6 +62,12 @@ export function getNextPermissionMode(
       return 'default'
 
     case 'bypassPermissions':
+      if (toolPermissionContext.isBypassPermissionsModeAvailable) {
+        return 'fullAccess'
+      }
+      return 'default'
+
+    case 'fullAccess':
       if (canCycleToAuto(toolPermissionContext)) {
         return 'auto'
       }

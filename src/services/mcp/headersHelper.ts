@@ -58,8 +58,9 @@ export async function getMcpHeadersFromHelper(
 
   try {
     logMCPDebug(serverName, 'Executing headersHelper to get dynamic headers')
+    // Note: execFileNoThrowWithCwd always spawns with shell: false and does
+    // not accept a shell option, so none is passed here.
     const execResult = await execFileNoThrowWithCwd(config.headersHelper, [], {
-      shell: true,
       timeout: 10000,
       // Pass server context so one helper script can serve multiple MCP servers
       // (git credential-helper style). See deshaw/anthropic-issues#28.

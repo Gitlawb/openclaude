@@ -50,6 +50,7 @@ import {
   maskSecretForDisplay,
   redactSecretValueForDisplay,
   sanitizeApiKey,
+  sanitizeOpenAICredentialPool,
   sanitizeProviderConfigValue,
   saveProfileFile,
   type ProfileEnv,
@@ -477,7 +478,10 @@ function buildSavedProfileSummary(
           env,
         ),
         credentialLabel:
-          maskSecretForDisplay(env.OPENAI_API_KEY) !== undefined
+          maskSecretForDisplay(
+            sanitizeOpenAICredentialPool(env.OPENAI_API_KEYS) ??
+              sanitizeOpenAICredentialPool(env.OPENAI_API_KEY),
+          ) !== undefined
             ? 'configured'
             : undefined,
       }
@@ -522,8 +526,8 @@ export function buildProfileSaveMessage(
 function buildUsageText(): string {
   const summary = buildCurrentProviderSummary()
   const availableProviders = isBareMode()
-    ? 'Choose Auto, Ollama, OpenAI-compatible, Gemini, or Codex, then save a provider profile.'
-    : 'Choose Auto, Ollama, OpenAI-compatible, Gemini, Codex, or Codex OAuth, then save a provider profile.'
+    ? 'Choose Auto, Ollama, OpenAI-compatible, Google AI / Gemini, or Codex, then save a provider profile.'
+    : 'Choose Auto, Ollama, OpenAI-compatible, Google AI / Gemini, Codex, or Codex OAuth, then save a provider profile.'
   return [
     'Usage: /provider',
     '',
@@ -691,9 +695,10 @@ function ProviderChooser({
       description: 'OpenAI and similar OpenAI-compatible APIs',
     },
     {
-      label: geminiMetadata.label,
+      label: 'Google AI / Gemini',
       value: 'gemini',
-      description: 'Use Gemini with API key, access token, or local ADC',
+      description:
+        'Use a Gemini API key, access token, or local ADC',
     },
     {
       label: mistralMetadata.label,
@@ -1370,28 +1375,29 @@ export function ProviderWizard({
     case 'openai-key':
       {
         const openAIMetadata = getProviderPresetUiMetadata('openai')
+        const currentOpenAIApiKey = openAIMetadata.apiKey
       return (
         <TextEntryDialog
           resetStateKey={step.name}
           title={`${openAIMetadata.name} setup`}
           subtitle="Step 1 of 3"
           description={
-            process.env.OPENAI_API_KEY
-              ? `Enter an API key, or leave this blank to reuse the current ${openAIMetadata.credentialEnvVars[0] ?? 'OPENAI_API_KEY'} from this session.`
+            currentOpenAIApiKey
+              ? 'Enter an API key, or leave this blank to reuse the current OpenAI credentials from this session.'
               : `Enter the API key for ${openAIMetadata.name}.`
           }
           initialValue=""
           placeholder="sk-..."
           mask="*"
-          allowEmpty={Boolean(process.env.OPENAI_API_KEY)}
+          allowEmpty={Boolean(currentOpenAIApiKey)}
           validate={value => {
-            const candidate = value.trim() || process.env.OPENAI_API_KEY || ''
-            return sanitizeApiKey(candidate)
+            const candidate = value.trim() || currentOpenAIApiKey
+            return sanitizeOpenAICredentialPool(candidate)
               ? null
               : 'Enter a real API key. Placeholder values like SUA_CHAVE are not valid.'
           }}
           onSubmit={value => {
-            const apiKey = value.trim() || process.env.OPENAI_API_KEY || ''
+            const apiKey = value.trim() || currentOpenAIApiKey
             setStep({
               name: 'openai-base',
               apiKey,
@@ -1590,8 +1596,8 @@ export function ProviderWizard({
           label: 'API key',
           value: 'api-key',
           description: hasShellGeminiKey
-            ? 'Use the current Gemini API key from this shell, or enter a new one'
-            : 'Use a Google Gemini API key',
+            ? 'Use the current Google AI / Gemini API key from this shell, or enter a new one'
+            : 'Use a Google AI / Gemini API key',
         },
         {
           label: 'Access token',
@@ -1600,9 +1606,9 @@ export function ProviderWizard({
             ? `Use ${
                 hasShellGeminiAccessToken
                   ? 'the current GEMINI_ACCESS_TOKEN'
-                  : 'the securely stored Gemini access token'
+                  : 'the securely stored Google AI / Gemini access token'
               }`
-            : 'Enter a Gemini access token and store it securely',
+            : 'Enter a Google AI / Gemini access token and store it securely',
         },
         {
           label: 'Local ADC',
@@ -1614,9 +1620,9 @@ export function ProviderWizard({
       ]
 
       return (
-        <Dialog title="Gemini setup" onCancel={() => onDone()}>
+        <Dialog title="Google AI / Gemini setup" onCancel={() => onDone()}>
           <Box flexDirection="column" gap={1}>
-            <Text>Choose how this Gemini profile should authenticate.</Text>
+            <Text>Choose how this Google AI / Gemini profile should authenticate.</Text>
             <Select
               options={options}
               inlineDescriptions
@@ -1640,34 +1646,31 @@ export function ProviderWizard({
       )
     }
 
-    case 'gemini-key':
+    case 'gemini-key': {
+      const currentGeminiApiKey =
+        process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || ''
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title="Gemini setup"
+          title="Google AI / Gemini setup"
           subtitle="Step 1 of 3"
           description={
-            process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
-              ? 'Enter a Gemini API key, or leave this blank to reuse the current GEMINI_API_KEY/GOOGLE_API_KEY from this session.'
-              : 'Enter a Gemini API key. You can create one at https://aistudio.google.com/apikey.'
+            currentGeminiApiKey
+              ? 'Enter a Google AI / Gemini API key, or leave this blank to reuse the current GEMINI_API_KEY/GOOGLE_API_KEY from this session.'
+              : 'Enter a Google AI / Gemini API key. You can create one at https://aistudio.google.com/apikey.'
           }
           initialValue=""
           placeholder="AIza..."
           mask="*"
-          allowEmpty={Boolean(
-            process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
-          )}
+          allowEmpty={Boolean(currentGeminiApiKey)}
           onSubmit={value => {
-            const apiKey =
-              value.trim() ||
-              process.env.GEMINI_API_KEY ||
-              process.env.GOOGLE_API_KEY ||
-              ''
+            const apiKey = value.trim() || currentGeminiApiKey
             setStep({ name: 'gemini-model', apiKey, authMode: 'api-key' })
           }}
           onCancel={() => setStep({ name: 'gemini-auth-method' })}
         />
       )
+    }
 
     case 'gemini-access-token': {
       const currentToken =
@@ -1675,12 +1678,12 @@ export function ProviderWizard({
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title="Gemini setup"
+          title="Google AI / Gemini setup"
           subtitle="Step 2 of 3"
           description={
             currentToken
-              ? 'Enter a Gemini access token, or leave this blank to reuse the current token from this session or secure storage.'
-              : 'Enter a Gemini access token. It will be stored securely for this profile.'
+              ? 'Enter a Google AI / Gemini access token, or leave this blank to reuse the current token from this session or secure storage.'
+              : 'Enter a Google AI / Gemini access token. It will be stored securely for this profile.'
           }
           initialValue=""
           placeholder="ya29...."
@@ -1688,14 +1691,14 @@ export function ProviderWizard({
           allowEmpty={Boolean(currentToken)}
           validate={value => {
             const token = value.trim() || currentToken
-            return token ? null : 'Enter a Gemini access token or go back and choose Local ADC.'
+            return token ? null : 'Enter a Google AI / Gemini access token or go back and choose Local ADC.'
           }}
           onSubmit={value => {
             const token = value.trim() || currentToken
             const saved = saveGeminiAccessToken(token)
             if (!saved.success) {
               onDone(
-                `Failed to save Gemini access token: ${saved.warning ?? 'unknown error'}`,
+                `Failed to save Google AI / Gemini access token: ${saved.warning ?? 'unknown error'}`,
                 {
                   display: 'system',
                 },
@@ -1717,7 +1720,7 @@ export function ProviderWizard({
       return (
         <TextEntryDialog
           resetStateKey={step.name}
-          title="Gemini setup"
+          title="Google AI / Gemini setup"
           subtitle={
             step.authMode === 'api-key'
               ? 'Step 3 of 3'
@@ -1727,10 +1730,10 @@ export function ProviderWizard({
           }
           description={
             step.authMode === 'api-key'
-              ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`
+              ? `Enter a Google AI / Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}.`
               : step.authMode === 'access-token'
-                ? `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use the stored Gemini access token at runtime.`
-                : `Enter a Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use local Google ADC credentials at runtime.`
+                ? `Enter a Google AI / Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use the stored Google AI / Gemini access token at runtime.`
+                : `Enter a Google AI / Gemini model name. Leave blank for ${DEFAULT_GEMINI_MODEL}. This profile will use local Google ADC credentials at runtime.`
           }
           initialValue={defaults.geminiModel}
           placeholder={DEFAULT_GEMINI_MODEL}
@@ -1741,7 +1744,7 @@ export function ProviderWizard({
               !mayHaveGeminiAdcCredentials(process.env)
             ) {
               onDone(
-                'Local ADC credentials were not detected. Run `gcloud auth application-default login` first, then save the Gemini ADC profile again.',
+                'Local ADC credentials were not detected. Run `gcloud auth application-default login` first, then save the Google AI / Gemini ADC profile again.',
                 {
                   display: 'system',
                 },

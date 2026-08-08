@@ -72,12 +72,19 @@ function createAgent(
   agentType: string,
   source: AgentDefinition['source'] = 'userSettings',
 ): AgentDefinition {
-  return {
+  const base = {
     agentType,
     whenToUse: `Use ${agentType}`,
-    source,
     getSystemPrompt: () => `You are ${agentType}`,
   }
+  // The AgentDefinition union requires variant-specific fields per source.
+  if (source === 'built-in') {
+    return { ...base, source, baseDir: 'built-in' }
+  }
+  if (source === 'plugin') {
+    return { ...base, source, plugin: 'test-plugin' }
+  }
+  return { ...base, source }
 }
 
 beforeEach(async () => {

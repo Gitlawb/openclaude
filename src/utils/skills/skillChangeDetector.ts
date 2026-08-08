@@ -13,6 +13,7 @@ import {
   getSkillsPath,
   onDynamicSkillsLoaded,
 } from '../../skills/loadSkillsDir.js'
+import { PROJECT_CONFIG_DIR_NAMES } from '../markdownConfigLoader.js'
 import { resetSentSkillNames } from '../attachments.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 import { logForDebugging } from '../debug.js'
@@ -92,6 +93,7 @@ const defaultDependencies = {
   clearCommandsCache,
   executeConfigChangeHooks,
   getFsImplementation,
+  getAdditionalDirectoriesForClaudeMd,
   getSkillsPath,
   hasBlockingResult,
   onDynamicSkillsLoaded,
@@ -140,7 +142,6 @@ export async function initialize(): Promise<void> {
   watcher = dependencies.watch(paths, {
     persistent: true,
     ignoreInitial: true,
-    depth: 2, // Skills use skill-name/SKILL.md format
     awaitWriteFinish: {
       stabilityThreshold:
         testOverrides?.stabilityThreshold ?? FILE_STABILITY_THRESHOLD_MS,
@@ -204,15 +205,19 @@ async function getWatchablePaths(): Promise<string[]> {
   const fs = dependencies.getFsImplementation()
   const paths: string[] = []
 
-  // User skills directory (~/.openclaude/skills)
-  const userSkillsPath = dependencies.getSkillsPath('userSettings', 'skills')
-  if (userSkillsPath) {
+  async function pushIfExists(path: string): Promise<void> {
     try {
-      await fs.stat(userSkillsPath)
-      paths.push(userSkillsPath)
+      await fs.stat(path)
+      paths.push(path)
     } catch {
       // Path doesn't exist, skip it
     }
+  }
+
+  // User skills directory (~/.openclaude/skills)
+  const userSkillsPath = dependencies.getSkillsPath('userSettings', 'skills')
+  if (userSkillsPath) {
+    await pushIfExists(userSkillsPath)
   }
 
   // User commands directory (~/.openclaude/commands)
@@ -221,54 +226,20 @@ async function getWatchablePaths(): Promise<string[]> {
     'commands',
   )
   if (userCommandsPath) {
-    try {
-      await fs.stat(userCommandsPath)
-      paths.push(userCommandsPath)
-    } catch {
-      // Path doesn't exist, skip it
-    }
+    await pushIfExists(userCommandsPath)
   }
 
-  // Project skills directory (.claude/skills)
-  const projectSkillsPath = dependencies.getSkillsPath(
-    'projectSettings',
-    'skills',
-  )
-  if (projectSkillsPath) {
-    try {
-      // For project settings, resolve to absolute path
-      const absolutePath = platformPath.resolve(projectSkillsPath)
-      await fs.stat(absolutePath)
-      paths.push(absolutePath)
-    } catch {
-      // Path doesn't exist, skip it
-    }
-  }
-
-  // Project commands directory (.claude/commands)
-  const projectCommandsPath = dependencies.getSkillsPath(
-    'projectSettings',
-    'commands',
-  )
-  if (projectCommandsPath) {
-    try {
-      // For project settings, resolve to absolute path
-      const absolutePath = platformPath.resolve(projectCommandsPath)
-      await fs.stat(absolutePath)
-      paths.push(absolutePath)
-    } catch {
-      // Path doesn't exist, skip it
-    }
+  // Project skills/commands directories. Keep this in sync with the loader's
+  // OpenClaude project config directories.
+  for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
+    await pushIfExists(platformPath.resolve(configDirName, 'skills'))
+    await pushIfExists(platformPath.resolve(configDirName, 'commands'))
   }
 
   // Additional directories (--add-dir) skills
-  for (const dir of getAdditionalDirectoriesForClaudeMd()) {
-    const additionalSkillsPath = platformPath.join(dir, '.claude', 'skills')
-    try {
-      await fs.stat(additionalSkillsPath)
-      paths.push(additionalSkillsPath)
-    } catch {
-      // Path doesn't exist, skip it
+  for (const dir of dependencies.getAdditionalDirectoriesForClaudeMd()) {
+    for (const configDirName of PROJECT_CONFIG_DIR_NAMES) {
+      await pushIfExists(platformPath.join(dir, configDirName, 'skills'))
     }
   }
 

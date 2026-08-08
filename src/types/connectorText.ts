@@ -2,6 +2,8 @@ export type ConnectorTextBlock = {
   type: 'connector_text'
   connector_text: string
   connector?: string
+  // Populated from streaming signature_delta events (see services/api/claude.ts).
+  signature?: string
 }
 
 export type ConnectorTextDelta = {

@@ -121,7 +121,7 @@ describe('SQLite Storage Layer', () => {
 
   it('persists data in SQLite database', async () => {
     const sqlitePath = join(getProjectsDir(), sanitizePath(workspaceDir), 'knowledge.db')
-    
+
     // 1. Add data
     await addGlobalEntity('tool', 'sqlite-test', { status: 'durable' })
     expect(existsSync(sqlitePath)).toBe(true)
@@ -157,14 +157,14 @@ describe('SQLite Storage Layer', () => {
     const entity = Object.values(graph.entities).find(e => e.name === 'self-heal-test')
     expect(entity).toBeDefined()
     expect(entity?.attributes.val).toBe('safe')
-    
+
     // 4. Verify SQLite was recreated
     expect(existsSync(sqlitePath)).toBe(true)
   })
 
   it('handles large transactions (Stress Test)', async () => {
     const count = 100
-    
+
     // Add 100 entities sequentially (mutation queue)
     for (let i = 0; i < count; i++) {
       await addGlobalEntity('bulk', `item_${i}`, { index: String(i) })

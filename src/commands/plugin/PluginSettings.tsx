@@ -28,7 +28,16 @@ import { type ParsedCommand, parsePluginArgs } from './parseArgs.js';
 import type { PluginSettingsProps, ViewState } from './types.js';
 import { ValidatePlugin } from './ValidatePlugin.js';
 type TabId = 'discover' | 'installed' | 'marketplaces' | 'errors';
-function MarketplaceList(t0) {
+type MarketplaceLoadFailure = {
+  name: string;
+  error: string;
+};
+type ErrorsTabContentProps = {
+  setViewState: (state: ViewState) => void;
+  setActiveTab: (tab: TabId) => void;
+  markPluginsChanged: () => void | Promise<void>;
+};
+function MarketplaceList(t0: Pick<PluginSettingsProps, 'onComplete'>): React.ReactNode {
   const $ = _c(4);
   const {
     onComplete
@@ -336,7 +345,7 @@ function removeExtraMarketplace(name: string, sources: Array<{
     if (settings.enabledPlugins) {
       const suffix = `@${name}`;
       let removedPlugins = false;
-      const updatedPlugins = {
+      const updatedPlugins: Record<string, boolean | string[] | undefined> = {
         ...settings.enabledPlugins
       };
       for (const pluginId in updatedPlugins) {
@@ -354,7 +363,7 @@ function removeExtraMarketplace(name: string, sources: Array<{
     }
   }
 }
-function ErrorsTabContent(t0) {
+function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
   const $ = _c(26);
   const {
     setViewState,
@@ -365,15 +374,15 @@ function ErrorsTabContent(t0) {
   const installationStatus = useAppState(_temp3);
   const setAppState = useSetAppState();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [actionMessage, setActionMessage] = useState(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
-    t1 = [];
+    t1 = [] as MarketplaceLoadFailure[];
     $[0] = t1;
   } else {
     t1 = $[0];
   }
-  const [marketplaceLoadFailures, setMarketplaceLoadFailures] = useState(t1);
+  const [marketplaceLoadFailures, setMarketplaceLoadFailures] = useState<MarketplaceLoadFailure[]>(t1);
   let t2;
   let t3;
   if ($[1] === Symbol.for("react.memo_cache_sentinel")) {
@@ -725,7 +734,7 @@ function getInitialTab(viewState: ViewState): TabId {
   if (viewState.type === 'manage-marketplaces') return 'marketplaces';
   return 'discover';
 }
-export function PluginSettings(t0) {
+export function PluginSettings(t0: PluginSettingsProps): React.ReactNode {
   const $ = _c(75);
   const {
     onComplete,
@@ -744,8 +753,8 @@ export function PluginSettings(t0) {
     parsedCommand = $[1];
     t1 = $[2];
   }
-  const initialViewState = t1;
-  const [viewState, setViewState] = useState(initialViewState);
+  const initialViewState = t1 as ViewState;
+  const [viewState, setViewState] = useState<ViewState>(initialViewState);
   let t2;
   if ($[3] !== initialViewState) {
     t2 = getInitialTab(initialViewState);
@@ -754,11 +763,11 @@ export function PluginSettings(t0) {
   } else {
     t2 = $[4];
   }
-  const [activeTab, setActiveTab] = useState(t2);
+  const [activeTab, setActiveTab] = useState<TabId>(t2 as TabId);
   const [inputValue, setInputValue] = useState(viewState.type === "add-marketplace" ? viewState.initialValue || "" : "");
   const [cursorOffset, setCursorOffset] = useState(0);
-  const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
   const [childSearchActive, setChildSearchActive] = useState(false);
   const setAppState = useSetAppState();
   const pluginErrorCount = useAppState(_temp0);
@@ -977,14 +986,16 @@ export function PluginSettings(t0) {
   } else {
     t16 = $[43];
   }
+  const browseMarketplaceTarget = viewState.type === "browse-marketplace" ? viewState.targetMarketplace : undefined;
+  const pluginTarget = viewState.type === "browse-marketplace" || viewState.type === "discover-plugins" ? viewState.targetPlugin : undefined;
   let t17;
-  if ($[44] !== error || $[45] !== markPluginsChanged || $[46] !== result || $[47] !== viewState.targetMarketplace || $[48] !== viewState.targetPlugin || $[49] !== viewState.type) {
-    t17 = <Tab id="discover" title="Discover">{viewState.type === "browse-marketplace" ? <BrowseMarketplace error={error} setError={setError} result={result} setResult={setResult} setViewState={setViewState} onInstallComplete={markPluginsChanged} targetMarketplace={viewState.targetMarketplace} targetPlugin={viewState.targetPlugin} /> : <DiscoverPlugins error={error} setError={setError} result={result} setResult={setResult} setViewState={setViewState} onInstallComplete={markPluginsChanged} onSearchModeChange={setChildSearchActive} targetPlugin={viewState.type === "discover-plugins" ? viewState.targetPlugin : undefined} />}</Tab>;
-    $[44] = error;
-    $[45] = markPluginsChanged;
-    $[46] = result;
-    $[47] = viewState.targetMarketplace;
-    $[48] = viewState.targetPlugin;
+  if ($[44] !== browseMarketplaceTarget || $[45] !== error || $[46] !== markPluginsChanged || $[47] !== pluginTarget || $[48] !== result || $[49] !== viewState.type) {
+    t17 = <Tab id="discover" title="Discover">{viewState.type === "browse-marketplace" ? <BrowseMarketplace error={error} setError={setError} result={result} setResult={setResult} setViewState={setViewState} onInstallComplete={markPluginsChanged} targetMarketplace={browseMarketplaceTarget} targetPlugin={pluginTarget} /> : <DiscoverPlugins error={error} setError={setError} result={result} setResult={setResult} setViewState={setViewState} onInstallComplete={markPluginsChanged} onSearchModeChange={setChildSearchActive} targetPlugin={pluginTarget} />}</Tab>;
+    $[44] = browseMarketplaceTarget;
+    $[45] = error;
+    $[46] = markPluginsChanged;
+    $[47] = pluginTarget;
+    $[48] = result;
     $[49] = viewState.type;
     $[50] = t17;
   } else {

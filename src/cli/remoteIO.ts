@@ -244,12 +244,12 @@ export class RemoteIO extends StructuredIO {
   /**
    * Clean up connections gracefully
    */
-  close(): void {
+  async close(): Promise<void> {
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer)
       this.keepAliveTimer = null
     }
-    this.transport.close()
+    await this.transport.close()
     this.inputStream.end()
   }
 }

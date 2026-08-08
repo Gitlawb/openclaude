@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const tavilyProvider: SearchProvider = {
   name: 'tavily',
@@ -17,25 +18,23 @@ export const tavilyProvider: SearchProvider = {
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
     const start = performance.now()
 
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
+    const data = await fetchJsonWithWebSearchTimeout(
+      'https://api.tavily.com/search',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.TAVILY_API_KEY}`,
+        },
+        body: JSON.stringify({
+          query: input.query,
+          max_results: 15,
+          include_answer: false,
+        }),
       },
-      body: JSON.stringify({
-        query: input.query,
-        max_results: 15,
-        include_answer: false,
-      }),
       signal,
-    })
-
-    if (!res.ok) {
-      throw new Error(`Tavily search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
+      { providerName: 'Tavily' },
+    )
 
     const hits = (data.results ?? []).map((r: any) => ({
       title: r.title ?? '',

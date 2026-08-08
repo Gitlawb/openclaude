@@ -22,7 +22,7 @@ export function MemoryStep() {
     goBack,
     updateWizardData,
     wizardData
-  } = useWizard();
+  } = useWizard<AgentWizardData>();
   let t0;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t0 = {
@@ -37,28 +37,28 @@ export function MemoryStep() {
   let t1;
   if ($[1] !== isUserScope) {
     t1 = isUserScope ? [{
-      label: "User scope (~/.claude/agent-memory/) (Recommended)",
+      label: "User scope (~/.openclaude/agent-memory/) (Recommended)",
       value: "user"
     }, {
       label: "None (no persistent memory)",
       value: "none"
     }, {
-      label: "Project scope (.claude/agent-memory/)",
+      label: "Project scope (.openclaude/agent-memory/)",
       value: "project"
     }, {
-      label: "Local scope (.claude/agent-memory-local/)",
+      label: "Local scope (.openclaude/agent-memory-local/)",
       value: "local"
     }] : [{
-      label: "Project scope (.claude/agent-memory/) (Recommended)",
+      label: "Project scope (.openclaude/agent-memory/) (Recommended)",
       value: "project"
     }, {
       label: "None (no persistent memory)",
       value: "none"
     }, {
-      label: "User scope (~/.claude/agent-memory/)",
+      label: "User scope (~/.openclaude/agent-memory/)",
       value: "user"
     }, {
-      label: "Local scope (.claude/agent-memory-local/)",
+      label: "Local scope (.openclaude/agent-memory-local/)",
       value: "local"
     }];
     $[1] = isUserScope;
@@ -72,12 +72,13 @@ export function MemoryStep() {
     t2 = value => {
       const memory = value === "none" ? undefined : value as AgentMemoryScope;
       const agentType = wizardData.finalAgent?.agentType;
+      const systemPrompt = wizardData.systemPrompt ?? "";
       updateWizardData({
         selectedMemory: memory,
         finalAgent: wizardData.finalAgent ? {
           ...wizardData.finalAgent,
           memory,
-          getSystemPrompt: isAutoMemoryEnabled() && memory && agentType ? () => wizardData.systemPrompt + "\n\n" + loadAgentMemoryPrompt(agentType, memory) : () => wizardData.systemPrompt
+          getSystemPrompt: isAutoMemoryEnabled() && memory && agentType ? () => systemPrompt + "\n\n" + loadAgentMemoryPrompt(agentType, memory) : () => systemPrompt
         } : undefined
       });
       goNext();

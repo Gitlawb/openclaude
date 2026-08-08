@@ -24,6 +24,12 @@ const ClaudeInChromePromptNotificationSchema = lazySchema(() => z.object({
   })
 }));
 
+export function getClaudeInChromePermissionMode(toolPermissionMode: PermissionMode): 'ask' | 'skip_all_permission_checks' {
+  return toolPermissionMode === 'fullAccess'
+    ? 'skip_all_permission_checks'
+    : 'ask';
+}
+
 /**
  * A hook that listens for prompt notifications from the Claude for Chrome extension,
  * enqueues them as user prompts, and syncs permission mode changes to the extension.
@@ -48,7 +54,7 @@ export function usePromptsFromClaudeInChrome(mcpClients, toolPermissionMode) {
       if (!chromeClient) {
         return;
       }
-      const chromeMode = toolPermissionMode === "bypassPermissions" ? "skip_all_permission_checks" : "ask";
+      const chromeMode = getClaudeInChromePermissionMode(toolPermissionMode);
       callIdeRpc("set_permission_mode", {
         mode: chromeMode
       }, chromeClient);

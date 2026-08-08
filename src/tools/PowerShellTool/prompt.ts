@@ -6,6 +6,7 @@ import {
 } from '../../utils/shell/powershellDetection.js'
 import {
   getDefaultBashTimeoutMs,
+  getEffectiveBashTimeoutMs,
   getMaxBashTimeoutMs,
 } from '../../utils/timeouts.js'
 import { FILE_EDIT_TOOL_NAME } from '../FileEditTool/constants.js'
@@ -21,6 +22,10 @@ export function getDefaultTimeoutMs(): number {
 
 export function getMaxTimeoutMs(): number {
   return getMaxBashTimeoutMs()
+}
+
+export function getEffectiveTimeoutMs(timeout: unknown): number {
+  return getEffectiveBashTimeoutMs(timeout)
 }
 
 function getBackgroundUsageNote(): string | null {

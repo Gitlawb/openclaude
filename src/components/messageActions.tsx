@@ -425,7 +425,9 @@ export function copyTextOf(msg: NavigableMessage): string {
     case 'collapsed_read_search':
       return msg.messages.flatMap(m => m.type === 'user' ? [toolResultText(m)] : m.type === 'grouped_tool_use' ? m.results.map(toolResultText) : []).filter(Boolean).join('\n\n');
     case 'system':
-      if ('content' in msg) return msg.content;
+      // content is optional on SystemMessageBase — '' matches the declared
+      // string return (previously returned undefined in that edge).
+      if ('content' in msg) return msg.content ?? '';
       if ('error' in msg) return String(msg.error);
       return msg.subtype;
     case 'attachment':

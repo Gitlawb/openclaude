@@ -18,8 +18,18 @@ import {
 import { logForDebugging } from './debug.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from './envUtils.js'
 import { getFsImplementation } from './fsOperations.js'
-import { formatMs, formatTimelineLine, getPerformance } from './profilerBase.js'
+import {
+  clearProfilerEntries,
+  formatMs,
+  formatTimelineLine,
+  getPerformance,
+  getProfilerDisplayName,
+  getProfilerEntries,
+  getProfilerMarkName,
+} from './profilerBase.js'
 import { writeFileSync_DEPRECATED } from './slowOperations.js'
+
+const PROFILER_SCOPE = 'startup'
 
 // Module-level state - decided once at module load
 // eslint-disable-next-line custom-rules/no-process-env-top-level
@@ -66,7 +76,7 @@ export function profileCheckpoint(name: string): void {
   if (!SHOULD_PROFILE) return
 
   const perf = getPerformance()
-  perf.mark(name)
+  perf.mark(getProfilerMarkName(PROFILER_SCOPE, name))
 
   // Only capture memory when detailed profiling enabled (env var)
   if (DETAILED_PROFILING) {
@@ -83,8 +93,7 @@ function getReport(): string {
     return 'Startup profiling not enabled'
   }
 
-  const perf = getPerformance()
-  const marks = perf.getEntriesByType('mark')
+  const marks = getProfilerEntries(PROFILER_SCOPE, 'mark')
   if (marks.length === 0) {
     return 'No profiling checkpoints recorded'
   }
@@ -97,11 +106,12 @@ function getReport(): string {
 
   let prevTime = 0
   for (const [i, mark] of marks.entries()) {
+    const name = getProfilerDisplayName(PROFILER_SCOPE, mark.name)
     lines.push(
       formatTimelineLine(
         mark.startTime,
         mark.startTime - prevTime,
-        mark.name,
+        name,
         memorySnapshots[i],
         8,
         7,
@@ -124,23 +134,28 @@ export function profileReport(): void {
   if (reported) return
   reported = true
 
-  // Log to Statsig (sampled: 100% ant, 0.1% external)
-  logStartupPerf()
+  try {
+    // Log to Statsig (sampled: 100% ant, 0.1% external)
+    logStartupPerf()
 
-  // Output detailed report if CLAUDE_CODE_PROFILE_STARTUP=1
-  if (DETAILED_PROFILING) {
-    // Write to file
-    const path = getStartupPerfLogPath()
-    const dir = dirname(path)
-    const fs = getFsImplementation()
-    fs.mkdirSync(dir)
-    writeFileSync_DEPRECATED(path, getReport(), {
-      encoding: 'utf8',
-      flush: true,
-    })
+    // Output detailed report if CLAUDE_CODE_PROFILE_STARTUP=1
+    if (DETAILED_PROFILING) {
+      const report = getReport()
+      // Write to file
+      const path = getStartupPerfLogPath()
+      const dir = dirname(path)
+      const fs = getFsImplementation()
+      fs.mkdirSync(dir)
+      writeFileSync_DEPRECATED(path, report, {
+        encoding: 'utf8',
+        flush: true,
+      })
 
-    logForDebugging('Startup profiling report:')
-    logForDebugging(getReport())
+      logForDebugging('Startup profiling report:')
+      logForDebugging(report)
+    }
+  } finally {
+    clearStartupProfile()
   }
 }
 
@@ -160,14 +175,16 @@ export function logStartupPerf(): void {
   // Only log if we were sampled (decision made at module load)
   if (!STATSIG_LOGGING_SAMPLED) return
 
-  const perf = getPerformance()
-  const marks = perf.getEntriesByType('mark')
+  const marks = getProfilerEntries(PROFILER_SCOPE, 'mark')
   if (marks.length === 0) return
 
   // Build checkpoint lookup
   const checkpointTimes = new Map<string, number>()
   for (const mark of marks) {
-    checkpointTimes.set(mark.name, mark.startTime)
+    checkpointTimes.set(
+      getProfilerDisplayName(PROFILER_SCOPE, mark.name),
+      mark.startTime,
+    )
   }
 
   // Compute phase durations
@@ -191,4 +208,11 @@ export function logStartupPerf(): void {
     'tengu_startup_perf',
     metadata as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   )
+}
+
+function clearStartupProfile(): void {
+  if (!SHOULD_PROFILE) return
+
+  clearProfilerEntries(PROFILER_SCOPE)
+  memorySnapshots.length = 0
 }

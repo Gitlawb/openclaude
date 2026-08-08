@@ -20,7 +20,7 @@ function isReservedHeaderName(name: string): boolean {
 
 function parseHeaderEntries(input: string): string[] {
   return input
-    .split(/[\n\r;]+/)
+    .split(/[\n;]+/)
     .map(entry => entry.trim())
     .filter(Boolean)
 }
@@ -96,8 +96,23 @@ export function parseCustomHeadersEnv(
   if (!value) {
     return undefined
   }
-  const parsed = parseProfileCustomHeadersInput(value)
-  return parsed.error || Object.keys(parsed.headers).length === 0
-    ? undefined
-    : parsed.headers
+  // Reject raw CR characters — these indicate a header value containing \r\n
+  // that would create an injected header entry after splitting.
+  if (value.includes('\r')) {
+    return undefined
+  }
+  // Parse headers without reserved-name filtering (that's for profile headers).
+  // The env var path allows all header names including managed ones, since the
+  // shim's caller is responsible for stripping Anthropic-specific headers.
+  const headers: Record<string, string> = {}
+  for (const entry of parseHeaderEntries(value)) {
+    const colonIndex = entry.indexOf(':')
+    if (colonIndex <= 0) continue
+    const name = entry.slice(0, colonIndex).trim()
+    const val = entry.slice(colonIndex + 1).trim()
+    if (name && val) {
+      headers[name] = val
+    }
+  }
+  return Object.keys(headers).length === 0 ? undefined : headers
 }

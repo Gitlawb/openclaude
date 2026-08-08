@@ -72,7 +72,7 @@ function Button(t0) {
   const [isFocused, setIsFocused] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [isActive, setIsActive] = useState(false);
-  const activeTimer = useRef(null);
+  const activeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   let t2;
   let t3;
   if ($[7] === Symbol.for("react.memo_cache_sentinel")) {

@@ -1,3 +1,4 @@
+import type { OAuthTokens } from '../../services/oauth/types.js'
 import { createFallbackStorage } from './fallbackStorage.js'
 import { macOsKeychainStorage } from './macOsKeychainStorage.js'
 import { linuxSecretStorage } from './linuxSecretStorage.js'
@@ -5,6 +6,7 @@ import { windowsCredentialStorage } from './windowsCredentialStorage.js'
 import { plainTextStorage } from './plainTextStorage.js'
 
 export interface SecureStorageData {
+  claudeAiOauth?: OAuthTokens
   codex?: {
     apiKey?: string
     accessToken: string
@@ -34,6 +36,8 @@ export interface SecureStorageData {
     }
   >
   mcpOAuthClientConfig?: Record<string, { clientSecret: string }>
+  mcpXaaIdp?: Record<string, { idToken: string; expiresAt: number }>
+  mcpXaaIdpConfig?: Record<string, { clientSecret: string }>
   trustedDeviceToken?: string
   pluginSecrets?: Record<string, Record<string, string>>
 }

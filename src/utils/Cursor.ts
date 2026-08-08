@@ -875,11 +875,17 @@ export class Cursor {
       insertString +
       this.text.slice(endOffset)
 
-    return Cursor.fromText(
-      newText,
-      this.columns,
-      startOffset + insertString.normalize('NFC').length,
-    )
+    // Cursor.fromText NFC-normalizes the whole newText, so compute the new
+    // offset from the normalized prefix-plus-insert rather than normalizing
+    // insertString in isolation. Otherwise a combining mark that composes with
+    // the last character of the prefix (e.g. "e" + U+0301 -> "é") shortens the
+    // normalized text by one unit that this offset doesn't account for, landing
+    // the cursor one position too far (past following text).
+    const newOffset = (
+      this.text.slice(0, startOffset) + insertString
+    ).normalize('NFC').length
+
+    return Cursor.fromText(newText, this.columns, newOffset)
   }
 
   insert(insertString: string): Cursor {
@@ -899,6 +905,84 @@ export class Cursor {
       return this
     }
     return this.left().modifyText(this)
+  }
+
+  /**
+   * Apply repeated token-aware backspaces while rebuilding measured text once.
+   * This is equivalent to calling deleteTokenBefore() ?? backspace() `count`
+   * times, including image-chip behavior, but avoids quadratic reconstruction
+   * for a coalesced run of raw DEL bytes.
+   */
+  deleteManyBefore(count: number): Cursor {
+    const deleteCount = Math.max(0, Math.floor(count))
+    if (deleteCount === 0) {
+      return this
+    }
+
+    // Removing text in the middle can expose a combining mark, emoji
+    // modifier, or other suffix whose grapheme boundaries change after NFC
+    // normalization. Preserve exact sequential semantics on that rare path.
+    if (!this.isAtEnd()) {
+      let cursor: Cursor = this
+      for (let remaining = deleteCount; remaining > 0; remaining--) {
+        const nextCursor = cursor.deleteTokenBefore() ?? cursor.backspace()
+        if (nextCursor.equals(cursor)) {
+          break
+        }
+        cursor = nextCursor
+      }
+      return cursor
+    }
+
+    // Index token boundaries once. Looking for a token with a full-prefix
+    // slice and regex on every DEL makes token-rich input quadratic.
+    const tokenStartByEnd = new Map<number, number>()
+    const tokenPattern =
+      /(^|\s)\[(Pasted text #\d+(?: \+\d+ lines)?|Image #\d+|\.\.\.Truncated text #\d+ \+\d+ lines\.\.\.)\]/g
+    let tokenMatch: RegExpExecArray | null
+    while ((tokenMatch = tokenPattern.exec(this.text)) !== null) {
+      tokenStartByEnd.set(
+        tokenMatch.index + tokenMatch[0].length,
+        tokenMatch.index + tokenMatch[1]!.length,
+      )
+    }
+
+    const imageStartByEnd = new Map<number, number>()
+    const imagePattern = /\[Image #\d+\]/g
+    let imageMatch: RegExpExecArray | null
+    while ((imageMatch = imagePattern.exec(this.text)) !== null) {
+      imageStartByEnd.set(
+        imageMatch.index + imageMatch[0].length,
+        imageMatch.index,
+      )
+    }
+
+    let startOffset = this.offset
+    for (let remaining = deleteCount; remaining > 0; remaining--) {
+      if (startOffset === 0) {
+        break
+      }
+
+      const tokenStart = tokenStartByEnd.get(startOffset)
+      if (tokenStart !== undefined) {
+        startOffset = tokenStart
+        continue
+      }
+
+      const imageStart = imageStartByEnd.get(startOffset)
+      if (imageStart !== undefined) {
+        startOffset = imageStart
+        continue
+      }
+
+      startOffset = this.measuredText.prevOffset(startOffset)
+    }
+
+    if (startOffset === this.offset) {
+      return this
+    }
+
+    return new Cursor(this.measuredText, startOffset).modifyText(this)
   }
 
   deleteToLineStart(): { cursor: Cursor; killed: string } {

@@ -4,7 +4,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { buildInheritedEnvVars } from './spawnUtils.js'
+import { buildInheritedCliFlags, buildInheritedEnvVars } from './spawnUtils.js'
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -32,6 +32,16 @@ test('buildInheritedEnvVars marks spawned teammates as host-managed for provider
   expect(envVars).toContain('CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1')
 })
 
+test('buildInheritedEnvVars forwards pooled OpenAI credentials', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('CLAUDE_CODE_USE_OPENAI=1')
+  expect(envVars).toContain('OPENAI_API_KEYS=key-a\\,key-b')
+})
+
 test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups', () => {
   process.env.PATH = '/custom/bin:/usr/bin'
 
@@ -39,4 +49,12 @@ test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups
 
   expect(envVars).toContain('PATH=')
   expect(envVars).toContain('/custom/bin\\:/usr/bin')
+})
+
+test('buildInheritedCliFlags preserves fullAccess mode for spawned teammates', () => {
+  process.env.NODE_ENV = 'test'
+  const flags = buildInheritedCliFlags({ permissionMode: 'fullAccess' })
+
+  expect(flags).toContain('--permission-mode fullAccess')
+  expect(flags).not.toContain('--dangerously-skip-permissions')
 })

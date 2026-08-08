@@ -6,6 +6,7 @@
 const vscode = require('vscode');
 const crypto = require('crypto');
 const { ProcessManager } = require('./processManager');
+const { buildPermissionControlResult } = require('./permissionResponse');
 const { toViewModel } = require('./messageParser');
 const { renderChatHtml } = require('./chatRenderer');
 const { isAssistantMessage, isPartialMessage, isStreamEvent,
@@ -50,6 +51,8 @@ class ChatController {
     this._thinkingTokens = 0;
     this._thinkingStartTime = null;
     this._currentBlockType = null;
+    /** @type {Map<string, { input: Record<string, unknown>, permissionSuggestions: unknown[], toolUseId: string | null }>} */
+    this._pendingPermissions = new Map();
 
     this._onDidChangeState = new vscode.EventEmitter();
     this.onDidChangeState = this._onDidChangeState.event;
@@ -142,6 +145,7 @@ class ChatController {
       this._process.dispose();
       this._process = null;
     }
+    this._pendingPermissions.clear();
   }
 
   async sendMessage(text) {
@@ -185,26 +189,15 @@ class ChatController {
 
   sendPermissionResponse(requestId, action, toolUseId) {
     if (!this._process) return;
-    if (action === 'deny') {
-      try {
-        this._process.write({
-          type: 'control_response',
-          response: {
-            subtype: 'error',
-            request_id: requestId,
-            error: 'User denied permission',
-          },
-        });
-      } catch (err) {
-        this._broadcast({ type: 'error', message: err.message });
-      }
-      return;
-    }
+    const pending = this._pendingPermissions.get(requestId);
+    this._pendingPermissions.delete(requestId);
+    const result = buildPermissionControlResult(action, {
+      input: pending?.input,
+      toolUseId: toolUseId || pending?.toolUseId || null,
+      permissionSuggestions: pending?.permissionSuggestions,
+    });
     try {
-      this._process.sendControlResponse(requestId, {
-        toolUseID: toolUseId || undefined,
-        ...(action === 'allow-session' ? { remember: true } : {}),
-      });
+      this._process.sendControlResponse(requestId, result);
     } catch (err) {
       this._broadcast({ type: 'error', message: err.message });
     }
@@ -231,9 +224,23 @@ class ChatController {
     if (msg.type === 'control_request' || isControlRequest(msg)) {
       const req = msg.request || {};
       const { toolDisplayName, parseToolInput } = require('./messageParser');
+      const requestId = msg.request_id;
+      const toolInput =
+        req.input && typeof req.input === 'object' && !Array.isArray(req.input)
+          ? req.input
+          : {};
+      if (requestId) {
+        this._pendingPermissions.set(requestId, {
+          input: toolInput,
+          permissionSuggestions: Array.isArray(req.permission_suggestions)
+            ? req.permission_suggestions
+            : [],
+          toolUseId: req.tool_use_id || null,
+        });
+      }
       this._broadcast({
         type: 'permission_request',
-        requestId: msg.request_id,
+        requestId,
         toolName: req.tool_name || 'Unknown',
         displayName: req.display_name || req.title || toolDisplayName(req.tool_name),
         description: req.description || '',

@@ -15,7 +15,11 @@ export type TeleportSource = 'cliArg' | 'localCommand';
 export function useTeleportResume(source) {
   const $ = _c(8);
   const [isResuming, setIsResuming] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<{
+    message: string;
+    formattedMessage: string | undefined;
+    isOperationError: boolean;
+  } | null>(null);
   const [selectedSession, setSelectedSession] = useState(null);
   let t0;
   if ($[0] !== source) {

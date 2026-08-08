@@ -23,7 +23,7 @@ type Props = {
   onComplete: (message: string) => void;
   onCancel: () => void;
 };
-export function CreateAgentWizard(t0) {
+export function CreateAgentWizard(t0: Props): React.ReactNode {
   const $ = _c(17);
   const {
     tools,
@@ -77,14 +77,14 @@ export function CreateAgentWizard(t0) {
   const steps = t5;
   let t6;
   if ($[13] === Symbol.for("react.memo_cache_sentinel")) {
-    t6 = {};
+    t6 = {} as AgentWizardData;
     $[13] = t6;
   } else {
     t6 = $[13];
   }
   let t7;
   if ($[14] !== onCancel || $[15] !== steps) {
-    t7 = <WizardProvider steps={steps} initialData={t6} onComplete={_temp} onCancel={onCancel} title="Create new agent" showStepCounter={false} />;
+    t7 = <WizardProvider<AgentWizardData> steps={steps} initialData={t6} onComplete={_temp} onCancel={onCancel} title="Create new agent" showStepCounter={false} />;
     $[14] = onCancel;
     $[15] = steps;
     $[16] = t7;

@@ -79,6 +79,8 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     expect(modelSupportsThinking('GLM-5-Turbo')).toBe(true)
     expect(modelSupportsThinking('GLM-4.7')).toBe(true)
     expect(modelSupportsThinking('GLM-4.5-Air')).toBe(true)
+    expect(modelSupportsThinking('glm-5.2?thinking=disabled')).toBe(true)
+    expect(modelSupportsThinking('glm-5.2 ?thinking=disabled')).toBe(true)
   })
 
   test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {
@@ -112,6 +114,21 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
+  })
+})
+
+describe('modelSupportsAdaptiveThinking — Claude 4 allowlist', () => {
+  // Provider is mocked to 'openai', so unknown Claude models default to false.
+  // That makes the allowlist the only reason opus-4-8 returns true here, so
+  // this test fails if opus-4-8 is dropped from the allowlist (#1769).
+  test('includes Opus 4.8 in the adaptive-thinking allowlist', async () => {
+    const { modelSupportsAdaptiveThinking } = await importFreshThinkingModule()
+
+    expect(modelSupportsAdaptiveThinking('claude-opus-4-8')).toBe(true)
+    // 4.7 stays supported (guards against an accidental allowlist rewrite).
+    expect(modelSupportsAdaptiveThinking('claude-opus-4-7')).toBe(true)
+    // A non-allowlisted Claude 4 opus is still excluded on non-1P providers.
+    expect(modelSupportsAdaptiveThinking('claude-opus-4-2')).toBe(false)
   })
 })
 

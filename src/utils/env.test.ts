@@ -8,6 +8,7 @@ import {
 } from '../test/sharedMutationLock.js'
 
 const originalEnv = {
+  OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   CLAUDE_CODE_CUSTOM_OAUTH_URL: process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL,
   USER_TYPE: process.env.USER_TYPE,
@@ -18,7 +19,8 @@ let tempDir: string
 beforeEach(async () => {
   await acquireSharedMutationLock('env.test.ts')
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-env-test-'))
-  process.env.CLAUDE_CONFIG_DIR = tempDir
+  process.env.OPENCLAUDE_CONFIG_DIR = tempDir
+  delete process.env.CLAUDE_CONFIG_DIR
   delete process.env.CLAUDE_CODE_CUSTOM_OAUTH_URL
   delete process.env.USER_TYPE
 })
@@ -26,6 +28,11 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     rmSync(tempDir, { recursive: true, force: true })
+    if (originalEnv.OPENCLAUDE_CONFIG_DIR === undefined) {
+      delete process.env.OPENCLAUDE_CONFIG_DIR
+    } else {
+      process.env.OPENCLAUDE_CONFIG_DIR = originalEnv.OPENCLAUDE_CONFIG_DIR
+    }
     if (originalEnv.CLAUDE_CONFIG_DIR === undefined) {
       delete process.env.CLAUDE_CONFIG_DIR
     } else {
@@ -57,10 +64,10 @@ test('getGlobalClaudeFile: new install returns .openclaude.json when neither fil
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
 })
 
-test('getGlobalClaudeFile: explicit config dir keeps .claude.json fallback when only legacy file exists', async () => {
+test('getGlobalClaudeFile: ignores .claude.json when only legacy file exists', async () => {
   writeFileSync(join(tempDir, '.claude.json'), '{}')
   const { getGlobalClaudeFile } = await importFreshEnvModule()
-  expect(getGlobalClaudeFile()).toBe(join(tempDir, '.claude.json'))
+  expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
 })
 
 test('getGlobalClaudeFile: migrated user uses .openclaude.json when both files exist', async () => {
@@ -70,15 +77,157 @@ test('getGlobalClaudeFile: migrated user uses .openclaude.json when both files e
   expect(getGlobalClaudeFile()).toBe(join(tempDir, '.openclaude.json'))
 })
 
-test('resolveGlobalClaudeFile: failed default migration keeps legacy file when new file is missing', async () => {
+test('getGlobalClaudeFile: OPENCLAUDE_CONFIG_DIR uses preferred config dir', async () => {
+  const preferredDir = mkdtempSync(join(tmpdir(), 'openclaude-preferred-env-test-'))
+  try {
+    process.env.OPENCLAUDE_CONFIG_DIR = preferredDir
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+
+    const { getGlobalClaudeFile } = await importFreshEnvModule()
+
+    expect(getGlobalClaudeFile()).toBe(join(preferredDir, '.openclaude.json'))
+  } finally {
+    rmSync(preferredDir, { recursive: true, force: true })
+  }
+})
+
+test('getGlobalClaudeFile: OPENCLAUDE_CONFIG_DIR ignores .claude.json fallback when only legacy file exists', async () => {
+  const preferredDir = mkdtempSync(join(tmpdir(), 'openclaude-preferred-env-test-'))
+  try {
+    process.env.OPENCLAUDE_CONFIG_DIR = preferredDir
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+    writeFileSync(join(preferredDir, '.claude.json'), '{}')
+
+    const { getGlobalClaudeFile } = await importFreshEnvModule()
+
+    expect(getGlobalClaudeFile()).toBe(join(preferredDir, '.openclaude.json'))
+  } finally {
+    rmSync(preferredDir, { recursive: true, force: true })
+  }
+})
+
+test('resolveGlobalClaudeFile: ignores legacy file even when new file is missing', async () => {
   writeFileSync(join(tempDir, '.claude.json'), '{}')
   const { resolveGlobalClaudeFile } = await importFreshEnvModule()
 
   expect(
     resolveGlobalClaudeFile({
       homeDir: tempDir,
-      migrationSucceeded: false,
-      existsSync: path => path === join(tempDir, '.claude.json'),
     }),
-  ).toBe(join(tempDir, '.claude.json'))
+  ).toBe(join(tempDir, '.openclaude.json'))
+})
+
+test('env.terminal: returns agy if process.env.TERM_PROGRAM is agy', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    process.env.TERM_PROGRAM = 'agy'
+    delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains agy', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    delete process.env.TERM_PROGRAM
+    process.env.VSCODE_GIT_ASKPASS_MAIN = 'path/to/agy'
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains antigravity', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    delete process.env.TERM_PROGRAM
+    process.env.VSCODE_GIT_ASKPASS_MAIN = 'path/to/antigravity'
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: returns agy if VSCODE_GIT_ASKPASS_MAIN contains mixed-case Antigravity app path', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    delete process.env.TERM_PROGRAM
+    process.env.VSCODE_GIT_ASKPASS_MAIN =
+      '/Applications/Antigravity.app/Contents/Resources/app/extensions/git/dist/askpass-main.js'
+    const { env } = await importFreshEnvModule()
+    expect(env.terminal).toBe('agy')
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
+})
+
+test('env.terminal: agy is classified as a VS Code-like IDE terminal', async () => {
+  const originalTermProgram = process.env.TERM_PROGRAM
+  const originalAskpass = process.env.VSCODE_GIT_ASKPASS_MAIN
+  try {
+    process.env.TERM_PROGRAM = 'agy'
+    delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    const { env } = await importFreshEnvModule()
+    const { isVSCodeIde, toIDEDisplayName } =
+      await import(`./ide.js?ts=${Date.now()}-${Math.random()}`)
+    expect(env.terminal).toBe('agy')
+    expect(toIDEDisplayName(env.terminal)).toBe('Antigravity')
+    expect(isVSCodeIde(env.terminal)).toBe(true)
+  } finally {
+    if (originalTermProgram === undefined) {
+      delete process.env.TERM_PROGRAM
+    } else {
+      process.env.TERM_PROGRAM = originalTermProgram
+    }
+    if (originalAskpass === undefined) {
+      delete process.env.VSCODE_GIT_ASKPASS_MAIN
+    } else {
+      process.env.VSCODE_GIT_ASKPASS_MAIN = originalAskpass
+    }
+  }
 })

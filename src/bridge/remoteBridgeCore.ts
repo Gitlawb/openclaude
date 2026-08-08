@@ -118,7 +118,10 @@ export type EnvLessBridgeParams = {
   onSetMaxThinkingTokens?: (maxTokens: number | null) => void
   onSetPermissionMode?: (
     mode: PermissionMode,
-  ) => { ok: true } | { ok: false; error: string }
+  ) =>
+    | { ok: true }
+    | { ok: false; error: string }
+    | Promise<{ ok: true } | { ok: false; error: string }>
   onStateChange?: (state: BridgeState, detail?: string) => void
   /**
    * When true, skip opening the SSE read stream — only the CCRClient write
@@ -434,8 +437,8 @@ export async function initEnvLessBridgeCore(
               onPermissionResponse(res)
             }
           : undefined,
-        req =>
-          handleServerControlRequest(req, {
+        req => {
+          void handleServerControlRequest(req, {
             transport,
             sessionId,
             onInterrupt,
@@ -443,7 +446,8 @@ export async function initEnvLessBridgeCore(
             onSetMaxThinkingTokens,
             onSetPermissionMode,
             outboundOnly,
-          }),
+          })
+        },
       )
     })
 
@@ -486,7 +490,7 @@ export async function initEnvLessBridgeCore(
     flushGate.start()
     try {
       const seq = transport.getLastSequenceNum()
-      transport.close()
+      await transport.close()
       transport = await createV2ReplTransport({
         sessionUrl: buildCCRv2SdkUrl(fresh.api_base_url, sessionId),
         ingressToken: fresh.worker_jwt,
@@ -502,7 +506,7 @@ export async function initEnvLessBridgeCore(
         // Teardown fired during the async createV2ReplTransport window.
         // Don't wire/connect/schedule — we'd re-arm timers after cancelAll()
         // and fire onInboundMessage into a torn-down bridge.
-        transport.close()
+        await transport.close()
         return
       }
       wireTransportCallbacks()
@@ -713,7 +717,14 @@ export async function initEnvLessBridgeCore(
       }
     }
 
-    transport.close()
+    try {
+      await transport.close()
+    } catch (err) {
+      logForDebugging(
+        `[remote-bridge] Transport close threw during teardown: ${errorMessage(err)}`,
+        { level: 'error' },
+      )
+    }
 
     const archiveStatus: ArchiveTelemetryStatus =
       status === 'no_token'

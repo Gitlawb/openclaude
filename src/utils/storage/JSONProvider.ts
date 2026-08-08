@@ -35,7 +35,7 @@ export class JSONProvider {
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true })
       }
-      
+
       // Use established project utility for atomic writes with flushing
       writeFileSyncAndFlush_DEPRECATED(this.path, JSON.stringify(graph, null, 2), { encoding: 'utf-8' })
       return true

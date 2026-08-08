@@ -31,7 +31,7 @@ async function _temp2() {
   return {
     key: "switch-to-subscription",
     jsx: <Text color="suggestion">Use your existing Claude {subscriptionType} plan with Claude Code<Text color="text" dimColor={true}>{" "}· /login to activate</Text></Text>,
-    priority: "low"
+    priority: "low" as const
   };
 }
 function _temp(current) {

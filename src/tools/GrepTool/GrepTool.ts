@@ -9,7 +9,11 @@ import {
 } from '../../utils/file.js'
 import { getFsImplementation } from '../../utils/fsOperations.js'
 import { lazySchema } from '../../utils/lazySchema.js'
-import { expandPath, toRelativePath } from '../../utils/path.js'
+import {
+  expandPath,
+  relativizeContentLine,
+  toRelativePath,
+} from '../../utils/path.js'
 import {
   checkReadPermissionForTool,
   getFileReadIgnorePatterns,
@@ -453,16 +457,11 @@ export const GrepTool = buildTool({
         offset,
       )
 
-      const finalLines = limitedResults.map(line => {
-        // Lines have format: /absolute/path:line_content or /absolute/path:num:content
-        const colonIndex = line.indexOf(':')
-        if (colonIndex > 0) {
-          const filePath = line.substring(0, colonIndex)
-          const rest = line.substring(colonIndex)
-          return toRelativePath(filePath) + rest
-        }
-        return line
-      })
+      // Lines are match rows (`path:content` / `path:num:content`) or context
+      // rows (`path-content` / `path-num-content` for -A/-B/-C). relativizeContentLine
+      // strips the known cwd prefix, so the delimiter and Windows drive colons /
+      // dashes in path names never need to be parsed.
+      const finalLines = limitedResults.map(line => relativizeContentLine(line))
       const output = {
         mode: 'content' as const,
         numFiles: 0, // Not applicable for content mode

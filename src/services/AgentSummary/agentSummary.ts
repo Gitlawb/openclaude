@@ -24,6 +24,7 @@ import { createUserMessage } from '../../utils/messages.js'
 import { getAgentTranscript } from '../../utils/sessionStorage.js'
 
 const SUMMARY_INTERVAL_MS = 30_000
+const SUMMARY_SUPERSEDED_ABORT_REASON = 'agent-summary-superseded'
 
 function buildSummaryPrompt(previousSummary: string | null): string {
   const prevLine = previousSummary
@@ -160,14 +161,16 @@ export function startAgentSummarization(
   }
 
   function stop(): void {
-    logForDebugging(`[AgentSummary] Stopping summarization for ${taskId}`)
+    logForDebugging(
+      `[AgentSummary] Stopping summarization for ${taskId}: ${SUMMARY_SUPERSEDED_ABORT_REASON}`,
+    )
     stopped = true
     if (timeoutId) {
       clearTimeout(timeoutId)
       timeoutId = null
     }
     if (summaryAbortController) {
-      summaryAbortController.abort()
+      summaryAbortController.abort(SUMMARY_SUPERSEDED_ABORT_REASON)
       summaryAbortController = null
     }
   }

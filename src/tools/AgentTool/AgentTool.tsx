@@ -1,4 +1,6 @@
 import { feature } from 'bun:bundle';
+import { statSync } from 'fs';
+import { isAbsolute } from 'path';
 import * as React from 'react';
 import { buildTool, type ToolDef, toolMatchesName } from 'src/Tool.js';
 import type { Message as MessageType, NormalizedUserMessage } from 'src/types/message.js';
@@ -11,8 +13,8 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
+import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider, resolveOutOfProcessTeammateModelOnly } from '../../services/api/agentRouting.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
-import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
 import { runWithAgentContext } from '../../utils/agentContext.js';
@@ -20,15 +22,24 @@ import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
 import { getCwd, runWithCwdOverride } from '../../utils/cwd.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
+import {
+  getCopilotMaxConcurrentSubagents,
+  isCopilotPremiumOptimizationEnabled,
+  shouldForceSyncSubagentsInCopilotMode,
+  shouldSuppressSubagentsInCopilotMode,
+} from '../../utils/copilotOptimization.js';
 import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
+import { logError } from '../../utils/log.js';
 import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
 import { getAgentModel } from '../../utils/model/agent.js';
+import { isModelAllowed } from '../../utils/model/modelAllowlist.js';
 import { permissionModeSchema } from '../../utils/permissions/PermissionMode.js';
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js';
 import { filterDeniedAgents, getDenyRuleForAgent } from '../../utils/permissions/permissions.js';
 import { enqueueSdkEvent } from '../../utils/sdkEventQueue.js';
+import { getInitialSettings } from '../../utils/settings/settings.js';
 import { writeAgentMetadata } from '../../utils/sessionStorage.js';
 import { sleep } from '../../utils/sleep.js';
 import { buildEffectiveSystemPrompt } from '../../utils/systemPrompt.js';
@@ -36,7 +47,6 @@ import { asSystemPrompt } from '../../utils/systemPromptType.js';
 import { getTaskOutputPath } from '../../utils/task/diskOutput.js';
 import { getParentSessionId, isTeammate } from '../../utils/teammate.js';
 import { isInProcessTeammate } from '../../utils/teammateContext.js';
-import { teleportToRemote } from '../../utils/teleport.js';
 import { getAssistantMessageContentLength } from '../../utils/tokens.js';
 import { createAgentId } from '../../utils/uuid.js';
 import { createAgentWorktree, hasWorktreeChanges, removeAgentWorktree } from '../../utils/worktree.js';
@@ -88,7 +98,7 @@ const baseInputSchema = lazySchema(() => z.object({
 }));
 
 // Full schema combining base + multi-agent params + isolation
-const fullInputSchema = lazySchema(() => {
+export const fullInputSchema = lazySchema(() => {
   // Multi-agent parameters
   const multiAgentInputSchema = z.object({
     name: z.string().optional().describe('Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running.'),
@@ -96,8 +106,11 @@ const fullInputSchema = lazySchema(() => {
     mode: permissionModeSchema().optional().describe('Permission mode for spawned teammate (e.g., "plan" to require plan approval).')
   });
   return baseInputSchema().merge(multiAgentInputSchema).extend({
-    isolation: ("external" === 'ant' ? z.enum(['worktree', 'remote']) : z.enum(['worktree'])).optional().describe("external" === 'ant' ? 'Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. "remote" launches the agent in a remote CCR environment (always runs in background).' : 'Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.'),
-    cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. Mutually exclusive with isolation: "worktree".')
+    isolation: z.enum(['worktree']).optional().describe('Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. When the session is outside a git repository (for example a parent of multiple repos), pass cwd set to the target repository root so the worktree is created from that repo.'),
+    cwd: z.string().optional().describe('Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations within this agent. When isolation is "worktree", cwd selects which git repository to create the worktree from — use this when the session cwd is not itself a git repo (for example a folder parenting multiple repos).')
+  }).refine(input => input.cwd === undefined || isAbsolute(input.cwd), {
+    path: ['cwd'],
+    message: 'cwd must be an absolute path.',
   });
 });
 
@@ -108,9 +121,9 @@ const fullInputSchema = lazySchema(() => {
 // type, but call() destructures via the explicit AgentToolInput type below
 // which always includes all optional fields.
 export const inputSchema = lazySchema(() => {
-  const schema = feature('KAIROS') ? fullInputSchema() : fullInputSchema().omit({
-    cwd: true
-  });
+  // cwd stays available in the open build so multi-repo parent sessions can
+  // pin subagents (and worktree isolation) to a child repository (#2052).
+  const schema = fullInputSchema();
 
   // GrowthBook-in-lazySchema is acceptable here (unlike subagent_type, which
   // was removed in 906da6c723): the divergence window is one-session-per-
@@ -126,22 +139,109 @@ export const inputSchema = lazySchema(() => {
 type InputSchema = ReturnType<typeof inputSchema>;
 
 // Explicit type widens the schema inference to always include all optional
-// fields even when .omit() strips them for gating (cwd, run_in_background).
+// fields even when .omit() strips them for gating (run_in_background).
 // subagent_type is optional; call() defaults it to general-purpose when the
 // fork gate is off, or routes to the fork path when the gate is on.
 type AgentToolInput = z.infer<ReturnType<typeof baseInputSchema>> & {
   name?: string;
   team_name?: string;
   mode?: z.infer<ReturnType<typeof permissionModeSchema>>;
-  isolation?: 'worktree' | 'remote';
+  isolation?: 'worktree';
   cwd?: string;
 };
+type AgentToolIsolation = AgentToolInput['isolation'];
+type AgentToolWorktreeInfo = {
+  worktreePath: string;
+} | null | undefined;
+
+export function resolveAgentToolEffectiveIsolation(
+  requestedIsolation: AgentToolIsolation,
+  agentIsolation: AgentToolIsolation,
+): AgentToolIsolation {
+  return requestedIsolation === 'worktree' || agentIsolation === 'worktree'
+    ? 'worktree'
+    : undefined;
+}
+
+/**
+ * cwd may be combined with worktree isolation: it names the repository used
+ * as the worktree base when the session itself is outside a git repo.
+ * Relative paths are rejected so tool callers cannot depend on ambient cwd.
+ * The path must exist and be a directory so spawn fails closed on typos.
+ */
+export function assertAgentToolCwdAllowed(
+  cwd: string | undefined,
+  _effectiveIsolation?: AgentToolIsolation,
+): void {
+  if (cwd === undefined) {
+    return;
+  }
+  if (!isAbsolute(cwd)) {
+    throw new Error('cwd must be an absolute path.');
+  }
+  let stats;
+  try {
+    stats = statSync(cwd);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`cwd must be an existing directory (${reason}).`);
+  }
+  if (!stats.isDirectory()) {
+    throw new Error('cwd must be an existing directory.');
+  }
+}
+
+export function resolveAgentToolCwdOverride(
+  cwd: string | undefined,
+  worktreeInfo: AgentToolWorktreeInfo,
+): string | undefined {
+  return worktreeInfo?.worktreePath ?? cwd;
+}
+
+/** True when worktree creation failed only because no git root was available. */
+export function isMissingGitAgentWorktreeError(message: string): boolean {
+  return message.includes('Cannot create agent worktree: not in a git repository');
+}
+
+/**
+ * User/model-visible notice when worktree isolation was requested but could
+ * not be created (missing git). Edits are not isolated in a worktree copy.
+ */
+export function buildWorktreeIsolationFallbackNotice(cwdPath: string): string {
+  return `Worktree isolation was requested but could not be created because no git repository is available. This agent is running without worktree isolation — edits modify files directly in ${cwdPath}, not an isolated worktree copy.`;
+}
+
+/** Trailer line(s) for tool results when worktree isolation fell back. */
+export function formatWorktreeIsolationFallbackResultText(): string {
+  return 'worktreeIsolationFallback: true\nnote: Worktree isolation was unavailable; this agent ran without an isolated worktree (edits are not sandboxed in a worktree).';
+}
+
+/** Shared async_launched payload for direct-async and sync-to-background paths. */
+export function buildAsyncLaunchedToolData(args: {
+  agentId: string;
+  description: string;
+  prompt: string;
+  canReadOutputFile: boolean;
+  worktreeIsolationFallback?: boolean;
+}) {
+  return {
+    isAsync: true as const,
+    status: 'async_launched' as const,
+    agentId: args.agentId,
+    description: args.description,
+    prompt: args.prompt,
+    outputFile: getTaskOutputPath(args.agentId),
+    canReadOutputFile: args.canReadOutputFile,
+    ...(args.worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
+  };
+}
 
 // Output schema - multi-agent spawned schema added dynamically at runtime when enabled
 export const outputSchema = lazySchema(() => {
   const syncOutputSchema = agentToolResultSchema().extend({
     status: z.literal('completed'),
-    prompt: z.string()
+    prompt: z.string(),
+    worktreeIsolationFallback: z.boolean().optional().describe('True when worktree isolation was requested but fell back because no git repository was available'),
   });
   const asyncOutputSchema = z.object({
     status: z.literal('async_launched'),
@@ -149,7 +249,8 @@ export const outputSchema = lazySchema(() => {
     description: z.string().describe('The description of the task'),
     prompt: z.string().describe('The prompt for the agent'),
     outputFile: z.string().describe('Path to the output file for checking agent progress'),
-    canReadOutputFile: z.boolean().optional().describe('Whether the calling agent has Read/Bash tools to check progress')
+    canReadOutputFile: z.boolean().optional().describe('Whether the calling agent has Read/Bash tools to check progress'),
+    worktreeIsolationFallback: z.boolean().optional().describe('True when worktree isolation was requested but fell back because no git repository was available'),
   });
   return z.union([syncOutputSchema, asyncOutputSchema]);
 });
@@ -177,18 +278,7 @@ type TeammateSpawnedOutput = {
 
 // Combined output type including both public and internal types
 // Note: TeammateSpawnedOutput type is fine - TypeScript types are erased at compile time
-// Private type for remote-launched results — excluded from exported schema
-// like TeammateSpawnedOutput for dead code elimination purposes. Exported
-// for UI.tsx to do proper discriminated-union narrowing instead of ad-hoc casts.
-export type RemoteLaunchedOutput = {
-  status: 'remote_launched';
-  taskId: string;
-  sessionUrl: string;
-  description: string;
-  prompt: string;
-  outputFile: string;
-};
-type InternalOutput = Output | TeammateSpawnedOutput | RemoteLaunchedOutput;
+type InternalOutput = Output | TeammateSpawnedOutput;
 import type { AgentToolProgress, ShellProgress } from '../../types/tools.js';
 // AgentTool forwards both its own progress events and shell progress
 // events from the sub-agent so the SDK receives tool_progress updates during bash/powershell runs.
@@ -297,6 +387,38 @@ export const AgentTool = buildTool({
               model,
               permissionMode
             );
+      const routedTeammateProvider = resolveOutOfProcessTeammateProvider({
+        cliModel: model,
+        agentName: name,
+        agentType: subagent_type,
+        agentDefinitionModel: agentDef?.model,
+        settings: getInitialSettings()
+      });
+      if (routedTeammateProvider && !isModelAllowed(routedTeammateProvider.model)) {
+        throw new Error(`Model '${routedTeammateProvider.model}' is not available. Your organization restricts model selection.`);
+      }
+      // A model-only agentRouting route (no cross-provider creds) is dropped by the
+      // provider resolver above, so resolve it separately and apply it on the next
+      // spawn. The child inherits the parent provider env, so passing the model is
+      // enough. Only consulted when there is no cross-provider override.
+      const routedTeammateModelOnly = routedTeammateProvider
+        ? undefined
+        : resolveOutOfProcessTeammateModelOnly({
+            cliModel: model,
+            agentName: name,
+            agentType: subagent_type,
+            agentDefinitionModel: agentDef?.model,
+            parentModel: toolUseContext.options.mainLoopModel,
+            permissionMode,
+            settings: getInitialSettings()
+          });
+      if (
+        routedTeammateModelOnly &&
+        routedTeammateModelOnly !== toolUseContext.options.mainLoopModel &&
+        !isModelAllowed(routedTeammateModelOnly)
+      ) {
+        throw new Error(`Model '${routedTeammateModelOnly}' is not available. Your organization restricts model selection.`);
+      }
       const result = await spawnTeammate({
         name,
         prompt,
@@ -304,7 +426,8 @@ export const AgentTool = buildTool({
         team_name: teamName,
         use_splitpane: true,
         plan_mode_required: spawnMode === 'plan',
-        model: resolvedTeammateModel,
+        model: routedTeammateProvider?.model ?? routedTeammateModelOnly ?? resolvedTeammateModel,
+        modelWasToolSpecified: model !== undefined,
         agent_type: subagent_type,
         invokingRequestId: assistantMessage?.requestId
       }, toolUseContext);
@@ -424,72 +547,72 @@ export const AgentTool = buildTool({
       setAgentColor(selectedAgent.agentType, selectedAgent.color);
     }
 
-    // Resolve agent params for logging (these are already resolved in runAgent)
+    const forceSyncCopilot = shouldForceSyncSubagentsInCopilotMode();
+    const forcePlanModeSync = permissionMode === 'plan' || toolUseContext.getAppState().toolPermissionContext.mode === 'plan';
+
+    // Use inline env check instead of coordinatorModule to avoid circular
+    // dependency issues during test module loading.
+    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
+
+    // Fork subagent experiment: force ALL spawns async for a unified
+    // <task-notification> interaction model (not just fork spawns — all of them).
+    const forceAsync = isForkSubagentEnabled();
+
+    // Assistant mode: force all agents async. Synchronous subagents hold the
+    // main loop's turn open until they complete — the daemon's inputQueue
+    // backs up, and the first overdue cron catch-up on spawn becomes N
+    // serial subagent turns blocking all user input. Same gate as
+    // executeForkedSlashCommand's fire-and-forget path; the
+    // <task-notification> re-entry there is handled by the else branch
+    // below (registerAsyncAgentTask + notifyOnCompletion).
+    const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
+
+    // Compute shouldRunAsync once, used by both the telemetry log below and
+    // the actual run decision. Must be computed before the telemetry so the
+    // reported is_async matches the actual execution mode.
+    if (shouldSuppressSubagentsInCopilotMode()) {
+      throw new Error(
+        `Sub-agents are disabled in GitHub Copilot mode to conserve Premium Requests. ` +
+        `Run this task directly instead of delegating to Agent('${selectedAgent.agentType}'). ` +
+        `To re-enable sub-agents, set GITHUB_COPILOT_MAX_SUBAGENTS=1, GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ` +
+        `or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1.`,
+      );
+    }
+    const shouldRunAsync = forceSyncCopilot || forcePlanModeSync
+      ? false
+      : (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+
+    // Resolve agent params for logging and prebuilt system prompts. runAgent
+    // resolves the same settings again before the actual query.
     const resolvedAgentModel = getAgentModel(selectedAgent.model, toolUseContext.options.mainLoopModel, isForkPath ? undefined : model, permissionMode);
+    const { mainLoopModel: effectiveAgentModel } = resolveAgentRunModelRouting({
+      resolvedAgentModel,
+      parentModel: toolUseContext.options.mainLoopModel,
+      toolSpecifiedModel: isForkPath ? undefined : model,
+      agentName: name,
+      subagentType: selectedAgent.agentType,
+      agentDefinitionModel: selectedAgent.model,
+      settings: getInitialSettings(),
+      permissionMode,
+    });
     logEvent('tengu_agent_tool_selected', {
       agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-      model: resolvedAgentModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      model: effectiveAgentModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       source: selectedAgent.source as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       color: selectedAgent.color as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       is_built_in_agent: isBuiltInAgent(selectedAgent),
       is_resume: false,
-      is_async: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled,
+      is_async: shouldRunAsync,
       is_fork: isForkPath
     });
 
-    // Resolve effective isolation mode (explicit param overrides agent def)
-    const effectiveIsolation = isolation ?? selectedAgent.isolation;
-
-    // Remote isolation: delegate to CCR. Gated internal-only — the guard enables
-    // dead code elimination of the entire block for external builds.
-    if ("external" === 'ant' && effectiveIsolation === 'remote') {
-      const eligibility = await checkRemoteAgentEligibility();
-      if (!eligibility.eligible) {
-        const reasons = eligibility.errors.map(formatPreconditionError).join('\n');
-        throw new Error(`Cannot launch remote agent:\n${reasons}`);
-      }
-      let bundleFailHint: string | undefined;
-      const session = await teleportToRemote({
-        initialMessage: prompt,
-        description,
-        signal: toolUseContext.abortController.signal,
-        onBundleFail: msg => {
-          bundleFailHint = msg;
-        }
-      });
-      if (!session) {
-        throw new Error(bundleFailHint ?? 'Failed to create remote session');
-      }
-      const {
-        taskId,
-        sessionId
-      } = registerRemoteAgentTask({
-        remoteTaskType: 'remote-agent',
-        session: {
-          id: session.id,
-          title: session.title || description
-        },
-        command: prompt,
-        context: toolUseContext,
-        toolUseId: toolUseContext.toolUseId
-      });
-      logEvent('tengu_agent_tool_remote_launched', {
-        agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-      });
-      const remoteResult: RemoteLaunchedOutput = {
-        status: 'remote_launched',
-        taskId,
-        sessionUrl: getRemoteTaskSessionUrl(sessionId),
-        description,
-        prompt,
-        outputFile: getTaskOutputPath(taskId)
-      };
-      return {
-        data: remoteResult
-      } as unknown as {
-        data: Output;
-      };
-    }
+    // Agent frontmatter can force worktree isolation too; cwd may still be
+    // supplied as the repository root for that worktree (#2052).
+    const effectiveIsolation = resolveAgentToolEffectiveIsolation(
+      isolation,
+      selectedAgent.isolation,
+    );
+    assertAgentToolCwdAllowed(cwd, effectiveIsolation);
     // System prompt + prompt messages: branch on fork path.
     //
     // Fork path: child inherits the PARENT's system prompt (not FORK_AGENT's)
@@ -532,16 +655,13 @@ export const AgentTool = buildTool({
         // Log agent memory loaded event for subagents
         if (selectedAgent.memory) {
           logEvent('tengu_agent_memory_loaded', {
-            ...("external" === 'ant' && {
-              agent_type: selectedAgent.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
-            }),
             scope: selectedAgent.memory as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
             source: 'subagent' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
           });
         }
 
         // Apply environment details enhancement
-        enhancedSystemPrompt = await enhanceSystemPromptWithEnvDetails([agentPrompt], resolvedAgentModel, additionalWorkingDirectories);
+        enhancedSystemPrompt = await enhanceSystemPromptWithEnvDetails([agentPrompt], effectiveAgentModel, additionalWorkingDirectories);
       } catch (error) {
         logForDebugging(`Failed to get system prompt for agent ${selectedAgent.agentType}: ${errorMessage(error)}`);
       }
@@ -551,30 +671,43 @@ export const AgentTool = buildTool({
     }
     const metadata = {
       prompt,
-      resolvedAgentModel,
+      resolvedAgentModel: effectiveAgentModel,
       isBuiltInAgent: isBuiltInAgent(selectedAgent),
       startTime,
       agentType: selectedAgent.agentType,
-      isAsync: (run_in_background === true || selectedAgent.background === true) && !isBackgroundTasksDisabled
+      isAsync: shouldRunAsync
     };
-
     // Use inline env check instead of coordinatorModule to avoid circular
     // dependency issues during test module loading.
-    const isCoordinator = feature('COORDINATOR_MODE') ? isEnvTruthy(process.env.CLAUDE_CODE_COORDINATOR_MODE) : false;
-
-    // Fork subagent experiment: force ALL spawns async for a unified
-    // <task-notification> interaction model (not just fork spawns — all of them).
-    const forceAsync = isForkSubagentEnabled();
-
-    // Assistant mode: force all agents async. Synchronous subagents hold the
-    // main loop's turn open until they complete — the daemon's inputQueue
-    // backs up, and the first overdue cron catch-up on spawn becomes N
-    // serial subagent turns blocking all user input. Same gate as
-    // executeForkedSlashCommand's fire-and-forget path; the
-    // <task-notification> re-entry there is handled by the else branch
-    // below (registerAsyncAgentTask + notifyOnCompletion).
-    const assistantForceAsync = feature('KAIROS') ? appState.kairosEnabled : false;
-    const shouldRunAsync = (run_in_background === true || selectedAgent.background === true || isCoordinator || forceAsync || assistantForceAsync || (proactiveModule?.isProactiveActive() ?? false)) && !isBackgroundTasksDisabled;
+    // (isCoordinator / forceAsync / assistantForceAsync already computed
+    // above; shouldRunAsync is the single source of truth for the launch
+    // decision. Throws above are gone — they're at the top now.)
+    if (forceSyncCopilot) {
+      const reason = isEnvTruthy(process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS)
+        ? 'GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS=1'
+        : `GITHUB_COPILOT_MAX_SUBAGENTS=${getCopilotMaxConcurrentSubagents()} (concurrency capped)`;
+      // The remediation depends on the actual cause:
+      //   - FORCE_SYNC=1 → user must unset it (or set OPTIMIZATION_DISABLED=1)
+      //   - MAX=0 → sub-agents are suppressed (NOT just forced sync) — user must
+      //     raise MAX to >=1 or set ALLOW_SUBAGENTS=1
+      //   - MAX>=1 → sub-agents run synchronously one-at-a-time; to restore
+      //     parallel execution set ALLOW_SUBAGENTS=1 or OPTIMIZATION_DISABLED=1
+      const isForcedSync = isEnvTruthy(
+        process.env.GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS,
+      );
+      const remediation = isForcedSync
+        ? 'Unset GITHUB_COPILOT_FORCE_SYNC_SUBAGENTS, or set GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.'
+        : getCopilotMaxConcurrentSubagents() === 0
+        ? 'Set GITHUB_COPILOT_MAX_SUBAGENTS=1 (or higher) along with GITHUB_COPILOT_ALLOW_SUBAGENTS=1, ' +
+          'or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, to allow background sub-agents.'
+        : 'Set GITHUB_COPILOT_ALLOW_SUBAGENTS=1, or GITHUB_COPILOT_OPTIMIZATION_DISABLED=1, ' +
+          'to allow background sub-agents.';
+      logForDebugging(
+        `[CopilotOptimization] Agent '${selectedAgent.agentType}' forced to synchronous execution ` +
+        `because ${reason}. ${remediation}`,
+      );
+    }
     // Assemble the worker's tool pool independently of the parent's.
     // Workers always get their tools from assembleToolPool with their own
     // permission mode, so they aren't affected by the parent's tool
@@ -597,17 +730,26 @@ export const AgentTool = buildTool({
       gitRoot?: string;
       hookBased?: boolean;
     } | null = null;
+    let worktreeIsolationFallback = false;
     if (effectiveIsolation === 'worktree') {
       const slug = `agent-${earlyAgentId.slice(0, 8)}`;
       try {
-        worktreeInfo = await createAgentWorktree(slug);
+        // When the session is outside a git repo (e.g. a parent of multiple
+        // repos), cwd names the child repository used as the worktree base.
+        worktreeInfo = await createAgentWorktree(slug, cwd ? { cwd } : undefined);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('Cannot create agent worktree: not in a git repository')) {
-          if (isolation === 'worktree') {
-            throw error;
-          }
-          logForDebugging('Agent worktree isolation unavailable outside a git repository; falling back to the current working directory.');
+        if (isMissingGitAgentWorktreeError(message)) {
+          // Fall back for both explicit and agent-definition isolation so
+          // multi-repo parent sessions can still spawn subagents (#2052).
+          // Prefer the caller-supplied cwd when present so the agent still
+          // lands inside the target child repository without a worktree.
+          worktreeIsolationFallback = true;
+          logForDebugging(
+            cwd
+              ? `Agent worktree isolation unavailable outside a git repository; falling back to cwd override ${cwd}.`
+              : 'Agent worktree isolation unavailable outside a git repository; falling back to the current working directory.',
+          );
         } else {
           throw error;
         }
@@ -619,7 +761,16 @@ export const AgentTool = buildTool({
     // so it appears as the most recent guidance the child sees.
     if (isForkPath && worktreeInfo) {
       promptMessages.push(createUserMessage({
+        // parentCwd must remain the session cwd: inherited context paths are
+        // relative to the parent agent, even when worktree creation used a
+        // child-repo cwd override for multi-repo parents.
         content: buildWorktreeNotice(getCwd(), worktreeInfo.worktreePath)
+      }));
+    }
+    // Missing-git soft-fallback: tell the child edits are not worktree-isolated.
+    if (worktreeIsolationFallback) {
+      promptMessages.push(createUserMessage({
+        content: buildWorktreeIsolationFallbackNotice(cwd ?? getCwd())
       }));
     }
     const runAgentParams: Parameters<typeof runAgent>[0] = {
@@ -654,13 +805,16 @@ export const AgentTool = buildTool({
         useExactTools: true
       }),
       worktreePath: worktreeInfo?.worktreePath,
+      // Always persist an explicit child-repo cwd so resume can fall back to
+      // it if the worktree is later removed or cleaned up (#2052).
+      cwd,
       description,
       agentName: name,
     };
 
-    // Helper to wrap execution with a cwd override: explicit cwd arg (KAIROS)
-    // takes precedence over worktree isolation path.
-    const cwdOverridePath = cwd ?? worktreeInfo?.worktreePath;
+    // Helper to wrap execution with a cwd override. Worktree wins if present;
+    // otherwise an explicit cwd pins the agent to a child repo / directory.
+    const cwdOverridePath = resolveAgentToolCwdOverride(cwd, worktreeInfo);
     const wrapWithCwd = <T,>(fn: () => T): T => cwdOverridePath ? runWithCwdOverride(cwdOverridePath, fn) : fn();
 
     // Helper to clean up worktree after agent completes
@@ -691,11 +845,12 @@ export const AgentTool = buildTool({
         if (!changed) {
           await removeAgentWorktree(worktreePath, worktreeBranch, gitRoot);
           // Clear worktreePath from metadata so resume doesn't try to use
-          // a deleted directory. Fire-and-forget to match runAgent's
-          // writeAgentMetadata handling.
+          // a deleted directory, but keep an explicit child-repo cwd when
+          // present so resume can still land in the target repository.
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
-            description
+            ...(cwd && { cwd }),
+            ...(description && { description }),
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));
           return {};
         }
@@ -775,15 +930,13 @@ export const AgentTool = buildTool({
       })));
       const canReadOutputFile = toolUseContext.options.tools.some(t => toolMatchesName(t, FILE_READ_TOOL_NAME) || toolMatchesName(t, BASH_TOOL_NAME));
       return {
-        data: {
-          isAsync: true as const,
-          status: 'async_launched' as const,
+        data: buildAsyncLaunchedToolData({
           agentId: agentBackgroundTask.agentId,
-          description: description,
-          prompt: prompt,
-          outputFile: getTaskOutputPath(agentBackgroundTask.agentId),
-          canReadOutputFile
-        }
+          description,
+          prompt,
+          canReadOutputFile,
+          worktreeIsolationFallback,
+        }),
       };
     } else {
       // Create an explicit agentId for sync agents
@@ -838,7 +991,7 @@ export const AgentTool = buildTool({
           type: 'background';
         }> | undefined;
         let cancelAutoBackground: (() => void) | undefined;
-        if (!isBackgroundTasksDisabled) {
+        if (!isBackgroundTasksDisabled && !forceSyncCopilot && !forcePlanModeSync) {
           const registration = registerAgentForeground({
             agentId: syncAgentId,
             description,
@@ -892,8 +1045,10 @@ export const AgentTool = buildTool({
             const elapsed = Date.now() - agentStartTime;
 
             // Show background hint after threshold (but task is already registered)
-            // Skip if background tasks are disabled
-            if (!isBackgroundTasksDisabled && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
+            // Skip if background tasks are disabled or if Copilot mode is
+            // forcing synchronous execution (no foreground registration, so
+            // the hint would advertise a non-existent affordance).
+            if (!isBackgroundTasksDisabled && !forceSyncCopilot && !forcePlanModeSync && !backgroundHintShown && elapsed >= PROGRESS_THRESHOLD_MS && toolUseContext.setToolJSX) {
               backgroundHintShown = true;
               toolUseContext.setToolJSX({
                 jsx: <BackgroundHint />,
@@ -1064,15 +1219,13 @@ export const AgentTool = buildTool({
                 // Return async_launched result immediately
                 const canReadOutputFile = toolUseContext.options.tools.some(t => toolMatchesName(t, FILE_READ_TOOL_NAME) || toolMatchesName(t, BASH_TOOL_NAME));
                 return {
-                  data: {
-                    isAsync: true as const,
-                    status: 'async_launched' as const,
+                  data: buildAsyncLaunchedToolData({
                     agentId: backgroundedTaskId,
-                    description: description,
-                    prompt: prompt,
-                    outputFile: getTaskOutputPath(backgroundedTaskId),
-                    canReadOutputFile
-                  }
+                    description,
+                    prompt,
+                    canReadOutputFile,
+                    worktreeIsolationFallback,
+                  }),
                 };
               }
             }
@@ -1104,13 +1257,19 @@ export const AgentTool = buildTool({
               }
             }
 
-            // Forward bash_progress events from sub-agent to parent so the SDK
-            // receives tool_progress events just as it does for the main agent.
-            if (message.type === 'progress' && (message.data.type === 'bash_progress' || message.data.type === 'powershell_progress') && onProgress) {
-              onProgress({
-                toolUseID: message.toolUseID,
-                data: message.data
-              });
+            // Forward progress from long-running sub-agent tools so the parent
+            // query remains active while the child is doing bounded work.
+            if (message.type === 'progress' && (message.data.type === 'bash_progress' || message.data.type === 'powershell_progress' || message.data.type === 'mcp_progress' || message.data.type === 'waiting_for_task') && onProgress) {
+              try {
+                onProgress({
+                  toolUseID: message.toolUseID,
+                  data: message.data
+                });
+              } catch (error) {
+                // A throwing parent progress consumer must not become
+                // syncAgentError and change the subagent outcome.
+                logError(error);
+              }
             }
             if (message.type !== 'assistant' && message.type !== 'user') {
               continue;
@@ -1280,7 +1439,8 @@ export const AgentTool = buildTool({
             status: 'completed' as const,
             prompt,
             ...agentResult,
-            ...worktreeResult
+            ...worktreeResult,
+            ...(worktreeIsolationFallback && { worktreeIsolationFallback: true as const }),
           }
         };
       }));
@@ -1296,7 +1456,17 @@ export const AgentTool = buildTool({
     return `${prefix}${i.prompt}`;
   },
   isConcurrencySafe() {
-    return true;
+    // When Copilot optimizations are disabled, sub-agents are fully
+    // unrestricted and can run concurrently.
+    if (!isCopilotPremiumOptimizationEnabled()) return true
+
+    // Align with the launch path: use shouldForceSyncSubagentsInCopilotMode()
+    // to decide whether the scheduler must serialize sub-agent calls.
+    // This prevents mismatches where the launch path allows async but the
+    // scheduler still serializes, or vice versa (e.g. ALLOW_SUBAGENTS=1
+    // makes launch async but scheduler serialized; FORCE_SYNC=1 + MAX=0
+    // made launch sync but scheduler treated it as concurrency-safe).
+    return !shouldForceSyncSubagentsInCopilotMode()
   },
   userFacingName,
   userFacingNameBackgroundColor,
@@ -1304,17 +1474,6 @@ export const AgentTool = buildTool({
     return input?.description ?? 'Running task';
   },
   async checkPermissions(input, context): Promise<PermissionResult> {
-    const appState = context.getAppState();
-
-    // Only route through auto mode classifier when in auto mode
-    // In all other modes, auto-approve sub-agent generation
-    // Note: "external" === 'ant' guard enables dead code elimination for external builds
-    if ("external" === 'ant' && appState.toolPermissionContext.mode === 'auto') {
-      return {
-        behavior: 'passthrough',
-        message: 'Agent tool requires permission to spawn sub-agents.'
-      };
-    }
     return {
       behavior: 'allow',
       updatedInput: input
@@ -1338,21 +1497,13 @@ The agent is now running and will receive instructions via mailbox.`
         }]
       };
     }
-    if ('status' in internalData && internalData.status === 'remote_launched') {
-      const r = internalData;
-      return {
-        tool_use_id: toolUseID,
-        type: 'tool_result',
-        content: [{
-          type: 'text',
-          text: `Remote agent launched in CCR.\ntaskId: ${r.taskId}\nsession_url: ${r.sessionUrl}\noutput_file: ${r.outputFile}\nThe agent is running remotely. You will be notified automatically when it completes.\nBriefly tell the user what you launched and end your response.`
-        }]
-      };
-    }
     if (data.status === 'async_launched') {
       const prefix = `Async agent launched successfully.\nagentId: ${data.agentId} (internal ID - do not mention to user. Use SendMessage with to: '${data.agentId}' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes.`;
       const instructions = data.canReadOutputFile ? `Do not duplicate this agent's work — avoid working with the same files or topics it is using. Briefly tell the user what you launched and end your response — agent results will arrive in a subsequent message. You may continue first ONLY if you have other tasks on clearly different files that this agent is not touching.\noutput_file: ${data.outputFile}\nIf asked, you can check progress before completion by using ${FILE_READ_TOOL_NAME} or ${BASH_TOOL_NAME} tail on the output file.` : `Briefly tell the user what you launched and end your response. Do not generate any other text — agent results will arrive in a subsequent message.`;
-      const text = `${prefix}\n${instructions}`;
+      const isolationFallbackText = data.worktreeIsolationFallback
+        ? `\n${formatWorktreeIsolationFallbackResultText()}`
+        : '';
+      const text = `${prefix}\n${instructions}${isolationFallbackText}`;
       return {
         tool_use_id: toolUseID,
         type: 'tool_result',
@@ -1365,6 +1516,9 @@ The agent is now running and will receive instructions via mailbox.`
     if (data.status === 'completed') {
       const worktreeData = data as Record<string, unknown>;
       const worktreeInfoText = worktreeData.worktreePath ? `\nworktreePath: ${worktreeData.worktreePath}\nworktreeBranch: ${worktreeData.worktreeBranch}` : '';
+      const isolationFallbackText = worktreeData.worktreeIsolationFallback
+        ? `\n${formatWorktreeIsolationFallbackResultText()}`
+        : '';
       // If the subagent completes with no content, the tool_result is just the
       // agentId/usage trailer below — a metadata-only block at the prompt tail.
       // Some models read that as "nothing to act on" and end their turn
@@ -1378,7 +1532,9 @@ The agent is now running and will receive instructions via mailbox.`
       // 34M Explore runs/week ≈ 1-2 Gtok/week). Telemetry doesn't parse this
       // block (it uses logEvent in finalizeAgentTool), so dropping is safe.
       // agentType is optional for resume compat — missing means show trailer.
-      if (data.agentType && ONE_SHOT_BUILTIN_AGENT_TYPES.has(data.agentType) && !worktreeInfoText) {
+      // Keep the trailer when isolation fell back so the parent sees that
+      // edits were not worktree-isolated.
+      if (data.agentType && ONE_SHOT_BUILTIN_AGENT_TYPES.has(data.agentType) && !worktreeInfoText && !isolationFallbackText) {
         return {
           tool_use_id: toolUseID,
           type: 'tool_result',
@@ -1390,7 +1546,7 @@ The agent is now running and will receive instructions via mailbox.`
         type: 'tool_result',
         content: [...contentOrMarker, {
           type: 'text',
-          text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}
+          text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}${isolationFallbackText}
 <usage>total_tokens: ${data.totalTokens}
 tool_uses: ${data.totalToolUseCount}
 duration_ms: ${data.totalDurationMs}</usage>`

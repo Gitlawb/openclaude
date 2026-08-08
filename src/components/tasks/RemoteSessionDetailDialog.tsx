@@ -92,7 +92,8 @@ function UltraplanSessionDetail(t0) {
   const elapsedTime = useElapsedTime(session.startTime, running, 1000, 0, session.endTime);
   let spawns = 0;
   let calls = 0;
-  let lastBlock = null;
+  // tool_use content block shape consumed by formatToolUseSummary below
+  let lastBlock: { name: string; input: unknown } | null = null;
   for (const msg of session.log) {
     if (msg.type !== "assistant") {
       continue;

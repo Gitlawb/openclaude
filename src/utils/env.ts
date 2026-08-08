@@ -7,7 +7,7 @@ import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import {
   getClaudeConfigHomeDir,
   isEnvTruthy,
-  migrateLegacyClaudeConfigHome,
+  resolveConfigDirEnv,
 } from './envUtils.js'
 import { findExecutable } from './findExecutable.js'
 import { getFsImplementation } from './fsOperations.js'
@@ -19,22 +19,11 @@ export function resolveGlobalClaudeFile(options: {
   configDirEnv?: string
   homeDir?: string
   oauthSuffix?: string
-  migrationSucceeded?: boolean
-  existsSync: (path: string) => boolean
 }): string {
   const oauthSuffix = options.oauthSuffix ?? ''
   const configDir = options.configDirEnv || options.homeDir || homedir()
-  const hasExplicitConfigDir = Boolean(options.configDirEnv)
   const newFilename = `.openclaude${oauthSuffix}.json`
-  const legacyFilename = `.claude${oauthSuffix}.json`
 
-  if (
-    (hasExplicitConfigDir || options.migrationSucceeded === false) &&
-    !options.existsSync(join(configDir, newFilename)) &&
-    options.existsSync(join(configDir, legacyFilename))
-  ) {
-    return join(configDir, legacyFilename)
-  }
   return join(configDir, newFilename)
 }
 
@@ -50,23 +39,15 @@ export const getGlobalClaudeFile = memoize((): string => {
   }
 
   const oauthSuffix = fileSuffixForOauthConfig()
-  const configDir = process.env.CLAUDE_CONFIG_DIR || homedir()
-  const hasExplicitConfigDir = Boolean(process.env.CLAUDE_CONFIG_DIR)
-  let migrationSucceeded = true
+  const configDirEnv = resolveConfigDirEnv({
+    openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+  })
+  const configDir = configDirEnv || homedir()
 
-  if (!hasExplicitConfigDir) {
-    migrationSucceeded = migrateLegacyClaudeConfigHome({ homeDir: configDir })
-  }
-
-  // Default installs hard-cut to .openclaude.json after the migration above.
-  // Explicit CLAUDE_CONFIG_DIR users keep the legacy filename fallback because
-  // that env var is the opt-out for automatic migration.
   return resolveGlobalClaudeFile({
-    configDirEnv: process.env.CLAUDE_CONFIG_DIR,
+    configDirEnv,
     homeDir: configDir,
     oauthSuffix,
-    migrationSucceeded,
-    existsSync: path => getFsImplementation().existsSync(path),
   })
 })
 
@@ -99,7 +80,7 @@ async function isCommandAvailable(command: string): Promise<boolean> {
 }
 
 const detectPackageManagers = memoize(async (): Promise<string[]> => {
-  const packageManagers = []
+  const packageManagers: string[] = []
 
   if (await isCommandAvailable('npm')) packageManagers.push('npm')
   if (await isCommandAvailable('yarn')) packageManagers.push('yarn')
@@ -109,7 +90,7 @@ const detectPackageManagers = memoize(async (): Promise<string[]> => {
 })
 
 const detectRuntimes = memoize(async (): Promise<string[]> => {
-  const runtimes = []
+  const runtimes: string[] = []
 
   if (await isCommandAvailable('bun')) runtimes.push('bun')
   if (await isCommandAvailable('deno')) runtimes.push('deno')
@@ -185,16 +166,21 @@ export const JETBRAINS_IDES = [
 
 // Detect terminal type with fallbacks for all platforms
 function detectTerminal(): string | null {
+  const askpassMain = process.env.VSCODE_GIT_ASKPASS_MAIN?.toLowerCase()
   if (process.env.CURSOR_TRACE_ID) return 'cursor'
   // Cursor and Windsurf under WSL have TERM_PROGRAM=vscode
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('cursor')) {
+  if (askpassMain?.includes('cursor')) {
     return 'cursor'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('windsurf')) {
+  if (askpassMain?.includes('windsurf')) {
     return 'windsurf'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('antigravity')) {
-    return 'antigravity'
+  if (
+    askpassMain?.includes('antigravity') ||
+    askpassMain?.includes('agy') ||
+    process.env.TERM_PROGRAM === 'agy'
+  ) {
+    return 'agy'
   }
   const bundleId = process.env.__CFBundleIdentifier?.toLowerCase()
   if (bundleId?.includes('vscodium')) return 'codium'

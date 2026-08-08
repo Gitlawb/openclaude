@@ -218,7 +218,7 @@ export const DeniedMcpServerEntrySchema = lazySchema(() =>
  *
  * ⚠️ BACKWARD COMPATIBILITY NOTICE ⚠️
  *
- * This schema defines the structure of user settings files (.claude/settings.json).
+ * This schema defines the structure of user settings files (~/.openclaude/settings.json).
  * We support backward-compatible changes! Here's how:
  *
  * ✅ ALLOWED CHANGES:
@@ -266,6 +266,12 @@ export const SettingsSchema = lazySchema(() =>
         .literal(CLAUDE_CODE_SETTINGS_SCHEMA_URL)
         .optional()
         .describe('JSON Schema reference for Claude Code settings'),
+      subscriptionType: z
+        .enum(['free', 'pro', 'max', 'team', 'enterprise'])
+        .optional()
+        .describe(
+          'Override the active subscription type from user settings only. Project, repository, local, flag, and policy settings are ignored to prevent spoofing. Allowed values: free, pro, max, team, enterprise. The "free" value is authoritative and takes precedence over OAuth fallback detection.',
+        ),
       apiKeyHelper: z
         .string()
         .optional()
@@ -395,6 +401,16 @@ export const SettingsSchema = lazySchema(() =>
             'If undefined, all models are available. If empty array, only the default model is available. ' +
             'Typically set in managed settings by enterprise administrators.',
         ),
+      providerProfileModelPickerMode: z
+        .enum(['auto', 'profile', 'provider'])
+        .optional()
+        .catch(undefined)
+        .describe(
+          'Controls /model options when an active provider profile is applied. ' +
+            '"profile" shows only explicitly configured profile models; ' +
+            '"provider" shows the provider catalog/discovery list plus explicit profile-only custom models; ' +
+            '"auto" uses profile mode when the profile has multiple explicitly configured models, otherwise provider mode.',
+        ),
       modelOverrides: z
         .record(z.string(), z.string())
         .optional()
@@ -449,7 +465,16 @@ export const SettingsSchema = lazySchema(() =>
           'and feed errors back for self-repair.',
         ),
       worktree: z
-        .object({
+        .preprocess((val: any) => {
+          if (val && typeof val === 'object') {
+            const copy = { ...val }
+            if ('enableGitLongPaths' in val && !('autoConfigureLongPaths' in val)) {
+              copy.autoConfigureLongPaths = val.enableGitLongPaths
+            }
+            return copy
+          }
+          return val
+        }, z.object({
           symlinkDirectories: z
             .array(z.string())
             .optional()
@@ -465,7 +490,18 @@ export const SettingsSchema = lazySchema(() =>
               'Directories to include when creating worktrees, via git sparse-checkout (cone mode). ' +
                 'Dramatically faster in large monorepos — only the listed paths are written to disk.',
             ),
-        })
+          autoConfigureLongPaths: z
+            .boolean()
+            .optional()
+            .describe(
+              'On Windows, enable Git long-path support (core.longpaths=true) before ' +
+                'creating worktrees. Defaults to true when unset.',
+            ),
+          enableGitLongPaths: z
+            .boolean()
+            .optional()
+            .describe('Deprecated alias for autoConfigureLongPaths.'),
+        }))
         .optional()
         .describe('Git worktree configuration for --worktree flag.'),
       // Whether to disable all hooks and statusLine
@@ -609,7 +645,7 @@ export const SettingsSchema = lazySchema(() =>
         })
         .optional()
         .describe(
-          'Additional marketplaces to make available for this repository. Typically used in repository .claude/settings.json to ensure team members have required plugin sources.',
+          'Additional marketplaces to make available for this repository. Typically used in repository .openclaude/settings.json to ensure team members have required plugin sources.',
         ),
       // Enterprise strict list of allowed marketplace sources (policy settings only)
       // When set, ONLY these exact sources can be added. Check happens BEFORE download.
@@ -728,7 +764,7 @@ export const SettingsSchema = lazySchema(() =>
             'enabled automatically for supported models.',
         ),
       effortLevel: z
-        .enum(['low', 'medium', 'high', 'max'])
+        .enum(['low', 'medium', 'high', 'xhigh', 'max'])
         .optional()
         .catch(undefined)
         .describe('Persisted effort level for supported models.'),
@@ -740,14 +776,27 @@ export const SettingsSchema = lazySchema(() =>
         .record(
           z.string(),
           z.object({
-            base_url: z.string().url().describe('OpenAI-compatible API endpoint (must be https:// or http://)'),
-            api_key: z.string().describe('API key for this provider'),
+            model: z
+              .string()
+              .optional()
+              .describe('Actual model name to send to the API. Defaults to the surrounding agentModels key.'),
+            base_url: z
+              .string()
+              .url()
+              .optional()
+              .describe('OpenAI-compatible API endpoint (must be https:// or http://). Omit together with api_key to reuse the current provider (model-only route).'),
+            api_key: z
+              .string()
+              .optional()
+              .describe('API key for this provider. Omit together with base_url to reuse the current provider (model-only route).'),
           }),
         )
         .optional()
         .describe(
-          'Map of model name to provider connection info. ' +
-            'Example: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }',
+          'Map of route key to provider connection info. ' +
+            'Cross-provider: { "deepseek-chat": { "base_url": "https://api.deepseek.com/v1", "api_key": "sk-xxx" } }. ' +
+            'Model-only (reuse current provider): { "mini": { "model": "gpt-5-mini" } }. ' +
+            'Use "model" when the route key is an alias for a different API model name.',
         ),
       agentRouting: z
         .record(z.string(), z.string())
@@ -756,6 +805,67 @@ export const SettingsSchema = lazySchema(() =>
           'Map of agent identifier (subagent_type or team member name) to model name. ' +
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
+        ),
+      smartRouting: z
+        .object({
+          enabled: z.boolean().optional().describe('Opt in to per-turn simple-vs-strong model routing. Off by default.'),
+          simpleModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for turns classified "simple".'),
+          strongModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for "strong" turns and whenever routing is unsure.'),
+          simpleMaxChars: z
+            .number()
+            .optional()
+            .describe('Max characters in user input to qualify as "simple". Passed to routeModel.'),
+          simpleMaxWords: z
+            .number()
+            .optional()
+            .describe('Max whitespace-separated words to qualify as "simple". Passed to routeModel.'),
+        })
+        .optional()
+        .describe(
+          'Opt-in smart routing: classify each user turn and route simple turns to the configured simple model. ' +
+            'simpleModel/strongModel are agentModels keys (or bare model ids). ' +
+            'Example: { "enabled": true, "simpleModel": "mini", "strongModel": "main" }',
+        ),
+      providerFallbackChain: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Ordered list of providerProfile ids. When the active provider returns a rate-limit ' +
+            'or quota error, OpenClaude advances to the next profile in this list (starting after ' +
+            'the currently-active id) and retries the turn. ' +
+            'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
+        ),
+      modelLimits: z
+        .record(
+          z.string(),
+          z.object({
+            contextWindow: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Total context window size in tokens.'),
+            maxOutputTokens: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Maximum output tokens per response.'),
+          }),
+        )
+        .optional()
+        .describe(
+          'Per-model overrides for context window and max output tokens. ' +
+            'Used for OpenAI-compatible models whose limits are not in the built-in catalog. ' +
+            'Keys are matched against the model name (exact match preferred, then prefix). ' +
+            'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS / CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS env vars take precedence. ' +
+            'Example: { "qwen3.6-plus": { "contextWindow": 1048576, "maxOutputTokens": 32768 } }',
         ),
       fastMode: z
         .boolean()
@@ -983,13 +1093,57 @@ export const SettingsSchema = lazySchema(() =>
         .boolean()
         .optional()
         .describe(
-          'Enable auto-memory for this project. When false, Claude will not read from or write to the auto-memory directory.',
+          'Enable auto-memory for this project. When false, Claude will not read from or write to the auto-memory directory. Equivalent to `memory.autoWrite` — see that setting for the governance-focused shape requested in #1326.',
+        ),
+      memory: z
+        .object({
+          autoWrite: z
+            .boolean()
+            .optional()
+            .describe(
+              'When false, disables auto-memory reads and writes for this project. Discoverable alias for `autoMemoryEnabled`; the two are equivalent and either one can be used to opt out for governance / regulated / client-sensitive repos (issue #1326). When both are set, the more restrictive (false) value wins so a parent-scope opt-out cannot be silently re-enabled by a narrower scope.',
+            ),
+          requireApprovalBeforeWrite: z
+            .boolean()
+            .optional()
+            .describe(
+              'Persistent auto-memory writes require explicit permission approval by default. Set to false to restore automatic memory writes when auto-memory is enabled.',
+            ),
+        })
+        .optional()
+        .describe(
+          'Memory governance settings. `autoWrite` controls whether auto-memory is active; `requireApprovalBeforeWrite` forces explicit approval for persistent memory writes.',
+        ),
+      git: z
+        .object({
+          addAICoAuthor: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated Co-Authored-By trailer for local commits. When false in any settings source, generated commit attribution is blocked.',
+            ),
+          addGeneratedWithFooter: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated OpenClaude footer for PR descriptions. When false in any settings source, generated PR attribution is blocked.',
+            ),
+          forbiddenCommitMessagePatterns: z
+            .array(z.string())
+            .optional()
+            .describe(
+              'Literal text patterns that must not appear in git commit messages, such as "Co-Authored-By:" or "Generated with".',
+            ),
+        })
+        .optional()
+        .describe(
+          'Git governance settings for AI attribution and commit-message policy.',
         ),
       autoMemoryDirectory: z
         .string()
         .optional()
         .describe(
-          'Custom directory path for auto-memory storage. Supports ~/ prefix for home directory expansion. Ignored if set in projectSettings (checked-in .claude/settings.json) for security. When unset, defaults to ~/.claude/projects/<sanitized-cwd>/memory/.',
+          'Custom directory path for auto-memory storage. Supports ~/ prefix for home directory expansion. Ignored if set in projectSettings (checked-in .openclaude/settings.json) for security. When unset, defaults to ~/.openclaude/projects/<sanitized-cwd>/memory/.',
         ),
       autoDreamEnabled: z
         .boolean()
@@ -1008,6 +1162,12 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Whether the user has accepted the bypass permissions mode dialog',
+        ),
+      skipFullAccessModePermissionPrompt: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether the user has accepted the full access mode dialog',
         ),
       ...(feature('TRANSCRIPT_CLASSIFIER')
         ? {

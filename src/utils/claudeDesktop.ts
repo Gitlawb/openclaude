@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'fs/promises'
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, win32 } from 'path'
 import {
   type McpServerConfig,
   McpStdioServerConfigSchema,
@@ -10,12 +10,32 @@ import { safeParseJSON } from './json.js'
 import { logError } from './log.js'
 import { getPlatform, SUPPORTED_PLATFORMS } from './platform.js'
 
+/**
+ * Constructs the Claude Desktop config path on Windows from the APPDATA
+ * environment variable value. Throws if appData is undefined or empty.
+ */
+export function getWindowsClaudeDesktopConfigPath(appData: string | undefined): string {
+  if (!appData) {
+    throw new Error('APPDATA environment variable is not set.')
+  }
+  return win32.join(appData, 'Claude', 'claude_desktop_config.json')
+}
+
+/**
+ * Resolves the path to the Claude Desktop configuration file based on the
+ * current platform. Supports macOS (~/Library/Application Support/Claude),
+ * native Windows (%APPDATA%/Claude), and WSL (/mnt/c/Users/...).
+ *
+ * Throws if the platform is not supported or if the required environment
+ * variable (%APPDATA%) is unset on Windows. The caller should handle these
+ * errors gracefully, as an absent config file is a normal state.
+ */
 export async function getClaudeDesktopConfigPath(): Promise<string> {
   const platform = getPlatform()
 
   if (!SUPPORTED_PLATFORMS.includes(platform)) {
     throw new Error(
-      `Unsupported platform: ${platform} - Claude Desktop integration only works on macOS and WSL.`,
+      `Unsupported platform: ${platform} - Claude Desktop integration only works on macOS, Windows, and WSL.`,
     )
   }
 
@@ -29,7 +49,11 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
     )
   }
 
-  // First, try using USERPROFILE environment variable if available
+  if (platform === 'windows') {
+    return getWindowsClaudeDesktopConfigPath(process.env.APPDATA)
+  }
+
+  // WSL — try using USERPROFILE environment variable if available
   const windowsHome = process.env.USERPROFILE
     ? process.env.USERPROFILE.replace(/\\/g, '/') // Convert Windows backslashes to forward slashes
     : null
@@ -95,12 +119,19 @@ export async function getClaudeDesktopConfigPath(): Promise<string> {
   )
 }
 
+/**
+ * Reads MCP server configurations from the Claude Desktop config file.
+ * Returns an empty record if the config file does not exist or cannot be
+ * parsed, making it safe to call without error handling at the call site
+ * on macOS and WSL. On Windows, may throw if the APPDATA environment
+ * variable is not set.
+ */
 export async function readClaudeDesktopMcpServers(): Promise<
   Record<string, McpServerConfig>
 > {
   if (!SUPPORTED_PLATFORMS.includes(getPlatform())) {
     throw new Error(
-      'Unsupported platform - Claude Desktop integration only works on macOS and WSL.',
+      'Unsupported platform - Claude Desktop integration only works on macOS, Windows, and WSL.',
     )
   }
   try {
@@ -146,6 +177,9 @@ export async function readClaudeDesktopMcpServers(): Promise<
 
     return servers
   } catch (error) {
+    if (error instanceof Error && error.message.includes('APPDATA environment variable is not set.')) {
+      throw error
+    }
     logError(error)
     return {}
   }

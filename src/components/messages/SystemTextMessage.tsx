@@ -27,6 +27,9 @@ import { useAppStateStore } from '../../state/AppState.js';
 import { isBackgroundTask, type TaskState } from '../../tasks/types.js';
 import { getPillLabel } from '../../tasks/pillLabel.js';
 import { useSelectedMessageBg } from '../messageActions.js';
+// Hooks faster than this render no timing line (display gate only — currently
+// short-circuited by the `true ||` below, matching upstream).
+const HOOK_TIMING_DISPLAY_THRESHOLD_MS = 1000;
 type Props = {
   message: SystemMessage;
   addMargin: boolean;
@@ -603,7 +606,7 @@ function MemorySavedMessage(t0) {
   } = message;
   let t1;
   if ($[0] !== message) {
-    t1 = feature("TEAMMEM") ? teamMemSaved.teamMemSavedPart(message) : null;
+    t1 = feature("TEAMMEM") && teamMemSaved != null ? teamMemSaved.teamMemSavedPart(message) : null;
     $[0] = message;
     $[1] = t1;
   } else {

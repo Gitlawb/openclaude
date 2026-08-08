@@ -1,5 +1,7 @@
 import { afterEach, expect, mock, test } from 'bun:test'
+import type { ServerResponse } from 'node:http'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
+import { asMockFetch } from '../../test/typedMocks.js'
 import { CodexOAuthService } from './codexOAuth.js'
 
 type CodexOAuthTestSnapshot = {
@@ -36,9 +38,9 @@ type FakeAuthCodeListenerInstance = {
   ) => Promise<string>
   handleSuccessRedirect: (
     scopes: string[],
-    customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+    customHandler?: (res: ServerResponse, scopes: string[]) => void,
   ) => void
-  handleErrorRedirect: (customHandler?: (res: FakeServerResponse) => void) => void
+  handleErrorRedirect: (customHandler?: (res: ServerResponse) => void) => void
   cancelPendingAuthorization: (error?: Error) => void
   close: () => void
 }
@@ -105,14 +107,16 @@ function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerI
 
     handleSuccessRedirect(
       scopes: string[],
-      customHandler?: (res: FakeServerResponse, scopes: string[]) => void,
+      customHandler?: (res: ServerResponse, scopes: string[]) => void,
     ): void {
       if (!this.pending || !this.capture) {
         return
       }
 
       const res = createFakeServerResponse(this.capture)
-      customHandler?.(res, scopes)
+      // FakeServerResponse implements the structural subset of ServerResponse
+      // that the production redirect handlers touch; cast at this one boundary.
+      customHandler?.(res as unknown as ServerResponse, scopes)
       if (!res.writableEnded) {
         res.end()
       }
@@ -120,14 +124,14 @@ function createFakeAuthCodeListener(callbackPath: string): FakeAuthCodeListenerI
     }
 
     handleErrorRedirect(
-      customHandler?: (res: FakeServerResponse) => void,
+      customHandler?: (res: ServerResponse) => void,
     ): void {
       if (!this.pending || !this.capture) {
         return
       }
 
       const res = createFakeServerResponse(this.capture)
-      customHandler?.(res)
+      customHandler?.(res as unknown as ServerResponse)
       if (!res.writableEnded) {
         res.end()
       }
@@ -206,18 +210,20 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   try {
     process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
 
-    globalThis.fetch = mock(async () => {
-      return new Response(
-        JSON.stringify({
-          access_token: 'access-token',
-          refresh_token: 'refresh-token',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-    }) as typeof fetch
+    globalThis.fetch = asMockFetch(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }),
+    )
 
     const service = new CodexOAuthService({
       callbackPort: 0,
@@ -251,6 +257,121 @@ test('serves updated success copy after a successful Codex OAuth flow', async ()
   }
 })
 
+test('manual callback paste completes the flow when the loopback is unreachable', async () => {
+  await acquireCodexOAuthTestIsolation()
+
+  try {
+    process.env.CODEX_OAUTH_CLIENT_ID = 'test-client-id'
+
+    globalThis.fetch = asMockFetch(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            access_token: 'manual-access-token',
+            refresh_token: 'manual-refresh-token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }),
+    )
+
+    // Hanging listener — never resolves on its own. The manual paste path
+    // must be what completes the flow.
+    let capturedState = ''
+    let pending = false
+    const hangingListenerFactory = ((callbackPath: string) => ({
+      callbackPath,
+      async start(): Promise<number> {
+        return 41100
+      },
+      hasPendingResponse(): boolean {
+        return pending
+      },
+      async waitForAuthorization(
+        state: string,
+        onReady: () => Promise<void>,
+      ): Promise<string> {
+        capturedState = state
+        pending = true
+        await onReady()
+        return new Promise<string>(() => {
+          /* never resolves */
+        })
+      },
+      handleSuccessRedirect(): void {
+        pending = false
+      },
+      handleErrorRedirect(): void {
+        pending = false
+      },
+      cancelPendingAuthorization(): void {
+        pending = false
+      },
+    })) as unknown as NonNullable<
+      ConstructorParameters<typeof CodexOAuthService>[0]
+    >['createAuthCodeListener']
+
+    const service = new CodexOAuthService({
+      callbackPort: 0,
+      callbackHost: '127.0.0.1',
+      createAuthCodeListener: hangingListenerFactory,
+    })
+
+    const flowPromise = service.startOAuthFlow(async () => {})
+
+    // Wait until startOAuthFlow has populated expectedState via the listener.
+    // Bound the wait so a regression that never captures the state fails with a
+    // clear assertion instead of hanging the suite indefinitely.
+    const stateDeadline = Date.now() + 5_000
+    while (!capturedState) {
+      if (Date.now() > stateDeadline) {
+        throw new Error(
+          'startOAuthFlow did not capture the OAuth state within 5s',
+        )
+      }
+      await Bun.sleep(0)
+    }
+
+    const stateMismatch = service.submitManualCallback(
+      'http://localhost:41100/auth/callback?code=foo&state=wrong',
+    )
+    expect(stateMismatch.ok).toBe(false)
+    if (!stateMismatch.ok) {
+      expect(stateMismatch.error).toContain('State mismatch')
+    }
+
+    const missingCode = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?state=${capturedState}`,
+    )
+    expect(missingCode.ok).toBe(false)
+    if (!missingCode.ok) {
+      expect(missingCode.error).toContain('`code`')
+    }
+
+    const errorRedirect = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?error=access_denied&state=${capturedState}`,
+    )
+    expect(errorRedirect.ok).toBe(false)
+    if (!errorRedirect.ok) {
+      expect(errorRedirect.error).toContain('access_denied')
+    }
+
+    const success = service.submitManualCallback(
+      `http://localhost:41100/auth/callback?code=manual-auth-code&state=${capturedState}`,
+    )
+    expect(success.ok).toBe(true)
+
+    const tokens = await flowPromise
+    expect(tokens.accessToken).toBe('manual-access-token')
+    expect(tokens.refreshToken).toBe('manual-refresh-token')
+  } finally {
+    restoreCodexOAuthTestIsolation()
+  }
+})
+
 test('cancellation during token exchange returns a cancelled page and rejects the flow', async () => {
   await acquireCodexOAuthTestIsolation()
 
@@ -262,29 +383,31 @@ test('cancellation during token exchange returns a cancelled page and rejects th
       resolveFetchStart = resolve
     })
 
-    globalThis.fetch = mock((_input, init) => {
-      return new Promise<Response>((_resolve, reject) => {
-        resolveFetchStart()
+    globalThis.fetch = asMockFetch(
+      mock((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          resolveFetchStart()
 
-        const signal = init?.signal
-        if (!signal) {
-          return
-        }
+          const signal = init?.signal
+          if (!signal) {
+            return
+          }
 
-        if (signal.aborted) {
-          reject(signal.reason)
-          return
-        }
-
-        signal.addEventListener(
-          'abort',
-          () => {
+          if (signal.aborted) {
             reject(signal.reason)
-          },
-          { once: true },
-        )
-      })
-    }) as typeof fetch
+            return
+          }
+
+          signal.addEventListener(
+            'abort',
+            () => {
+              reject(signal.reason)
+            },
+            { once: true },
+          )
+        })
+      }),
+    )
 
     const service = new CodexOAuthService({
       callbackPort: 0,

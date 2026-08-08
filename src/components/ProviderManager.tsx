@@ -5,12 +5,16 @@ import { Box, Text } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
-import type { ProviderProfile } from '../utils/config.js'
+import type {
+  OpenAICompatibleApiFormat,
+  ProviderProfile,
+} from '../utils/config.js'
 import {
   clearCodexCredentials,
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 import {
   parseProfileCustomHeadersInput,
   serializeProfileCustomHeaders,
@@ -42,11 +46,23 @@ import {
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
+import {
+  provisionAimlapiKey,
+  type AimlapiTopupStatus,
+} from '../integrations/aimlapi/index.js'
+import {
+  DEFAULT_AMOUNT_USD_MINOR,
+  MAX_AMOUNT_USD_MINOR,
+  MIN_AMOUNT_USD_MINOR,
+} from '../integrations/aimlapi/config.js'
+import type { PaymentMethod } from '../integrations/aimlapi/client.js'
 import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
+  ANTHROPIC_DEFAULT_PROFILE_ID,
   applyActiveProviderProfileFromConfig,
+  clearActiveProviderProfile,
   deleteProviderProfile,
   getActiveProviderProfile,
   getProviderPresetDefaults,
@@ -56,8 +72,10 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
+import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
+  clearHydratedGithubModelsTokenFromEnv,
   GITHUB_MODELS_HYDRATED_ENV_MARKER,
   hydrateGithubModelsTokenFromSecureStorage,
   readGithubModelsToken,
@@ -72,7 +90,7 @@ import {
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
-import { redactUrlForDisplay } from '../utils/urlRedaction.js'
+import { redactUrlForDisplay } from '../utils/redaction.js'
 import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
@@ -105,6 +123,12 @@ type Screen =
   | 'xai-oauth'
   | 'form'
   | 'preset-model'
+  | 'aimlapi-api-key-choice'
+  | 'aimlapi-topup-email'
+  | 'aimlapi-topup-password'
+  | 'aimlapi-topup-amount'
+  | 'aimlapi-topup-method'
+  | 'aimlapi-topup-progress'
   | 'preset-api-key'
   | 'select-active'
   | 'select-edit'
@@ -175,8 +199,8 @@ const FORM_STEPS: Array<{
   {
     key: 'apiFormat',
     label: 'API mode',
-    placeholder: 'chat_completions',
-    helpText: 'Choose the OpenAI-compatible API surface for this provider.',
+    placeholder: 'automatic',
+    helpText: 'Automatically select the API surface, or choose one explicitly.',
     optional: true,
   },
   {
@@ -211,6 +235,7 @@ const FORM_STEPS: Array<{
 
 const GITHUB_PROVIDER_ID = '__github_models__'
 const GITHUB_PROVIDER_LABEL = 'GitHub Models'
+const ANTHROPIC_PROVIDER_LABEL = 'Anthropic (built-in)'
 const GITHUB_PROVIDER_DEFAULT_MODEL = 'github:copilot'
 const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
@@ -218,7 +243,6 @@ const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
 const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
 const XAI_OAUTH_PROVIDER_MODEL = 'grok-4.3'
 const XAI_OAUTH_PROVIDER_BASE_URL = 'https://api.x.ai/v1'
-
 type GithubCredentialSource = 'stored' | 'env' | 'none'
 
 function toDraft(profile: ProviderProfile): ProviderDraft {
@@ -227,7 +251,7 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
     baseUrl: profile.baseUrl,
     model: profile.model,
     apiKey: profile.apiKey ?? '',
-    apiFormat: profile.apiFormat ?? 'chat_completions',
+    apiFormat: profile.apiFormat ?? 'auto',
     authHeader: profile.authHeader ?? '',
     authHeaderValue: profile.authHeaderValue ?? '',
     customHeaders: serializeProfileCustomHeaders(profile.customHeaders) ?? '',
@@ -236,6 +260,15 @@ function toDraft(profile: ProviderProfile): ProviderDraft {
 
 function getPresetLabel(preset: ProviderPreset, label: string, metadata?: { badge?: { text: string; color?: string } }): React.ReactNode {
   if (metadata?.badge) {
+    if (metadata.badge.text.toLowerCase() === 'recommended') {
+      return (
+        <Text>
+          <Text>{label} </Text>
+          <Text color={metadata.badge.color ?? 'success'} bold>★ Recommended</Text>
+        </Text>
+      )
+    }
+
     return (
       <Text>
         <Text>{label} </Text>
@@ -261,7 +294,11 @@ function presetToDraft(preset: ProviderPreset): ProviderDraft {
 }
 
 function isSetupPlaceholder(value: string): boolean {
-  return /\bYOUR[-_\s]/i.test(value) || /<[^>]+>/.test(value)
+  return (
+    /\bYOUR[-_\s]/i.test(value) ||
+    /<[^>]+>/.test(value) ||
+    /:\/\/[^/]+\.example(?:\/|$)/i.test(value)
+  )
 }
 
 function canUseStreamlinedPresetFlow(draft: ProviderDraft): boolean {
@@ -282,7 +319,7 @@ function profileSummary(profile: ProviderProfile, isActive: boolean): string {
       : `${models[0]}, ${models[1]} + ${models.length - 2} more`
   const modeInfo =
     routeSupportsApiFormatSelection(routeId)
-      ? ` · ${profile.apiFormat === 'responses' ? 'responses' : 'chat/completions'}`
+      ? ` · ${profile.apiFormat === 'responses_compat' ? 'responses (compat)' : profile.apiFormat === 'responses' ? 'responses' : profile.apiFormat === 'chat_completions' ? 'chat/completions' : 'automatic'}`
       : ''
   const authInfo =
     routeSupportsAuthHeaders(routeId) && profile.authHeader
@@ -590,6 +627,40 @@ function XaiManualCodeInput({
   )
 }
 
+function CodexManualCallbackInput({
+  onSubmit,
+}: {
+  onSubmit: (input: string) => void
+}): React.ReactNode {
+  const [value, setValue] = React.useState('')
+  const [cursorOffset, setCursorOffset] = React.useState(0)
+  const { columns: terminalColumns } = useTerminalSize()
+  const inputColumns = Math.max(20, Math.min(120, terminalColumns - 12))
+  return (
+    <Box>
+      <Text>Callback URL › </Text>
+      <TextInput
+        value={value}
+        onChange={setValue}
+        cursorOffset={cursorOffset}
+        onChangeCursorOffset={setCursorOffset}
+        columns={inputColumns}
+        onSubmit={submitted => {
+          const trimmed = submitted.trim()
+          if (trimmed) onSubmit(trimmed)
+        }}
+        // The pasted callback URL carries the OAuth `code` and `state` query
+        // params — enough to complete the in-flight exchange — so mask it the
+        // same way the xAI manual-code field above does, to keep it out of
+        // terminal scrollback, recordings, and shared sessions.
+        mask="*"
+        // The parent `CodexOAuthSetup` owns Esc via `useKeybinding('confirm:no')`.
+        disableEscapeDoublePress
+      />
+    </Box>
+  )
+}
+
 function CodexOAuthSetup({
   onBack,
   onConfigured,
@@ -626,6 +697,10 @@ function CodexOAuthSetup({
   const status = useCodexOAuthFlow({
     onAuthenticated: handleAuthenticated,
   })
+  const [pasteError, setPasteError] = React.useState<string | undefined>()
+  const isRemoteSession = Boolean(
+    process.env['SSH_CONNECTION'] || process.env['SSH_CLIENT'],
+  )
 
   if (status.state === 'error') {
     return (
@@ -681,6 +756,34 @@ function CodexOAuthSetup({
       ) : (
         <Text dimColor>Opening your browser...</Text>
       )}
+      {status.state === 'waiting' ? (
+        <>
+          {isRemoteSession ? (
+            <Text color="warning">
+              SSH session detected — the browser cannot reach this host's
+              localhost callback. After signing in, copy the full URL your
+              browser was redirected to (it starts with http://localhost:) and
+              paste it below.
+            </Text>
+          ) : (
+            <Text dimColor>
+              If the browser cannot reach localhost (remote / containerized
+              session), paste the full callback URL it was redirected to:
+            </Text>
+          )}
+          <CodexManualCallbackInput
+            onSubmit={input => {
+              const result = status.submitManualCallback(input)
+              if (!result.ok) {
+                setPasteError(result.error)
+              } else {
+                setPasteError(undefined)
+              }
+            }}
+          />
+          {pasteError ? <Text color="error">{pasteError}</Text> : null}
+        </>
+      ) : null}
       <Text dimColor>Press Esc to cancel and go back.</Text>
     </Box>
   )
@@ -726,6 +829,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [cursorOffset, setCursorOffset] = React.useState(0)
   const [statusMessage, setStatusMessage] = React.useState<string | undefined>()
   const [errorMessage, setErrorMessage] = React.useState<string | undefined>()
+  const [aimlapiTopupEmail, setAimlapiTopupEmail] = React.useState('')
+  const [aimlapiTopupAmountUsd, setAimlapiTopupAmountUsd] = React.useState(
+    String(DEFAULT_AMOUNT_USD_MINOR / 100),
+  )
+  const [aimlapiTopupMethod, setAimlapiTopupMethod] =
+    React.useState<PaymentMethod>('card')
+  const [aimlapiTopupPassword, setAimlapiTopupPassword] = React.useState('')
+  const [aimlapiTopupStatus, setAimlapiTopupStatus] =
+    React.useState<AimlapiTopupStatus | undefined>()
+  const [aimlapiTopupDetail, setAimlapiTopupDetail] = React.useState<string | undefined>()
+  const [isAimlapiTopupRunning, setIsAimlapiTopupRunning] = React.useState(false)
   const [menuFocusValue, setMenuFocusValue] = React.useState<string | undefined>()
   const [hasStoredCodexOAuthCredentials, setHasStoredCodexOAuthCredentials] =
     React.useState(false)
@@ -796,12 +910,31 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const currentStep = formSteps[formStepIndex] ?? formSteps[0] ?? FORM_STEPS[0]
   const currentStepKey = currentStep.key
   const currentValue = draft[currentStepKey]
+  const displayStep =
+    draftProvider === 'custom-anthropic' && currentStepKey === 'apiKey'
+      ? {
+          ...currentStep,
+          label: 'Credential',
+          placeholder: 'Credential for this endpoint',
+          helpText: 'The custom profile stores this as an Authorization Bearer token.',
+          optional: false,
+        }
+      : currentStep
 
   // Memoize menu options to prevent unnecessary re-renders when navigating
   // the select menu. Without this, each arrow key press creates a new options
   // array reference, causing Select to re-render and feel sluggish.
   const hasProfiles = profiles.length > 0
   const hasSelectableProviders = hasProfiles || githubProviderAvailable
+  // A non-Anthropic provider (a saved profile or GitHub Models) is currently
+  // active. The switch-back-to-Anthropic recovery option must stay reachable
+  // in that case even when no profiles are saved and GitHub credentials have
+  // gone away (cleared storage / removed env token); otherwise the user is
+  // stranded on an unusable provider with no way back. Scoped to the activate
+  // path only — edit/delete still require an actual profile.
+  const isNonAnthropicProviderActive = isGithubActive || activeProfileId != null
+  const canSwitchActiveProvider =
+    hasSelectableProviders || isNonAnthropicProviderActive
   const menuOptions = React.useMemo(
     () => [
       {
@@ -813,7 +946,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         value: 'activate',
         label: 'Set active provider',
         description: 'Switch the active provider profile',
-        disabled: !hasSelectableProviders,
+        disabled: !canSwitchActiveProvider,
       },
       {
         value: 'edit',
@@ -853,6 +986,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     ],
     [
       hasSelectableProviders,
+      canSwitchActiveProvider,
       hasProfiles,
       hasStoredCodexOAuthCredentials,
       hasStoredXaiOAuthCredentials,
@@ -1210,6 +1344,50 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         return
       }
 
+      if (profileId === ANTHROPIC_DEFAULT_PROFILE_ID) {
+        providerLabel = ANTHROPIC_PROVIDER_LABEL
+        // Switch back to built-in Anthropic: clears the managed provider env so
+        // it takes effect this session, records the Anthropic sentinel so
+        // startup no longer replays a third-party profile, and keeps saved
+        // profiles for later re-selection (#1426).
+        clearActiveProviderProfile()
+        // clearActiveProviderProfile clears the managed provider flags (e.g.
+        // CLAUDE_CODE_USE_GITHUB) but not a GitHub Models token hydrated into the
+        // session from secure storage. Drop that hydrated token + marker so the
+        // built-in Anthropic session does not keep a GitHub credential around,
+        // mirroring the GitHub delete path; a user-supplied token is preserved.
+        clearHydratedGithubModelsTokenFromEnv(readGithubModelsToken())
+        // Clear any startup provider override persisted in user settings
+        // (CLAUDE_CODE_USE_OPENAI, OPENAI_BASE_URL, provider API keys, ...) so a
+        // restart does not replay the third-party provider. The saved-profile
+        // and GitHub activation paths perform the same cleanup; surface any
+        // failure as a warning the same way the saved-profile path does.
+        const settingsOverrideError = clearStartupProviderOverrideFromUserSettings()
+        const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: anthropicModel,
+          mainLoopModelForSession: null,
+        }))
+        refreshProfiles()
+        setStatusMessage(
+          settingsOverrideError
+            ? `Active provider: ${ANTHROPIC_PROVIDER_LABEL}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Active provider: ${ANTHROPIC_PROVIDER_LABEL}`,
+        )
+        setIsActivating(false)
+        onDone({
+          action: 'activated',
+          activeProviderName: ANTHROPIC_PROVIDER_LABEL,
+          activeProviderModel: anthropicModel,
+          message: settingsOverrideError
+            ? `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel}). Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
+        })
+        returnToMenu()
+        return
+      }
+
       const active = setActiveProviderProfile(profileId)
       if (!active) {
         setErrorMessage('Could not change active provider.')
@@ -1313,6 +1491,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
+        OPENAI_API_KEYS: undefined as any,
         OPENAI_API_KEY: undefined as any,
         OPENAI_ORG: undefined as any,
         OPENAI_PROJECT: undefined as any,
@@ -1332,6 +1511,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     process.env.OPENAI_MODEL = GITHUB_PROVIDER_DEFAULT_MODEL
+    delete process.env.OPENAI_API_KEYS
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT
@@ -1370,18 +1550,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return error.message
     }
 
-    const hydratedTokenInSession = process.env.GITHUB_TOKEN?.trim()
-    if (
-      process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] === '1' &&
-      hydratedTokenInSession &&
-      (!storedTokenBeforeClear || hydratedTokenInSession === storedTokenBeforeClear)
-    ) {
-      delete process.env.GITHUB_TOKEN
-    }
-
     delete process.env.CLAUDE_CODE_USE_GITHUB
-    delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+    // Undo any GitHub Models token hydrated into the session from secure
+    // storage and drop the marker. Use the shared helper so both hydration
+    // modes are reverted: GITHUB_TOKEN and the copilot_key blob's
+    // GITHUB_COPILOT_KEY. The old hand-rolled cleanup here only cleared
+    // GITHUB_TOKEN, leaving a hydrated Copilot key behind after the marker was
+    // removed. A user-supplied token is preserved.
+    clearHydratedGithubModelsTokenFromEnv(storedTokenBeforeClear)
     delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_KEYS
     delete process.env.OPENAI_API_KEY
     delete process.env.OPENAI_ORG
     delete process.env.OPENAI_PROJECT
@@ -1403,7 +1581,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       baseUrl: defaults.baseUrl,
       model: defaults.model,
       apiKey: defaults.apiKey ?? '',
-      apiFormat: 'chat_completions',
+      apiFormat: preset === 'custom' ? 'auto' : 'chat_completions',
       authHeader: '',
       authHeaderValue: '',
       customHeaders: '',
@@ -1412,6 +1590,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setDraftProvider(provider)
     setDraft(nextDraft)
     setPresetRequiresApiKey(defaults.requiresApiKey)
+    setAimlapiTopupEmail('')
+    setAimlapiTopupAmountUsd(String(DEFAULT_AMOUNT_USD_MINOR / 100))
+    setAimlapiTopupMethod('card')
+    setAimlapiTopupPassword('')
+    setAimlapiTopupStatus(undefined)
+    setAimlapiTopupDetail(undefined)
+    setIsAimlapiTopupRunning(false)
     setFormStepIndex(0)
     setCursorOffset(nextDraft.name.length)
     setErrorMessage(undefined)
@@ -1428,7 +1613,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
 
-    if (preset === 'custom' || !canUseStreamlinedPresetFlow(nextDraft)) {
+    if (
+      preset === 'custom' ||
+      preset === 'custom-anthropic' ||
+      !canUseStreamlinedPresetFlow(nextDraft)
+    ) {
       setScreen('form')
       return
     }
@@ -1459,6 +1648,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'] = draftProvider,
     profileId: string | null = editingProfileId,
   ): void {
+    if (
+      provider === 'custom-anthropic' &&
+      (isSetupPlaceholder(nextDraft.baseUrl) ||
+        isFirstPartyAnthropicBaseUrlForEnv({
+          ANTHROPIC_BASE_URL: nextDraft.baseUrl,
+          USER_TYPE: process.env.USER_TYPE,
+        }))
+    ) {
+      setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
+      return
+    }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const showsAuthHeader = routeShowsAuthHeader(routeId)
@@ -1473,18 +1673,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
 
     const requestedResponses =
-      supportsApiFormat && nextDraft.apiFormat === 'responses'
-    const shouldUseChatCompletions =
-      !supportsApiFormat ||
-      nextDraft.apiFormat !== 'responses' ||
-      !routeSupportsResponsesModel(routeId, nextDraft.model)
+      supportsApiFormat && (nextDraft.apiFormat === 'responses' || nextDraft.apiFormat === 'responses_compat')
+    const selectedApiFormat =
+      !supportsApiFormat
+        ? 'chat_completions'
+        : nextDraft.apiFormat === 'auto'
+          ? undefined
+        : requestedResponses && !routeSupportsResponsesModel(routeId, nextDraft.model)
+          ? 'chat_completions'
+          : nextDraft.apiFormat as OpenAICompatibleApiFormat
     const payload: ProviderProfileInput = {
       provider,
       name: nextDraft.name,
       baseUrl: nextDraft.baseUrl,
       model: nextDraft.model,
       apiKey: nextDraft.apiKey,
-      apiFormat: shouldUseChatCompletions ? 'chat_completions' : 'responses',
+      apiFormat: selectedApiFormat,
       authHeader:
         showsAuthHeader && nextDraft.authHeader
           ? nextDraft.authHeader
@@ -1531,7 +1735,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         ? `Updated provider: ${saved.name}`
         : `Added provider: ${saved.name} (now active)`
     const adjustedApiFormat =
-      requestedResponses && saved.apiFormat !== 'responses'
+      requestedResponses && saved.apiFormat !== 'responses' && saved.apiFormat !== 'responses_compat'
     const routeLabel =
       getRouteDescriptor(routeId)?.label ?? getRouteProviderTypeLabel(routeId)
     const responseModelSetLabel = getResponsesApiModelSetLabel(routeId)
@@ -1565,10 +1769,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     provider: ProviderProfile['provider'],
   ): ProviderDraft {
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const preferredResponsesMode = nextDraft.apiFormat === 'responses_compat' ? 'responses_compat' : 'responses'
     const apiFormat =
       routeSupportsApiFormatSelection(routeId) &&
       routeSupportsResponsesModel(routeId, nextDraft.model)
-        ? 'responses'
+        ? preferredResponsesMode
         : 'chat_completions'
 
     return {
@@ -1737,8 +1942,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function handleFormSubmit(value: string): void {
     const trimmed = value.trim()
 
-    if (!currentStep.optional && trimmed.length === 0) {
-      setErrorMessage(`${currentStep.label} is required.`)
+    if (!displayStep.optional && trimmed.length === 0) {
+      setErrorMessage(`${displayStep.label} is required.`)
       return
     }
 
@@ -1798,12 +2003,81 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   function handleBackFromPresetApiKey(): void {
     setErrorMessage(undefined)
     setCursorOffset(draft.model.length)
-    setScreen('preset-model')
+    setScreen(draftProvider === 'aimlapi' ? 'aimlapi-api-key-choice' : 'preset-model')
   }
 
   useKeybinding('confirm:no', handleBackFromPresetApiKey, {
     context: 'Settings',
     isActive: screen === 'preset-api-key',
+  })
+
+  function handleBackFromAimlapiKeyChoice(): void {
+    setErrorMessage(undefined)
+    setCursorOffset(draft.model.length)
+    setScreen('preset-model')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiKeyChoice, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-api-key-choice',
+  })
+
+  function handleBackFromAimlapiTopupEmail(): void {
+    setErrorMessage(undefined)
+    setCursorOffset(0)
+    setScreen('aimlapi-api-key-choice')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiTopupEmail, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-topup-email',
+  })
+
+  function handleBackFromAimlapiTopupAmount(): void {
+    setErrorMessage(undefined)
+    setCursorOffset(aimlapiTopupPassword.length)
+    setScreen('aimlapi-topup-password')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiTopupAmount, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-topup-amount',
+  })
+
+  function handleBackFromAimlapiTopupPassword(): void {
+    setErrorMessage(undefined)
+    setAimlapiTopupPassword('')
+    setCursorOffset(aimlapiTopupEmail.length)
+    setScreen('aimlapi-topup-email')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiTopupPassword, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-topup-password',
+  })
+
+  function handleBackFromAimlapiTopupMethod(): void {
+    setErrorMessage(undefined)
+    setCursorOffset(aimlapiTopupAmountUsd.length)
+    setScreen('aimlapi-topup-amount')
+  }
+
+  useKeybinding('confirm:no', handleBackFromAimlapiTopupMethod, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-topup-method',
+  })
+
+  function handleCancelAimlapiTopupProgress(): void {
+    if (isAimlapiTopupRunning) {
+      return
+    }
+    setErrorMessage(undefined)
+    setScreen('aimlapi-api-key-choice')
+  }
+
+  useKeybinding('confirm:no', handleCancelAimlapiTopupProgress, {
+    context: 'Settings',
+    isActive: screen === 'aimlapi-topup-progress',
   })
 
   // xAI OAuth setup renders a TextInput for the manual-code recovery
@@ -1833,10 +2107,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       }
     })
 
+    // Insert after DeepSeek so the OAuth options keep their established
+    // position in the picker regardless of how the preset list grows; if
+    // the anchor ever disappears, append instead of floating to the top.
+    const deepseekIndex = options.findIndex(
+      option => option.value === 'deepseek',
+    )
+    let oauthInsertIndex =
+      deepseekIndex >= 0 ? deepseekIndex + 1 : options.length
     if (canUseCodexOAuth) {
-      // Insert after DeepSeek so Codex OAuth keeps its established position
-      // in the picker even with Gitlawb Opengateway pinned at the top.
-      options.splice(7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'codex-oauth',
         label: (
           <Text>
@@ -1847,12 +2127,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         description:
           'Sign in with ChatGPT in your browser and store Codex credentials securely',
       })
+      oauthInsertIndex += 1
     }
 
     if (canUseXaiOAuth) {
       // Place xAI OAuth directly under Codex OAuth so both browser-sign-in
       // options group together visually.
-      options.splice(canUseCodexOAuth ? 8 : 7, 0, {
+      options.splice(oauthInsertIndex, 0, {
         value: 'xai-oauth',
         label: 'xAI OAuth (Grok)',
         description:
@@ -1912,7 +2193,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text color="remember" bold>
           {editingProfileId ? 'Edit provider profile' : 'Create provider profile'}
         </Text>
-        <Text dimColor>{currentStep.helpText}</Text>
+        <Text dimColor>{displayStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
           {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
@@ -1924,11 +2205,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           </Text>
         ) : null}
         <Text dimColor>
-          Step {formStepIndex + 1} of {formSteps.length}: {currentStep.label}
+          Step {formStepIndex + 1} of {formSteps.length}: {displayStep.label}
         </Text>
         {currentStepKey === 'apiFormat' ? (
           <Select
             options={[
+              {
+                value: 'auto',
+                label: 'Automatic',
+                description: 'Use the provider and model defaults',
+              },
               {
                 value: 'chat_completions',
                 label: 'Chat Completions',
@@ -1939,16 +2225,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 label: 'Responses',
                 description: 'Use /responses for providers that support the Responses API',
               },
+              {
+                value: 'responses_compat',
+                label: 'Responses (Compat)',
+                description: 'Use /responses with legacy text chunks for strict gateways',
+              },
             ]}
             defaultValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : currentValue === 'chat_completions' ? 'chat_completions' : 'auto'
             }
             defaultFocusValue={
-              currentValue === 'responses' ? 'responses' : 'chat_completions'
+              currentValue === 'responses_compat' ? 'responses_compat' : currentValue === 'responses' ? 'responses' : currentValue === 'chat_completions' ? 'chat_completions' : 'auto'
             }
             onChange={(value: string) => handleFormSubmit(value)}
             onCancel={handleBackFromForm}
-            visibleOptionCount={2}
+            visibleOptionCount={4}
           />
         ) : (
           <Box flexDirection="row" gap={1}>
@@ -1964,7 +2255,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               onSubmit={handleFormSubmit}
               focus={true}
               showCursor={true}
-              placeholder={`${currentStep.placeholder}${figures.ellipsis}`}
+              placeholder={`${displayStep.placeholder}${figures.ellipsis}`}
               mask={
                 currentStepKey === 'apiKey' ||
                 currentStepKey === 'authHeaderValue'
@@ -2033,7 +2324,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
               if (needsApiKey) {
                 setCursorOffset(0)
-                setScreen('preset-api-key')
+                setScreen(
+                  draftProvider === 'aimlapi'
+                    ? 'aimlapi-api-key-choice'
+                    : 'preset-api-key',
+                )
                 return
               }
 
@@ -2115,10 +2410,356 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
+  function startAimlapiTopup(
+    email: string,
+    password: string,
+    method: PaymentMethod = aimlapiTopupMethod,
+  ): void {
+    const trimmedEmail = email.trim()
+    const amountUsd = aimlapiTopupAmountUsd.trim()
+    const parsedAmountUsd = Number(amountUsd)
+    if (!trimmedEmail) {
+      setErrorMessage('aimlapi.com email is required.')
+      setScreen('aimlapi-topup-email')
+      return
+    }
+    if (!Number.isFinite(parsedAmountUsd) || parsedAmountUsd <= 0) {
+      setErrorMessage('Enter a valid top-up amount in USD.')
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    if (Math.round(parsedAmountUsd * 100) < MIN_AMOUNT_USD_MINOR) {
+      setErrorMessage(`Minimum aimlapi.com top-up is $${MIN_AMOUNT_USD_MINOR / 100}.`)
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    if (Math.round(parsedAmountUsd * 100) > MAX_AMOUNT_USD_MINOR) {
+      setErrorMessage(`Maximum aimlapi.com top-up is $${MAX_AMOUNT_USD_MINOR / 100}.`)
+      setScreen('aimlapi-topup-amount')
+      return
+    }
+    if (!password) {
+      setErrorMessage('aimlapi.com password is required.')
+      setScreen('aimlapi-topup-password')
+      return
+    }
+
+    setScreen('aimlapi-topup-progress')
+    setErrorMessage(undefined)
+    setAimlapiTopupStatus('signing-in')
+    setAimlapiTopupDetail(undefined)
+    setIsAimlapiTopupRunning(true)
+
+    void (async () => {
+      try {
+        const provisioned = await provisionAimlapiKey({
+          email: trimmedEmail,
+          password,
+          amountUsd,
+          method,
+          model: draft.model,
+          onStatus: (status, detail) => {
+            setAimlapiTopupStatus(status)
+            setAimlapiTopupDetail(detail)
+          },
+        })
+        const nextDraft = applyPresetApiFormat(
+          {
+            ...draft,
+            apiKey: provisioned.apiKey,
+            baseUrl: provisioned.baseUrl,
+            model: provisioned.model,
+          },
+          draftProvider,
+        )
+        setDraft(nextDraft)
+        setAimlapiTopupPassword('')
+        setIsAimlapiTopupRunning(false)
+        persistDraft(nextDraft, draftProvider, null)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        setIsAimlapiTopupRunning(false)
+        setErrorMessage(`Could not finish aimlapi.com top-up: ${detail}`)
+      }
+    })()
+  }
+
+  function renderAimlapiApiKeyChoice(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          Create provider profile
+        </Text>
+        <Text dimColor>
+          Choose how to configure aimlapi.com. Endpoint and model are already
+          configured.
+        </Text>
+        <Text dimColor>
+          Provider type:{' '}
+          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
+        </Text>
+        <Text dimColor>Step 2 of 2: API key</Text>
+        <Select
+          options={[
+            {
+              value: 'topup',
+              label: 'Top up and get API key',
+              description: 'Open checkout, wait for payment, then save the issued key',
+            },
+            {
+              value: 'manual',
+              label: 'Enter existing API key',
+              description: 'Paste a key you already have from aimlapi.com',
+            },
+          ]}
+          onChange={(value: string) => {
+            setErrorMessage(undefined)
+            if (value === 'manual') {
+              setCursorOffset(draft.apiKey.length)
+              setScreen('preset-api-key')
+              return
+            }
+
+            const envEmail = process.env.AIMLAPI_EMAIL?.trim() ?? ''
+            const envPassword = process.env.AIMLAPI_PASSWORD ?? ''
+            if (envEmail && envPassword) {
+              setAimlapiTopupEmail(envEmail)
+              setAimlapiTopupPassword(envPassword)
+              setCursorOffset(aimlapiTopupAmountUsd.length)
+              setScreen('aimlapi-topup-amount')
+              return
+            }
+            setCursorOffset(envEmail.length)
+            setAimlapiTopupEmail(envEmail)
+            setScreen('aimlapi-topup-email')
+          }}
+          onCancel={handleBackFromAimlapiKeyChoice}
+          visibleOptionCount={2}
+        />
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiTopupEmail(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          aimlapi.com top-up
+        </Text>
+        <Text dimColor>
+          Enter your aimlapi.com account email. The checkout flow will use it to
+          register or sign in.
+        </Text>
+        <Text dimColor>Step 2 of 2: Top up account</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={aimlapiTopupEmail}
+            onChange={setAimlapiTopupEmail}
+            onSubmit={value => {
+              const email = value.trim()
+              if (!email) {
+                setErrorMessage('aimlapi.com email is required.')
+                return
+              }
+              setAimlapiTopupEmail(email)
+              setErrorMessage(undefined)
+              setCursorOffset(0)
+              setScreen('aimlapi-topup-password')
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`Enter email${figures.ellipsis}`}
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiTopupAmount(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          aimlapi.com top-up
+        </Text>
+        <Text dimColor>
+          Choose a top-up amount in USD. Minimum is ${MIN_AMOUNT_USD_MINOR / 100}.
+        </Text>
+        <Text dimColor>Step 2 of 2: Top up account</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={aimlapiTopupAmountUsd}
+            onChange={setAimlapiTopupAmountUsd}
+            onSubmit={value => {
+              const amountUsd = value.trim()
+              const parsedAmountUsd = Number(amountUsd)
+              if (!Number.isFinite(parsedAmountUsd) || parsedAmountUsd <= 0) {
+                setErrorMessage('Enter a valid top-up amount in USD.')
+                return
+              }
+              if (Math.round(parsedAmountUsd * 100) < MIN_AMOUNT_USD_MINOR) {
+                setErrorMessage(`Minimum aimlapi.com top-up is $${MIN_AMOUNT_USD_MINOR / 100}.`)
+                return
+              }
+              if (Math.round(parsedAmountUsd * 100) > MAX_AMOUNT_USD_MINOR) {
+                setErrorMessage(`Maximum aimlapi.com top-up is $${MAX_AMOUNT_USD_MINOR / 100}.`)
+                return
+              }
+              setAimlapiTopupAmountUsd(amountUsd)
+              setErrorMessage(undefined)
+              setScreen('aimlapi-topup-method')
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`Enter amount${figures.ellipsis}`}
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiTopupPassword(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          aimlapi.com top-up
+        </Text>
+        <Text dimColor>
+          Enter your aimlapi.com password. The CLI will open checkout and save the
+          issued API key after payment.
+        </Text>
+        <Text dimColor>Step 2 of 2: Top up account</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text>{figures.pointer}</Text>
+          <TextInput
+            value={aimlapiTopupPassword}
+            onChange={setAimlapiTopupPassword}
+            onSubmit={value => {
+              if (!value) {
+                setErrorMessage('aimlapi.com password is required.')
+                return
+              }
+              setAimlapiTopupPassword(value)
+              setErrorMessage(undefined)
+              setCursorOffset(aimlapiTopupAmountUsd.length)
+              setScreen('aimlapi-topup-amount')
+            }}
+            focus={true}
+            showCursor={true}
+            placeholder={`Enter password${figures.ellipsis}`}
+            mask="*"
+            columns={inputColumns}
+            cursorOffset={cursorOffset}
+            onChangeCursorOffset={setCursorOffset}
+          />
+        </Box>
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to continue. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiTopupMethod(): React.ReactNode {
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          aimlapi.com top-up
+        </Text>
+        <Text dimColor>
+          Choose how to pay. The selected method decides which checkout invoice
+          aimlapi.com opens.
+        </Text>
+        <Text dimColor>Step 2 of 2: Payment method</Text>
+        <Select
+          options={[
+            {
+              value: 'card',
+              label: 'Card',
+              description: 'Open a Stripe card checkout invoice',
+            },
+            {
+              value: 'crypto',
+              label: 'Crypto',
+              description: 'Open a crypto checkout invoice',
+            },
+          ]}
+          defaultValue={aimlapiTopupMethod}
+          defaultFocusValue={aimlapiTopupMethod}
+          onChange={(value: string) => {
+            const method: PaymentMethod = value === 'crypto' ? 'crypto' : 'card'
+            setAimlapiTopupMethod(method)
+            startAimlapiTopup(aimlapiTopupEmail, aimlapiTopupPassword, method)
+          }}
+          onCancel={handleBackFromAimlapiTopupMethod}
+          visibleOptionCount={2}
+        />
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
+        <Text dimColor>
+          Press Enter to open checkout. Press Esc to go back.
+        </Text>
+      </Box>
+    )
+  }
+
+  function renderAimlapiTopupProgress(): React.ReactNode {
+    const labels: Record<AimlapiTopupStatus, string> = {
+      registering: 'Registering aimlapi.com account...',
+      registered: 'Account registered.',
+      'signing-in': 'Signing in to aimlapi.com...',
+      'signed-in': 'Signed in.',
+      'creating-session': 'Creating checkout session...',
+      'opening-checkout': 'Opening checkout...',
+      'waiting-payment': 'Waiting for payment...',
+      'provisioning-key': 'Issuing API key...',
+    }
+    const status = aimlapiTopupStatus
+      ? labels[aimlapiTopupStatus]
+      : 'Preparing aimlapi.com top-up...'
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text color="remember" bold>
+          aimlapi.com top-up
+        </Text>
+        <Text dimColor>{status}</Text>
+        {aimlapiTopupDetail ? <Text>{aimlapiTopupDetail}</Text> : null}
+        {errorMessage ? <Text color="error">{errorMessage}</Text> : null}
+        <Text dimColor>
+          {isAimlapiTopupRunning
+            ? 'Complete checkout in the browser. This screen will continue automatically.'
+            : 'Press Esc to go back.'}
+        </Text>
+      </Box>
+    )
+  }
+
   function renderMenu(): React.ReactNode {
     // Use memoized menuOptions from component scope
     const hasProfiles = profiles.length > 0
     const hasSelectableProviders = hasProfiles || githubProviderAvailable
+    // canSwitchActiveProvider is derived once in the component body; reuse it
+    // here rather than recomputing so the two sites cannot drift.
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -2164,7 +2805,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 setScreen('select-preset')
                 break
               case 'activate':
-                if (hasSelectableProviders) {
+                if (canSwitchActiveProvider) {
                   setScreen('select-active')
                 }
                 break
@@ -2277,9 +2918,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     title: string,
     emptyMessage: string,
     onSelect: (profileId: string) => void,
-    options?: { includeGithub?: boolean },
+    options?: { includeGithub?: boolean; includeAnthropic?: boolean },
   ): React.ReactNode {
     const includeGithub = options?.includeGithub ?? false
+    const includeAnthropic = options?.includeAnthropic ?? false
     const selectOptions = profiles.map(profile => ({
       value: profile.id,
       label:
@@ -2296,6 +2938,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ? `${GITHUB_PROVIDER_LABEL} (active)`
           : GITHUB_PROVIDER_LABEL,
         description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+      })
+    }
+
+    // Offer a way back to built-in Anthropic only when a third-party provider
+    // (saved profile or GitHub Models) is currently active — otherwise the user
+    // is already on Anthropic and the option is a no-op (#1426).
+    if (includeAnthropic && (activeProfileId || isGithubActive)) {
+      selectOptions.push({
+        value: ANTHROPIC_DEFAULT_PROFILE_ID,
+        label: 'Use Anthropic (built-in)',
+        description:
+          'Switch back to Claude now without a restart — saved profiles are kept',
       })
     }
 
@@ -2527,6 +3181,24 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     case 'preset-model':
       content = renderPresetModel()
       break
+    case 'aimlapi-api-key-choice':
+      content = renderAimlapiApiKeyChoice()
+      break
+    case 'aimlapi-topup-email':
+      content = renderAimlapiTopupEmail()
+      break
+    case 'aimlapi-topup-amount':
+      content = renderAimlapiTopupAmount()
+      break
+    case 'aimlapi-topup-password':
+      content = renderAimlapiTopupPassword()
+      break
+    case 'aimlapi-topup-method':
+      content = renderAimlapiTopupMethod()
+      break
+    case 'aimlapi-topup-progress':
+      content = renderAimlapiTopupProgress()
+      break
     case 'preset-api-key':
       content = renderPresetApiKey()
       break
@@ -2537,7 +3209,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         profileId => {
           void activateSelectedProvider(profileId)
         },
-        { includeGithub: true },
+        { includeGithub: true, includeAnthropic: true },
       )
       break
     case 'select-edit':

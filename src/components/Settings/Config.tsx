@@ -7,11 +7,13 @@ import * as React from 'react';
 import { useState, useCallback } from 'react';
 import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.js';
 import figures from 'figures';
-import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle } from '../../utils/config.js';
+import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
+import { normalizeCompactTailTurns } from '../../utils/relevancePruning.js';
+import { normalizeReplMaxTurns, REPL_MAX_TURNS_OPTIONS } from '../../utils/replMaxTurns.js';
 import chalk from 'chalk';
-import { permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, EXTERNAL_PERMISSION_MODES, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
+import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
 import { logError } from '../../utils/log.js';
 import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from 'src/services/analytics/index.js';
@@ -27,7 +29,7 @@ import { Dialog } from '../design-system/Dialog.js';
 import { Select } from '../CustomSelect/index.js';
 import { OutputStylePicker } from '../OutputStylePicker.js';
 import { LanguagePicker } from '../LanguagePicker.js';
-import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes } from 'src/utils/claudemd.js';
+import { getExternalClaudeMdIncludes, getMemoryFiles, hasExternalClaudeMdIncludes, type MemoryFileInfo } from 'src/utils/claudemd.js';
 import { KeyboardShortcutHint } from '../design-system/KeyboardShortcutHint.js';
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js';
 import { Byline } from '../design-system/Byline.js';
@@ -48,6 +50,7 @@ import { useSearchInput } from '../../hooks/useSearchInput.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
 import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeEnabled, getFastModeModel, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
+import { getDefaultPermissionModeOptions } from '../../utils/permissions/defaultPermissionModeOptions.js';
 type Props = {
   onClose: (result?: string, options?: {
     display?: CommandResultDisplay;
@@ -81,7 +84,7 @@ type Setting = (SettingBase & {
   onChange(value: string): void;
   type: 'managedEnum';
 });
-type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
 export function Config({
   onClose,
   context,
@@ -197,8 +200,17 @@ export function Config({
   }, [ownsEsc, onIsSearchModeChange]);
   const isConnectedToIde = hasAccessToIDEExtensionDiffFeature(context.options.mcpClients);
   const isFileCheckpointingAvailable = !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING);
-  const memoryFiles = React.use(getMemoryFiles(true));
-  const shouldShowExternalIncludesToggle = hasExternalClaudeMdIncludes(memoryFiles);
+  const memoryFiles = React.use(getMemoryFiles(true)) as MemoryFileInfo[];
+  function getPendingExternalIncludesScope(): 'User' | 'Project' | null {
+    const cfg = getCurrentProjectConfig();
+    // Project/Local first (mirrors startup priority in shouldShowClaudeMdExternalIncludesWarning)
+    if (!cfg.hasClaudeMdExternalIncludesApproved && !cfg.hasClaudeMdExternalIncludesWarningShown && hasExternalClaudeMdIncludes(memoryFiles, ['Project', 'Local'])) return 'Project';
+    // User second
+    if (!cfg.hasClaudeMdExternalIncludesApprovedForUser && !cfg.hasClaudeMdExternalIncludesWarningShownForUser && hasExternalClaudeMdIncludes(memoryFiles, ['User'])) return 'User';
+    return null;
+  }
+  const pendingScope = getPendingExternalIncludesScope();
+  const shouldShowExternalIncludesToggle = pendingScope !== null;
   const autoUpdaterDisabledReason = getAutoUpdaterDisabledReason();
   function onChangeMainModelConfig(value: string | null): void {
     const previousModel = mainLoopModel;
@@ -282,6 +294,72 @@ export function Config({
       });
     }
   }, {
+    id: 'maxMessagesCompactionThreshold',
+    label: 'Message-count compaction',
+    value: normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold),
+    options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
+    type: 'enum' as const,
+    onChange(maxMessagesCompactionThreshold: string) {
+      const normalizedThreshold = normalizeMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold);
+      saveGlobalConfig(current => ({
+        ...current,
+        maxMessagesCompactionThreshold: normalizedThreshold
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        maxMessagesCompactionThreshold: normalizedThreshold
+      });
+      logEvent('tengu_max_messages_compaction_threshold_changed', {
+        threshold: normalizedThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
+    id: 'compactTailTurns',
+    label: 'Compaction: recent messages kept',
+    // Display and persist through the SAME normalization autoCompact applies,
+    // so a hand-edited 2.5 or 0 shows (and saves) as what actually runs.
+    value: String(normalizeCompactTailTurns(globalConfig.compactTailTurns)),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set(['2', '3', '5', '8', String(normalizeCompactTailTurns(globalConfig.compactTailTurns))])],
+    type: 'enum' as const,
+    onChange(compactTailTurnsValue: string) {
+      const compactTailTurns = normalizeCompactTailTurns(compactTailTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        compactTailTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        compactTailTurns
+      });
+      logEvent('tengu_compact_tail_turns_changed', {
+        value: compactTailTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
+    id: 'replMaxTurns',
+    label: 'Max turns (interactive)',
+    // Display/persist the saved preference (normalized). Effective runtime cap
+    // may still be overridden by CLI `--max-turns` or OPENCLAUDE_MAX_TURNS.
+    value: String(normalizeReplMaxTurns(globalConfig.replMaxTurns)),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set([...REPL_MAX_TURNS_OPTIONS.map(String), String(normalizeReplMaxTurns(globalConfig.replMaxTurns))])],
+    type: 'enum' as const,
+    onChange(replMaxTurnsValue: string) {
+      const replMaxTurns = normalizeReplMaxTurns(replMaxTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        replMaxTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        replMaxTurns
+      });
+      logEvent('tengu_repl_max_turns_changed', {
+        value: replMaxTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
     id: 'toolHistoryCompressionEnabled',
     label: 'Tool history compression',
     value: globalConfig.toolHistoryCompressionEnabled,
@@ -299,7 +377,32 @@ export function Config({
         enabled: toolHistoryCompressionEnabled
       });
     }
-  }, {
+  }, ...(feature('CONTEXT_COLLAPSE') ? [{
+    id: 'contextCollapseEnabled',
+    label: 'Context collapse (lossy)',
+    value: globalConfig.contextCollapseEnabled,
+    type: 'boolean' as const,
+    onChange(contextCollapseEnabled: boolean) {
+      saveGlobalConfig(current_cc => ({
+        ...current_cc,
+        contextCollapseEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        contextCollapseEnabled
+      });
+      // Refresh runtime state so the toggle applies without a restart:
+      // initContextCollapse re-reads env + this config key.
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state: ${error}`);
+      }
+      logEvent('tengu_context_collapse_setting_changed', {
+        enabled: contextCollapseEnabled
+      });
+    }
+  }] : []), {
     id: 'showCacheStats',
     label: 'Cache stats display',
     value: globalConfig.showCacheStats,
@@ -429,29 +532,7 @@ export function Config({
       });
     }
   }] : []),
-  // Speculation toggle (internal-only)
-  ...("external" === 'ant' ? [{
-    id: 'speculationEnabled',
-    label: 'Speculative execution',
-    value: globalConfig.speculationEnabled ?? true,
-    type: 'boolean' as const,
-    onChange(enabled_2: boolean) {
-      saveGlobalConfig(current_1 => {
-        if (current_1.speculationEnabled === enabled_2) return current_1;
-        return {
-          ...current_1,
-          speculationEnabled: enabled_2
-        };
-      });
-      setGlobalConfig({
-        ...getGlobalConfig(),
-        speculationEnabled: enabled_2
-      });
-      logEvent('tengu_speculation_setting_changed', {
-        enabled: enabled_2
-      });
-    }
-  }] : []), ...(isFileCheckpointingAvailable ? [{
+  ...(isFileCheckpointingAvailable ? [{
     id: 'fileCheckpointingEnabled',
     label: 'Rewind code (checkpoints)',
     value: globalConfig.fileCheckpointingEnabled,
@@ -491,6 +572,24 @@ export function Config({
       });
       logEvent('tengu_terminal_progress_bar_setting_changed', {
         enabled: terminalProgressBarEnabled
+      });
+    }
+  }, {
+    id: 'defaultStatusLineEnabled',
+    label: 'Default status line',
+    value: globalConfig.defaultStatusLineEnabled ?? true,
+    type: 'boolean' as const,
+    onChange(defaultStatusLineEnabled: boolean) {
+      saveGlobalConfig(current => ({
+        ...current,
+        defaultStatusLineEnabled
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        defaultStatusLineEnabled
+      });
+      logEvent('tengu_default_status_line_setting_changed', {
+        enabled: defaultStatusLineEnabled
       });
     }
   }, ...(getFeatureValue_CACHED_MAY_BE_STALE('tengu_terminal_sidebar', false) ? [{
@@ -533,15 +632,7 @@ export function Config({
     id: 'defaultPermissionMode',
     label: 'Default permission mode',
     value: settingsData?.permissions?.defaultMode || 'default',
-    options: (() => {
-      const priorityOrder: PermissionMode[] = ['default', 'plan'];
-      const allModes: readonly PermissionMode[] = feature('TRANSCRIPT_CLASSIFIER') ? PERMISSION_MODES : EXTERNAL_PERMISSION_MODES;
-      const excluded: PermissionMode[] = ['bypassPermissions'];
-      if (feature('TRANSCRIPT_CLASSIFIER') && !showAutoInDefaultModePicker) {
-        excluded.push('auto');
-      }
-      return [...priorityOrder, ...allModes.filter(m => !priorityOrder.includes(m) && !excluded.includes(m))];
-    })(),
+    options: getDefaultPermissionModeOptions(showAutoInDefaultModePicker),
     type: 'enum' as const,
     onChange(mode: string) {
       const parsedMode = permissionModeFromString(mode);
@@ -870,6 +961,12 @@ export function Config({
     value: mainLoopModel === null ? 'Default (recommended)' : mainLoopModel,
     type: 'managedEnum' as const,
     onChange: onChangeMainModelConfig
+  }, {
+    id: 'compactModel',
+    label: 'Compaction model',
+    value: compactModelDisplayString(globalConfig.compactModel),
+    type: 'managedEnum' as const,
+    onChange() {}
   }, ...(isConnectedToIde ? [{
     id: 'diffTool',
     label: 'Diff tool',
@@ -1030,20 +1127,16 @@ export function Config({
         };
       });
     }
-  }] : []), ...(shouldShowExternalIncludesToggle ? [{
+  }] : []),   ...(shouldShowExternalIncludesToggle ? [{
     id: 'showExternalIncludesDialog',
-    label: 'External CLAUDE.md includes',
+    label: pendingScope === 'User' ? 'User CLAUDE.md external includes' : 'External CLAUDE.md includes',
     value: (() => {
-      const projectConfig = getCurrentProjectConfig();
-      if (projectConfig.hasClaudeMdExternalIncludesApproved) {
-        return 'true';
-      } else {
-        return 'false';
-      }
+      const cfg = getCurrentProjectConfig();
+      return cfg[pendingScope === 'User' ? 'hasClaudeMdExternalIncludesApprovedForUser' : 'hasClaudeMdExternalIncludesApproved'] ? 'true' : 'false';
     })(),
     type: 'managedEnum' as const,
     onChange() {
-      // Will be handled by toggleSetting function
+      // Handled by toggleSetting -> setShowSubmenu('ExternalIncludes')
     }
   }] : []), ...(process.env.ANTHROPIC_API_KEY && !isRunningOnHomespace() ? [{
     id: 'apiKey',
@@ -1196,8 +1289,21 @@ export function Config({
     if (globalConfig.autoCompactEnabled !== initialConfig.current.autoCompactEnabled) {
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
     }
+    if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
+      const threshold = normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold);
+      formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
+    }
+    if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
+      formattedChanges.push(`Set compaction recent messages kept to ${normalizeCompactTailTurns(globalConfig.compactTailTurns)}`);
+    }
+    if (globalConfig.replMaxTurns !== initialConfig.current.replMaxTurns) {
+      formattedChanges.push(`Set interactive max turns to ${normalizeReplMaxTurns(globalConfig.replMaxTurns)}`);
+    }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);
+    }
+    if (feature('CONTEXT_COLLAPSE') && globalConfig.contextCollapseEnabled !== initialConfig.current.contextCollapseEnabled) {
+      formattedChanges.push(`${globalConfig.contextCollapseEnabled ? 'Enabled' : 'Disabled'} context collapse (lossy)`);
     }
     if (globalConfig.respectGitignore !== initialConfig.current.respectGitignore) {
       formattedChanges.push(`${globalConfig.respectGitignore ? 'Enabled' : 'Disabled'} respect .gitignore in file picker`);
@@ -1210,6 +1316,9 @@ export function Config({
     }
     if (globalConfig.terminalProgressBarEnabled !== initialConfig.current.terminalProgressBarEnabled) {
       formattedChanges.push(`${globalConfig.terminalProgressBarEnabled ? 'Enabled' : 'Disabled'} terminal progress bar`);
+    }
+    if (globalConfig.defaultStatusLineEnabled !== initialConfig.current.defaultStatusLineEnabled) {
+      formattedChanges.push(`${globalConfig.defaultStatusLineEnabled ?? true ? 'Enabled' : 'Disabled'} default status line`);
     }
     if (globalConfig.showStatusInTerminalTab !== initialConfig.current.showStatusInTerminalTab) {
       formattedChanges.push(`${globalConfig.showStatusInTerminalTab ? 'Enabled' : 'Disabled'} terminal tab status`);
@@ -1247,6 +1356,17 @@ export function Config({
     // the returned ref equals current (test mode checks ref; prod writes to
     // disk but content is identical).
     saveGlobalConfig(() => initialConfig.current);
+    // Context collapse: the toggle's onChange calls initContextCollapse() to
+    // refresh the module-level enabled/armed cache. The global config restore
+    // above rewrites the key on disk but doesn't touch that cache, so re-init
+    // here to keep runtime state in sync with the reverted config.
+    if (feature('CONTEXT_COLLAPSE')) {
+      try {
+        (require('../../services/contextCollapse/index.js') as typeof import('../../services/contextCollapse/index.js')).initContextCollapse();
+      } catch (error) {
+        logError(`Failed to refresh context collapse state on cancel: ${error}`);
+      }
+    }
     // Settings files: restore each key Config may have touched. undefined
     // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;
@@ -1357,7 +1477,7 @@ export function Config({
       }
       return;
     }
-    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language') {
+    if (setting_0.id === 'theme' || setting_0.id === 'model' || setting_0.id === 'compactModel' || setting_0.id === 'teammateDefaultModel' || setting_0.id === 'showExternalIncludesDialog' || setting_0.id === 'outputStyle' || setting_0.id === 'language') {
       // managedEnum items open a submenu — isDirty is set by the submenu's
       // completion callback, not here (submenu may be cancelled).
       switch (setting_0.id) {
@@ -1367,6 +1487,10 @@ export function Config({
           return;
         case 'model':
           setShowSubmenu('Model');
+          setTabsHidden(true);
+          return;
+        case 'compactModel':
+          setShowSubmenu('CompactModel');
           setTabsHidden(true);
           return;
         case 'teammateDefaultModel':
@@ -1578,11 +1702,50 @@ export function Config({
               <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
             </Byline>
           </Text>
-        </> : showSubmenu === 'ExternalIncludes' ? <>
+        </> : showSubmenu === 'CompactModel' ? <>
+          <ModelPicker initial={globalConfig.compactModel ?? null} skipSettingsWrite headerText="Model used for conversation compaction. Defaults to the main model when unset." onSelect={(model_2, _effort_1) => {
+        setShowSubmenu(null);
+        setTabsHidden(false);
+        if ((globalConfig.compactModel ?? null) === model_2) {
+          return;
+        }
+        isDirty.current = true;
+        saveGlobalConfig(current_24 => {
+          if (model_2 === null) {
+            const {
+              compactModel,
+              ...rest
+            } = current_24;
+            return rest;
+          }
+          return {
+            ...current_24,
+            compactModel: model_2
+          };
+        });
+        setGlobalConfig(getGlobalConfig());
+        setChanges(prev_26 => ({
+          ...prev_26,
+          compactModel: compactModelDisplayString(model_2 ?? undefined)
+        }));
+        logEvent('tengu_compact_model_changed', {
+          model: model_2 as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+        });
+      }} onCancel={() => {
+        setShowSubmenu(null);
+        setTabsHidden(false);
+      }} />
+          <Text dimColor>
+            <Byline>
+              <KeyboardShortcutHint shortcut="Enter" action="confirm" />
+              <ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="cancel" />
+            </Byline>
+          </Text>
+        </> : showSubmenu === 'ExternalIncludes' && pendingScope ? <>
           <ClaudeMdExternalIncludesDialog onDone={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
-      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles)} />
+      }} externalIncludes={getExternalClaudeMdIncludes(memoryFiles, pendingScope === 'User' ? ['User'] : ['Project', 'Local'])} scope={pendingScope} />
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />
@@ -1746,7 +1909,7 @@ export function Config({
                                 {THEME_LABELS[setting_2.value.toString()] ?? setting_2.value.toString()}
                               </Text> : setting_2.id === 'notifChannel' ? <Text color={isSelected ? 'suggestion' : undefined}>
                                 <NotifChannelLabel value={setting_2.value.toString()} />
-                              </Text> : setting_2.id === 'defaultPermissionMode' ? <Text color={isSelected ? 'suggestion' : undefined}>
+                              </Text> : setting_2.id === 'defaultPermissionMode' ? <Text color={setting_2.value === 'fullAccess' ? getModeColor('fullAccess') : isSelected ? 'suggestion' : undefined}>
                                 {permissionModeTitle(setting_2.value as PermissionMode)}
                               </Text> : setting_2.id === 'autoUpdatesChannel' && autoUpdaterDisabledReason ? <Box flexDirection="column">
                                 <Text color={isSelected ? 'suggestion' : undefined}>
@@ -1800,6 +1963,10 @@ function teammateModelDisplayString(value: string | null | undefined): string {
     return modelDisplayString(getHardcodedTeammateModelFallback());
   }
   if (value === null) return "Default (leader's model)";
+  return modelDisplayString(value);
+}
+function compactModelDisplayString(value: string | undefined): string {
+  if (value === undefined) return 'Default (main model)';
   return modelDisplayString(value);
 }
 const THEME_LABELS: Record<string, string> = {

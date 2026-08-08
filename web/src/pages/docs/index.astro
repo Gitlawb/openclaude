@@ -1,0 +1,46 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro'
+import { docsNav } from '../../data/docsNav'
+import { SITE } from '../../data/site'
+
+const toc = [
+  { id: 'what-is-openclaude', label: 'what is openclaude' },
+  { id: 'sections', label: 'documentation sections' },
+]
+---
+
+<DocsLayout
+  title="openclaude documentation — CLI guides & reference"
+  description="Documentation for the openclaude CLI: installation, quickstart, provider setup, slash commands, CLI flags, configuration, and keybindings."
+  heading="openclaude documentation"
+  lede="Everything you need to install the agent, wire up a model provider, and drive it from your terminal."
+  toc={toc}
+>
+  <h2 id="what-is-openclaude">what is openclaude</h2>
+  <p>
+    openclaude is an open-source coding agent that runs in your terminal. It reads and edits
+    files, runs shell commands, searches your codebase, and talks to MCP servers — against
+    any model backend you choose: OpenAI-compatible APIs, Google Gemini, GitHub Models,
+    local Ollama, gateways like OpenRouter and LiteLLM, and more.
+  </p>
+  <p>
+    It is maintained by <a href={SITE.gitlawb} rel="noopener">gitlawb</a> and developed in
+    the open on <a href={SITE.github} rel="noopener">GitHub</a> (with a mirror on the
+    <a href={SITE.gitlawbRepo} rel="noopener">gitlawb network</a>).
+  </p>
+  <pre><code>{SITE.installCommand}</code></pre>
+
+  <h2 id="sections">documentation sections</h2>
+  {docsNav.map(group => (
+    <>
+      <h3 id={group.group.replace(/\s+/g, '-')}>{group.group}</h3>
+      <ul>
+        {group.items
+          .filter(item => item.href !== '/docs/')
+          .map(item => (
+            <li><a href={item.href}>{item.title}</a></li>
+          ))}
+      </ul>
+    </>
+  ))}
+</DocsLayout>

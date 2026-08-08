@@ -100,10 +100,11 @@ const pollIntervalConfigSchema = lazySchema(() =>
  * can tune both poll rates fleet-wide with a single config push.
  */
 export function getPollIntervalConfig(): PollIntervalConfig {
+  // Note: the open-source flag shim resolves from the local feature-flags
+  // file and takes no refresh-window argument.
   const raw = getFeatureValue_CACHED_WITH_REFRESH<unknown>(
     'tengu_bridge_poll_interval_config',
     DEFAULT_POLL_CONFIG,
-    5 * 60 * 1000,
   )
   const parsed = pollIntervalConfigSchema().safeParse(raw)
   return parsed.success ? parsed.data : DEFAULT_POLL_CONFIG

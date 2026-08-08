@@ -1,0 +1,44 @@
+---
+import '@fontsource-variable/geist-mono'
+import '../styles/global.css'
+import Head from '../components/Head.astro'
+import Nav from '../components/Nav.astro'
+import Footer from '../components/Footer.astro'
+
+interface Props {
+  title: string
+  description: string
+  ogImage?: string
+  type?: 'website' | 'article'
+  jsonLd?: object[]
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <script is:inline>
+      // Theme bootstrap — runs before paint to prevent flash. Dark is default.
+      ;(function () {
+        try {
+          var t = localStorage.getItem('oc-theme')
+          if (t === 'light') {
+            document.documentElement.dataset.theme = 'light'
+            document.documentElement.style.colorScheme = 'light'
+          }
+        } catch (e) {
+          /* storage unavailable — stay dark */
+        }
+      })()
+    </script>
+    <Head {...Astro.props} />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">skip to content</a>
+    <Nav />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

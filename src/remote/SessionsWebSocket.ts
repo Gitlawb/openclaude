@@ -210,13 +210,17 @@ export class SessionsWebSocket {
   private handleMessage(data: string): void {
     try {
       const message: unknown = jsonParse(data)
+      const messageType =
+        typeof message === 'object' && message !== null && 'type' in message
+          ? String(message.type)
+          : 'unknown'
 
       // Forward SDK messages to callback
       if (isSessionsMessage(message)) {
         this.callbacks.onMessage(message)
       } else {
         logForDebugging(
-          `[SessionsWebSocket] Ignoring message type: ${typeof message === 'object' && message !== null && 'type' in message ? String(message.type) : 'unknown'}`,
+          `[SessionsWebSocket] Ignoring message type: ${messageType}`,
         )
       }
     } catch (error) {

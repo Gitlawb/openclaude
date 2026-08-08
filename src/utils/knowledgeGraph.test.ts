@@ -152,16 +152,16 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
 
     it('rebuilds Orama from JSON if persistence is missing', async () => {
       const oramaPath = join(getProjectsDir(), sanitizePath(cwd), 'knowledge.orama')
-      
+
       // 1. Add data via standard hybrid path
       await addGlobalEntity('type', 'rebuild-test', { status: 'ok' })
       expect(existsSync(oramaPath)).toBe(true)
-      
+
       // 2. Kill memory and delete Orama file, but keep JSON
       clearMemoryOnly()
       rmSync(oramaPath)
       expect(existsSync(oramaPath)).toBe(false)
-      
+
       // 3. Search should trigger self-healing rebuild from JSON
       const result = await searchGlobalGraph('rebuild-test')
       expect(result).toContain('ORAMA RAG')
@@ -173,7 +173,7 @@ describe('KnowledgeGraph Global Persistence & RAG', () => {
       const { addGlobalRule } = await import('./knowledgeGraph.js')
       resetGlobalGraph()
       await addGlobalRule('Always use TypeScript.')
-      
+
       const result = await searchGlobalGraph('definitely-no-memory-matches')
       expect(result).toBe('')
     })

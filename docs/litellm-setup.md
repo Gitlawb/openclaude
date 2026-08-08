@@ -45,6 +45,8 @@ model_list:
     litellm_params:
       model: together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo
       api_key: os.environ/TOGETHER_API_KEY
+    model_info:
+      context_length: 131072
 ```
 
 ### Run the proxy
@@ -128,8 +130,33 @@ openclaude
 
 - `OPENAI_MODEL` must match the **LiteLLM model alias** defined in your config, not the upstream raw provider model name.
 - If your proxy requires authentication, use the proxy key (or `master_key`) in `OPENAI_API_KEY`.
-- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so OpenClaude works without any code changes.
+- LiteLLM's OpenAI-compatible endpoint accepts the same request format as OpenAI, so OpenClaude works without custom request shaping.
+- OpenClaude discovers LiteLLM model context from `/v1/models` when LiteLLM exposes `context_length`, `context_window`, `max_model_len`, or `max_input_tokens`, including under `model_info`.
 - You can switch between any provider configured in LiteLLM by simply changing the `OPENAI_MODEL` value — no need to reconfigure OpenClaude.
+
+### Context window detection
+
+For custom LiteLLM aliases, add context metadata to each model entry when the
+upstream model supports a larger window than OpenClaude's fallback:
+
+```yaml
+model_list:
+  - model_name: long-context-model
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: os.environ/OPENAI_API_KEY
+    model_info:
+      context_length: 1000000
+      max_input_tokens: 1000000
+```
+
+After startup discovery, `/context` uses this value for context budgeting. If
+your proxy does not expose context metadata from `/v1/models`, set an explicit
+override before launching:
+
+```bash
+export CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS='{"long-context-model":1000000}'
+```
 
 ## 5. Troubleshooting
 
@@ -138,6 +165,7 @@ openclaude
 | 404 or Model Not Found | Model alias doesn't exist in LiteLLM config | Verify the `model_name` in `litellm_config.yaml` matches `OPENAI_MODEL` |
 | Connection Refused | LiteLLM proxy isn't running | Start the proxy with `litellm --config litellm_config.yaml --port 4000` |
 | Auth Failed | Missing or wrong `master_key` | Set the correct key in `OPENAI_API_KEY` |
+| `/context` shows 128K for a larger model | LiteLLM is not exposing context metadata for the alias, or startup discovery has not refreshed | Add `model_info.context_length` or `model_info.max_input_tokens` to the LiteLLM config, restart the proxy, then restart OpenClaude; use `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` as an explicit override if needed |
 | Upstream provider error | The backend provider key is missing or invalid | Ensure the upstream API key (e.g., `OPENAI_API_KEY`) is set in your LiteLLM proxy process environment |
 | Tools fail but chat works | The selected model has weak function/tool calling support | Switch to a model with strong tool support (e.g., GPT-4o, Claude Sonnet) |
 

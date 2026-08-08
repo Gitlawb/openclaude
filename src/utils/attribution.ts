@@ -6,8 +6,8 @@ import { isEnvTruthy } from './envUtils.js'
 import { TERMINAL_OUTPUT_TAGS } from '../constants/xml.js'
 import type { AppState } from '../state/AppState.js'
 import { FILE_EDIT_TOOL_NAME } from '../tools/FileEditTool/constants.js'
-import { FILE_READ_TOOL_NAME } from '../tools/FileReadTool/prompt.js'
-import { FILE_WRITE_TOOL_NAME } from '../tools/FileWriteTool/prompt.js'
+import { FILE_READ_TOOL_NAME } from '../tools/FileReadTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '../tools/FileWriteTool/constants.js'
 import { GLOB_TOOL_NAME } from '../tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from '../tools/GrepTool/prompt.js'
 import type { Entry } from '../types/logs.js'
@@ -22,6 +22,11 @@ import { logForDebugging } from './debug.js'
 import { parseJSONL } from './json.js'
 import { logError } from './log.js'
 import { getAPIProvider } from './model/providers.js'
+import {
+  getGitAttributionOptIns,
+  isGeneratedCommitAttributionBlocked,
+  isGeneratedPrAttributionBlocked,
+} from './governancePolicy.js'
 import {
   getCanonicalName,
   getMainLoopModel,
@@ -89,7 +94,7 @@ export function getDefaultCommitCoAuthorName({
   // actual configured model instead of claiming Claude Opus.
   if (apiProvider === 'firstParty') {
     // @[MODEL LAUNCH]: Update this fallback when the default public Claude model changes.
-    return 'Claude Opus 4.6'
+    return 'Claude Opus 4.8'
   }
 
   const sanitizedModel = sanitizeCoAuthorNamePart(model)
@@ -137,7 +142,15 @@ export function getAttributionTexts(): AttributionTexts {
     }
   }
 
-  if (settings.includeCoAuthoredBy !== true) {
+  const optIns = getGitAttributionOptIns()
+  const includeGeneratedCommit =
+    (settings.includeCoAuthoredBy === true || optIns.addAICoAuthor) &&
+    !isGeneratedCommitAttributionBlocked()
+  const includeGeneratedPr =
+    (settings.includeCoAuthoredBy === true || optIns.addGeneratedWithFooter) &&
+    !isGeneratedPrAttributionBlocked()
+
+  if (!includeGeneratedCommit && !includeGeneratedPr) {
     return { commit: '', pr: '' }
   }
 
@@ -157,7 +170,10 @@ export function getAttributionTexts(): AttributionTexts {
     ? ''
     : `Co-Authored-By: ${modelName} <${coAuthorEmail}>`
 
-  return { commit: defaultCommit, pr: DEFAULT_PR_ATTRIBUTION }
+  return {
+    commit: includeGeneratedCommit ? defaultCommit : '',
+    pr: includeGeneratedPr ? DEFAULT_PR_ATTRIBUTION : '',
+  }
 }
 
 /**
@@ -387,9 +403,14 @@ export async function getEnhancedPRAttribution(
     return ''
   }
 
-  // Backward compatibility: deprecated includeCoAuthoredBy setting is now an
-  // explicit opt-in for the old generated attribution behavior.
-  if (settings.includeCoAuthoredBy !== true) {
+  const optIns = getGitAttributionOptIns()
+  const includeGeneratedPr =
+    (settings.includeCoAuthoredBy === true || optIns.addGeneratedWithFooter) &&
+    !isGeneratedPrAttributionBlocked()
+
+  // Backward compatibility: deprecated includeCoAuthoredBy remains an explicit
+  // opt-in, and git.addGeneratedWithFooter is the new generated-PR opt-in.
+  if (!includeGeneratedPr) {
     return ''
   }
 

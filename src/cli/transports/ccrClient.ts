@@ -95,6 +95,17 @@ type CoalescedStreamEvent = {
   }
 }
 
+type MessageStartEventPayload = EventPayload & {
+  type: 'message_start'
+  message: { id: string }
+}
+
+type TextDeltaEventPayload = EventPayload & {
+  type: 'content_block_delta'
+  index: number
+  delta: { type: 'text_delta'; text: string }
+}
+
 /**
  * Accumulator state for text_delta coalescing. Keyed by API message ID so
  * lifetime is tied to the assistant message — cleared when the complete
@@ -124,6 +135,36 @@ function scopeKey(m: {
   return `${m.session_id}:${m.parent_tool_use_id ?? ''}`
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function toEventPayload(event: Record<string, unknown>): EventPayload | null {
+  return typeof event.type === 'string' ? (event as EventPayload) : null
+}
+
+function isMessageStartEventPayload(
+  event: EventPayload,
+): event is MessageStartEventPayload {
+  return (
+    event.type === 'message_start' &&
+    isRecord(event.message) &&
+    typeof event.message.id === 'string'
+  )
+}
+
+function isTextDeltaEventPayload(
+  event: EventPayload,
+): event is TextDeltaEventPayload {
+  return (
+    event.type === 'content_block_delta' &&
+    typeof event.index === 'number' &&
+    isRecord(event.delta) &&
+    event.delta.type === 'text_delta' &&
+    typeof event.delta.text === 'string'
+  )
+}
+
 /**
  * Accumulate text_delta stream_events into full-so-far snapshots per content
  * block. Each flush emits ONE event per touched block containing the FULL
@@ -148,9 +189,24 @@ export function accumulateStreamEvents(
   // rewrite the same entry instead of emitting one event per delta.
   const touched = new Map<string[], CoalescedStreamEvent>()
   for (const msg of buffer) {
-    switch (msg.event.type) {
+    if (!isRecord(msg.event)) {
+      out.push(msg)
+      continue
+    }
+
+    const event = toEventPayload(msg.event)
+    if (!event) {
+      out.push(msg)
+      continue
+    }
+
+    switch (event.type) {
       case 'message_start': {
-        const id = msg.event.message.id
+        if (!isMessageStartEventPayload(event)) {
+          out.push(msg)
+          break
+        }
+        const id = event.message.id
         const prevId = state.scopeToMessage.get(scopeKey(msg))
         if (prevId) state.byMessage.delete(prevId)
         state.scopeToMessage.set(scopeKey(msg), id)
@@ -159,7 +215,7 @@ export function accumulateStreamEvents(
         break
       }
       case 'content_block_delta': {
-        if (msg.event.delta.type !== 'text_delta') {
+        if (!isTextDeltaEventPayload(event)) {
           out.push(msg)
           break
         }
@@ -173,8 +229,8 @@ export function accumulateStreamEvents(
           out.push(msg)
           break
         }
-        const chunks = (blocks[msg.event.index] ??= [])
-        chunks.push(msg.event.delta.text)
+        const chunks = (blocks[event.index] ??= [])
+        chunks.push(event.delta.text)
         const existing = touched.get(chunks)
         if (existing) {
           existing.event.delta.text = chunks.join('')
@@ -187,7 +243,7 @@ export function accumulateStreamEvents(
           parent_tool_use_id: msg.parent_tool_use_id,
           event: {
             type: 'content_block_delta',
-            index: msg.event.index,
+            index: event.index,
             delta: { type: 'text_delta', text: chunks.join('') },
           },
         }
@@ -979,7 +1035,7 @@ export class CCRClient {
   }
 
   /** Clean up uploaders and timers. */
-  close(): void {
+  async close(): Promise<void> {
     this.closed = true
     this.stopHeartbeat()
     unregisterSessionActivityCallback()

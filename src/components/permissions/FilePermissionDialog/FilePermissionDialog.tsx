@@ -11,9 +11,10 @@ import type { CompletionType } from '../../../utils/unaryLogging.js';
 import { Select } from '../../CustomSelect/index.js';
 import { ShowInIDEPrompt } from '../../ShowInIDEPrompt.js';
 import { usePermissionRequestLogging } from '../hooks.js';
-import { PermissionDialog } from '../PermissionDialog.js';
+import { PermissionScaffold } from '../PermissionScaffold.js';
 import type { ToolUseConfirm } from '../PermissionRequest.js';
 import type { WorkerBadgeProps } from '../WorkerBadge.js';
+import { useDangerousModeConfirmation } from '../useDangerousModeConfirmation.js';
 import type { IDEDiffSupport } from './ideDiffConfig.js';
 import type { FileOperationType, PermissionOption } from './permissionOptions.js';
 import { type ToolInput, useFilePermissionDialog } from './useFilePermissionDialog.js';
@@ -152,10 +153,23 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
     showingDiffInIDE,
     ideName
   } = useDiffInIDE(diffParams);
+  const {
+    confirmDangerousMode,
+    dangerousModeDialog
+  } = useDangerousModeConfirmation();
   const onChange = (option_0: PermissionOption, feedback?: string) => {
     closeTabInIDE?.();
+    if (option_0.type === 'accept-full-access') {
+      confirmDangerousMode('fullAccess', () => {
+        fileDialogResult.onChange(option_0, parsedInput, feedback?.trim());
+      });
+      return;
+    }
     fileDialogResult.onChange(option_0, parsedInput, feedback?.trim());
   };
+  if (dangerousModeDialog) {
+    return dangerousModeDialog;
+  }
   if (showingDiffInIDE && ideDiffConfig && path) {
     return <ShowInIDEPrompt onChange={(option_1: PermissionOption, _input, feedback_0?: string) => onChange(option_1, feedback_0)} options={options} filePath={path} input={parsedInput} ideName={ideName} symlinkTarget={symlinkTarget} rejectFeedback={rejectFeedback} acceptFeedback={acceptFeedback} setFocusedOption={setFocusedOption} onInputModeToggle={handleInputModeToggle} focusedOption={focusedOption} yesInputMode={yesInputMode} noInputMode={noInputMode} />;
   }
@@ -166,7 +180,7 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
       </Text>
     </Box> : null;
   return <>
-      <PermissionDialog title={title} subtitle={subtitle} innerPaddingX={0} workerBadge={workerBadge}>
+      <PermissionScaffold title={title} subtitle={subtitle} innerPaddingX={0} workerBadge={workerBadge} permissionResult={toolUseConfirm.permissionResult} toolType={operationType === 'read' ? 'read' : 'edit'}>
         {symlinkWarning}
         {content}
         <Box flexDirection="column" paddingX={1}>
@@ -176,7 +190,10 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
           if (selected) {
             // For reject option
             if (selected.option.type === 'reject') {
-              const trimmedFeedback = rejectFeedback.trim();
+              const trimmedFeedback = selected.option.withReason || noInputMode ? rejectFeedback.trim() : '';
+              if (selected.option.withReason && !trimmedFeedback) {
+                return;
+              }
               onChange(selected.option, trimmedFeedback || undefined);
               return;
             }
@@ -190,9 +207,15 @@ export function FilePermissionDialog<T extends ToolInput = ToolInput>({
           }
         }} onCancel={() => onChange({
           type: 'reject'
-        })} onFocus={value_0 => setFocusedOption(value_0)} onInputModeToggle={handleInputModeToggle} />
+        })} onFocus={value_0 => setFocusedOption(value_0)} onInputModeToggle={handleInputModeToggle} onEmptyInputSubmit={value_1 => {
+          if (value_1 !== 'no-with-reason') {
+            onChange({
+              type: 'reject'
+            });
+          }
+        }} />
         </Box>
-      </PermissionDialog>
+      </PermissionScaffold>
       <Box paddingX={1} marginTop={1}>
         <Text dimColor>
           Esc to cancel

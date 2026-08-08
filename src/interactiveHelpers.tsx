@@ -3,7 +3,7 @@ import { appendFileSync } from 'fs';
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { gracefulShutdown, gracefulShutdownSync } from 'src/utils/gracefulShutdown.js';
-import { type ChannelEntry, getAllowedChannels, setAllowedChannels, setHasDevChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
+import { type ChannelEntry, getAllowedChannels, setSessionTrustAccepted, setStatsStore } from './bootstrap/state.js';
 import type { Command } from './commands.js';
 import { createStatsStore, type StatsStore } from './context/stats.js';
 import { getSystemContext } from './context.js';
@@ -20,16 +20,19 @@ import { onChangeAppState } from './state/onChangeAppState.js';
 import { normalizeApiKeyForConfig } from './utils/authPortable.js';
 import { getExternalClaudeMdIncludes, getMemoryFiles, shouldShowClaudeMdExternalIncludesWarning } from './utils/claudemd.js';
 import { checkHasTrustDialogAccepted, getCustomApiKeyStatus, getGlobalConfig, saveGlobalConfig } from './utils/config.js';
+import { getRequiredSetupScreens } from './utils/setupScreenGates.js';
 import { updateDeepLinkTerminalPreference } from './utils/deepLink/terminalPreference.js';
 import { isEnvTruthy, isRunningOnHomespace } from './utils/envUtils.js';
 import { type FpsMetrics, FpsTracker } from './utils/fpsTracker.js';
 import { updateGithubRepoPathMapping } from './utils/githubRepoPathMapping.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { usesAnthropicAccountFlow } from './utils/model/providers.js';
+import { showDangerousModePromptIfNeeded } from './utils/permissions/dangerousModePromptFlow.js';
 import type { PermissionMode } from './utils/permissions/PermissionMode.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
+import { registerDevChannels } from './utils/devChannelRegistration.js';
 import { getSettingsWithAllErrors } from './utils/settings/allErrors.js';
-import { hasAutoModeOptIn, hasSkipDangerousModePermissionPrompt } from './utils/settings/settings.js';
+import { hasAutoModeOptIn } from './utils/settings/settings.js';
 export function completeOnboarding(): void {
   saveGlobalConfig(current => ({
     ...current,
@@ -103,7 +106,7 @@ export async function renderAndRun(root: Root, element: React.ReactNode): Promis
   await gracefulShutdown(0);
 }
 export async function showSetupScreens(root: Root, permissionMode: PermissionMode, allowDangerouslySkipPermissions: boolean, commands?: Command[], claudeInChrome?: boolean, devChannels?: ChannelEntry[]): Promise<boolean> {
-  if ("production" === 'test' || isEnvTruthy(false) || process.env.IS_DEMO // Skip onboarding in demo mode
+  if (process.env.NODE_ENV === 'test' || isEnvTruthy(false) || process.env.IS_DEMO // Skip onboarding in demo mode
   ) {
     return false;
   }
@@ -112,9 +115,20 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   const config = getGlobalConfig();
   let onboardingShown = false;
 
-  // Skip onboarding dialog for third-party providers (no Anthropic account needed)
-  if (usesAnthropicSetup && (!config.theme || !config.hasCompletedOnboarding) // always show onboarding at least once
-  ) {
+  // Onboarding runs for ALL providers: theme + security notes are universal,
+  // and the component itself drops the preflight/OAuth steps when Anthropic
+  // auth is not enabled (see oauthEnabled in Onboarding.tsx). Gating this on
+  // the Anthropic account flow left third-party users with no theme choice
+  // and, worse, no prompt-injection/safety notes. The decisions live in the
+  // provider-free setupScreenGates seam (behaviorally tested there — this
+  // module's import chain cannot be loaded under bun test).
+  const setupScreens = getRequiredSetupScreens({
+    theme: config.theme,
+    hasCompletedOnboarding: config.hasCompletedOnboarding,
+    trustDialogAccepted: checkHasTrustDialogAccepted(),
+    isClaubbit: isEnvTruthy(process.env.CLAUBBIT),
+  });
+  if (setupScreens.onboarding) {
     onboardingShown = true;
     const {
       Onboarding
@@ -134,9 +148,11 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   // Note: non-interactive sessions (CI/CD with -p) never reach showSetupScreens at all.
   // Skip permission checks in claubbit
   if (!isEnvTruthy(process.env.CLAUBBIT)) {
-    // Skip trust dialog UI for third-party providers (no Anthropic auth), but still
-    // run trust state initialization below so the REPL mounts correctly.
-    if (usesAnthropicSetup && !checkHasTrustDialogAccepted()) {
+    // The trust dialog is the workspace trust boundary — it has nothing to do
+    // with which API provider is configured, so it runs for third-party
+    // providers too (an untrusted repo is exactly as dangerous over Ollama as
+    // over Anthropic).
+    if (setupScreens.trustDialog) {
       const {
         TrustDialog
       } = await import('./components/TrustDialog/TrustDialog.js');
@@ -171,12 +187,16 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
     }
 
     // Check for claude.md includes that need approval
-    if (await shouldShowClaudeMdExternalIncludesWarning()) {
-      const externalIncludes = getExternalClaudeMdIncludes(await getMemoryFiles(true));
+    const warningScope = await shouldShowClaudeMdExternalIncludesWarning()
+    if (warningScope !== 'None') {
+      const files = await getMemoryFiles(true);
+      const externalIncludes = warningScope === 'User'
+        ? getExternalClaudeMdIncludes(files, ['User'])
+        : getExternalClaudeMdIncludes(files, ['Project', 'Local']);
       const {
         ClaudeMdExternalIncludesDialog
       } = await import('./components/ClaudeMdExternalIncludesDialog.js');
-      await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} />);
+      await showSetupDialog(root, done => <ClaudeMdExternalIncludesDialog onDone={done} isStandaloneDialog externalIncludes={externalIncludes} scope={warningScope} />);
     }
   }
 
@@ -225,12 +245,7 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       });
     }
   }
-  if ((permissionMode === 'bypassPermissions' || allowDangerouslySkipPermissions) && !hasSkipDangerousModePermissionPrompt()) {
-    const {
-      BypassPermissionsModeDialog
-    } = await import('./components/BypassPermissionsModeDialog.js');
-    await showSetupDialog(root, done => <BypassPermissionsModeDialog onAccept={done} />);
-  }
+  await showDangerousModePromptIfNeeded(root, permissionMode, allowDangerouslySkipPermissions, showSetupDialog);
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Only show the opt-in dialog if auto mode actually resolved — if the
     // gate denied it (org not allowlisted, settings disabled), showing
@@ -245,9 +260,12 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
   }
 
   // --dangerously-load-development-channels confirmation. On accept, append
-  // dev channels to any --channels list already set in main.tsx. Org policy
-  // is NOT bypassed — gateChannelServer() still runs; this flag only exists
-  // to sidestep the --channels approved-server allowlist.
+  // dev channels to any --channels list already set in main.tsx. The OAuth,
+  // org-policy, and allowlist gates in gateChannelServer() are upstream of
+  // this flag — users without a Claude.ai OAuth token or whose managed org
+  // has not set channelsEnabled: true are blocked before the allowlist
+  // check runs. This flag only skips the allowlist gate for development
+  // entries, not the auth or policy gates.
   if (feature('KAIROS') || feature('KAIROS_CHANNELS')) {
     // gateChannelServer and ChannelsNotice read tengu_harbor after this
     // function returns. A cold disk cache (fresh install, or first run after
@@ -261,38 +279,49 @@ export async function showSetupScreens(root: Root, permissionMode: PermissionMod
       await checkGate_CACHED_OR_BLOCKING('tengu_harbor');
     }
     if (devChannels && devChannels.length > 0) {
-      const [{
-        isChannelsEnabled
-      }, {
-        getClaudeAIOAuthTokens
-      }] = await Promise.all([import('./services/mcp/channelAllowlist.js'), import('./utils/auth.js')]);
-      // Skip the dialog when channels are blocked (tengu_harbor off or no
-      // OAuth) — accepting then immediately seeing "not available" in
-      // ChannelsNotice is worse than no dialog. Append entries anyway so
-      // ChannelsNotice renders the blocked branch with the dev entries
-      // named. dev:true here is for the flag label in ChannelsNotice
-      // (hasNonDev check); the allowlist bypass it also grants is moot
-      // since the gate blocks upstream.
-      if (!isChannelsEnabled() || !getClaudeAIOAuthTokens()?.accessToken) {
-        setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-          ...c,
-          dev: true
-        }))]);
-        setHasDevChannels(true);
+      // gateChannelServer() still enforces the OAuth and org-policy gates
+      // upstream of the allowlist check. Users without a Claude.ai OAuth
+      // token or whose managed org has not set channelsEnabled: true are
+      // blocked before reaching this flag. This flag only bypasses the
+      // allowlist gate for dev entries, so a non-OAuth session passing
+      // --dangerously-load-development-channels will still fail at the
+      // auth gate with no visible error. The dialog must always show when
+      // the flag is passed and `isChannelsEnabled()` is true — only
+      // explicit user acceptance enables the dev entries.
+      //
+      // Skip the dialog only when the channels feature itself is
+      // disabled (`isChannelsEnabled()` returns false). In that case
+      // dev entries are still registered so `ChannelsNotice` can
+      // render the blocked branch with them named; the dialog is
+      // omitted because acceptance would be moot.
+      const { isChannelsEnabled } = await import(
+        './services/mcp/channelAllowlist.js'
+      )
+      if (!isChannelsEnabled()) {
+        // Channels feature is unavailable. Still register the dev
+        // entries so ChannelsNotice renders the blocked branch with
+        // them named — but do not show the dialog since acceptance
+        // would be moot. This preserves the previous behavior for the
+        // genuinely-disabled case.
+        registerDevChannels(devChannels)
       } else {
         const {
-          DevChannelsDialog
-        } = await import('./components/DevChannelsDialog.js');
-        await showSetupDialog(root, done => <DevChannelsDialog channels={devChannels} onAccept={() => {
-          // Mark dev entries per-entry so the allowlist bypass doesn't leak
-          // to --channels entries when both flags are passed.
-          setAllowedChannels([...getAllowedChannels(), ...devChannels.map(c => ({
-            ...c,
-            dev: true
-          }))]);
-          setHasDevChannels(true);
-          void done();
-        }} />);
+          DevChannelsDialog,
+        } = await import('./components/DevChannelsDialog.js')
+        await showSetupDialog(
+          root,
+          done => (
+            <DevChannelsDialog
+              channels={devChannels}
+              onAccept={() => {
+                // Mark dev entries per-entry so the allowlist bypass doesn't leak
+                // to --channels entries when both flags are passed.
+                registerDevChannels(devChannels)
+                void done()
+              }}
+            />
+          ),
+        )
       }
     }
   }

@@ -1,0 +1,60 @@
+---
+export interface TocEntry {
+  id: string
+  label: string
+  depth?: 2 | 3
+}
+
+interface Props {
+  toc: TocEntry[]
+}
+
+const { toc } = Astro.props
+---
+
+{toc.length > 0 && (
+  <aside class="docs-toc">
+    <nav aria-label="on this page">
+      <h4>on this page</h4>
+      <ul>
+        {toc.map(entry => (
+          <li>
+            <a href={`#${entry.id}`} class={entry.depth === 3 ? 'depth-3' : undefined}>{entry.label}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </aside>
+)}
+
+<script>
+  const tocLinks = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('.docs-toc a[href^="#"]'),
+  )
+  if (tocLinks.length > 0) {
+    const byId = new Map(tocLinks.map(a => [a.hash.slice(1), a]))
+    const headings = Array.from(
+      document.querySelectorAll('.docs-article h2[id], .docs-article h3[id]'),
+    ).filter(h => byId.has(h.id))
+
+    let active: HTMLAnchorElement | null = null
+    const setActive = (link: HTMLAnchorElement | null) => {
+      if (active === link) return
+      active?.classList.remove('active')
+      link?.classList.add('active')
+      active = link
+    }
+
+    const observer = new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActive(byId.get(entry.target.id) ?? null)
+          }
+        }
+      },
+      { rootMargin: '-56px 0px -70% 0px' },
+    )
+    headings.forEach(h => observer.observe(h))
+  }
+</script>
