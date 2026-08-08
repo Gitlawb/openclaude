@@ -77,7 +77,7 @@ test('getDeferredToolsDelta ignores non-string addedLines and emits current defe
   expect(delta!.removedNames).toEqual([])
 })
 
-test('getDeferredToolsDelta applies complete deferred_tools_delta records', () => {
+test('getDeferredToolsDelta holds removals for complete records when tools pool is empty', () => {
   const messages = [
     {
       type: 'attachment',
@@ -90,9 +90,28 @@ test('getDeferredToolsDelta applies complete deferred_tools_delta records', () =
       },
     } as unknown as Message,
   ]
-  // Announced SomeTool is no longer in the pool → removal.
-  const delta = getDeferredToolsDelta([] as Tools, messages)
+  // Resume race: empty pool is unsettled — do not emit removal.
+  expect(getDeferredToolsDelta([] as Tools, messages)).toBeNull()
+})
+
+test('getDeferredToolsDelta removes announced tool once pool is settled without it', () => {
+  const messages = [
+    {
+      type: 'attachment',
+      uuid: '00000000-0000-4000-8000-00000000d003',
+      attachment: {
+        type: 'deferred_tools_delta',
+        addedNames: ['SomeTool'],
+        addedLines: ['SomeTool'],
+        removedNames: [],
+      },
+    } as unknown as Message,
+  ]
+  const tools = [
+    { name: 'OtherTool', isMcp: true },
+  ] as unknown as Tools
+  const delta = getDeferredToolsDelta(tools, messages)
   expect(delta).not.toBeNull()
   expect(delta!.removedNames).toEqual(['SomeTool'])
-  expect(delta!.addedNames).toEqual([])
+  expect(delta!.addedNames).toEqual(['OtherTool'])
 })

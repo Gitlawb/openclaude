@@ -25,6 +25,8 @@ import {
   TOOL_SEARCH_TOOL_NAME,
 } from '../tools/ToolSearchTool/prompt.js'
 import type { Message } from '../types/message.js'
+import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
+import type { MCPServerConnection } from '../services/mcp/types.js'
 import {
   countToolDefinitionTokens,
   TOOL_TOKEN_COUNT_OVERHEAD,
@@ -689,11 +691,18 @@ export function isDeferredToolsDeltaEnabled(): boolean {
  * is still in the base pool — is NOT reported as removed. It's now
  * loaded directly, so telling the model "no longer available" would be
  * wrong.
+ *
+ * Resume race (mirror mcp_instructions_delta / agent_listing_delta):
+ * interactive --resume often sees tools=[] (or MCP still pending) while
+ * announced is non-empty from local JSONL. Emitting mass removals then
+ * re-adds mid-history rewrites the listing and busts prefix cache. Hold
+ * removals until the pool / MCP client set has settled.
  */
 export function getDeferredToolsDelta(
   tools: Tools,
   messages: Message[],
   scanContext?: DeferredToolsDeltaScanContext,
+  mcpClients: readonly MCPServerConnection[] = [],
 ): DeferredToolsDelta | null {
   const announced = new Set<string>()
   let attachmentCount = 0
@@ -748,11 +757,38 @@ export function getDeferredToolsDelta(
   const poolNames = new Set(tools.map(t => t.name))
 
   const added = deferred.filter(t => !announced.has(t.name))
+  // Empty tools pool = "not loaded yet", not "everything disconnected".
+  const poolSettledForRemovals = tools.length > 0
+  const pendingServerNames = new Set(
+    mcpClients.filter(c => c.type === 'pending').map(c => c.name),
+  )
+  // Mirror mcp_instructions_delta: at least one non-pending client means
+  // the client set has started settling. Unrelated connected clients must
+  // not authorize removal of a server that is still pending.
+  const mcpClientSetSettledForRemovals =
+    mcpClients.length > 0 && mcpClients.some(c => c.type !== 'pending')
+  const mcpServersInPool = new Set<string>()
+  for (const t of tools) {
+    const info = mcpInfoFromString(t.name)
+    if (info) mcpServersInPool.add(info.serverName)
+  }
   const removed: string[] = []
   for (const n of announced) {
     if (deferredNames.has(n)) continue
-    if (!poolNames.has(n)) removed.push(n)
-    // else: undeferred — silent
+    if (poolNames.has(n)) continue // undeferred — silent
+    if (!poolSettledForRemovals) continue
+    const mcpInfo = mcpInfoFromString(n)
+    if (mcpInfo) {
+      if (pendingServerNames.has(mcpInfo.serverName)) continue
+      // No MCP tools yet and clients empty / all-pending → hold MCP removals.
+      if (
+        mcpServersInPool.size === 0 &&
+        !mcpClientSetSettledForRemovals
+      ) {
+        continue
+      }
+    }
+    removed.push(n)
   }
 
   if (added.length === 0 && removed.length === 0) return null

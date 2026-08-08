@@ -892,6 +892,7 @@ export async function getAttachments(
               : 'attachments_subagent',
             querySource,
           },
+          toolUseContext.options.mcpClients,
         ),
       ),
     ),
@@ -1576,6 +1577,7 @@ export function getDeferredToolsDeltaAttachment(
   model: string,
   messages: Message[] | undefined,
   scanContext?: DeferredToolsDeltaScanContext,
+  mcpClients?: MCPServerConnection[],
 ): Attachment[] {
   if (!isDeferredToolsDeltaEnabled()) return []
   // These three checks mirror the sync parts of isToolSearchEnabled —
@@ -1588,7 +1590,12 @@ export function getDeferredToolsDeltaAttachment(
   if (!isToolSearchEnabledOptimistic()) return []
   if (!modelSupportsToolReference(model)) return []
   if (!isToolSearchToolAvailable(tools)) return []
-  const delta = getDeferredToolsDelta(tools, messages ?? [], scanContext)
+  const delta = getDeferredToolsDelta(
+    tools,
+    messages ?? [],
+    scanContext,
+    mcpClients ?? [],
+  )
   if (!delta) return []
   return [{ type: 'deferred_tools_delta', ...delta }]
 }
