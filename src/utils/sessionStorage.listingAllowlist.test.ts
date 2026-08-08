@@ -949,16 +949,7 @@ test('print-style resume adopt rebuilds omission map so remote append reparents 
   // → adoptResumedSessionFile, then the first post-resume remote/CCR append
   // whose local parentUuid is a withheld listing must reparent onto the
   // surviving ancestor (jatmn Finding 1).
-  process.env.USER_TYPE = 'external'
-  const originalNodeEnv = process.env.NODE_ENV
-  const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
-  const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
-  const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-  process.env.NODE_ENV = 'development'
-  process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
-  process.env.ENABLE_SESSION_PERSISTENCE = 'true'
-  delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-  setSessionPersistenceDisabled(false)
+  const persist = enablePrintResumePersistenceForTest()
 
   const sessionId = '00000000-0000-4000-8000-00000000p100'
   const userUuid = '00000000-0000-4000-8000-00000000p101'
@@ -1020,27 +1011,7 @@ test('print-style resume adopt rebuilds omission map so remote append reparents 
 
     clearSessionMessagesCache()
     await recordTranscript(
-      [
-        {
-          type: 'assistant',
-          uuid: postResumeUuid,
-          timestamp: '2026-08-08T00:00:02.000Z',
-          message: {
-            id: postResumeUuid,
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'text', text: 'post-resume reply' }],
-            model: 'test-model',
-            stop_reason: 'end_turn',
-            usage: {
-              input_tokens: 1,
-              output_tokens: 1,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-            },
-          },
-        } as unknown as Message,
-      ],
+      [postResumeAssistantMessage(postResumeUuid, 'post-resume reply')],
       undefined,
       asUuid(listingUuid),
     )
@@ -1057,26 +1028,7 @@ test('print-style resume adopt rebuilds omission map so remote append reparents 
   } finally {
     resetProjectForTesting()
     clearSessionMessagesCache()
-    if (originalNodeEnv === undefined) {
-      delete process.env.NODE_ENV
-    } else {
-      process.env.NODE_ENV = originalNodeEnv
-    }
-    if (originalTestPersist === undefined) {
-      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
-    } else {
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalTestPersist
-    }
-    if (originalEnablePersist === undefined) {
-      delete process.env.ENABLE_SESSION_PERSISTENCE
-    } else {
-      process.env.ENABLE_SESSION_PERSISTENCE = originalEnablePersist
-    }
-    if (originalSkipHistory === undefined) {
-      delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-    } else {
-      process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipHistory
-    }
+    persist.restore()
     await rm(dir, { recursive: true, force: true })
   }
 })
@@ -1084,10 +1036,12 @@ test('print-style resume adopt rebuilds omission map so remote append reparents 
 function enablePrintResumePersistenceForTest(): {
   restore: () => void
 } {
+  const originalUserType = process.env.USER_TYPE
   const originalNodeEnv = process.env.NODE_ENV
   const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
   const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
   const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  process.env.USER_TYPE = 'external'
   process.env.NODE_ENV = 'development'
   process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
   process.env.ENABLE_SESSION_PERSISTENCE = 'true'
@@ -1095,6 +1049,11 @@ function enablePrintResumePersistenceForTest(): {
   setSessionPersistenceDisabled(false)
   return {
     restore: () => {
+      if (originalUserType === undefined) {
+        delete process.env.USER_TYPE
+      } else {
+        process.env.USER_TYPE = originalUserType
+      }
       if (originalNodeEnv === undefined) {
         delete process.env.NODE_ENV
       } else {
@@ -1145,7 +1104,6 @@ test('print-style resume WITHOUT adopt leaves remote parentUuid on withheld list
   // Negative control for Finding 1: the old print path only resetSessionFilePointer,
   // so remoteEgressOmittedParents stayed empty and the first CCR append kept a
   // parentUuid pointing at a listing UUID that never reaches remote hydrate.
-  process.env.USER_TYPE = 'external'
   const persist = enablePrintResumePersistenceForTest()
 
   const sessionId = '00000000-0000-4000-8000-00000000n100'
@@ -1227,7 +1185,6 @@ test('print-style resume adopt keeps listing locally while remote reparents and 
   // Different angle from the happy-path remote assert: local JSONL must remain
   // byte-stable for --resume prefix (listing stays, assistant still chains from
   // listingUuid), while the CCR payload alone is reparented + catalog-free.
-  process.env.USER_TYPE = 'external'
   const persist = enablePrintResumePersistenceForTest()
 
   const sessionId = '00000000-0000-4000-8000-00000000l100'
@@ -1318,7 +1275,6 @@ test('print-style resume adopt keeps listing locally while remote reparents and 
 test('print-style resume adopt reparents past a multi-listing prefix chain', async () => {
   // Different angle: rebuild must compress nested listing omissions
   // (skill_listing → agent_listing_delta) so one remote hop lands on the user.
-  process.env.USER_TYPE = 'external'
   const persist = enablePrintResumePersistenceForTest()
 
   const sessionId = '00000000-0000-4000-8000-00000000m100'
