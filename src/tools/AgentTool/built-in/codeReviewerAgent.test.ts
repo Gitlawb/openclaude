@@ -7,6 +7,7 @@ import { loadMarkdownFilesForSubdir } from '../../../utils/markdownConfigLoader.
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
 import type { ToolUseContext } from '../../../Tool.js'
 
@@ -57,10 +58,19 @@ describe('code-reviewer built-in agent', () => {
     // An explicit `tools` list means resolveAgentTools() resolves ONLY these
     // tools — write-capable mcp__* server tools can never be wildcarded in.
     const tools = agent.tools ?? []
-    expect(tools).toEqual(['Read', 'Glob', 'Grep'])
+    if (hasEmbeddedSearchTools()) {
+      expect(tools).toEqual(['Read'])
+    } else {
+      expect(tools).toEqual(['Read', 'Glob', 'Grep'])
+    }
     expect(tools).not.toContain('Bash')
     expect(tools).not.toContain('Edit')
     expect(tools).not.toContain('Write')
+  })
+
+  test('whenToUse requires the caller to provide the diff inline', () => {
+    expect(agent.whenToUse).toContain('diff')
+    expect(agent.whenToUse).toContain('inline')
   })
 
   test('disallows mutation tools', () => {
@@ -107,6 +117,7 @@ describe('code-reviewer built-in agent', () => {
 
     test('enforces read-only constraint', () => {
       expect(prompt).toContain('READ-ONLY')
+      expect(prompt).toContain('Do NOT attempt to run shell commands')
     })
 
     test('includes verdict in output format', () => {
