@@ -320,7 +320,7 @@ test('keeps Codex backend on Codex responses transport even when API format is s
   expect(resolveProviderRequest()).toMatchObject({
     transport: 'codex_responses',
     requestedModel: 'codexplan',
-    resolvedModel: 'gpt-5.5',
+    resolvedModel: 'gpt-5.6-sol',
     baseUrl: 'https://chatgpt.com/backend-api/codex',
   })
 })

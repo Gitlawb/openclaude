@@ -2105,8 +2105,8 @@ describe('applyActiveProviderProfileFromConfig', () => {
     // Regression: the Codex OAuth profile is created with a single
     // `codexplan` model entry, so profileSupportsModel rejected any other
     // Codex model saved via /model (e.g. gpt-5.6-terra) and the next startup
-    // silently reverted to codexplan → gpt-5.5. Codex-backend profiles must
-    // accept every Codex alias model and gpt-5.x free-text picks.
+    // silently reverted to the model behind codexplan. Codex-backend profiles
+    // must accept every Codex alias model and gpt-5.x free-text picks.
     const {
       _setSavedModelOverrideForTesting,
       applyActiveProviderProfileFromConfig,

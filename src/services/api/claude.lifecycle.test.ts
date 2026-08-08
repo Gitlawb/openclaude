@@ -141,6 +141,25 @@ function makeOpenAIStreamChunk(
   })}\n\n`
 }
 
+function makeOpenAIStreamingResponse(): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            makeOpenAIStreamChunk({ role: 'assistant', content: 'ok' }),
+          ),
+        )
+        controller.enqueue(encoder.encode(makeOpenAIStreamChunk({}, 'stop')))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    }),
+    { headers: { 'content-type': 'text/event-stream' } },
+  )
+}
+
 function makeStallingOpenAIStreamResponse(
   onCancel?: (reason: unknown) => void,
 ): Response {
@@ -337,6 +356,48 @@ afterEach(() => {
 })
 
 describe('Claude API lifecycle tracking', () => {
+  test('uses the original codexplan selection for custom-gateway defaults', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    let requestBody: Record<string, unknown> | undefined
+
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = parseRequestBody(init)
+      return makeOpenAIStreamingResponse()
+    }) as typeof fetch
+
+    const generator = queryModelWithStreaming({
+      messages: [
+        {
+          type: 'user',
+          uuid: '00000000-0000-0000-0000-000000000001',
+          timestamp: '2026-06-17T00:00:00.000Z',
+          message: { role: 'user', content: 'hello' },
+        } as Message,
+      ],
+      systemPrompt: asSystemPrompt([]),
+      thinkingConfig: { type: 'disabled' },
+      tools: [],
+      signal: new AbortController().signal,
+      options: {
+        ...makeOptions(queryLifecycle),
+        model: 'gpt-5.6-sol',
+        requestModel: 'codexplan',
+      },
+    })
+
+    for await (const _message of generator) {
+      // Drain the stream before asserting its request.
+    }
+
+    expect(requestBody?.model).toBe('gpt-5.6-sol')
+    expect(requestBody?.reasoning_effort).toBe('high')
+  })
+
   test('checks provider-request ownership immediately before dispatch', async () => {
     setClientTestEnv()
     process.env.OPENCLAUDE_MAX_RETRIES = '0'

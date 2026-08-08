@@ -207,9 +207,9 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: use user-specified model or default to gpt-5.5
+  // Codex provider: use user-specified model or default
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -259,7 +259,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -303,7 +303,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -399,9 +399,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: always use the configured Codex model (default gpt-5.5)
+  // Codex provider: always use the configured Codex model
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // NVIDIA NIM uses OpenAI-compatible model ids. Keep this fallback aligned
   // with the route descriptor so headless sessions never send a Claude model.
@@ -595,7 +595,7 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   }
   // Handle Codex models - show actual model name + resolved model
   if (setting === 'codexplan') {
-    return 'codexplan (gpt-5.5)'
+    return 'codexplan (gpt-5.6-sol)'
   }
   if (setting === 'codexspark') {
     return 'codexspark (gpt-5.3-codex-spark)'
@@ -835,7 +835,7 @@ export function parseUserSpecifiedModel(
   // silently shrink a `codexplan[1m]`/`codexspark[1m]` session back to the
   // model default.
   if (modelString === 'codexplan') {
-    return 'gpt-5.5' + (has1mTag ? '[1m]' : '')
+    return 'gpt-5.6-sol' + (has1mTag ? '[1m]' : '')
   }
   if (modelString === 'codexspark') {
     return 'gpt-5.3-codex-spark' + (has1mTag ? '[1m]' : '')
@@ -894,6 +894,29 @@ export function parseUserSpecifiedModel(
     )
   }
   return modelInputTrimmed
+}
+
+// Runtime code needs the concrete model for capabilities and routing, but a
+// custom gateway still distinguishes the legacy codexplan selection from an
+// explicit GPT-5.6 Sol request when applying its default reasoning effort.
+export function getProviderRequestModel(
+  selectedModel: string,
+  runtimeModel: string,
+): string {
+  const selected = selectedModel.trim()
+  const selectedBase = selected
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  const runtimeBase = runtimeModel
+    .trim()
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  return selectedBase === 'codexplan' &&
+    runtimeBase === parseUserSpecifiedModel('codexplan')
+    ? selected
+    : runtimeModel
 }
 
 /**

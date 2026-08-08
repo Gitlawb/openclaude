@@ -706,6 +706,8 @@ export function assistantMessageToMessageParam(
 export type Options = {
   getToolPermissionContext: () => Promise<ToolPermissionContext>
   model: string
+  /** Original selection used only for provider-side alias routing. */
+  requestModel?: string
   toolChoice?: BetaToolChoiceTool | BetaToolChoiceAuto | undefined
   isNonInteractiveSession: boolean
   extraToolSchemas?: BetaToolUnion[]
@@ -1154,6 +1156,7 @@ async function* queryModel(
   StreamEvent | AssistantMessage | SystemAPIErrorMessage,
   void
 > {
+  const providerRequestModel = options.requestModel ?? options.model
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
@@ -1880,7 +1883,7 @@ async function* queryModel(
     lastRequestBetas = betasParams
 
     return {
-      model: normalizeModelStringForAPI(options.model),
+      model: normalizeModelStringForAPI(providerRequestModel),
       // IMPORTANT: `system` must appear before `messages` in the object literal.
       // JSON.stringify preserves insertion order. The native Bun attestation
       // (Attestation.zig) overwrites the FIRST `cch=00000` sentinel in the
@@ -1942,7 +1945,7 @@ async function* queryModel(
       () =>
         getAnthropicClient({
           maxRetries: 0, // Disabled auto-retry in favor of manual implementation
-          model: options.model,
+          model: providerRequestModel,
           fetchOverride: options.fetchOverride,
           source: options.querySource,
           providerOverride: options.providerOverride,
@@ -2870,9 +2873,9 @@ async function* queryModel(
       })
       endActiveApiCall()
       const result = yield* executeNonStreamingRequest(
-        { model: options.model, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
+        { model: providerRequestModel, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
         {
-          model: options.model,
+          model: providerRequestModel,
           fallbackModel: options.fallbackModel,
           thinkingConfig,
           ...(isFastModeEnabled() && { fastMode: isFastMode }),
@@ -2990,13 +2993,13 @@ async function* queryModel(
         endActiveApiCall()
         const result = yield* executeNonStreamingRequest(
           {
-            model: options.model,
+            model: providerRequestModel,
             source: options.querySource,
             providerOverride: options.providerOverride,
             effortValue: effort,
           },
           {
-            model: options.model,
+            model: providerRequestModel,
             fallbackModel: options.fallbackModel,
             thinkingConfig,
             ...(isFastModeEnabled() && { fastMode: isFastMode }),
