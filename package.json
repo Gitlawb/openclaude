@@ -27,6 +27,7 @@
   ],
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "benchmark:startup": "node scripts/benchmark-openclaude-startup.mjs",
     "integrations:generate": "bun run scripts/generate-integrations-artifacts.ts",
     "integrations:check": "bun run scripts/generate-integrations-artifacts.ts --check",
     "dev": "bun run build && node bin/openclaude",

@@ -32,6 +32,8 @@ const originalEnv = {
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   CLAUDE_CODE_MAX_CONTEXT_TOKENS: process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
   USER_TYPE: process.env.USER_TYPE,
+  OPENCLAUDE_MAX_TURNS: process.env.OPENCLAUDE_MAX_TURNS,
+  CLAUDE_CODE_MAX_TURNS: process.env.CLAUDE_CODE_MAX_TURNS,
 }
 
 beforeEach(async () => {
@@ -53,6 +55,8 @@ beforeEach(async () => {
   delete process.env.LONGCAT_API_KEY
   delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
   delete process.env.USER_TYPE
+  delete process.env.OPENCLAUDE_MAX_TURNS
+  delete process.env.CLAUDE_CODE_MAX_TURNS
 })
 
 afterEach(() => {
@@ -141,6 +145,16 @@ afterEach(() => {
       delete process.env.USER_TYPE
     } else {
       process.env.USER_TYPE = originalEnv.USER_TYPE
+    }
+    if (originalEnv.OPENCLAUDE_MAX_TURNS === undefined) {
+      delete process.env.OPENCLAUDE_MAX_TURNS
+    } else {
+      process.env.OPENCLAUDE_MAX_TURNS = originalEnv.OPENCLAUDE_MAX_TURNS
+    }
+    if (originalEnv.CLAUDE_CODE_MAX_TURNS === undefined) {
+      delete process.env.CLAUDE_CODE_MAX_TURNS
+    } else {
+      process.env.CLAUDE_CODE_MAX_TURNS = originalEnv.CLAUDE_CODE_MAX_TURNS
     }
   } finally {
     clearSessionContextWindowOverride()
@@ -559,8 +573,13 @@ test('unknown openai-compatible model fallback logs one debug warning and no con
       contextModule.getContextWindowForModel('another-unknown-3p-model'),
     ).toBe(128_000)
     expect(consoleError).not.toHaveBeenCalled()
-    expect(logForDebugging).toHaveBeenCalledTimes(1)
-    expect(logForDebugging.mock.calls[0]?.[1]).toEqual({ level: 'warn' })
+    const contextWarnings = logForDebugging.mock.calls.filter(
+      ([message, options]) =>
+        typeof message === 'string' &&
+        message.startsWith('[context] Warning:') &&
+        options?.level === 'warn',
+    )
+    expect(contextWarnings).toHaveLength(1)
   } finally {
     console.error = originalConsoleError
     mock.restore()

@@ -3,6 +3,7 @@ import figures from 'figures'
 import { renderToString } from '../../utils/staticRender.js'
 import {
   getCurrentResponseTokenCount,
+  getThinkingShimmerColor,
   SpinnerAnimationRow,
   type SpinnerAnimationRowProps,
 } from './SpinnerAnimationRow.js'
@@ -1055,5 +1056,38 @@ describe('SpinnerAnimationRow', () => {
     expect(activeRows[0]).toContain('1.0k tokens')
     expect(activeRows[0]).toContain('thinking with high effort')
     expect(activeRows[0]).not.toContain(figures.arrowDown)
+  })
+})
+
+describe('getThinkingShimmerColor', () => {
+  // Mirrors the default palette's rgb() tokens (theme values are always
+  // rgb() strings there, never hex).
+  const rgbTheme = {
+    ultracode: 'rgb(0,180,216)',
+    ultracodeShimmer: 'rgb(77,215,255)',
+  }
+  // Mirrors ANSI/daltonized palettes, whose tokens parseRGB can't interpolate.
+  const ansiTheme = {
+    ultracode: 'ansi:cyanBright',
+    ultracodeShimmer: 'ansi:cyanBright',
+  }
+
+  it('interpolates ultracode shimmer between the theme rgb() tokens', () => {
+    expect(getThinkingShimmerColor(rgbTheme, true, 0)).toBe('rgb(0,180,216)')
+    expect(getThinkingShimmerColor(rgbTheme, true, 1)).toBe('rgb(77,215,255)')
+    expect(getThinkingShimmerColor(rgbTheme, true, 0.5)).toBe('rgb(39,198,236)')
+  })
+
+  it('falls back to the ultracode RGB constants for ansi:* theme tokens', () => {
+    expect(getThinkingShimmerColor(ansiTheme, true, 0)).toBe('rgb(0,155,196)')
+    expect(getThinkingShimmerColor(ansiTheme, true, 1)).toBe('rgb(44,200,237)')
+  })
+
+  it('interpolates the gray thinking shimmer when ultracode is not active', () => {
+    for (const theme of [rgbTheme, ansiTheme]) {
+      expect(getThinkingShimmerColor(theme, false, 0)).toBe('rgb(153,153,153)')
+      expect(getThinkingShimmerColor(theme, false, 1)).toBe('rgb(185,185,185)')
+      expect(getThinkingShimmerColor(theme, false, 0.5)).toBe('rgb(169,169,169)')
+    }
   })
 })

@@ -400,6 +400,30 @@ Day-to-day commands:
 
 Focused suites: `bun run test:provider`, `bun run test:provider-recommendation`.
 
+To benchmark the launcher module compile cache, build the CLI and run:
+
+```bash
+bun run build
+bun run benchmark:startup
+```
+
+The benchmark requires Node `>=22.8.0`, where the compile-cache API was added;
+the built OpenClaude launcher continues to support the declared Node `>=22.0.0`
+runtime range.
+
+The benchmark defaults to 30 separate-process warm runs and 10 isolated
+empty-cache runs. It reports the median, IQR, MAD, first cache-populating run,
+first warm-up, Node/OS/CPU details, bundle size, and commit. Direct bundle
+timings are included only as a secondary diagnostic; the full launcher result
+is the decision signal. Use
+`bun run benchmark:startup -- --warm-runs 40 --cold-runs 10` to request a
+larger sample set. The benchmark records results without enforcing a timing
+threshold in CI.
+
+OpenClaude leaves Node's standard compile-cache controls authoritative. Set
+`NODE_DISABLE_COMPILE_CACHE=1` to disable the optimization, including for V8
+coverage runs that require uncached compilation.
+
 Recommended validation before opening a PR:
 
 - `bun run build`

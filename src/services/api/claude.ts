@@ -739,6 +739,11 @@ export type Options = {
   providerOverride?: { model: string; baseURL: string; apiKey: string }
   queryLifecycle?: QueryLifecycleOperationTracker
   messageNormalizationTools?: Tools
+  /**
+   * Synchronous ownership check invoked immediately before an outbound
+   * provider request. Returning false skips the request without retrying.
+   */
+  onProviderRequestStart?: () => boolean
 }
 
 export async function queryModelWithoutStreaming({
@@ -915,7 +920,8 @@ export async function* executeNonStreamingRequest(
    */
   originatingRequestId?: string | null,
   queryLifecycle?: QueryLifecycleOperationTracker,
-): AsyncGenerator<SystemAPIErrorMessage, BetaMessage> {
+  onProviderRequestStart?: () => boolean,
+): AsyncGenerator<SystemAPIErrorMessage, BetaMessage | null> {
   const fallbackTimeoutMs = getNonstreamingFallbackTimeoutMs()
   const generator = withRetry(
     () =>
@@ -929,6 +935,7 @@ export async function* executeNonStreamingRequest(
       }),
     async (anthropic, attempt, context) => {
       const start = Date.now()
+      if (onProviderRequestStart?.() === false) return null
       const retryParams = paramsFromContext(context)
       captureRequest(retryParams)
       onAttempt(attempt, start, retryParams.max_tokens)
@@ -1002,7 +1009,7 @@ export async function* executeNonStreamingRequest(
     }
   } while (!e.done)
 
-  return e.value as BetaMessage
+  return e.value as BetaMessage | null
 }
 
 /**
@@ -1916,36 +1923,6 @@ async function* queryModel(
     }
   }
 
-  // Compute log scalars synchronously so the fire-and-forget .then() closure
-  // captures only primitives instead of paramsFromContext's full closure scope
-  // (messagesForAPI, system, allTools, betas — the entire request-building
-  // context), which would otherwise be pinned until the promise resolves.
-  {
-    const queryParams = paramsFromContext({
-      model: options.model,
-      thinkingConfig,
-    })
-    const logMessagesLength = queryParams.messages.length
-    const logBetas = useBetas ? (queryParams.betas ?? []) : []
-    const logThinkingType = queryParams.thinking?.type ?? 'disabled'
-    const logEffortValue = queryParams.output_config?.effort
-    void options.getToolPermissionContext().then(permissionContext => {
-      logAPIQuery({
-        model: options.model,
-        messagesLength: logMessagesLength,
-        temperature: options.temperatureOverride ?? 1,
-        betas: logBetas,
-        permissionMode: permissionContext.mode,
-        querySource: options.querySource,
-        queryTracking: options.queryTracking,
-        thinkingType: logThinkingType,
-        effortValue: logEffortValue,
-        fastMode: isFastMode,
-        previousRequestId,
-      })
-    })
-  }
-
   const newMessages: AssistantMessage[] = []
   let ttftMs = 0
   let partialMessage: BetaMessage | undefined = undefined
@@ -1960,10 +1937,11 @@ async function* queryModel(
   let research: unknown = undefined
   let isFastModeRequest = isFastMode // Keep separate state as it may change if falling back
   let isAdvisorInProgress = false
+  let apiQueryLogged = false
 
   try {
     queryCheckpoint('query_client_creation_start')
-    const generator = withRetry(
+    const generator = withRetry<Stream<BetaRawMessageStreamEvent> | null>(
       () =>
         getAnthropicClient({
           maxRetries: 0, // Disabled auto-retry in favor of manual implementation
@@ -1984,10 +1962,43 @@ async function* queryModel(
         // client_creation_start is meaningful on attempt 1.
         queryCheckpoint('query_client_creation_end')
 
+        // Keep this immediately adjacent to the SDK call below. query.ts uses
+        // it to atomically reserve a shared foreground/background turn only
+        // after every asynchronous provider-preparation step has completed.
+        if (options.onProviderRequestStart?.() === false) {
+          return null
+        }
+
+        // Everything below is synchronous until the SDK request is created,
+        // so ownership cannot change between this request build and dispatch.
         const params = paramsFromContext(context)
         captureAPIRequest(params, options.querySource) // Capture for bug reports
-
         maxOutputTokens = params.max_tokens
+
+        if (!apiQueryLogged) {
+          apiQueryLogged = true
+          // Capture primitives only: the fire-and-forget permission lookup
+          // must not retain the full request-building closure.
+          const logMessagesLength = params.messages.length
+          const logBetas = useBetas ? (params.betas ?? []) : []
+          const logThinkingType = params.thinking?.type ?? 'disabled'
+          const logEffortValue = params.output_config?.effort
+          void options.getToolPermissionContext().then(permissionContext => {
+            logAPIQuery({
+              model: options.model,
+              messagesLength: logMessagesLength,
+              temperature: options.temperatureOverride ?? 1,
+              betas: logBetas,
+              permissionMode: permissionContext.mode,
+              querySource: options.querySource,
+              queryTracking: options.queryTracking,
+              thinkingType: logThinkingType,
+              effortValue: logEffortValue,
+              fastMode: isFastMode,
+              previousRequestId,
+            })
+          })
+        }
 
         // Fire immediately before the fetch is dispatched. .withResponse() below
         // awaits until response headers arrive, so this MUST be before the await
@@ -2056,10 +2067,11 @@ async function* queryModel(
       e = await generator.next()
 
       // yield API error messages (the stream has a 'controller' property, error messages don't)
-      if (!('controller' in e.value)) {
+      if (!e.done && !('controller' in e.value)) {
         yield e.value
       }
     } while (!e.done)
+    if (e.value === null) return
     stream = e.value as Stream<BetaRawMessageStreamEvent>
 
     // reset state
@@ -2879,7 +2891,10 @@ async function* queryModel(
         params => captureAPIRequest(params, options.querySource),
         streamRequestId,
         options.queryLifecycle,
+        options.onProviderRequestStart,
       )
+
+      if (result === null) return
 
       const m: AssistantMessage = {
         message: {
@@ -2999,7 +3014,10 @@ async function* queryModel(
           params => captureAPIRequest(params, options.querySource),
           failedRequestId,
           options.queryLifecycle,
+          options.onProviderRequestStart,
         )
+
+        if (result === null) return
 
         const m: AssistantMessage = {
           message: {

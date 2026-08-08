@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { rm } from 'fs'
-import { appendFile, copyFile, mkdir } from 'fs/promises'
+import { copyFile, mkdir } from 'fs/promises'
 import { dirname, isAbsolute, join, relative } from 'path'
 import { getCwdState } from '../../bootstrap/state.js'
 import type { CompletionBoundary } from '../../state/AppStateStore.js'
@@ -45,8 +45,7 @@ import {
 } from '../../utils/messages.js'
 import { getClaudeTempDir } from '../../utils/permissions/filesystem.js'
 import { extractReadFilesFromMessages } from '../../utils/queryHelpers.js'
-import { getTranscriptPath } from '../../utils/sessionStorage.js'
-import { jsonStringify } from '../../utils/slowOperations.js'
+import { recordSpeculationAccept } from '../../utils/sessionStorage.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -797,11 +796,9 @@ export async function acceptSpeculation(
       timestamp: new Date().toISOString(),
       timeSavedMs,
     }
-    void appendFile(getTranscriptPath(), jsonStringify(entry) + '\n', {
-      mode: 0o600,
-    }).catch(() => {
+    void recordSpeculationAccept(entry).catch(() => {
       logForDebugging(
-        '[Speculation] Failed to write speculation-accept to transcript',
+        '[Speculation] Failed to queue speculation-accept for transcript',
       )
     })
   }

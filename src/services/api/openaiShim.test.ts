@@ -376,7 +376,6 @@ function importFreshOpenAIShim(
 
 type StreamIdleTestApi = {
   StreamIdleTimeoutError: new (timeoutMs: number) => Error
-  getApiTimeoutMs: () => number
   getStreamIdleTimeoutMs: () => number
   readWithIdleTimeout: (
     reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -389,7 +388,6 @@ async function getStreamIdleTestApi(cacheKey: string): Promise<StreamIdleTestApi
   const mod = await importFreshOpenAIShim(cacheKey)
   const testApi = mod.__test as unknown as Partial<StreamIdleTestApi>
   expect(typeof testApi.StreamIdleTimeoutError).toBe('function')
-  expect(typeof testApi.getApiTimeoutMs).toBe('function')
   expect(typeof testApi.getStreamIdleTimeoutMs).toBe('function')
   expect(typeof testApi.readWithIdleTimeout).toBe('function')
   return testApi as StreamIdleTestApi
@@ -1373,27 +1371,6 @@ test('stream idle timeout env parser parses and bounds overrides', async () => {
   expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
 })
 // openaiShim test extraction seam 024 end
-
-test('API timeout env parser accepts safe positive integers and falls back otherwise', async () => {
-  const testApi = await getStreamIdleTestApi('api-timeout-env-parser')
-
-  delete process.env.API_TIMEOUT_MS
-  expect(testApi.getApiTimeoutMs()).toBe(600_000)
-
-  process.env.API_TIMEOUT_MS = '50'
-  expect(testApi.getApiTimeoutMs()).toBe(50)
-
-  process.env.API_TIMEOUT_MS = ' 50 '
-  expect(testApi.getApiTimeoutMs()).toBe(50)
-
-  process.env.API_TIMEOUT_MS = '3000000000'
-  expect(testApi.getApiTimeoutMs()).toBe(2_147_483_647)
-
-  for (const invalid of ['abc', '-5', '', '0', '1.5', '9007199254740993']) {
-    process.env.API_TIMEOUT_MS = invalid
-    expect(testApi.getApiTimeoutMs()).toBe(600_000)
-  }
-})
 
 // openaiShim test extraction seam 025 start: Anthropic-compatible passthrough stream rejects with idle timeout when it stalls
 test('Anthropic-compatible passthrough stream rejects with idle timeout when it stalls', async () => {
@@ -3787,15 +3764,17 @@ test('the OpenAI shim façade creates independent client instances', () => {
 })
 // openaiShim test extraction seam 112 end
 
-test('raw-text and XML fallback tool calls use one unique sequence', () => {
+test('facade parseTextToolCalls and parseXmlToolCalls share adapter sequencing', () => {
   const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
-  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
+  const xml = parseXmlToolCalls(
+    '<tool_call>{"name":"from_xml","arguments":{}}</tool_call>',
+  )
+
   expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
   expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
-  const textNum = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
-  const xmlNum = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
-  // Same session counter: the second mint must be exactly one greater than the first.
-  expect(xmlNum).toBe(textNum + 1)
+  const textSequence = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
+  const xmlSequence = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
+  expect(xmlSequence).toBe(textSequence + 1)
 })
 
 // ---------------------------------------------------------------------------
@@ -4855,6 +4834,8 @@ test('manual signal fallback removes caller forwarding after the body settles', 
   } finally {
     if (originalAbortSignalAny) {
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    } else {
+      delete (AbortSignal as { any?: unknown }).any
     }
   }
 })

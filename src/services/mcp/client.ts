@@ -574,6 +574,28 @@ type InProcessMcpServer = {
 const MAX_MCP_STDERR_CHARS = 256 * 1024
 const MCP_STDERR_TRUNCATED_MARKER = '\n...[stderr truncated]'
 
+export function buildMcpSseEventSourceHeaders(
+  initHeaders: HeadersInit | undefined,
+): Headers {
+  const headers = new Headers(initHeaders)
+  if (!headers.has('User-Agent')) {
+    headers.set('User-Agent', getMCPUserAgent())
+  }
+  headers.set('Accept', 'text/event-stream')
+  return headers
+}
+
+export function buildMcpSseRequestHeaders(
+  initHeaders: HeadersInit | undefined,
+  combinedHeaders: Record<string, string>,
+): Headers {
+  const headers = new Headers(initHeaders)
+  new Headers(combinedHeaders).forEach((value, key) => {
+    headers.set(key, value)
+  })
+  return headers
+}
+
 export function appendBoundedMcpStderr(
   current: string,
   chunk: Buffer | string,
@@ -680,6 +702,9 @@ export const connectToServer = memoize(
 
         // Get combined headers (static + dynamic)
         const combinedHeaders = await getMcpServerHeaders(name, serverRef)
+        const allowUnauthorizedRefresh = !new Headers(combinedHeaders).has(
+          'Authorization',
+        )
 
         // Use the auth provider with SSEClientTransport
         const transportOptions: SSEClientTransportOptions = {
@@ -688,7 +713,11 @@ export const connectToServer = memoize(
           // Step-up detection wraps innermost so the 403 is seen before the
           // SDK's handler calls auth() → tokens().
           fetch: wrapFetchWithTimeout(
-            wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider),
+            wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider, {
+              allowUnauthorizedRefresh,
+              resourceUrl: serverRef.url,
+              providerOwnsAuthorization: allowUnauthorizedRefresh,
+            }),
           ),
           requestInit: {
             headers: {
@@ -703,27 +732,28 @@ export const connectToServer = memoize(
         // to receive server-sent events), so applying a 60-second timeout would kill it.
         // The timeout is only meant for individual API requests (POST, auth refresh), not
         // the persistent SSE stream.
-        transportOptions.eventSourceInit = {
-          fetch: async (url: string | URL, init?: RequestInit) => {
-            // Get auth headers from the auth provider
-            const authHeaders: Record<string, string> = {}
-            const tokens = await authProvider.tokens()
-            if (tokens) {
-              authHeaders.Authorization = `Bearer ${tokens.access_token}`
-            }
-
+        const eventSourceFetch = wrapFetchWithStepUpDetection(
+          async (url: string | URL, init?: RequestInit) => {
             const proxyOptions = getProxyFetchOptions()
             // eslint-disable-next-line eslint-plugin-n/no-unsupported-features/node-builtins
             return fetch(url, {
               ...init,
               ...proxyOptions,
-              headers: {
-                'User-Agent': getMCPUserAgent(),
-                ...authHeaders,
-                ...init?.headers,
-                ...combinedHeaders,
-                Accept: 'text/event-stream',
-              },
+              headers: buildMcpSseEventSourceHeaders(init?.headers),
+            })
+          },
+          authProvider,
+          {
+            allowUnauthorizedRefresh,
+            resourceUrl: serverRef.url,
+            providerOwnsAuthorization: allowUnauthorizedRefresh,
+          },
+        )
+        transportOptions.eventSourceInit = {
+          fetch: async (url: string | URL, init?: RequestInit) => {
+            return eventSourceFetch(url, {
+              ...init,
+              headers: buildMcpSseRequestHeaders(init?.headers, combinedHeaders),
             })
           },
         }
@@ -861,13 +891,16 @@ export const connectToServer = memoize(
 
         // Get combined headers (static + dynamic)
         const combinedHeaders = await getMcpServerHeaders(name, serverRef)
-
         // Check if this server has stored OAuth tokens. If so, the SDK's
         // authProvider will set Authorization — don't override with the
         // session ingress token (SDK merges requestInit AFTER authProvider).
         // CCR proxy URLs (ccr_shttp_mcp) have no stored OAuth, so they still
         // get the ingress token. See PR #24454 discussion.
         const hasOAuthTokens = !!(await authProvider.tokens())
+        const hasExplicitAuthorization =
+          new Headers(combinedHeaders).has('Authorization') ||
+          Boolean(sessionIngressToken && !hasOAuthTokens)
+        const allowUnauthorizedRefresh = !hasExplicitAuthorization
 
         // Use the auth provider with StreamableHTTPClientTransport
         const proxyOptions = getProxyFetchOptions()
@@ -882,7 +915,11 @@ export const connectToServer = memoize(
           // Step-up detection wraps innermost so the 403 is seen before the
           // SDK's handler calls auth() → tokens().
           fetch: wrapFetchWithTimeout(
-            wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider),
+            wrapFetchWithStepUpDetection(createFetchWithInit(), authProvider, {
+              allowUnauthorizedRefresh,
+              resourceUrl: serverRef.url,
+              providerOwnsAuthorization: allowUnauthorizedRefresh,
+            }),
           ),
           requestInit: {
             ...proxyOptions,

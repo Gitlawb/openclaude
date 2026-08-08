@@ -374,7 +374,7 @@ describe('Claude API lifecycle tracking', () => {
       messages: [
         {
           type: 'user',
-          uuid: '00000000-0000-0000-0000-000000000007',
+          uuid: '00000000-0000-0000-0000-000000000001',
           timestamp: '2026-06-17T00:00:00.000Z',
           message: { role: 'user', content: 'hello' },
         } as Message,
@@ -396,6 +396,49 @@ describe('Claude API lifecycle tracking', () => {
 
     expect(requestBody?.model).toBe('gpt-5.6-sol')
     expect(requestBody?.reasoning_effort).toBe('high')
+  })
+
+  test('checks provider-request ownership immediately before dispatch', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    const events: string[] = []
+    let permissionContextReads = 0
+    const fetchOverride: FetchOverride = async () => {
+      events.push('fetch')
+      return makeJsonResponse(makeBetaMessage())
+    }
+
+    const generator = queryModelWithStreaming({
+      messages: [
+        {
+          type: 'user',
+          uuid: '00000000-0000-0000-0000-000000000001',
+          timestamp: '2026-06-17T00:00:00.000Z',
+          message: { role: 'user', content: 'hello' },
+        } as Message,
+      ],
+      systemPrompt: asSystemPrompt([]),
+      thinkingConfig: { type: 'disabled' },
+      tools: [],
+      signal: new AbortController().signal,
+      options: {
+        ...makeOptions(queryLifecycle),
+        fetchOverride,
+        getToolPermissionContext: async () => {
+          permissionContextReads++
+          return getEmptyToolPermissionContext()
+        },
+        onProviderRequestStart: () => {
+          events.push('ownership-check')
+          return false
+        },
+      },
+    })
+
+    expect(await drainGenerator(generator)).toBeUndefined()
+    expect(events).toEqual(['ownership-check'])
+    expect(permissionContextReads).toBe(0)
   })
 
   test('ends a failed streaming dispatch before retry backoff is reported', async () => {
@@ -713,6 +756,7 @@ describe('Claude API lifecycle tracking', () => {
       ),
     )
 
+    if (result === null) throw new Error('expected non-streaming response')
     expect(result.id).toBe('msg-lifecycle-test')
     expect(requestSnapshots).toHaveLength(1)
     expect(requestSnapshots[0]?.apiCalls).toHaveLength(1)
@@ -720,6 +764,38 @@ describe('Claude API lifecycle tracking', () => {
       model: 'claude-lifecycle-test',
       querySource: 'sdk',
     })
+    expect(queryLifecycle.snapshot().apiCalls).toEqual([])
+  })
+
+  test('non-streaming fallback checks ownership before dispatch', async () => {
+    setClientTestEnv()
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    let fetchCalls = 0
+    const fetchOverride: FetchOverride = async () => {
+      fetchCalls++
+      return makeJsonResponse(makeBetaMessage())
+    }
+
+    const result = await drainGenerator(
+      executeNonStreamingRequest(
+        { model: 'claude-lifecycle-test', source: 'sdk', fetchOverride },
+        {
+          model: 'claude-lifecycle-test',
+          thinkingConfig: { type: 'disabled' },
+          signal: new AbortController().signal,
+          querySource: 'sdk',
+        },
+        makeParams,
+        () => {},
+        () => {},
+        null,
+        queryLifecycle,
+        () => false,
+      ),
+    )
+
+    expect(result).toBeNull()
+    expect(fetchCalls).toBe(0)
     expect(queryLifecycle.snapshot().apiCalls).toEqual([])
   })
 

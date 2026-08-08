@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { hasUnknownModelCost, resetCostState } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -63,4 +64,50 @@ test('fast-mode Opus 4.8 is charged the elevated fast-mode tier, normal otherwis
 
   expect(getModelCosts('claude-opus-4-8', fast)).toEqual(COST_TIER_30_150)
   expect(getModelCosts('claude-opus-4-8', standard)).toEqual(COST_TIER_5_25)
+})
+
+// MODEL_COSTS is a plain object, so a bare `MODEL_COSTS[shortName]` lookup
+// inherits Object.prototype members. A model id of `constructor` or `__proto__`
+// (both valid arbitrary ids for custom/OpenAI-compatible providers, and already
+// lowercase so getCanonicalName returns them unchanged) resolved to a truthy
+// prototype value, bypassing the `!costs` unknown-model guard: the cost math
+// then read undefined fields and produced NaN, which flowed into the running
+// session total and stuck it at $NaN. (getModelPricingString has no production
+// callers; pre-fix it threw a TypeError from formatPrice(undefined) for these
+// ids -- the own-property guard makes it return undefined instead.)
+test('proto-member model ids fall through the unknown-model path, not NaN', async () => {
+  mock.module('./model/model.js', () => ({
+    firstPartyNameToCanonical: (model: string) => model,
+    // Mirror the real canonicalizer for these names: both are lowercase and
+    // match no Claude pattern, so they pass through verbatim.
+    getCanonicalName: (model: string) => model,
+    getDefaultMainLoopModelSetting: () => 'claude-haiku-4-5',
+  }))
+  const { getModelCosts, getModelPricingString, calculateUSDCost, COST_TIER_5_25 } =
+    await importFreshModelCost()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 1_000_000,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any
+
+  try {
+    for (const name of ['constructor', '__proto__']) {
+      // DEFAULT_UNKNOWN_MODEL_COST is COST_TIER_5_25 (see modelCost.ts).
+      expect(getModelCosts(name, usage)).toEqual(COST_TIER_5_25)
+      const cost = calculateUSDCost(name, usage)
+      // Number.isFinite rejects Infinity too, not just NaN.
+      expect(Number.isFinite(cost)).toBe(true)
+      expect(cost).toBeGreaterThan(0)
+      expect(getModelPricingString(name)).toBeUndefined()
+    }
+    // Lock in the unknown-model detection path: dropping trackUnknownModelCost
+    // while keeping the fallback tier would otherwise still pass the checks above.
+    expect(hasUnknownModelCost()).toBe(true)
+  } finally {
+    // Clear the process-wide flag so this suite cannot leak into another.
+    resetCostState()
+  }
 })
