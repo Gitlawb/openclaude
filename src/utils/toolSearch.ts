@@ -25,6 +25,11 @@ import {
   TOOL_SEARCH_TOOL_NAME,
 } from '../tools/ToolSearchTool/prompt.js'
 import type { Message } from '../types/message.js'
+import { mcpInfoFromString } from '../services/mcp/mcpStringUtils.js'
+import {
+  isMcpClientUnsettledForRemovals,
+  type MCPServerConnection,
+} from '../services/mcp/types.js'
 import {
   countToolDefinitionTokens,
   TOOL_TOKEN_COUNT_OVERHEAD,
@@ -689,11 +694,18 @@ export function isDeferredToolsDeltaEnabled(): boolean {
  * is still in the base pool — is NOT reported as removed. It's now
  * loaded directly, so telling the model "no longer available" would be
  * wrong.
+ *
+ * Resume race (mirror mcp_instructions_delta / agent_listing_delta):
+ * interactive --resume often sees tools=[] (or MCP still pending) while
+ * announced is non-empty from local JSONL. Emitting mass removals then
+ * re-adds mid-history rewrites the listing and busts prefix cache. Hold
+ * removals until the pool / MCP client set has settled.
  */
 export function getDeferredToolsDelta(
   tools: Tools,
   messages: Message[],
   scanContext?: DeferredToolsDeltaScanContext,
+  mcpClients: readonly MCPServerConnection[] = [],
 ): DeferredToolsDelta | null {
   const announced = new Set<string>()
   let attachmentCount = 0
@@ -701,12 +713,48 @@ export function getDeferredToolsDelta(
   const attachmentTypesSeen = new Set<string>()
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing —
+    // mirror getAnnouncedMcpInstructionBlocks / getAgentListingDeltaAttachment.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     attachmentCount++
-    attachmentTypesSeen.add(msg.attachment.type)
-    if (msg.attachment.type !== 'deferred_tools_delta') continue
+    const attachmentType =
+      typeof (msg.attachment as { type?: unknown }).type === 'string'
+        ? (msg.attachment as { type: string }).type
+        : 'unknown'
+    attachmentTypesSeen.add(attachmentType)
+    if (attachmentType !== 'deferred_tools_delta') continue
+    const { addedNames, removedNames, addedLines } = msg.attachment as {
+      addedNames?: unknown
+      removedNames?: unknown
+      addedLines?: unknown
+    }
+    // Require the full recognized schema before processing. Partial legacy
+    // entries must be skipped — not partially applied. addedLines must be an
+    // array aligned with addedNames, and every entry a string; otherwise a
+    // names-only / null-line record would mark tools announced and suppress a
+    // later valid listing.
+    if (
+      !Array.isArray(addedNames) ||
+      !Array.isArray(removedNames) ||
+      !Array.isArray(addedLines) ||
+      addedLines.length !== addedNames.length ||
+      !addedNames.every(n => typeof n === 'string') ||
+      !removedNames.every(n => typeof n === 'string') ||
+      !addedLines.every(l => typeof l === 'string')
+    ) {
+      continue
+    }
     dtdCount++
-    for (const n of msg.attachment.addedNames) announced.add(n)
-    for (const n of msg.attachment.removedNames) announced.delete(n)
+    // Removals before additions: same name in both arrays must stay announced
+    // (CodeRabbit outside-diff on reconstruction order).
+    for (const n of removedNames) {
+      announced.delete(n)
+    }
+    for (const n of addedNames) {
+      announced.add(n)
+    }
   }
 
   const deferred: Tool[] = tools.filter(isDeferredTool)
@@ -714,11 +762,39 @@ export function getDeferredToolsDelta(
   const poolNames = new Set(tools.map(t => t.name))
 
   const added = deferred.filter(t => !announced.has(t.name))
+  // Empty tools pool = "not loaded yet", not "everything disconnected".
+  const poolSettledForRemovals = tools.length > 0
+  // Mirror mcp_instructions_delta: pending and needs-auth are unsettled
+  // (jatmn [P3] / CodeRabbit). Unrelated connected clients must not authorize
+  // removal of a server that is still unsettled.
+  const unsettledServerNames = new Set(
+    mcpClients.filter(isMcpClientUnsettledForRemovals).map(c => c.name),
+  )
+  const mcpClientSetSettledForRemovals =
+    mcpClients.length > 0 &&
+    mcpClients.some(c => !isMcpClientUnsettledForRemovals(c))
+  const mcpServersInPool = new Set<string>()
+  for (const t of tools) {
+    const info = mcpInfoFromString(t.name)
+    if (info) mcpServersInPool.add(info.serverName)
+  }
   const removed: string[] = []
   for (const n of announced) {
     if (deferredNames.has(n)) continue
-    if (!poolNames.has(n)) removed.push(n)
-    // else: undeferred — silent
+    if (poolNames.has(n)) continue // undeferred — silent
+    if (!poolSettledForRemovals) continue
+    const mcpInfo = mcpInfoFromString(n)
+    if (mcpInfo) {
+      if (unsettledServerNames.has(mcpInfo.serverName)) continue
+      // No MCP tools yet and clients empty / all-unsettled → hold MCP removals.
+      if (
+        mcpServersInPool.size === 0 &&
+        !mcpClientSetSettledForRemovals
+      ) {
+        continue
+      }
+    }
+    removed.push(n)
   }
 
   if (added.length === 0 && removed.length === 0) return null

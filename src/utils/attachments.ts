@@ -130,7 +130,10 @@ import {
   isFileWithinReadSizeLimit,
 } from './file.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
-import { filterAgentsByMcpRequirements } from '../tools/AgentTool/loadAgentsDir.js'
+import {
+  filterAgentsByMcpRequirements,
+  hasRequiredMcpServers,
+} from '../tools/AgentTool/loadAgentsDir.js'
 import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
 import {
   formatAgentLine,
@@ -184,7 +187,10 @@ import {
 } from './mcpInstructionsDelta.js'
 import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
 import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
-import type { MCPServerConnection } from '../services/mcp/types.js'
+import {
+  isMcpClientUnsettledForRemovals,
+  type MCPServerConnection,
+} from '../services/mcp/types.js'
 import type {
   HookEvent,
   SyncHookJSONOutput,
@@ -889,6 +895,7 @@ export async function getAttachments(
               : 'attachments_subagent',
             querySource,
           },
+          toolUseContext.options.mcpClients,
         ),
       ),
     ),
@@ -1573,6 +1580,7 @@ export function getDeferredToolsDeltaAttachment(
   model: string,
   messages: Message[] | undefined,
   scanContext?: DeferredToolsDeltaScanContext,
+  mcpClients?: MCPServerConnection[],
 ): Attachment[] {
   if (!isDeferredToolsDeltaEnabled()) return []
   // These three checks mirror the sync parts of isToolSearchEnabled —
@@ -1585,7 +1593,12 @@ export function getDeferredToolsDeltaAttachment(
   if (!isToolSearchEnabledOptimistic()) return []
   if (!modelSupportsToolReference(model)) return []
   if (!isToolSearchToolAvailable(tools)) return []
-  const delta = getDeferredToolsDelta(tools, messages ?? [], scanContext)
+  const delta = getDeferredToolsDelta(
+    tools,
+    messages ?? [],
+    scanContext,
+    mcpClients ?? [],
+  )
   if (!delta) return []
   return [{ type: 'deferred_tools_delta', ...delta }]
 }
@@ -1636,20 +1649,119 @@ export function getAgentListingDeltaAttachment(
     filtered = filtered.filter(a => allowedAgentTypes.includes(a.agentType))
   }
 
-  // Reconstruct announced set from prior deltas in the transcript.
-  const announced = new Set<string>()
+  // Reconstruct announced type → rendered formatAgentLine from prior deltas.
+  // Removals first so a same-type content update lands on the new line.
+  // Fingerprint the line (whenToUse + tool policy), not just the type name —
+  // editing a project/plugin agent while the CLI is stopped must re-announce
+  // after --resume.
+  let announced = new Map<string, string>()
   for (const msg of messages ?? []) {
     if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     if (msg.attachment.type !== 'agent_listing_delta') continue
-    for (const t of msg.attachment.addedTypes) announced.add(t)
-    for (const t of msg.attachment.removedTypes) announced.delete(t)
+    // Require the full recognized schema before processing. Malformed or
+    // partial legacy entries must be skipped — not partially applied.
+    const { addedTypes, addedLines, removedTypes } = msg.attachment
+    // Fail closed: container shape, equal added lengths, and every entry a
+    // string. Partial application can delete an announcement without a
+    // replacement line, or arm suppress from non-string garbage.
+    if (
+      !Array.isArray(removedTypes) ||
+      !Array.isArray(addedTypes) ||
+      !Array.isArray(addedLines) ||
+      addedTypes.length !== addedLines.length ||
+      !removedTypes.every(t => typeof t === 'string') ||
+      !addedTypes.every(t => typeof t === 'string') ||
+      !addedLines.every(l => typeof l === 'string')
+    ) {
+      continue
+    }
+    for (const t of removedTypes) {
+      announced.delete(t)
+    }
+    for (let i = 0; i < addedTypes.length; i++) {
+      announced.set(addedTypes[i]!, addedLines[i]!)
+    }
   }
 
   const currentTypes = new Set(filtered.map(a => a.agentType))
-  const added = filtered.filter(a => !announced.has(a.agentType))
+
+  // Resume path: prior process already injected the listing into the local
+  // transcript. Fire-once latch from conversationRecovery — same role as
+  // suppressNextSkillListing.
+  //
+  // When the first attachment pass races ahead of the message scan (messages
+  // still lack agent_listing_delta), fall back to the recovered announced map
+  // that was retained with the latch — boolean-only would consume the latch
+  // against an empty set and re-announce the full catalog mid-history.
+  //
+  // Only suppress when the filtered set matches what was already announced —
+  // including rendered line content. If agents were added/removed or a
+  // same-type definition/tool policy changed across the process boundary,
+  // fall through so a corrective delta still emits (using the recovered
+  // baseline when the in-memory scan is empty).
+  let announcedBaseline = announced
+  if (suppressNextAgent) {
+    suppressNextAgent = false
+    if (
+      announcedBaseline.size === 0 &&
+      suppressNextAgentAnnounced &&
+      suppressNextAgentAnnounced.size > 0
+    ) {
+      announcedBaseline = suppressNextAgentAnnounced
+    }
+    suppressNextAgentAnnounced = null
+    let unchanged = currentTypes.size === announcedBaseline.size
+    if (unchanged) {
+      for (const a of filtered) {
+        if (announcedBaseline.get(a.agentType) !== formatAgentLine(a)) {
+          unchanged = false
+          break
+        }
+      }
+    }
+    if (unchanged) {
+      return []
+    }
+    // Changed across resume — keep recovered baseline for add/remove below.
+    announced = announcedBaseline
+  }
+
+  const added = filtered.filter(a => {
+    const prev = announced.get(a.agentType)
+    return prev === undefined || prev !== formatAgentLine(a)
+  })
+  // Resume race: MCP tools often join the pool after the first attachment
+  // pass. Agents gated on requiredMcpServers look "removed" while
+  // mcpServers is still empty, then reappear once MCP connects — another
+  // mid-history listing rewrite. Hold those removals until MCP availability
+  // can no longer satisfy the agent's requirements (empty pool, or an
+  // unsettled pending/needs-auth client that would satisfy requiredMcpServers).
+  // An unrelated connected client (e.g. "other") must not authorize removal of
+  // a docs-gated agent while "docs" is still unsettled.
+  const mcpClients = toolUseContext.options.mcpClients ?? []
+  const unsettledServerNames = mcpClients
+    .filter(isMcpClientUnsettledForRemovals)
+    .map(c => c.name)
   const removed: string[] = []
-  for (const t of announced) {
-    if (!currentTypes.has(t)) removed.push(t)
+  for (const t of announced.keys()) {
+    if (currentTypes.has(t)) continue
+    const def = activeAgents.find(a => a.agentType === t)
+    if (def && !hasRequiredMcpServers(def, [...mcpServers])) {
+      if (mcpServers.size === 0) {
+        continue
+      }
+      if (
+        unsettledServerNames.length > 0 &&
+        hasRequiredMcpServers(def, [...mcpServers, ...unsettledServerNames])
+      ) {
+        continue
+      }
+    }
+    removed.push(t)
   }
 
   if (added.length === 0 && removed.length === 0) return []
@@ -2924,18 +3036,19 @@ const sentSkillNames = new Map<string, Set<string>>()
 export function resetSentSkillNames(): void {
   sentSkillNames.clear()
   suppressNext = false
+  suppressNextAgent = false
+  suppressNextAgentAnnounced = null
 }
 
 /**
  * Suppress the next skill-listing injection. Called by conversationRecovery
- * on --resume when a skill_listing attachment already exists in the
- * transcript.
+ * on --resume when a skill_listing is already present in the local transcript.
  *
  * `sentSkillNames` is module-scope — process-local. Each `claude -p` spawn
  * starts with an empty Map, so without this every resume re-injects the
- * full ~600-token listing even though it's already in the conversation from
- * the prior process. Shows up on every --resume; particularly loud for
- * daemons that respawn frequently.
+ * full ~600-token listing even though the prior process already announced
+ * it. Shows up on every --resume; particularly loud for daemons that
+ * respawn frequently.
  *
  * Trade-off: skills added between sessions won't be announced until the
  * next non-resume session. Acceptable — skill_listing was never meant to
@@ -2946,6 +3059,34 @@ export function suppressNextSkillListing(): void {
   suppressNext = true
 }
 let suppressNext = false
+
+/**
+ * Suppress the next agent-listing injection. Called by conversationRecovery
+ * on --resume when an agent_listing_delta is already present in the local
+ * transcript. Mirrors suppressNextSkillListing — without this, a resume that
+ * races ahead of the message scan can re-announce the full agent list
+ * mid-history and bust OpenAI/Moonshot prefix cache.
+ *
+ * Prefer passing `recoveredLines` (agentType → formatAgentLine) reconstructed
+ * from the transcript listing so the first attachment pass still has a baseline
+ * when `messages` temporarily lack listings. Boolean-only latch against an
+ * empty announced set would re-emit the full catalog and bust cache.
+ *
+ * Consumed once: when the current filtered agent set equals the recovered /
+ * announced set, returns an empty delta; when the set changed across the
+ * process boundary, the latch still clears but a normal add/remove delta is
+ * emitted against that baseline.
+ */
+export function suppressNextAgentListing(
+  recoveredLines?: ReadonlyMap<string, string>,
+): void {
+  suppressNextAgent = true
+  if (recoveredLines !== undefined) {
+    suppressNextAgentAnnounced = new Map(recoveredLines)
+  }
+}
+let suppressNextAgent = false
+let suppressNextAgentAnnounced: Map<string, string> | null = null
 
 // When skill-search is enabled and the filtered (bundled + MCP) listing exceeds
 // this count, fall back to bundled-only. Protects MCP-heavy users (100+ servers)
@@ -3015,7 +3156,7 @@ async function getSkillListingAttachments(
     sentSkillNames.set(agentKey, sent)
   }
 
-  // Resume path: prior process already injected a listing; it's in the
+  // Resume path: prior process already injected a listing into the local
   // transcript. Mark everything current as sent so only post-resume deltas
   // (skills loaded later via /reload-plugins etc) get announced.
   if (suppressNext) {

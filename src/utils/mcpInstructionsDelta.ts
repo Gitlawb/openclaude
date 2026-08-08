@@ -1,8 +1,9 @@
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { logEvent } from '../services/analytics/index.js'
-import type {
-  ConnectedMCPServer,
-  MCPServerConnection,
+import {
+  isMcpClientUnsettledForRemovals,
+  type ConnectedMCPServer,
+  type MCPServerConnection,
 } from '../services/mcp/types.js'
 import type { Message } from '../types/message.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
@@ -44,30 +45,82 @@ export function isMcpInstructionsDeltaEnabled(): boolean {
 }
 
 /**
+ * Reconstruct name → rendered instruction block from prior deltas.
+ * Removals apply first so a same-name update (removed + re-added in one
+ * delta) ends with the new block in the map.
+ */
+export function getAnnouncedMcpInstructionBlocks(
+  messages: Message[],
+): Map<string, string> {
+  const announced = new Map<string, string>()
+  for (const msg of messages) {
+    if (msg.type !== 'attachment') continue
+    // Legacy transcripts may carry malformed attachment records
+    // (null/undefined/non-object payload). Skip instead of throwing.
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
+    if (msg.attachment.type !== 'mcp_instructions_delta') continue
+    // Require the full recognized schema before processing. Malformed or
+    // partial legacy entries must be skipped — not partially applied.
+    const { addedNames, addedBlocks, removedNames } = msg.attachment
+    // Fail closed: match attachments/toolSearch — equal added lengths and
+    // every entry a string. Misaligned added* would delete without restore.
+    if (
+      !Array.isArray(removedNames) ||
+      !Array.isArray(addedNames) ||
+      !Array.isArray(addedBlocks) ||
+      addedNames.length !== addedBlocks.length ||
+      !removedNames.every(n => typeof n === 'string') ||
+      !addedNames.every(n => typeof n === 'string') ||
+      !addedBlocks.every(b => typeof b === 'string')
+    ) {
+      continue
+    }
+    for (const n of removedNames) {
+      announced.delete(n)
+    }
+    for (let i = 0; i < addedNames.length; i++) {
+      announced.set(addedNames[i]!, addedBlocks[i]!)
+    }
+  }
+  return announced
+}
+
+/**
  * Diff the current set of connected MCP servers that have instructions
  * (server-authored via InitializeResult, or client-side synthesized)
  * against what's already been announced in this conversation. Null if
  * nothing changed.
  *
- * Instructions are immutable for the life of a connection (set once at
- * handshake), so the scan diffs on server NAME, not on content.
+ * Within a single process, InitializeResult.instructions are immutable for
+ * the life of a connection. Across --resume, a fresh MCP handshake can
+ * return different instructions under the same configured server name
+ * (deploy / config / auth-policy). Diff on the rendered block, not name
+ * alone, so stale instructions are re-announced.
  */
 export function getMcpInstructionsDelta(
   mcpClients: MCPServerConnection[],
   messages: Message[],
   clientSideInstructions: ClientSideInstruction[],
 ): McpInstructionsDelta | null {
-  const announced = new Set<string>()
   let attachmentCount = 0
   let midCount = 0
   for (const msg of messages) {
     if (msg.type !== 'attachment') continue
+    if (!msg.attachment || typeof msg.attachment !== 'object') continue
+    if (Array.isArray(msg.attachment)) continue
     attachmentCount++
-    if (msg.attachment.type !== 'mcp_instructions_delta') continue
-    midCount++
-    for (const n of msg.attachment.addedNames) announced.add(n)
-    for (const n of msg.attachment.removedNames) announced.delete(n)
+    if (
+      msg.attachment.type === 'mcp_instructions_delta' &&
+      Array.isArray(msg.attachment.removedNames) &&
+      Array.isArray(msg.attachment.addedNames) &&
+      Array.isArray(msg.attachment.addedBlocks)
+    ) {
+      midCount++
+    }
   }
+
+  const announced = getAnnouncedMcpInstructionBlocks(messages)
 
   const connected = mcpClients.filter(
     (c): c is ConnectedMCPServer => c.type === 'connected',
@@ -93,18 +146,45 @@ export function getMcpInstructionsDelta(
 
   const added: Array<{ name: string; block: string }> = []
   for (const [name, block] of blocks) {
-    if (!announced.has(name)) added.push({ name, block })
+    const prev = announced.get(name)
+    // New server, or same name with a different rendered block (resume /
+    // reconnect with updated InitializeResult.instructions).
+    if (prev === undefined || prev !== block) {
+      added.push({ name, block })
+    }
   }
 
-  // A previously-announced server that is no longer connected → removed.
-  // There is no "announced but now has no instructions" case for a still-
-  // connected server: InitializeResult is immutable, and client-side
-  // instruction gates are session-stable in practice. (/model can flip
-  // the model gate, but deferred_tools_delta has the same property and
-  // we treat history as historical — no retroactive retractions.)
+  // Previously-announced server that is no longer connected, or still
+  // connected but has no block to announce (empty instructions + no
+  // client-side block) → removed. Content-changed servers stay connected;
+  // they are re-added above with the new block (history keeps the old
+  // attachment; the new delta is the corrective update the model should follow).
+  //
+  // Resume race: interactive --resume / --continue does not block on MCP
+  // connect, so the first attachment pass often sees mcpClients=[] while
+  // announced is non-empty (local JSONL now persists mcp_instructions_delta).
+  // Empty / all-unsettled clients means "not connected yet", not "disconnected"
+  // — hold name-based removals until at least one client settles
+  // (pending and needs-auth both count as unsettled; jatmn [P3]).
+  //
+  // Mixed state: an unrelated connected client must NOT authorize removal of
+  // a server that is still unsettled (other connected + docs needs-auth → keep
+  // docs until docs settles or disappears from the client list).
+  const clientSetSettledForRemovals =
+    mcpClients.length > 0 &&
+    mcpClients.some(c => !isMcpClientUnsettledForRemovals(c))
   const removed: string[] = []
-  for (const n of announced) {
-    if (!connectedNames.has(n)) removed.push(n)
+  for (const n of announced.keys()) {
+    if (connectedNames.has(n)) {
+      if (!blocks.has(n)) removed.push(n)
+      continue
+    }
+    const serverStillUnsettled = mcpClients.some(
+      c => isMcpClientUnsettledForRemovals(c) && c.name === n,
+    )
+    if (serverStillUnsettled) continue
+    if (!clientSetSettledForRemovals) continue
+    removed.push(n)
   }
 
   if (added.length === 0 && removed.length === 0) return null

@@ -608,6 +608,7 @@ export async function compactConversation(
       context.options.mainLoopModel,
       [],
       { callSite: 'compact_full' },
+      context.options.mcpClients,
     )) {
       postCompactFileAttachments.push(createAttachmentMessage(att))
     }
@@ -1009,6 +1010,7 @@ export async function partialCompactConversation(
       context.options.mainLoopModel,
       messagesToKeep,
       { callSite: 'compact_partial' },
+      context.options.mcpClients,
     )) {
       postCompactFileAttachments.push(createAttachmentMessage(att))
     }

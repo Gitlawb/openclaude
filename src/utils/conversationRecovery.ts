@@ -18,7 +18,11 @@ import type {
   NormalizedUserMessage,
 } from '../types/message.js'
 import { PERMISSION_MODES } from '../types/permissions.js'
-import { suppressNextSkillListing } from './attachments.js'
+import {
+  resetSentSkillNames,
+  suppressNextAgentListing,
+  suppressNextSkillListing,
+} from './attachments.js'
 import {
   copyFileHistoryForResume,
   type FileHistorySnapshot,
@@ -613,6 +617,9 @@ function isTerminalToolResult(
  * @internal Exported for testing - use loadConversationForResume instead
  */
 export function restoreSkillStateFromMessages(messages: Message[]): void {
+  let sawAgentListing = false
+  const recoveredAgentLines = new Map<string, string>()
+
   for (const message of messages) {
     if (message.type !== 'attachment') {
       continue
@@ -637,14 +644,61 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
         }
       }
     }
-    // A prior process already injected the skills-available reminder — it's
-    // in the transcript the model is about to see. sentSkillNames is
-    // process-local, so without this every resume re-announces the same
-    // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
+    // A prior process already injected the skills-available reminder into the
+    // local transcript. sentSkillNames is process-local, so without this every
+    // resume re-announces the same ~600 tokens. Fire-once latch; consumed on
+    // the first attachment pass.
     if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
     }
+    // Same for agent_listing_delta — mid-history re-announce busts Moonshot
+    // / OpenAI automatic prefix cache on every --resume. Retain the rendered
+    // announced map with the latch so a race before message scan still has a
+    // baseline when messages temporarily lack listings.
+    // Require the full recognized schema before arming suppression — match
+    // getAgentListingDeltaAttachment, which rejects partial deltas.
+    if (attachment.type === 'agent_listing_delta') {
+      const { addedTypes, addedLines, removedTypes } = attachment
+      // Fail closed: match getAgentListingDeltaAttachment — reject unless
+      // arrays are length-aligned and every entry is a string. Partial apply
+      // can delete an announcement without restoring it and bust prefix cache.
+      if (
+        !Array.isArray(addedTypes) ||
+        !Array.isArray(addedLines) ||
+        !Array.isArray(removedTypes) ||
+        addedTypes.length !== addedLines.length ||
+        !removedTypes.every(t => typeof t === 'string') ||
+        !addedTypes.every(t => typeof t === 'string') ||
+        !addedLines.every(l => typeof l === 'string')
+      ) {
+        continue
+      }
+      sawAgentListing = true
+      for (const t of removedTypes) {
+        recoveredAgentLines.delete(t)
+      }
+      for (let i = 0; i < addedTypes.length; i++) {
+        recoveredAgentLines.set(addedTypes[i]!, addedLines[i]!)
+      }
+    }
   }
+
+  if (sawAgentListing) {
+    suppressNextAgentListing(recoveredAgentLines)
+  }
+}
+
+/**
+ * In-REPL /resume keeps the same process, so module-scope sentSkillNames
+ * (and suppress latches) from the prior session survive. Clear them before
+ * restoreSkillStateFromMessages so a resumed transcript without skill_listing
+ * can announce current skills, and so transcript listings re-arm suppress
+ * from the resumed messages only. CLI --resume / --continue spawn a fresh
+ * process and must not call this.
+ */
+export function prepareInReplResumeListingState(messages: Message[]): void {
+  resetSentSkillNames()
+  restoreSkillStateFromMessages(messages)
 }
 
 /**
