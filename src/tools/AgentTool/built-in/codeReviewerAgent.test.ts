@@ -33,6 +33,8 @@ describe('code-reviewer built-in agent', () => {
       if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR
       else process.env.CLAUDE_CONFIG_DIR = prev
       await rm(dir, { recursive: true, force: true })
+      clearAgentDefinitionsCache()
+      loadMarkdownFilesForSubdir.cache.clear?.()
     }
   })
 
