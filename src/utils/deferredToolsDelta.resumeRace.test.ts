@@ -243,3 +243,20 @@ test('attachment wrapper emits removal once MCP pool settled (gate + call-site a
     addedNames: ['mcp__other__list'],
   })
 })
+
+test('reconstruction applies removals before additions for same name (CodeRabbit outside-diff)', () => {
+  // Same name in removedNames and addedNames must remain announced; next pass
+  // must not emit a redundant listing delta.
+  const messages = [
+    deltaMessage(
+      ['mcp__docs__search'],
+      ['mcp__docs__search'],
+      ['mcp__docs__search'],
+    ),
+  ]
+  const tools = [mcpTool('mcp__docs__search')] as unknown as Tools
+  expect(
+    getDeferredToolsDelta(tools, messages, undefined, [connected('docs')]),
+  ).toBeNull()
+})
+

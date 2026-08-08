@@ -747,11 +747,13 @@ export function getDeferredToolsDelta(
       continue
     }
     dtdCount++
-    for (const n of addedNames) {
-      announced.add(n)
-    }
+    // Removals before additions: same name in both arrays must stay announced
+    // (CodeRabbit outside-diff on reconstruction order).
     for (const n of removedNames) {
       announced.delete(n)
+    }
+    for (const n of addedNames) {
+      announced.add(n)
     }
   }
 
