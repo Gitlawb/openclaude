@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, fstatSync, openSync, readSync } from 'fs'
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -918,6 +918,12 @@ class Project {
   private activeDrain: Promise<void> | null = null
   private FLUSH_INTERVAL_MS = 100
   private readonly MAX_CHUNK_BYTES = 100 * 1024 * 1024
+  /**
+   * UUIDs withheld from remote/CCR egress. Maps omitted uuid → nearest
+   * ancestor still present on the remote projection so subsequent
+   * persistToRemote calls can reparent instead of dangling.
+   */
+  private remoteEgressOmittedParents = new Map<UUID, UUID | null>()
 
   constructor() {}
 
@@ -929,6 +935,7 @@ class Project {
     this.flushTimer = null
     this.activeDrain = null
     this.writeQueues = new Map()
+    this.remoteEgressOmittedParents.clear()
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
     this.pendingDirectAppends = new Map()
@@ -1227,9 +1234,46 @@ class Project {
     )
   }
 
+  /**
+   * After --resume / --continue, remoteEgressOmittedParents starts empty
+   * (resetSessionFile clears it). Rebuild from the adopted local transcript
+   * so the first post-resume remote append whose parentUuid pointed at a
+   * withheld entry can reparent instead of dangling on CCR / session-ingress.
+   */
+  rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
+    this.remoteEgressOmittedParents.clear()
+    const path = this.sessionFile
+    if (!path) return
+    let content: string
+    try {
+      content = readFileSync(path, 'utf8')
+    } catch {
+      return
+    }
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        continue
+      }
+      if (!isTranscriptMessage(parsed as Entry)) continue
+      const entry = parsed as TranscriptMessage
+      if (!isSafeForExternalEgress(entry)) {
+        recordExternalEgressOmission(
+          this.remoteEgressOmittedParents,
+          entry.uuid,
+          entry.parentUuid ?? null,
+        )
+      }
+    }
+  }
+
   resetSessionFile(): void {
     this.sessionFile = null
     this.pendingEntries = []
+    this.remoteEgressOmittedParents.clear()
   }
 
   /**
@@ -1897,8 +1941,25 @@ class Project {
             // UUID the main thread hasn't written yet → 409 when main writes it.
             messageSet.add(entry.uuid)
 
+            // Remote / CCR / public ingress must not receive listing catalogs
+            // or other unsafe attachments (privacy boundary). When a chain
+            // participant is withheld, record it in remoteEgressOmittedParents
+            // and reparent the next remote entry so hydrateRemoteSession /
+            // buildConversationChain do not stop at a missing parentUuid.
             if (isTranscriptMessage(entry)) {
-              await this.persistToRemote(sessionId, entry)
+              if (isSafeForExternalEgress(entry)) {
+                const remoteEntry = projectTranscriptParentForExternalEgress(
+                  entry,
+                  this.remoteEgressOmittedParents,
+                )
+                await this.persistToRemote(sessionId, remoteEntry)
+              } else {
+                recordExternalEgressOmission(
+                  this.remoteEgressOmittedParents,
+                  entry.uuid,
+                  entry.parentUuid,
+                )
+              }
             }
           }
         }
@@ -2192,6 +2253,10 @@ export async function resetSessionFilePointer() {
 export function adoptResumedSessionFile(): void {
   const project = getProject()
   project.sessionFile = getTranscriptPath()
+  // Resume clears remoteEgressOmittedParents via resetSessionFilePointer.
+  // Rebuild from the adopted JSONL so post-resume remote appends reparent
+  // across entries withheld from egress.
+  project.rebuildRemoteEgressOmittedParentsFromLocalTranscript()
   project.reAppendSessionMetadata(true)
 }
 
@@ -5342,6 +5407,68 @@ export async function loadAllSubagentTranscriptsFromDisk(): Promise<{
   return loadSubagentTranscripts(agentIds)
 }
 
+/** Listing attachment types that must never cross remote/share/feedback paths. */
+export const PREFIX_CACHE_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> =
+  new Set([
+    'skill_listing',
+    'agent_listing_delta',
+    'deferred_tools_delta',
+    'mcp_instructions_delta',
+  ])
+
+function attachmentTypeOf(m: {
+  type?: string
+  attachment?: unknown
+}): string | null {
+  if (m.type !== 'attachment') return null
+  if (!m.attachment || typeof m.attachment !== 'object') return null
+  const t = (m.attachment as { type?: unknown }).type
+  return typeof t === 'string' ? t : null
+}
+
+/**
+ * Record a UUID withheld from remote/public egress. Chain-resolves through
+ * consecutive omissions so one lookup yields the nearest ancestor that still
+ * exists on the projected chain.
+ */
+export function recordExternalEgressOmission(
+  omittedParents: Map<UUID, UUID | null>,
+  uuid: UUID,
+  parentUuid: UUID | null,
+): void {
+  omittedParents.set(
+    uuid,
+    parentUuid && omittedParents.has(parentUuid)
+      ? (omittedParents.get(parentUuid) ?? null)
+      : parentUuid,
+  )
+}
+
+/**
+ * Reparent a transcript entry whose parentUuid points at a UUID omitted from
+ * the external/remote projection. Returns the same reference when no rewrite
+ * is needed so callers can keep original JSONL bytes where possible.
+ */
+export function projectTranscriptParentForExternalEgress<
+  T extends { parentUuid: UUID | null },
+>(entry: T, omittedParents: Map<UUID, UUID | null>): T {
+  if (!entry.parentUuid || !omittedParents.has(entry.parentUuid)) {
+    return entry
+  }
+  return {
+    ...entry,
+    parentUuid: omittedParents.get(entry.parentUuid) ?? null,
+  }
+}
+
+export function isPrefixCacheListingAttachment(m: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  const t = attachmentTypeOf(m)
+  return t !== null && PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)
+}
+
 // Exported so useLogMessages can sync-compute the last loggable uuid
 // without awaiting recordTranscript's return value (race-free hint tracking).
 export function isLoggableMessage(m: Message): boolean {
@@ -5360,6 +5487,157 @@ export function isLoggableMessage(m: Message): boolean {
     return false
   }
   return true
+}
+
+/**
+ * Privacy gate for remote ingress / CCR / public sharing paths.
+ * Listing catalogs (and other unsafe attachments) must not cross this
+ * boundary — including the ant fast path below.
+ */
+export function isSafeForExternalEgress(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  // Listings must never cross remote / share / feedback — including ant.
+  if (isPrefixCacheListingAttachment(entry)) {
+    return false
+  }
+  if (getUserType() === 'ant') {
+    return entry.type !== 'progress'
+  }
+  if (entry.type === 'progress') return false
+  if (entry.type !== 'attachment') return true
+  if (!entry.attachment || typeof entry.attachment !== 'object') {
+    return false
+  }
+  const t = (entry.attachment as { type?: unknown }).type
+  if (typeof t !== 'string') return false
+  if (
+    t === 'hook_additional_context' &&
+    isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
+  ) {
+    return true
+  }
+  // Other attachment types remain blocked on egress for external users.
+  return false
+}
+
+/**
+ * Drop entries that must not leave the local machine (share, feedback,
+ * analytics payloads built from in-memory messages). Relinks parentUuid
+ * across omitted listing attachments so the projected array remains a
+ * valid chain (remote-hydrate / buildConversationChain safe) without
+ * carrying listing payloads.
+ */
+export function filterMessagesForExternalEgress<
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
+>(messages: readonly T[]): T[] {
+  const omittedParents = new Map<UUID, UUID | null>()
+  const kept: T[] = []
+  for (const message of messages) {
+    if (!isSafeForExternalEgress(message)) {
+      if (typeof message.uuid === 'string') {
+        recordExternalEgressOmission(
+          omittedParents,
+          message.uuid,
+          message.parentUuid ?? null,
+        )
+      }
+      continue
+    }
+    if (
+      message.parentUuid !== undefined &&
+      message.parentUuid !== null &&
+      omittedParents.has(message.parentUuid)
+    ) {
+      kept.push({
+        ...message,
+        parentUuid: omittedParents.get(message.parentUuid) ?? null,
+      })
+    } else {
+      kept.push(message)
+    }
+  }
+  return kept
+}
+
+/**
+ * Project every subagent transcript through filterMessagesForExternalEgress.
+ * Shared by Feedback submit and submitTranscriptShare so the egress rule
+ * cannot drift between upload paths.
+ */
+export function filterSubagentTranscriptsForExternalEgress<
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
+>(transcripts: { [agentId: string]: T[] }): { [agentId: string]: T[] } {
+  const filtered: { [agentId: string]: T[] } = {}
+  for (const [agentId, msgs] of Object.entries(transcripts)) {
+    filtered[agentId] = filterMessagesForExternalEgress(msgs)
+  }
+  return filtered
+}
+
+/**
+ * Strip unsafe attachment lines from a raw session JSONL string before any
+ * public upload. Unparseable non-empty lines fail closed (dropped) so a
+ * corrupt listing fragment cannot bypass attachment classification.
+ * Surviving lines whose parentUuid pointed at an omitted listing are
+ * rewritten to the nearest kept ancestor so a shared/hydrated log stays a
+ * continuous parentUuid chain.
+ */
+export function filterJsonlForExternalEgress(jsonl: string): string {
+  if (jsonl.length === 0) return jsonl
+  const lines = jsonl.split('\n')
+  const kept: string[] = []
+  const omittedParents = new Map<UUID, UUID | null>()
+  for (const line of lines) {
+    if (line.length === 0) {
+      kept.push(line)
+      continue
+    }
+    try {
+      const entry = JSON.parse(line) as {
+        type?: string
+        attachment?: unknown
+        uuid?: UUID
+        parentUuid?: UUID | null
+      }
+      if (!isSafeForExternalEgress(entry)) {
+        if (typeof entry.uuid === 'string') {
+          recordExternalEgressOmission(
+            omittedParents,
+            entry.uuid,
+            entry.parentUuid ?? null,
+          )
+        }
+        continue
+      }
+      if (entry.parentUuid && omittedParents.has(entry.parentUuid)) {
+        const projected = projectTranscriptParentForExternalEgress(
+          {
+            ...entry,
+            parentUuid: entry.parentUuid,
+          },
+          omittedParents,
+        )
+        kept.push(JSON.stringify(projected))
+      } else {
+        kept.push(line)
+      }
+    } catch {
+      // Fail closed: corrupt / partial lines must not reach share or feedback.
+    }
+  }
+  return kept.join('\n')
 }
 
 function collectReplIds(messages: readonly Message[]): Set<string> {
