@@ -5,7 +5,12 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
 import { render } from '../ink.js'
-import { AppStateProvider, getDefaultAppState } from '../state/AppState.js'
+import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
+import {
+  AppStateProvider,
+  getDefaultAppState,
+  useAppState,
+} from '../state/AppState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -21,6 +26,11 @@ type SettingsModule = typeof import('../utils/settings/settings.js')
 
 let actualSettingsModule: SettingsModule | undefined
 let settingsForTest: SettingsJson = {}
+let updateSettingsForTest = mock(
+  (..._args: Parameters<SettingsModule['updateSettingsForSource']>): {
+    error: Error | null
+  } => ({ error: null }),
+)
 
 function useSettings(settings: SettingsJson): void {
   settingsForTest = settings
@@ -35,6 +45,8 @@ async function mockSettingsForTest(): Promise<void> {
     ...actualSettingsModule!,
     getInitialSettings: () => settingsForTest,
     getSettings_DEPRECATED: () => settingsForTest,
+    updateSettingsForSource: (...args: Parameters<SettingsModule['updateSettingsForSource']>) =>
+      updateSettingsForTest(...args),
   }))
   mock.module('../utils/model/modelAllowlist.js', () => ({
     isModelAllowed: isModelAllowedForTest,
@@ -76,6 +88,11 @@ beforeEach(async () => {
   await acquireSharedMutationLock('components/ModelPicker.test.tsx')
   mock.restore()
   settingsForTest = {}
+  updateSettingsForTest = mock(
+    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+      error: null,
+    }),
+  )
   await mockSettingsForTest()
   useSettings({} as SettingsJson)
 })
@@ -336,3 +353,59 @@ test('shows cross-profile switch options when allowProfileSwitch is set', async 
   }
 })
 
+test('does not advance in-memory effort when persistence fails', async () => {
+  useSettings({ effortLevel: 'low' })
+  updateSettingsForTest = mock(
+    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+      error: new Error('settings locked'),
+    }),
+  )
+  const { ModelPicker } = await import(
+    `./ModelPicker.js?write-failure-${Date.now()}`
+  )
+  const { stdin, stdout, getOutput } = makeStdio()
+  const onSelect = mock(() => {})
+  let observedEffort = getDefaultAppState().effortValue
+
+  function StateProbe(): null {
+    observedEffort = useAppState(state => state.effortValue)
+    return null
+  }
+
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      <KeybindingSetup>
+        <StateProbe />
+        <ModelPicker
+          initial="claude-opus-4-6"
+          onSelect={onSelect}
+          optionsOverride={[
+            {
+              value: 'claude-opus-4-6',
+              label: 'Opus',
+              description: 'Effort-capable model',
+            },
+          ]}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
+    stdin.write('\r')
+    await waitForCondition(() => onSelect.mock.calls.length === 1)
+
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
+    expect(observedEffort).toBeUndefined()
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})

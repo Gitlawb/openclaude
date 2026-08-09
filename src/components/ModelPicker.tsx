@@ -13,6 +13,7 @@ import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions, SWITCH_PROFILE_VALUE_PREFIX, type ModelOption, parseSwitchProfileValue, resolveSelectedSwitchProfileId } from '../utils/model/modelOptions.js';
 import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { logError } from '../utils/log.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
@@ -312,15 +313,22 @@ export function ModelPicker(t0) {
       if (!skipSettingsWrite) {
         const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(selectedValue), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
+        let persisted = true;
         if (persistable !== undefined) {
-          updateSettingsForSource("userSettings", {
+          const result = updateSettingsForSource("userSettings", {
             effortLevel: persistable
           });
+          if (result.error) {
+            logError(result.error);
+            persisted = false;
+          }
         }
-        setAppState(prev_0 => ({
-          ...prev_0,
-          effortValue: effortLevel
-        }));
+        if (persisted) {
+          setAppState(prev_0 => ({
+            ...prev_0,
+            effortValue: effortLevel
+          }));
+        }
       }
       const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? clampedEffort : undefined;
       if (selectedValue === NO_PREFERENCE) {

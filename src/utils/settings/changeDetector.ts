@@ -1,5 +1,5 @@
 import chokidar, { type FSWatcher } from 'chokidar'
-import { stat } from 'fs/promises'
+import { realpath, stat } from 'fs/promises'
 import * as platformPath from 'path'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import { registerCleanup } from '../cleanupRegistry.js'
@@ -77,6 +77,7 @@ const pendingDeletions = new Map<string, ReturnType<typeof setTimeout>>()
 let settingsDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const pendingSettingsSources = new Map<SettingSource, number>()
 const settingsSourceGenerations = new Map<SettingSource, number>()
+const watchedSettingsSources = new Map<string, Set<SettingSource>>()
 const settingsChanged = createSignal<[source: SettingSource]>()
 
 // Test overrides for timing constants
@@ -95,6 +96,7 @@ const defaultDependencies = {
   getManagedSettingsDropInDir,
   getSettingsFilePathForSource,
   hasBlockingResult,
+  realpath,
   resetSettingsCache,
   stat,
   watch: chokidar.watch.bind(chokidar),
@@ -185,6 +187,7 @@ export function dispose(): Promise<void> {
   pendingDeletions.clear()
   clearSettingsDebounce()
   settingsSourceGenerations.clear()
+  watchedSettingsSources.clear()
   lastMdmSnapshot = null
   dependencies.clearInternalWrites()
   settingsChanged.clear()
@@ -211,6 +214,26 @@ async function getWatchTargets(): Promise<{
   // Map from directory to all potential settings files in that directory
   const dirToSettingsFiles = new Map<string, Set<string>>()
   const dirsWithExistingFiles = new Set<string>()
+  watchedSettingsSources.clear()
+
+  const registerSettingsPath = (
+    path: string,
+    source: SettingSource,
+  ): string => {
+    const normalizedPath = platformPath.normalize(path)
+    const dir = platformPath.dirname(normalizedPath)
+    if (!dirToSettingsFiles.has(dir)) {
+      dirToSettingsFiles.set(dir, new Set())
+    }
+    dirToSettingsFiles.get(dir)!.add(normalizedPath)
+    const sources = watchedSettingsSources.get(normalizedPath)
+    if (sources) {
+      sources.add(source)
+    } else {
+      watchedSettingsSources.set(normalizedPath, new Set([source]))
+    }
+    return dir
+  }
 
   for (const source of SETTING_SOURCES) {
     // Skip flagSettings - they're provided via CLI and won't change during the session.
@@ -220,24 +243,27 @@ async function getWatchTargets(): Promise<{
     if (source === 'flagSettings') {
       continue
     }
-    const path = dependencies.getSettingsFilePathForSource(source)
-    if (!path) {
+    const logicalPath = dependencies.getSettingsFilePathForSource(source)
+    if (!logicalPath) {
       continue
     }
 
-    const dir = platformPath.dirname(path)
-
-    // Track all potential settings files in each directory
-    if (!dirToSettingsFiles.has(dir)) {
-      dirToSettingsFiles.set(dir, new Set())
-    }
-    dirToSettingsFiles.get(dir)!.add(path)
+    const logicalDir = registerSettingsPath(logicalPath, source)
 
     // Check if file exists - only watch directories that have at least one existing file
     try {
-      const stats = await dependencies.stat(path)
+      const stats = await dependencies.stat(logicalPath)
       if (stats.isFile()) {
-        dirsWithExistingFiles.add(dir)
+        dirsWithExistingFiles.add(logicalDir)
+        try {
+          // Locked writes target the physical file behind a symlink. Watch both
+          // spellings so peer sessions observe those writes as well.
+          const targetPath = await dependencies.realpath(logicalPath)
+          const targetDir = registerSettingsPath(targetPath, source)
+          dirsWithExistingFiles.add(targetDir)
+        } catch {
+          // The logical directory still covers replacement of a broken link.
+        }
       }
     } catch {
       // File doesn't exist, that's fine
@@ -293,8 +319,8 @@ function settingSourceToConfigChangeSource(
 
 function handleChange(path: string): void {
   if (disposed) return
-  const source = getSourceForPath(path)
-  if (!source) return
+  const sources = getSourcesForPath(path)
+  if (sources.length === 0) return
 
   // If a deletion was pending for this path (delete-and-recreate pattern),
   // cancel the deletion — we'll process this as a change instead.
@@ -316,18 +342,24 @@ function handleChange(path: string): void {
 
   // Fire ConfigChange hook first — if blocked (exit code 2 or decision: 'block'),
   // skip applying the change to the session
-  const generation = nextSettingsSourceGeneration(source)
-  void dependencies.executeConfigChangeHooks(
-    settingSourceToConfigChangeSource(source),
-    path,
-  ).then(results => {
-    if (dependencies.hasBlockingResult(results)) {
-      logForDebugging(`ConfigChange hook blocked change to ${path}`)
-      return
-    }
-    if (disposed) return
-    scheduleFanOut(source, generation)
-  })
+  for (const source of sources) {
+    const generation = nextSettingsSourceGeneration(source)
+    void dependencies
+      .executeConfigChangeHooks(
+        settingSourceToConfigChangeSource(source),
+        path,
+      )
+      .then(results => {
+        if (dependencies.hasBlockingResult(results)) {
+          logForDebugging(
+            `ConfigChange hook blocked ${source} change to ${path}`,
+          )
+          return
+        }
+        if (disposed) return
+        scheduleFanOut(source, generation)
+      })
+  }
 }
 
 /**
@@ -336,8 +368,7 @@ function handleChange(path: string): void {
  */
 function handleAdd(path: string): void {
   if (disposed) return
-  const source = getSourceForPath(path)
-  if (!source) return
+  if (getSourcesForPath(path).length === 0) return
 
   // Cancel any pending deletion — the file is back
   const pendingTimer = pendingDeletions.get(path)
@@ -359,54 +390,64 @@ function handleAdd(path: string): void {
  */
 function handleDelete(path: string): void {
   if (disposed) return
-  const source = getSourceForPath(path)
-  if (!source) return
+  const sources = getSourcesForPath(path)
+  if (sources.length === 0) return
 
   logForDebugging(`Detected deletion of ${path}`)
 
   // If there's already a pending deletion for this path, let it run
   if (pendingDeletions.has(path)) return
 
-  const generation = nextSettingsSourceGeneration(source)
+  const generations = sources.map(
+    source => [source, nextSettingsSourceGeneration(source)] as const,
+  )
   const timer = setTimeout(
-    (p, src, gen) => {
+    (p, sourceGenerations) => {
       if (disposed) return
       pendingDeletions.delete(p)
 
-      // Fire ConfigChange hook first — if blocked, skip applying the deletion
-      void dependencies.executeConfigChangeHooks(
-        settingSourceToConfigChangeSource(src),
-        p,
-      ).then(results => {
-        if (dependencies.hasBlockingResult(results)) {
-          logForDebugging(`ConfigChange hook blocked deletion of ${p}`)
-          return
-        }
-        if (disposed) return
-        scheduleFanOut(src, gen)
-      })
+      for (const [source, generation] of sourceGenerations) {
+        // Fire ConfigChange hook first — if blocked, skip applying the deletion
+        void dependencies
+          .executeConfigChangeHooks(
+            settingSourceToConfigChangeSource(source),
+            p,
+          )
+          .then(results => {
+            if (dependencies.hasBlockingResult(results)) {
+              logForDebugging(
+                `ConfigChange hook blocked ${source} deletion of ${p}`,
+              )
+              return
+            }
+            if (disposed) return
+            scheduleFanOut(source, generation)
+          })
+      }
     },
     testOverrides?.deletionGrace ?? DELETION_GRACE_MS,
     path,
-    source,
-    generation,
+    generations,
   )
   pendingDeletions.set(path, timer)
 }
 
-function getSourceForPath(path: string): SettingSource | undefined {
+function getSourcesForPath(path: string): SettingSource[] {
   // Normalize path because chokidar uses forward slashes on Windows
   const normalizedPath = platformPath.normalize(path)
+
+  const watchedSources = watchedSettingsSources.get(normalizedPath)
+  if (watchedSources) return [...watchedSources]
 
   // Check if the path is inside the managed-settings.d/ drop-in directory
   const dropInDir = platformPath.normalize(
     dependencies.getManagedSettingsDropInDir(),
   )
   if (normalizedPath.startsWith(dropInDir + platformPath.sep)) {
-    return 'policySettings'
+    return ['policySettings']
   }
 
-  return SETTING_SOURCES.find(
+  return SETTING_SOURCES.filter(
     source =>
       platformPath.normalize(
         dependencies.getSettingsFilePathForSource(source) ?? '',
@@ -557,6 +598,7 @@ export function resetForTesting(overrides?: {
   pendingDeletions.clear()
   clearSettingsDebounce()
   settingsSourceGenerations.clear()
+  watchedSettingsSources.clear()
   lastMdmSnapshot = null
   initialized = false
   disposed = false

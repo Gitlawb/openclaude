@@ -28,6 +28,7 @@ import {
   updateSettingsForSource,
 } from '../../utils/settings/settings.js'
 import {
+  getSettingsFileLockPath,
   replaceSettingsFileSync,
   resolveSettingsFileTarget,
   withSettingsFileLockSync,
@@ -162,14 +163,11 @@ function liveLockScenario(): unknown {
       updateSettingsForSource('userSettings', {
         env: { BLOCKED: 'update' },
       }).error?.message ?? null
-    try {
+    replacementError =
       replaceSettingsFileSync(
         settingsPath,
         `${JSON.stringify({ env: { BLOCKED: 'sync' } })}\n`,
-      )
-    } catch (error) {
-      replacementError = String(error)
-    }
+      ).error?.message ?? null
   })
 
   return {
@@ -182,7 +180,7 @@ function liveLockScenario(): unknown {
 function deadOwnerScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
 
   mkdirSync(lockPath)
@@ -242,7 +240,7 @@ function deadOwnerScenario(): unknown {
 function orphanedRecoveryClaimScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const recoveryPath = join(lockPath, 'recovery.json')
 
@@ -276,7 +274,7 @@ function orphanedRecoveryClaimScenario(): unknown {
 function separatorRecoveryTokenScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const recoveryPath = join(lockPath, 'recovery.json')
 
   mkdirSync(lockPath)
@@ -305,7 +303,7 @@ function separatorRecoveryTokenScenario(): unknown {
 function abandonedOwnerlessLockScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const originalFs = getFsImplementation()
   const abandonedAt = Date.now() - 10 * 60 * 1000
 
@@ -354,7 +352,7 @@ function abandonedOwnerlessLockScenario(): unknown {
 function foreignRuntimeOwnerScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const before = readFileSync(settingsPath, 'utf8')
 
@@ -383,12 +381,15 @@ function foreignRuntimeOwnerScenario(): unknown {
 function priorBootOwnerScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const owner = createCurrentSettingsLockOwner(
     MISSING_PROCESS_PID,
     'prior-boot-owner',
   )
+  if (!owner.bootId) {
+    return { skipped: true }
+  }
 
   mkdirSync(lockPath)
   writeFileSync(
@@ -405,6 +406,7 @@ function priorBootOwnerScenario(): unknown {
   })
 
   return {
+    skipped: false,
     error: result.error?.message ?? null,
     lockExists: existsSync(lockPath),
     final: readSettings(),
@@ -414,7 +416,7 @@ function priorBootOwnerScenario(): unknown {
 function legacyOwnerScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const before = readFileSync(settingsPath, 'utf8')
 
@@ -441,7 +443,7 @@ function longRecoveryQuarantineNameScenario(): unknown {
   }
 
   const targetPath = join(configDir, 'x'.repeat(210))
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const recoveryPath = join(lockPath, 'recovery.json')
   writeFileSync(targetPath, '{}\n', 'utf8')
   mkdirSync(lockPath)
@@ -470,7 +472,7 @@ function longRecoveryQuarantineNameScenario(): unknown {
 function successorDuringReleaseScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const originalFs = getFsImplementation()
   let successorIdentity: { dev: number; ino: number } | null = null
 
@@ -518,7 +520,7 @@ function successorDuringReleaseScenario(): unknown {
 function pidOneScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const originalPid = process.pid
   let error: string | null = null
 
@@ -605,7 +607,7 @@ function longDanglingChainScenario(): unknown {
 function ownerMetadataScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const recoveryPath = join(lockPath, 'recovery.json')
   const before = readFileSync(settingsPath, 'utf8')
@@ -685,7 +687,7 @@ function ownerMetadataScenario(): unknown {
 function unknownPidScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   const ownerPath = join(lockPath, 'owner.json')
   const before = readFileSync(settingsPath, 'utf8')
 
@@ -732,7 +734,9 @@ function writeFailureScenario(): unknown {
   const second = updateSettingsForSource('userSettings', {
     env: { SECOND: 'landed' },
   })
-  const lockPath = `${resolveSettingsFileTarget(settingsPath)}.lock`
+  const lockPath = getSettingsFileLockPath(
+    resolveSettingsFileTarget(settingsPath),
+  )
 
   return {
     firstError: first.error?.message ?? null,

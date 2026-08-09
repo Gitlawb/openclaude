@@ -3,7 +3,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -24,13 +26,13 @@ const configDir = realpathSync(
   mkdtempSync(join(tmpdir(), 'openclaude-settings-lock-swap-')),
 )
 const settingsPath = join(configDir, 'settings.json')
-const lockPath = `${settingsPath}.lock`
 const foreignDir = join(configDir, 'foreign')
 const foreignOwnerPath = join(foreignDir, 'owner.json')
 
 setClaudeConfigHomeDirForTesting(configDir)
 getClaudeConfigHomeDir.cache?.clear?.()
-writeFileSync(settingsPath, '{}\n', 'utf8')
+const original = '{}\n'
+writeFileSync(settingsPath, original, 'utf8')
 mkdirSync(foreignDir)
 writeFileSync(
   foreignOwnerPath,
@@ -41,7 +43,8 @@ writeFileSync(
 mock.module('../../utils/lockfile.js', () => ({
   ...lockfile,
   lockSync(_file: string, options?: { lockfilePath?: string }) {
-    symlinkSync(foreignDir, options?.lockfilePath ?? lockPath, 'dir')
+    if (!options?.lockfilePath) throw new Error('Missing settings lock path')
+    symlinkSync(foreignDir, options.lockfilePath, 'dir')
     return () => {}
   },
 }))
@@ -49,11 +52,22 @@ mock.module('../../utils/lockfile.js', () => ({
 const { updateSettingsForSource } = await import(
   '../../utils/settings/settings.js'
 )
-updateSettingsForSource('userSettings', { env: { MUST_NOT_LAND: 'true' } })
+let error: string | null = null
+try {
+  const result = updateSettingsForSource('userSettings', {
+    env: { MUST_NOT_LAND: 'true' },
+  })
+  error = result.error?.message ?? null
+} catch (cause) {
+  error = String(cause)
+}
 
-process.stdout.write(
-  JSON.stringify({
-    skipped: false,
-    foreignOwnerExists: existsSync(foreignOwnerPath),
-  }),
-)
+const output = {
+  skipped: false,
+  error,
+  foreignOwnerExists: existsSync(foreignOwnerPath),
+  settingsUnchanged: readFileSync(settingsPath, 'utf8') === original,
+}
+rmSync(configDir, { recursive: true, force: true })
+
+process.stdout.write(JSON.stringify(output))

@@ -115,16 +115,29 @@ type LockIdentity = {
   birthtimeMs: number
 }
 
+const locallyAbandonedSettingsLocks = new Map<
+  string,
+  { identity: LockIdentity; owner: SettingsLockOwner }
+>()
+
 export type SettingsFileLockContext = {
   targetPath: string
   assertOwned(): void
+}
+
+export function getSettingsFileLockPath(targetPath: string): string {
+  const lockId = hashIdentity([
+    'openclaude-settings-lock',
+    resolve(targetPath),
+  ]).slice(3)
+  return join(dirname(targetPath), `.openclaude-settings-lock-${lockId}`)
 }
 
 function getSettingsLockPaths(targetPath: string): {
   lockPath: string
   ownerPath: string
 } {
-  const lockPath = `${targetPath}.lock`
+  const lockPath = getSettingsFileLockPath(targetPath)
   return { lockPath, ownerPath: join(lockPath, 'owner.json') }
 }
 
@@ -524,6 +537,7 @@ function quarantineRecoveredLock(
   if (!quarantined) return false
 
   cleanupQuarantinedSettingsLock(quarantined, owner, recoveryOwner)
+  locallyAbandonedSettingsLocks.delete(lockPath)
   return true
 }
 
@@ -601,9 +615,18 @@ function removeDeadOwnerLock(
   }
   const owner = readOwner(ownerPath)
   if (!owner) {
+    locallyAbandonedSettingsLocks.delete(lockPath)
     return removeOwnerlessRecoveryLock(lockPath, identity, ownerPath)
   }
-  if (!isProcessDead(owner)) {
+  const abandoned = locallyAbandonedSettingsLocks.get(lockPath)
+  const locallyAbandoned =
+    abandoned !== undefined &&
+    lockIdentityMatches(identity, abandoned.identity) &&
+    ownersMatch(owner, abandoned.owner)
+  if (abandoned && !locallyAbandoned) {
+    locallyAbandonedSettingsLocks.delete(lockPath)
+  }
+  if (!locallyAbandoned && !isProcessDead(owner)) {
     return false
   }
 
@@ -649,6 +672,7 @@ function removeDeadOwnerLock(
     )
     if (!quarantined) return false
     cleanupQuarantinedSettingsLock(quarantined, owner, null)
+    locallyAbandonedSettingsLocks.delete(lockPath)
     return true
   } finally {
     releaseRecoveryClaim(recoveryPath, recoveryOwner)
@@ -657,6 +681,9 @@ function removeDeadOwnerLock(
 
 export function resolveSettingsFileTarget(filePath: string): string {
   const fs = getFsImplementation()
+  if (filePath.startsWith('//') || filePath.startsWith('\\\\')) {
+    return filePath
+  }
   let targetPath = resolve(filePath)
 
   // A dangling final symlink can yield another non-canonical path, especially
@@ -672,6 +699,19 @@ export function resolveSettingsFileTarget(filePath: string): string {
     const resolved = safeResolvePath(fs, targetPath)
     if (resolved.isCanonical) {
       return resolved.resolvedPath
+    }
+    try {
+      const stats = fs.lstatSync(targetPath)
+      if (
+        stats.isFIFO() ||
+        stats.isSocket() ||
+        stats.isCharacterDevice() ||
+        stats.isBlockDevice()
+      ) {
+        return targetPath
+      }
+    } catch {
+      // Missing and dangling paths are resolved through their deepest ancestor.
     }
     const next = resolveDeepestExistingAncestorSync(fs, targetPath)
     if (!next || next === targetPath) {
@@ -737,8 +777,9 @@ function acquireSettingsFileLock(filePath: string): {
       throw new Error('Settings lock ownership changed during acquisition')
     }
   } catch (error) {
+    let quarantined: QuarantinedSettingsLock | null = null
     try {
-      const quarantined =
+      quarantined =
         ownerWritten && identity
           ? quarantineSettingsLock(
               lockPath,
@@ -748,15 +789,24 @@ function acquireSettingsFileLock(filePath: string): {
               'aborted',
             )
           : null
-      try {
-        releaseLock()
-      } finally {
-        if (quarantined) {
-          cleanupQuarantinedSettingsLock(quarantined, owner, null)
-        }
-      }
     } catch {
       // Preserve the owner-write/stat failure.
+    }
+    try {
+      // Retire proper-lockfile's refresh timer even when quarantine failed.
+      releaseLock()
+    } catch {
+      // Preserve the owner-write/stat failure.
+    }
+    if (quarantined) {
+      cleanupQuarantinedSettingsLock(quarantined, owner, null)
+    } else if (
+      ownerWritten &&
+      identity &&
+      ownersMatch(readOwner(ownerPath), owner) &&
+      lockIdentityMatches(readLockIdentity(lockPath), identity)
+    ) {
+      locallyAbandonedSettingsLocks.set(lockPath, { identity, owner })
     }
     throw error
   }
@@ -779,25 +829,55 @@ function acquireSettingsFileLock(filePath: string): {
     context: { targetPath, assertOwned },
     release(): void {
       if (released) return
-      assertOwned()
-      if (!identity) {
-        throw new Error('Settings lock identity is unavailable during release')
+      let quarantined: QuarantinedSettingsLock | null = null
+      let ownershipError: Error | null = null
+      try {
+        assertOwned()
+        if (!identity) {
+          throw new Error(
+            'Settings lock identity is unavailable during release',
+          )
+        }
+        quarantined = quarantineSettingsLock(
+          lockPath,
+          identity,
+          owner,
+          null,
+          'released',
+        )
+        if (!quarantined) {
+          throw new Error('Settings lock ownership changed during release')
+        }
+      } catch (error) {
+        ownershipError = toError(error)
       }
-      const quarantined = quarantineSettingsLock(
-        lockPath,
-        identity,
-        owner,
-        null,
-        'released',
-      )
-      if (!quarantined) {
-        throw new Error('Settings lock ownership changed during release')
-      }
+
+      let unlockError: Error | null = null
       try {
         releaseLock()
         released = true
-      } finally {
+      } catch (error) {
+        unlockError = toError(error)
+      }
+      if (quarantined) {
         cleanupQuarantinedSettingsLock(quarantined, owner, null)
+      } else if (
+        ownershipError &&
+        identity &&
+        ownersMatch(readOwner(ownerPath), owner) &&
+        lockIdentityMatches(readLockIdentity(lockPath), identity)
+      ) {
+        // proper-lockfile retires its refresh handle before attempting rmdir.
+        // If the guarded rename failed first, remember this exact token so a
+        // later acquisition in this runtime may quarantine it despite our PID
+        // still being alive. A mismatched identity or token still fails closed.
+        locallyAbandonedSettingsLocks.set(lockPath, { identity, owner })
+      }
+      if (ownershipError) {
+        throw ownershipError
+      }
+      if (unlockError) {
+        throw unlockError
       }
     },
   }
@@ -833,14 +913,27 @@ export function withSettingsFileLockSync<T>(
   return value as T
 }
 
+export type SettingsFileReplacementResult = {
+  written: boolean
+  error?: Error
+}
+
 export function replaceSettingsFileSync(
   filePath: string,
   content: string,
-): void {
-  withSettingsFileLockSync(filePath, ({ targetPath, assertOwned }) => {
-    assertOwned()
-    markInternalWrite(filePath)
-    writeFileSyncAndFlush_DEPRECATED(targetPath, content)
-    resetSettingsCache()
-  })
+): SettingsFileReplacementResult {
+  let written = false
+  try {
+    withSettingsFileLockSync(filePath, ({ targetPath, assertOwned }) => {
+      assertOwned()
+      markInternalWrite(filePath)
+      markInternalWrite(targetPath)
+      writeFileSyncAndFlush_DEPRECATED(targetPath, content)
+      written = true
+      resetSettingsCache()
+    })
+    return { written: true }
+  } catch (error) {
+    return { written, error: toError(error) }
+  }
 }

@@ -8,6 +8,7 @@ import {
   getFsImplementation,
   setFsImplementation,
 } from '../../utils/fsOperations.js'
+import { getSettingsFileLockPath } from '../../utils/settings/settingsFileLock.js'
 
 const [configDir, targetPath, envKey, mode, marker, releaseMarker] =
   process.argv.slice(2)
@@ -31,7 +32,7 @@ getClaudeConfigHomeDir.cache?.clear?.()
 
 const originalFs = getFsImplementation()
 const normalizedTarget = resolve(targetPath)
-const lockPath = `${normalizedTarget}.lock`
+const lockPath = getSettingsFileLockPath(normalizedTarget)
 const ownerPath = join(lockPath, 'owner.json')
 const recoveryPath = join(lockPath, 'recovery.json')
 let paused = false

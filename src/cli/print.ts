@@ -1905,17 +1905,26 @@ function runHeadlessStreaming(
       // Join point for user settings (fired at runHeadless entry) and managed
       // settings (fired in main.tsx preAction). downloadUserSettings() caches
       // its promise so this awaits the same in-flight request.
-      await Promise.all([
+      const [userSettingsResult] = await Promise.all([
         feature('DOWNLOAD_USER_SETTINGS') &&
         (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
           ? withDiagnosticsTiming('headless_user_settings_download', () =>
               downloadUserSettings(),
             )
-          : Promise.resolve(),
+          : Promise.resolve(null),
         withDiagnosticsTiming('headless_managed_settings_wait', () =>
           waitForRemoteManagedSettingsToLoad(),
         ),
       ])
+
+      // The download can land one settings source while another contends.
+      // Reconcile every successful write before plugin install reads settings;
+      // doDownloadUserSettings already records a warning for partial apply.
+      if (userSettingsResult) {
+        for (const source of userSettingsResult.settingsSourcesWritten) {
+          settingsChangeDetector.notifyChange(source)
+        }
+      }
 
       const pluginsInstalled = await installPluginsForHeadless()
 

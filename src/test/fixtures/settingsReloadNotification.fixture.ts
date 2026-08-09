@@ -2,7 +2,9 @@ import { mock } from 'bun:test'
 
 const notified: string[] = []
 
-mock.module('bun:bundle', () => ({ feature: () => true }))
+mock.module('bun:bundle', () => ({
+  feature: (name: string) => name === 'DOWNLOAD_USER_SETTINGS',
+}))
 mock.module('../../bootstrap/state.js', () => ({ getIsRemoteMode: () => true }))
 mock.module('../../services/settingsSync/index.js', () => ({
   redownloadUserSettings: async () => ({

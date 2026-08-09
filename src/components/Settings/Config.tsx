@@ -38,6 +38,7 @@ import { useIsInsideModal } from '../../context/modalContext.js';
 import { SearchBox } from '../SearchBox.js';
 import { isSupportedTerminal, hasAccessToIDEExtensionDiffFeature } from '../../utils/ide.js';
 import { getInitialSettings, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import type { SettingsJson } from '../../utils/settings/types.js';
 import { getUserMsgOptIn, setUserMsgOptIn } from '../../bootstrap/state.js';
 import { DEFAULT_OUTPUT_STYLE_NAME } from 'src/constants/outputStyles.js';
 import { isEnvTruthy, isRunningOnHomespace } from 'src/utils/envUtils.js';
@@ -70,21 +71,29 @@ type SettingBase = {
 };
 type Setting = (SettingBase & {
   value: boolean;
-  onChange(value: boolean): void;
+  onChange(value: boolean): boolean | void;
   type: 'boolean';
 }) | (SettingBase & {
   value: string;
   options: string[];
-  onChange(value: string): void;
+  onChange(value: string): boolean | void;
   type: 'enum';
 }) | (SettingBase & {
   // For enums that are set by a custom component, we don't need to pass options,
   // but we still need a value to display in the top-level config menu
   value: string;
-  onChange(value: string): void;
+  onChange(value: string): boolean | void;
   type: 'managedEnum';
 });
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
+  const result = updateSettingsForSource(source, settings);
+  if (result.error) {
+    logError(result.error);
+    return false;
+  }
+  return true;
+}
 export function Config({
   onClose,
   context,
@@ -428,9 +437,9 @@ export function Config({
     value: settingsData?.spinnerTipsEnabled ?? true,
     type: 'boolean' as const,
     onChange(spinnerTipsEnabled: boolean) {
-      updateSettingsForSource('localSettings', {
+      if (!persistSettingsForSource('localSettings', {
         spinnerTipsEnabled
-      });
+      })) return false;
       // Update local state to reflect the change immediately
       setSettingsData(prev_3 => ({
         ...prev_3,
@@ -446,9 +455,9 @@ export function Config({
     value: settingsData?.prefersReducedMotion ?? false,
     type: 'boolean' as const,
     onChange(prefersReducedMotion: boolean) {
-      updateSettingsForSource('localSettings', {
+      if (!persistSettingsForSource('localSettings', {
         prefersReducedMotion
-      });
+      })) return false;
       setSettingsData(prev_4 => ({
         ...prev_4,
         prefersReducedMotion
@@ -471,13 +480,13 @@ export function Config({
     value: thinkingEnabled ?? true,
     type: 'boolean' as const,
     onChange(enabled: boolean) {
+      if (!persistSettingsForSource('userSettings', {
+        alwaysThinkingEnabled: enabled ? undefined : false
+      })) return false;
       setAppState(prev_6 => ({
         ...prev_6,
         thinkingEnabled: enabled
       }));
-      updateSettingsForSource('userSettings', {
-        alwaysThinkingEnabled: enabled ? undefined : false
-      });
       logEvent('tengu_thinking_toggled', {
         enabled
       });
@@ -490,10 +499,10 @@ export function Config({
     value: !!isFastMode,
     type: 'boolean' as const,
     onChange(enabled_0: boolean) {
-      clearFastModeCooldown();
-      updateSettingsForSource('userSettings', {
+      if (!persistSettingsForSource('userSettings', {
         fastMode: enabled_0 ? true : undefined
-      });
+      })) return false;
+      clearFastModeCooldown();
       if (enabled_0) {
         setAppState(prev_7 => ({
           ...prev_7,
@@ -523,13 +532,13 @@ export function Config({
     value: promptSuggestionEnabled,
     type: 'boolean' as const,
     onChange(enabled_1: boolean) {
+      if (!persistSettingsForSource('userSettings', {
+        promptSuggestionEnabled: enabled_1 ? undefined : false
+      })) return false;
       setAppState(prev_11 => ({
         ...prev_11,
         promptSuggestionEnabled: enabled_1
       }));
-      updateSettingsForSource('userSettings', {
-        promptSuggestionEnabled: enabled_1 ? undefined : false
-      });
     }
   }] : []),
   ...(isFileCheckpointingAvailable ? [{
@@ -638,16 +647,12 @@ export function Config({
       const parsedMode = permissionModeFromString(mode);
       // Internal modes (e.g. auto) are stored directly
       const validatedMode = isExternalPermissionMode(parsedMode) ? toExternalPermissionMode(parsedMode) : parsedMode;
-      const result = updateSettingsForSource('userSettings', {
+      if (!persistSettingsForSource('userSettings', {
         permissions: {
           ...settingsData?.permissions,
           defaultMode: validatedMode as ExternalPermissionMode
         }
-      });
-      if (result.error) {
-        logError(result.error);
-        return;
-      }
+      })) return false;
 
       // Update local state to reflect the change immediately.
       // validatedMode is typed as the wide PermissionMode union but at
@@ -678,9 +683,9 @@ export function Config({
     } | undefined)?.useAutoModeDuringPlan ?? true,
     type: 'boolean' as const,
     onChange(useAutoModeDuringPlan: boolean) {
-      updateSettingsForSource('userSettings', {
+      if (!persistSettingsForSource('userSettings', {
         useAutoModeDuringPlan
-      });
+      })) return false;
       setSettingsData(prev_14 => ({
         ...prev_14,
         useAutoModeDuringPlan
@@ -879,9 +884,9 @@ export function Config({
     type: 'enum' as const,
     onChange(selected: string) {
       const defaultView = selected === 'default' ? undefined : selected as 'chat' | 'transcript';
-      updateSettingsForSource('localSettings', {
+      if (!persistSettingsForSource('localSettings', {
         defaultView
-      });
+      })) return false;
       setSettingsData(prev_17 => ({
         ...prev_17,
         defaultView
@@ -1464,8 +1469,9 @@ export function Config({
       return;
     }
     if (setting_0.type === 'boolean') {
+      const changeApplied = setting_0.onChange(!setting_0.value);
+      if (changeApplied === false) return;
       isDirty.current = true;
-      setting_0.onChange(!setting_0.value);
       if (setting_0.id === 'thinkingEnabled') {
         const newValue = !setting_0.value;
         const backToInitial = newValue === initialThinkingEnabled.current;
@@ -1525,11 +1531,11 @@ export function Config({
         setTabsHidden(true);
       } else {
         // Switching to latest - just do it and clear minimumVersion
-        isDirty.current = true;
-        updateSettingsForSource('userSettings', {
+        if (!persistSettingsForSource('userSettings', {
           autoUpdatesChannel: 'latest',
           minimumVersion: undefined
-        });
+        })) return;
+        isDirty.current = true;
         setSettingsData(prev_24 => ({
           ...prev_24,
           autoUpdatesChannel: 'latest',
@@ -1542,10 +1548,11 @@ export function Config({
       return;
     }
     if (setting_0.type === 'enum') {
-      isDirty.current = true;
       const currentIndex = setting_0.options.indexOf(setting_0.value);
       const nextIndex = (currentIndex + 1) % setting_0.options.length;
-      setting_0.onChange(setting_0.options[nextIndex]!);
+      const changeApplied = setting_0.onChange(setting_0.options[nextIndex]!);
+      if (changeApplied === false) return;
+      isDirty.current = true;
       return;
     }
   }, [autoUpdaterDisabledReason, filteredSettingsItems, selectedIndex, settingsData?.autoUpdatesChannel, setTabsHidden]);
@@ -1754,15 +1761,13 @@ export function Config({
           </Text>
         </> : showSubmenu === 'OutputStyle' ? <>
           <OutputStylePicker initialStyle={currentOutputStyle} onComplete={style => {
+        if (!persistSettingsForSource('localSettings', {
+          outputStyle: style
+        })) return;
         isDirty.current = true;
         setCurrentOutputStyle(style ?? DEFAULT_OUTPUT_STYLE_NAME);
         setShowSubmenu(null);
         setTabsHidden(false);
-
-        // Save to local settings
-        updateSettingsForSource('localSettings', {
-          outputStyle: style
-        });
         void logEvent('tengu_output_style_changed', {
           style: (style ?? DEFAULT_OUTPUT_STYLE_NAME) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
           source: 'config_panel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1780,15 +1785,13 @@ export function Config({
           </Text>
         </> : showSubmenu === 'Language' ? <>
           <LanguagePicker initialLanguage={currentLanguage} onComplete={language => {
+        if (!persistSettingsForSource('userSettings', {
+          language
+        })) return;
         isDirty.current = true;
         setCurrentLanguage(language);
         setShowSubmenu(null);
         setTabsHidden(false);
-
-        // Save to user settings
-        updateSettingsForSource('userSettings', {
-          language
-        });
         void logEvent('tengu_language_changed', {
           language: (language ?? 'default') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
           source: 'config_panel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -1822,6 +1825,10 @@ export function Config({
         label: 'Enable with stable channel',
         value: 'stable'
       }]} onChange={(channel: string) => {
+        if (!persistSettingsForSource('userSettings', {
+          autoUpdatesChannel: channel as 'latest' | 'stable',
+          minimumVersion: undefined
+        })) return;
         isDirty.current = true;
         setShowSubmenu(null);
         setTabsHidden(false);
@@ -1833,10 +1840,6 @@ export function Config({
           ...getGlobalConfig(),
           autoUpdates: true
         });
-        updateSettingsForSource('userSettings', {
-          autoUpdatesChannel: channel as 'latest' | 'stable',
-          minimumVersion: undefined
-        });
         setSettingsData(prev_26 => ({
           ...prev_26,
           autoUpdatesChannel: channel as 'latest' | 'stable',
@@ -1847,13 +1850,12 @@ export function Config({
         });
       }} />}
         </Dialog> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={MACRO.VERSION} onChoice={(choice: ChannelDowngradeChoice) => {
-      setShowSubmenu(null);
-      setTabsHidden(false);
       if (choice === 'cancel') {
         // User cancelled - don't change anything
+        setShowSubmenu(null);
+        setTabsHidden(false);
         return;
       }
-      isDirty.current = true;
       // Switch to stable channel
       const newSettings: {
         autoUpdatesChannel: 'stable';
@@ -1865,7 +1867,10 @@ export function Config({
         // User wants to stay on current version until stable catches up
         newSettings.minimumVersion = MACRO.VERSION;
       }
-      updateSettingsForSource('userSettings', newSettings);
+      if (!persistSettingsForSource('userSettings', newSettings)) return;
+      isDirty.current = true;
+      setShowSubmenu(null);
+      setTabsHidden(false);
       setSettingsData(prev_27 => ({
         ...prev_27,
         ...newSettings

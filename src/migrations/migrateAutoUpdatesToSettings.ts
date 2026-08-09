@@ -27,13 +27,16 @@ export function migrateAutoUpdatesToSettings(): void {
 
     // Always set DISABLE_AUTOUPDATER to preserve user intent
     // We need to overwrite even if it exists, to ensure the migration is complete
-    updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSource('userSettings', {
       ...userSettings,
       env: {
         ...userSettings.env,
         DISABLE_AUTOUPDATER: '1',
       },
     })
+    if (result.error) {
+      throw result.error
+    }
 
     logEvent('tengu_migrate_autoupdates_to_settings', {
       was_user_preference: true,

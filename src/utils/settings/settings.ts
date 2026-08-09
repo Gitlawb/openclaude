@@ -508,6 +508,7 @@ export function updateSettingsForSource(
 
         assertOwned()
         markInternalWrite(filePath)
+        markInternalWrite(targetPath)
         writeFileSyncAndFlush_DEPRECATED(
           targetPath,
           jsonStringify(updatedSettings, null, 2) + '\n',

@@ -500,15 +500,15 @@ async function writeFileForSync(
 function writeSettingsFileForSync(
   filePath: string,
   content: string,
-): boolean {
-  try {
-    replaceSettingsFileSync(filePath, content)
+): { written: boolean; error?: Error } {
+  const result = replaceSettingsFileSync(filePath, content)
+  if (result.written) {
     logForDiagnosticsNoPII('info', 'settings_sync_file_written')
-    return true
-  } catch {
-    logForDiagnosticsNoPII('warn', 'settings_sync_file_write_failed')
-    return false
   }
+  if (!result.written || result.error) {
+    logForDiagnosticsNoPII('warn', 'settings_sync_file_write_failed')
+  }
+  return result
 }
 
 /**
@@ -550,10 +550,15 @@ async function applyRemoteEntriesToLocal(
       userSettingsPath &&
       !exceedsSizeLimit(userSettingsContent, userSettingsPath)
     ) {
-      if (writeSettingsFileForSync(userSettingsPath, userSettingsContent)) {
+      const result = writeSettingsFileForSync(
+        userSettingsPath,
+        userSettingsContent,
+      )
+      if (result.written) {
         appliedCount++
         settingsSourcesWritten.push('userSettings')
-      } else {
+      }
+      if (result.error) {
         settingsWriteFailed = true
       }
     }
@@ -581,15 +586,15 @@ async function applyRemoteEntriesToLocal(
         localSettingsPath &&
         !exceedsSizeLimit(projectSettingsContent, localSettingsPath)
       ) {
-        if (
-          writeSettingsFileForSync(
-            localSettingsPath,
-            projectSettingsContent,
-          )
-        ) {
+        const result = writeSettingsFileForSync(
+          localSettingsPath,
+          projectSettingsContent,
+        )
+        if (result.written) {
           appliedCount++
           settingsSourcesWritten.push('localSettings')
-        } else {
+        }
+        if (result.error) {
           settingsWriteFailed = true
         }
       }

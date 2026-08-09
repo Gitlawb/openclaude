@@ -42,11 +42,8 @@ try {
   })
 
   if (!applyPromise) throw new Error('Settings sync did not start')
-  const applyResult: unknown = await applyPromise
-  const applied =
-    typeof applyResult === 'boolean'
-      ? applyResult
-      : (applyResult as { complete: boolean }).complete
+  const applyResult = await applyPromise
+  const applied = applyResult.complete
   process.stdout.write(
     JSON.stringify({
       applied,

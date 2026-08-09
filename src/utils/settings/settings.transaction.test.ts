@@ -10,13 +10,23 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import { createCurrentSettingsLockOwner } from '../../test/fixtures/settingsLockOwner.js'
+import {
+  getFsImplementation,
+  setFsImplementation,
+  setOriginalFsImplementation,
+} from '../fsOperations.js'
 import {
   clearInternalWrites,
   consumeInternalWrite,
   markInternalWrite,
 } from './internalWrites.js'
+import {
+  getSettingsFileLockPath,
+  resolveSettingsFileTarget,
+  withSettingsFileLockSync,
+} from './settingsFileLock.js'
 
 const CONCURRENT_WRITER_FIXTURE = join(
   import.meta.dir,
@@ -38,6 +48,10 @@ const SETTINGS_SYNC_PARTIAL_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsSyncPartial.fixture.ts',
 )
+const SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSyncReleaseFailure.fixture.ts',
+)
 const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsLockSymlinkSwap.fixture.ts',
@@ -45,6 +59,14 @@ const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
 const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsReloadNotification.fixture.ts',
+)
+const SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsLockReleaseFailure.fixture.ts',
+)
+const SETTINGS_SYMLINK_NOTIFICATION_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSymlinkNotification.fixture.ts',
 )
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
 const MISSING_PROCESS_PID = 2_147_483_647
@@ -425,12 +447,79 @@ test('long dangling symlink chains preserve physical lock identity', async () =>
   expect(result.resolvedB).toBe(result.physicalTarget)
 })
 
+test('fixed-length lock names support long valid target basenames', () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-long-target-')),
+  )
+  const settingsPath = join(tempDir, 's'.repeat(252))
+  writeFileSync(settingsPath, '{}\n', 'utf8')
+
+  try {
+    const lockPath = getSettingsFileLockPath(settingsPath)
+    expect(Buffer.byteLength(basename(lockPath))).toBeLessThanOrEqual(255)
+    expect(withSettingsFileLockSync(settingsPath, () => 'locked')).toBe(
+      'locked',
+    )
+    expect(existsSync(lockPath)).toBe(false)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('settings target resolution avoids realpath for UNC and special files', () => {
+  const originalFs = getFsImplementation()
+  const specialPath = resolve('/tmp/openclaude-special-settings')
+  const ordinaryStats = originalFs.lstatSync(import.meta.path)
+  const specialStats = new Proxy(ordinaryStats, {
+    get(target, property, receiver) {
+      if (property === 'isCharacterDevice') return () => true
+      if (
+        property === 'isFIFO' ||
+        property === 'isSocket' ||
+        property === 'isBlockDevice'
+      ) {
+        return () => false
+      }
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+  let realpathCalls = 0
+  let lstatCalls = 0
+
+  setFsImplementation({
+    ...originalFs,
+    lstatSync(path) {
+      lstatCalls++
+      return resolve(path) === specialPath
+        ? specialStats
+        : originalFs.lstatSync(path)
+    },
+    realpathSync(path) {
+      realpathCalls++
+      return originalFs.realpathSync(path)
+    },
+  })
+
+  try {
+    expect(resolveSettingsFileTarget(specialPath)).toBe(specialPath)
+    const specialLstatCalls = lstatCalls
+    expect(resolveSettingsFileTarget('\\\\server\\share\\settings.json')).toBe(
+      '\\\\server\\share\\settings.json',
+    )
+    expect(lstatCalls).toBe(specialLstatCalls)
+    expect(realpathCalls).toBe(0)
+  } finally {
+    setOriginalFsImplementation()
+  }
+})
+
 test('recovery quarantine cannot remove a newly acquired live lock', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-dead-recovery-')),
   )
   const settingsPath = join(tempDir, 'settings.json')
-  const lockPath = `${settingsPath}.lock`
+  const lockPath = getSettingsFileLockPath(settingsPath)
   const ownerPath = join(lockPath, 'owner.json')
   const aMarker = join(tempDir, 'a-owner-unlink')
   const aRelease = join(tempDir, 'a-release')
@@ -502,7 +591,7 @@ test('recovery resumes from a dead claim with owner metadata absent', async () =
     mkdtempSync(join(tmpdir(), 'openclaude-settings-ownerless-recovery-')),
   )
   const settingsPath = join(tempDir, 'settings.json')
-  const lockPath = `${settingsPath}.lock`
+  const lockPath = getSettingsFileLockPath(settingsPath)
   const ownerPath = join(lockPath, 'owner.json')
   const recoveryPath = join(lockPath, 'recovery.json')
 
@@ -592,12 +681,15 @@ test('foreign runtime PIDs cannot authorize local dead-lock recovery', async () 
 
 test('same-host locks from a prior boot are recoverable without probing a reused PID', async () => {
   const result = await getScenario<{
+    skipped: boolean
     error: string | null
     lockExists: boolean
     final: unknown
   }>('prior-boot-owner')
+  if (result.skipped) return
 
   expect(result).toEqual({
+    skipped: false,
     error: null,
     lockExists: false,
     final: { env: { BASE: '1', RECOVERED_AFTER_REBOOT: 'yes' } },
@@ -676,12 +768,14 @@ test('recovery quarantine names stay within the parent filename limit', async ()
   if (result.skipped) return
 
   expect(result).toEqual({ skipped: false, error: null, lockExists: false })
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('acquisition failure cannot unlink owner metadata through a swapped lock symlink', async () => {
   const result = await collectChild<{
     skipped: boolean
+    error?: string | null
     foreignOwnerExists?: boolean
+    settingsUnchanged?: boolean
   }>(
     Bun.spawn([process.execPath, SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE], {
       cwd: process.cwd(),
@@ -693,16 +787,20 @@ test('acquisition failure cannot unlink owner metadata through a swapped lock sy
 
   expect(result).toMatchObject({
     exitCode: 0,
-    value: { foreignOwnerExists: true },
+    value: {
+      error: expect.stringContaining('Settings lock path is not a directory'),
+      foreignOwnerExists: true,
+      settingsUnchanged: true,
+    },
   })
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('recovery cleanup crashes only after the live lock path is freed', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-recovery-cleanup-')),
   )
   const settingsPath = join(tempDir, 'settings.json')
-  const lockPath = `${settingsPath}.lock`
+  const lockPath = getSettingsFileLockPath(settingsPath)
   const ownerPath = join(lockPath, 'owner.json')
   const cleanupMarker = join(tempDir, 'recovery-metadata-removed')
   const neverRelease = join(tempDir, 'never-release')
@@ -772,7 +870,7 @@ test('normal release frees the canonical lock before owner cleanup', async () =>
     mkdtempSync(join(tmpdir(), 'openclaude-settings-release-cleanup-')),
   )
   const settingsPath = join(tempDir, 'settings.json')
-  const lockPath = `${settingsPath}.lock`
+  const lockPath = getSettingsFileLockPath(settingsPath)
   const cleanupMarker = join(tempDir, 'owner-metadata-removed')
   const neverRelease = join(tempDir, 'never-release')
 
@@ -841,6 +939,42 @@ test('normal release cannot remove a successor acquired after quarantine', async
   })
 })
 
+for (const mode of ['acquisition', 'release'] as const) {
+  test(`${mode === 'acquisition' ? 'an' : 'a'} ${mode} quarantine failure retires the underlying lock handle`, async () => {
+    const result = await collectChild<{
+      firstError: string | null
+      firstWriteLanded: boolean
+      retryError: string | null
+      releaseCalls: number
+      ownerLeftBehind: boolean
+    }>(
+      Bun.spawn(
+        [process.execPath, SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE, mode],
+        {
+          cwd: process.cwd(),
+          stderr: 'pipe',
+          stdout: 'pipe',
+        },
+      ),
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      value: {
+        firstError: expect.stringContaining(
+          mode === 'acquisition'
+            ? 'ownership changed during acquisition'
+            : 'injected release quarantine failure',
+        ),
+        firstWriteLanded: mode === 'release',
+        retryError: null,
+        releaseCalls: 2,
+        ownerLeftBehind: false,
+      },
+    })
+  }, SUBPROCESS_TEST_TIMEOUT_MS)
+}
+
 test('settings sync reports contention as an unapplied download', async () => {
   const result = await collectChild<{
     applied: boolean
@@ -892,7 +1026,30 @@ test('partial settings sync reports landed writes separately from completeness',
       cachedUser: 'yes',
     },
   })
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('settings sync reports bytes landed before a release failure', async () => {
+  const result = await collectChild<{
+    complete: boolean
+    settingsWritten: boolean
+    settingsSourcesWritten: string[]
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      complete: false,
+      settingsWritten: true,
+      settingsSourcesWritten: ['userSettings'],
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('reload plugins notifies every settings source landed by a partial download', async () => {
   const result = await collectChild<{ notified: string[] }>(
@@ -914,7 +1071,36 @@ test('reload plugins notifies every settings source landed by a partial download
     exitCode: 0,
     value: { notified: ['userSettings', 'localSettings'] },
   })
-})
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('peer writes through a settings symlink notify the watching session', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    exitCode?: number
+    stderr?: string
+    peerNotified?: string[]
+    internalError?: string | null
+    internalNotified?: string[]
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYMLINK_NOTIFICATION_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+  if (result.value.skipped) return
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      exitCode: 0,
+      stderr: '',
+      peerNotified: ['userSettings', 'projectSettings'],
+      internalError: null,
+      internalNotified: [],
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('unexpected PID probe errors do not authorize dead-owner recovery', async () => {
   const result = await getScenario<{
