@@ -102,4 +102,19 @@ describe('parseSshFlags', () => {
     expect(beforeEoo.permissionMode).toBeUndefined()
     expect(beforeEoo.remaining).toEqual(['ssh', 'host', '--permission-mode', '--', 'x'])
   })
+
+  it('forwards bare --resume and consumes only a non-option value', () => {
+    const bare = parseSshFlags(['ssh', 'host', '--resume'])
+    expect(bare.extraCliArgs).toEqual(['--resume'])
+    expect(bare.remaining).toEqual(['ssh', 'host'])
+
+    const withValue = parseSshFlags(['ssh', 'host', '--resume', 'abc'])
+    expect(withValue.extraCliArgs).toEqual(['--resume', 'abc'])
+    expect(withValue.remaining).toEqual(['ssh', 'host'])
+
+    const beforeFlag = parseSshFlags(['ssh', 'host', '--resume', '--yolo'])
+    expect(beforeFlag.extraCliArgs).toEqual(['--resume'])
+    expect(beforeFlag.dangerouslySkipPermissions).toBe(true)
+    expect(beforeFlag.remaining).toEqual(['ssh', 'host'])
+  })
 })

@@ -26,4 +26,22 @@ describe('hasPrintFlag', () => {
     expect(hasPrintFlag(['cc://host', '--', '--print'])).toBe(false)
     expect(hasPrintFlag(['cc://host', '--', '-p'])).toBe(false)
   })
+
+  test('does not classify a value of a required option as the print flag', () => {
+    expect(hasPrintFlag(['--system-prompt', '--print=custom'])).toBe(false)
+    expect(hasPrintFlag(['--model', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--permission-mode', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--system-prompt=--print=custom'])).toBe(false)
+  })
+
+  test('does not classify a value of an optional option as the print flag unless explicitly provided', () => {
+    // Optional-value options (--debug, --resume, --from-pr) do not consume a
+    // following flag, so --print/-p is still detected.
+    expect(hasPrintFlag(['--resume', '--print'])).toBe(true)
+    expect(hasPrintFlag(['--debug', '-p'])).toBe(true)
+
+    // But a non-flag value is consumed and not mistaken for the print flag.
+    expect(hasPrintFlag(['--resume', 'print'])).toBe(false)
+    expect(hasPrintFlag(['--debug', 'p'])).toBe(false)
+  })
 })

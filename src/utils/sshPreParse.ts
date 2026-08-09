@@ -76,14 +76,18 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     }
 
     if (arg === '--resume') {
-      if (i + 1 < args.length) {
+      // Commander declares `--resume [value]`: a bare flag opens the resume
+      // picker, and a value is used only when it is a non-option token.
+      const next = args[i + 1]
+      if (next !== undefined && !next.startsWith('-')) {
         extraCliArgs.push('--resume', args[++i])
-        continue
+      } else {
+        extraCliArgs.push('--resume')
       }
-      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--resume=')) {
+      // Equals form explicitly provides a value, including flag-like values.
       extraCliArgs.push('--resume', arg.slice('--resume='.length))
       continue
     }
