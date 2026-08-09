@@ -3,6 +3,15 @@ import { ensureIntegrationsLoaded } from '../../../integrations/index.js'
 import { resolveProviderRequest } from '../providerConfig.js'
 import { prepareOpenAIRequest } from './requestPreparation.js'
 
+const convertedTools = [{
+  type: 'function',
+  function: {
+    name: 'Read',
+    description: 'Read a file',
+    parameters: { type: 'object', properties: {} },
+  },
+}]
+
 const dependencies = {
   convertMessages: (
     messages: Array<{ role: string; content?: unknown }>,
@@ -12,7 +21,7 @@ const dependencies = {
     ...messages,
   ],
   convertSystemPrompt: (system: unknown) => String(system ?? ''),
-  convertTools: (tools: unknown[]) => tools,
+  convertTools: () => convertedTools,
   hasGeminiApiHost: () => false,
   isGeminiMode: () => false,
   shouldPreserveGeminiThoughtSignature: () => false,
@@ -111,7 +120,7 @@ test('prepares tools and streaming options for a remote chat route', async () =>
   })
 
   expect(prepared.body.stream_options).toEqual({ include_usage: true })
-  expect(prepared.body.tools).toHaveLength(1)
+  expect(prepared.body.tools).toEqual(convertedTools)
   expect(prepared.body.tool_choice).toEqual({
     type: 'function',
     function: { name: 'Read' },
