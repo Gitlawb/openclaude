@@ -9,7 +9,7 @@ async function importStartupOverridesForTest() {
 describe('clearStartupProviderOverrides', () => {
   test('removes stale provider env from user settings and global config env', async () => {
     const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
-    const updateUserSettings = mock(() => ({ error: null }))
+    const updateUserSettings = mock(() => ({ error: null, written: true }))
     const saveConfig = mock((updater: (current: {
       env: Record<string, string>
     }) => { env: Record<string, string> }) =>

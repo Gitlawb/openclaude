@@ -49,7 +49,7 @@ async function importFreshEffortCommandModule(): Promise<
   }))
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettings,
-    updateSettingsForSource: () => ({ error: null }),
+    updateSettingsForSource: () => ({ error: null, written: true }),
   }))
   mock.module('../../utils/auth.js', () => ({
     ...actualAuth,

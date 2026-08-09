@@ -46,7 +46,7 @@ describe('/smartroute command', () => {
   beforeEach(async () => {
     savedEnv = Object.fromEntries(SMART_ROUTING_ENV_KEYS.map(key => [key, process.env[key]])) as typeof savedEnv
     for (const key of SMART_ROUTING_ENV_KEYS) delete process.env[key]
-    writeSpy = spyOn(settingsModule, 'updateSettingsForSource').mockImplementation(() => ({ error: null }))
+    writeSpy = spyOn(settingsModule, 'updateSettingsForSource').mockImplementation(() => ({ error: null, written: true }))
     call = (await command.load()).call
   })
   afterEach(() => {

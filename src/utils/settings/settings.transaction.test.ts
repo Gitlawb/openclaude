@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, setDefaultTimeout, test } from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -52,6 +52,10 @@ const SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsSyncReleaseFailure.fixture.ts',
 )
+const SETTINGS_SYNC_UNAPPLIED_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSyncUnapplied.fixture.ts',
+)
 const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsLockSymlinkSwap.fixture.ts',
@@ -70,6 +74,8 @@ const SETTINGS_SYMLINK_NOTIFICATION_FIXTURE = join(
 )
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
 const MISSING_PROCESS_PID = 2_147_483_647
+
+setDefaultTimeout(SUBPROCESS_TEST_TIMEOUT_MS)
 
 type ChildResult<T> = {
   exitCode: number
@@ -295,6 +301,22 @@ test('locked update rechecks malformed disk bytes and releases after refusal', a
   expect(result.recoveredError).toBeNull()
   expect(result.final).toEqual({
     env: { RECOVERED: 'yes', AFTER_ERROR: 'yes' },
+  })
+})
+
+test('validation fallback does not mutate safeParseJSON cached objects', async () => {
+  const result = await getScenario<{
+    error: string | null
+    cachedBefore: unknown
+    cachedAfter: unknown
+    final: unknown
+  }>('validation-fallback-cache')
+
+  expect(result.error).toBeNull()
+  expect(result.cachedAfter).toEqual(result.cachedBefore)
+  expect(result.final).toEqual({
+    spinnerTipsEnabled: 'invalid',
+    env: { BASE: '1', LOCAL: 'added' },
   })
 })
 
@@ -966,6 +988,7 @@ for (const mode of ['acquisition', 'release'] as const) {
             ? 'ownership changed during acquisition'
             : 'injected release quarantine failure',
         ),
+        firstWritten: mode === 'release',
         firstWriteLanded: mode === 'release',
         retryError: null,
         releaseCalls: 2,
@@ -999,7 +1022,6 @@ test('partial settings sync reports landed writes separately from completeness',
   const result = await collectChild<{
     result: {
       complete: boolean
-      settingsWritten: boolean
       settingsSourcesWritten: string[]
     }
     userLanded: boolean
@@ -1018,7 +1040,6 @@ test('partial settings sync reports landed writes separately from completeness',
     value: {
       result: {
         complete: false,
-        settingsWritten: true,
         settingsSourcesWritten: ['userSettings'],
       },
       userLanded: true,
@@ -1031,7 +1052,6 @@ test('partial settings sync reports landed writes separately from completeness',
 test('settings sync reports bytes landed before a release failure', async () => {
   const result = await collectChild<{
     complete: boolean
-    settingsWritten: boolean
     settingsSourcesWritten: string[]
   }>(
     Bun.spawn([process.execPath, SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE], {
@@ -1045,8 +1065,28 @@ test('settings sync reports bytes landed before a release failure', async () => 
     exitCode: 0,
     value: {
       complete: false,
-      settingsWritten: true,
       settingsSourcesWritten: ['userSettings'],
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('settings sync reports oversized and failed memory entries as incomplete', async () => {
+  const result = await collectChild<{
+    oversized: { complete: boolean; settingsSourcesWritten: string[] }
+    memoryFailure: { complete: boolean; settingsSourcesWritten: string[] }
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_UNAPPLIED_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      oversized: { complete: false, settingsSourcesWritten: [] },
+      memoryFailure: { complete: false, settingsSourcesWritten: [] },
     },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -1081,6 +1121,9 @@ test('peer writes through a settings symlink notify the watching session', async
     peerNotified?: string[]
     internalError?: string | null
     internalNotified?: string[]
+    retargetExitCode?: number
+    retargetStderr?: string
+    retargetNotified?: string[]
   }>(
     Bun.spawn([process.execPath, SETTINGS_SYMLINK_NOTIFICATION_FIXTURE], {
       cwd: process.cwd(),
@@ -1098,6 +1141,9 @@ test('peer writes through a settings symlink notify the watching session', async
       peerNotified: ['userSettings', 'projectSettings'],
       internalError: null,
       internalNotified: [],
+      retargetExitCode: 0,
+      retargetStderr: '',
+      retargetNotified: ['userSettings', 'projectSettings'],
     },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)

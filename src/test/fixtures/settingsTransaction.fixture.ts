@@ -17,6 +17,7 @@ import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
 } from '../../utils/envUtils.js'
+import { safeParseJSON } from '../../utils/json.js'
 import {
   getFsImplementation,
   setFsImplementation,
@@ -102,6 +103,31 @@ function malformedScenario(): unknown {
     bytesAfterRefusal,
     malformed,
     recoveredError: recovered.error?.message ?? null,
+    final: readSettings(),
+  }
+}
+
+function validationFallbackCacheScenario(): unknown {
+  const content = `${JSON.stringify(
+    {
+      spinnerTipsEnabled: 'invalid',
+      env: { BASE: '1' },
+    },
+    null,
+    2,
+  )}\n`
+  writeFileSync(settingsPath, content, 'utf8')
+  safeParseJSON.cache?.clear?.()
+  const cachedBefore = structuredClone(safeParseJSON(content))
+
+  const result = updateSettingsForSource('userSettings', {
+    env: { LOCAL: 'added' },
+  })
+
+  return {
+    error: result.error?.message ?? null,
+    cachedBefore,
+    cachedAfter: safeParseJSON(content),
     final: readSettings(),
   }
 }
@@ -762,6 +788,7 @@ const individualScenarios: Record<string, () => unknown> = {
   'prior-boot-owner': priorBootOwnerScenario,
   'separator-recovery-token': separatorRecoveryTokenScenario,
   semantics: semanticsScenario,
+  'validation-fallback-cache': validationFallbackCacheScenario,
   'successor-during-release': successorDuringReleaseScenario,
   'foreign-runtime-owner': foreignRuntimeOwnerScenario,
   'unknown-pid': unknownPidScenario,

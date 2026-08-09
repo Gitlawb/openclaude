@@ -9,7 +9,6 @@ mock.module('../../bootstrap/state.js', () => ({ getIsRemoteMode: () => true }))
 mock.module('../../services/settingsSync/index.js', () => ({
   redownloadUserSettings: async () => ({
     complete: false,
-    settingsWritten: true,
     settingsSourcesWritten: ['userSettings', 'localSettings'],
   }),
 }))

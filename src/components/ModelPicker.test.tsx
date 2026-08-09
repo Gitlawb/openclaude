@@ -29,7 +29,8 @@ let settingsForTest: SettingsJson = {}
 let updateSettingsForTest = mock(
   (..._args: Parameters<SettingsModule['updateSettingsForSource']>): {
     error: Error | null
-  } => ({ error: null }),
+    written: boolean
+  } => ({ error: null, written: true }),
 )
 
 function useSettings(settings: SettingsJson): void {
@@ -91,6 +92,7 @@ beforeEach(async () => {
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
       error: null,
+      written: true,
     }),
   )
   await mockSettingsForTest()
@@ -358,6 +360,7 @@ test('does not advance in-memory effort when persistence fails', async () => {
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
       error: new Error('settings locked'),
+      written: false,
     }),
   )
   const { ModelPicker } = await import(
@@ -368,7 +371,10 @@ test('does not advance in-memory effort when persistence fails', async () => {
   let observedEffort = getDefaultAppState().effortValue
 
   function StateProbe(): null {
-    observedEffort = useAppState(state => state.effortValue)
+    const effort = useAppState(state => state.effortValue)
+    React.useEffect(() => {
+      observedEffort = effort
+    }, [effort])
     return null
   }
 
@@ -403,6 +409,67 @@ test('does not advance in-memory effort when persistence fails', async () => {
 
     expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
     expect(observedEffort).toBeUndefined()
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('advances in-memory effort when bytes landed before a release error', async () => {
+  useSettings({ effortLevel: 'low' })
+  updateSettingsForTest = mock(
+    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+      error: new Error('lock release failed'),
+      written: true,
+    }),
+  )
+  const { ModelPicker } = await import(
+    `./ModelPicker.js?landed-write-error-${Date.now()}`
+  )
+  const { stdin, stdout, getOutput } = makeStdio()
+  const onSelect = mock(() => {})
+  let observedEffort = getDefaultAppState().effortValue
+
+  function StateProbe(): null {
+    const effort = useAppState(state => state.effortValue)
+    React.useEffect(() => {
+      observedEffort = effort
+    }, [effort])
+    return null
+  }
+
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      <KeybindingSetup>
+        <StateProbe />
+        <ModelPicker
+          initial="claude-opus-4-6"
+          onSelect={onSelect}
+          optionsOverride={[
+            {
+              value: 'claude-opus-4-6',
+              label: 'Opus',
+              description: 'Effort-capable model',
+            },
+          ]}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
+    stdin.write('\r')
+    await waitForCondition(() => onSelect.mock.calls.length === 1)
+
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
+    expect(observedEffort).toBe('high')
   } finally {
     instance.unmount()
     stdin.end()

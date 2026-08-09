@@ -433,6 +433,7 @@ describe('setAgentRoute model-key shadow guard', () => {
     )
     update = spyOn(settingsModule, 'updateSettingsForSource').mockReturnValue({
       error: null,
+      written: true,
     })
 
     const { error } = setAgentRoute('verification', 'mine')

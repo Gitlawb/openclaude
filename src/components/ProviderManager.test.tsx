@@ -487,7 +487,7 @@ function mockProviderManagerDependencies(
 
   mock.module('../utils/settings/settings.js', () => ({
     ...actualSettingsModule,
-    updateSettingsForSource: () => ({ error: null }),
+    updateSettingsForSource: () => ({ error: null, written: true }),
   }))
 
   mock.module('./providerManagerAimlapi.js', () => ({

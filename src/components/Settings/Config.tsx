@@ -88,8 +88,7 @@ type Setting = (SettingBase & {
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
 function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
   const result = updateSettingsForSource(source, settings);
-  if (result.error) {
-    logError(result.error);
+  if (result.error && !result.written) {
     return false;
   }
   return true;
@@ -187,6 +186,7 @@ export function Config({
   const isDirty = React.useRef(false);
   const [showThinkingWarning, setShowThinkingWarning] = useState(false);
   const [showSubmenu, setShowSubmenu] = useState<SubMenu | null>(null);
+  const [revertError, setRevertError] = useState<string | null>(null);
   const {
     query: searchQuery,
     setQuery: setSearchQuery,
@@ -1375,14 +1375,14 @@ export function Config({
     // Settings files: restore each key Config may have touched. undefined
     // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;
-    updateSettingsForSource('localSettings', {
+    const localRollback = updateSettingsForSource('localSettings', {
       spinnerTipsEnabled: il?.spinnerTipsEnabled,
       prefersReducedMotion: il?.prefersReducedMotion,
       defaultView: il?.defaultView,
       outputStyle: il?.outputStyle
     });
     const iu = initialUserSettings;
-    updateSettingsForSource('userSettings', {
+    const userRollback = updateSettingsForSource('userSettings', {
       alwaysThinkingEnabled: iu?.alwaysThinkingEnabled,
       fastMode: iu?.fastMode,
       promptSuggestionEnabled: iu?.promptSuggestionEnabled,
@@ -1408,6 +1408,11 @@ export function Config({
         defaultMode: iu.permissions.defaultMode
       }
     });
+    if ([localRollback, userRollback].some(result => result.error && !result.written)) {
+      setRevertError('Could not restore settings. Press Esc to retry.');
+      return false;
+    }
+    setRevertError(null);
     // AppState: batch-restore all possibly-touched fields.
     const ia = initialAppState;
     setAppState(prev_23 => ({
@@ -1432,6 +1437,7 @@ export function Config({
     if (getUserMsgOptIn() !== initialUserMsgOptIn) {
       setUserMsgOptIn(initialUserMsgOptIn);
     }
+    return true;
   }, [themeSetting, setTheme, initialLocalSettings, initialUserSettings, initialAppState, initialUserMsgOptIn, setAppState]);
 
   // Escape: revert all changes (if any) and close.
@@ -1440,7 +1446,7 @@ export function Config({
       return;
     }
     if (isDirty.current) {
-      revertChanges();
+      if (!revertChanges()) return;
     }
     onClose('Config dialog dismissed', {
       display: 'system'
@@ -1939,6 +1945,9 @@ export function Config({
                   </Text>}
               </>}
           </Box>
+          {revertError ? <Text color="error">
+              {revertError}
+            </Text> : null}
           {headerFocused ? <Text dimColor>
               <Byline>
                 <KeyboardShortcutHint shortcut="←/→ tab" action="switch" />

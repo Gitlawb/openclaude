@@ -95,22 +95,27 @@ setFsImplementation({
 const { updateSettingsForSource } = await import(
   '../../utils/settings/settings.js'
 )
-const first = updateSettingsForSource('userSettings', {
-  env: { FIRST_ATTEMPT: mode },
-})
+try {
+  const first = updateSettingsForSource('userSettings', {
+    env: { FIRST_ATTEMPT: mode },
+  })
 
-setOriginalFsImplementation()
-const retry = updateSettingsForSource('userSettings', {
-  env: { RETRY_AFTER_RELEASE: mode },
-})
+  setOriginalFsImplementation()
+  const retry = updateSettingsForSource('userSettings', {
+    env: { RETRY_AFTER_RELEASE: mode },
+  })
 
-const output = {
-  firstError: first.error?.message ?? null,
-  firstWriteLanded: readFileSync(settingsPath, 'utf8').includes('FIRST_ATTEMPT'),
-  retryError: retry.error?.message ?? null,
-  releaseCalls,
-  ownerLeftBehind:
-    lockPath !== null && existsSync(join(lockPath, 'owner.json')),
+  const output = {
+    firstError: first.error?.message ?? null,
+    firstWritten: first.written,
+    firstWriteLanded: readFileSync(settingsPath, 'utf8').includes('FIRST_ATTEMPT'),
+    retryError: retry.error?.message ?? null,
+    releaseCalls,
+    ownerLeftBehind:
+      lockPath !== null && existsSync(join(lockPath, 'owner.json')),
+  }
+  process.stdout.write(JSON.stringify(output))
+} finally {
+  setOriginalFsImplementation()
+  rmSync(configDir, { recursive: true, force: true })
 }
-rmSync(configDir, { recursive: true, force: true })
-process.stdout.write(JSON.stringify(output))

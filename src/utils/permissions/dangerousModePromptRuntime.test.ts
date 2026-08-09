@@ -21,7 +21,7 @@ describe('dangerousModePromptRuntime', () => {
         settings: Record<string, unknown>,
       ) => {
         updates.push({ source, settings })
-        return { error: null }
+        return { error: null, written: true }
       },
     }))
 

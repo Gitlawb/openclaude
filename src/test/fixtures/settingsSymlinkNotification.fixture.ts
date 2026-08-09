@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -36,10 +37,12 @@ const logicalPath = join(configDir, 'settings.json')
 const projectDir = join(root, '.openclaude')
 const projectLogicalPath = join(projectDir, 'settings.json')
 const physicalPath = join(physicalDir, 'settings.json')
+const retargetDir = join(root, 'retarget')
+const retargetPath = join(retargetDir, 'settings.json')
 mkdirSync(configDir)
 mkdirSync(physicalDir)
 mkdirSync(projectDir)
-writeFileSync(physicalPath, '{}\n', 'utf8')
+mkdirSync(retargetDir)
 symlinkSync(physicalPath, logicalPath, 'file')
 symlinkSync(physicalPath, projectLogicalPath, 'file')
 process.chdir(root)
@@ -81,7 +84,11 @@ try {
     child.exited,
   ])
   const deadline = Date.now() + 2_000
-  while (notified.length === 0 && Date.now() < deadline) {
+  while (
+    (!notified.includes('userSettings') ||
+      !notified.includes('projectSettings')) &&
+    Date.now() < deadline
+  ) {
     await Bun.sleep(20)
   }
 
@@ -94,6 +101,43 @@ try {
     env: { INTERNAL_WRITE: 'true' },
   })
   await Bun.sleep(200)
+  const internalNotified = [...notified]
+
+  writeFileSync(retargetPath, '{}\n', 'utf8')
+  const nextUserLink = join(configDir, 'settings.next.json')
+  const nextProjectLink = join(projectDir, 'settings.next.json')
+  symlinkSync(retargetPath, nextUserLink, 'file')
+  symlinkSync(retargetPath, nextProjectLink, 'file')
+  renameSync(nextUserLink, logicalPath)
+  renameSync(nextProjectLink, projectLogicalPath)
+  await Bun.sleep(500)
+  notified.length = 0
+
+  const retargetChild = Bun.spawn(
+    [
+      process.execPath,
+      join(import.meta.dir, 'settingsConcurrentWriter.fixture.ts'),
+      configDir,
+      retargetPath,
+      'RETARGETED_PEER_WRITE',
+      join(root, 'retarget-read-marker'),
+      '-',
+    ],
+    { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+  )
+  const [retargetStdout, retargetStderr, retargetExitCode] = await Promise.all([
+    new Response(retargetChild.stdout).text(),
+    new Response(retargetChild.stderr).text(),
+    retargetChild.exited,
+  ])
+  const retargetDeadline = Date.now() + 2_000
+  while (
+    (!notified.includes('userSettings') ||
+      !notified.includes('projectSettings')) &&
+    Date.now() < retargetDeadline
+  ) {
+    await Bun.sleep(20)
+  }
 
   process.stdout.write(
     JSON.stringify({
@@ -103,7 +147,11 @@ try {
       stderr,
       peerNotified,
       internalError: internalUpdate.error?.message ?? null,
-      internalNotified: notified,
+      internalNotified,
+      retargetExitCode,
+      retargetStdout,
+      retargetStderr,
+      retargetNotified: notified,
     }),
   )
 } finally {

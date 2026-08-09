@@ -53,15 +53,21 @@ const DEFAULT_MAX_RETRIES = 3
 const MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB per file (matches backend limit)
 
 export type SettingsDownloadResult = {
+  /** True when the download finished successfully, including an intentional no-op. */
   complete: boolean
-  settingsWritten: boolean
   settingsSourcesWritten: Array<'userSettings' | 'localSettings'>
 }
 
-function emptySettingsDownloadResult(): SettingsDownloadResult {
+function noOpSettingsDownloadResult(): SettingsDownloadResult {
+  return {
+    complete: true,
+    settingsSourcesWritten: [],
+  }
+}
+
+function failedSettingsDownloadResult(): SettingsDownloadResult {
   return {
     complete: false,
-    settingsWritten: false,
     settingsSourcesWritten: [],
   }
 }
@@ -180,7 +186,7 @@ async function doDownloadUserSettings(
       ) {
         logForDiagnosticsNoPII('info', 'settings_sync_download_skipped')
         logEvent('tengu_settings_sync_download_skipped', {})
-        return emptySettingsDownloadResult()
+        return noOpSettingsDownloadResult()
       }
 
       logForDiagnosticsNoPII('info', 'settings_sync_download_starting')
@@ -188,13 +194,13 @@ async function doDownloadUserSettings(
       if (!result.success) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_fetch_failed')
         logEvent('tengu_settings_sync_download_fetch_failed', {})
-        return emptySettingsDownloadResult()
+        return failedSettingsDownloadResult()
       }
 
       if (result.isEmpty) {
         logForDiagnosticsNoPII('info', 'settings_sync_download_empty')
         logEvent('tengu_settings_sync_download_empty', {})
-        return emptySettingsDownloadResult()
+        return noOpSettingsDownloadResult()
       }
 
       const entries = result.data!.content.entries
@@ -215,10 +221,10 @@ async function doDownloadUserSettings(
       // Fail-open: log error but don't block CCR startup
       logForDiagnosticsNoPII('error', 'settings_sync_download_error')
       logEvent('tengu_settings_sync_download_error', {})
-      return emptySettingsDownloadResult()
+      return failedSettingsDownloadResult()
     }
   }
-  return emptySettingsDownloadResult()
+  return noOpSettingsDownloadResult()
 }
 
 /**
@@ -526,13 +532,14 @@ async function applyRemoteEntriesToLocal(
   let appliedCount = 0
   const settingsSourcesWritten: SettingsDownloadResult['settingsSourcesWritten'] =
     []
-  let settingsWriteFailed = false
+  let applyFailed = false
   let memoryWritten = false
 
   // Helper to check size limit (defense-in-depth, matches backend limit)
   const exceedsSizeLimit = (content: string, _path: string): boolean => {
     const sizeBytes = Buffer.byteLength(content, 'utf8')
     if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+      applyFailed = true
       logForDiagnosticsNoPII('info', 'settings_sync_file_too_large', {
         sizeBytes,
         maxBytes: MAX_FILE_SIZE_BYTES,
@@ -558,8 +565,8 @@ async function applyRemoteEntriesToLocal(
         appliedCount++
         settingsSourcesWritten.push('userSettings')
       }
-      if (result.error) {
-        settingsWriteFailed = true
+      if (!result.written || result.error) {
+        applyFailed = true
       }
     }
   }
@@ -572,6 +579,8 @@ async function applyRemoteEntriesToLocal(
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
         memoryWritten = true
+      } else {
+        applyFailed = true
       }
     }
   }
@@ -594,8 +603,8 @@ async function applyRemoteEntriesToLocal(
           appliedCount++
           settingsSourcesWritten.push('localSettings')
         }
-        if (result.error) {
-          settingsWriteFailed = true
+        if (!result.written || result.error) {
+          applyFailed = true
         }
       }
     }
@@ -608,6 +617,8 @@ async function applyRemoteEntriesToLocal(
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
           memoryWritten = true
+        } else {
+          applyFailed = true
         }
       }
     }
@@ -625,8 +636,7 @@ async function applyRemoteEntriesToLocal(
     appliedCount,
   })
   return {
-    complete: !settingsWriteFailed,
-    settingsWritten: settingsSourcesWritten.length > 0,
+    complete: !applyFailed,
     settingsSourcesWritten,
   }
 }

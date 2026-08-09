@@ -430,20 +430,21 @@ export function getPolicySettingsOrigin():
 export function updateSettingsForSource(
   source: EditableSettingSource,
   settings: SettingsJson,
-): { error: Error | null } {
+): { error: Error | null; written: boolean } {
   if (
     (source as unknown) === 'policySettings' ||
     (source as unknown) === 'flagSettings'
   ) {
-    return { error: null }
+    return { error: null, written: false }
   }
 
   // Create the folder if needed
   const filePath = getSettingsFilePathForSource(source)
   if (!filePath) {
-    return { error: null }
+    return { error: null, written: false }
   }
 
+  let written = false
   try {
     withSettingsFileLockSync(
       filePath,
@@ -474,7 +475,10 @@ export function updateSettingsForSource(
               )
             }
             if (rawData && typeof rawData === 'object') {
-              existingSettings = rawData as SettingsJson
+              // safeParseJSON memoizes small inputs and returns the cached object
+              // by reference. mergeWith mutates its destination, so clone the
+              // validation-fallback value before merging an update into it.
+              existingSettings = structuredClone(rawData) as SettingsJson
               logForDebugging(
                 `Using raw settings from ${filePath} due to validation failure`,
               )
@@ -513,6 +517,7 @@ export function updateSettingsForSource(
           targetPath,
           jsonStringify(updatedSettings, null, 2) + '\n',
         )
+        written = true
         resetSettingsCache()
       },
     )
@@ -529,10 +534,10 @@ export function updateSettingsForSource(
       `Failed to read raw settings from ${filePath}: ${e}`,
     )
     logError(error)
-    return { error }
+    return { error, written }
   }
 
-  return { error: null }
+  return { error: null, written }
 }
 
 /**
