@@ -5,7 +5,7 @@ import {
   filterMessagesForExternalEgress,
   filterSubagentTranscriptsForExternalEgress,
   isSafeForExternalEgress,
-  PREFIX_CACHE_LISTING_ATTACHMENT_TYPES,
+  EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   projectTranscriptParentForExternalEgress,
   recordExternalEgressOmission,
 } from './sessionStorage.js'
@@ -52,9 +52,9 @@ function listing(
 }
 
 describe('isSafeForExternalEgress', () => {
-  test('rejects every prefix-cache listing type for external users', () => {
+  test('rejects every external-egress listing type for external users', () => {
     process.env.USER_TYPE = 'external'
-    for (const attachmentType of PREFIX_CACHE_LISTING_ATTACHMENT_TYPES) {
+    for (const attachmentType of EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES) {
       expect(
         isSafeForExternalEgress({
           type: 'attachment',
@@ -66,7 +66,7 @@ describe('isSafeForExternalEgress', () => {
 
   test('rejects listing types for ant users too', () => {
     process.env.USER_TYPE = 'ant'
-    for (const attachmentType of PREFIX_CACHE_LISTING_ATTACHMENT_TYPES) {
+    for (const attachmentType of EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES) {
       expect(
         isSafeForExternalEgress({
           type: 'attachment',

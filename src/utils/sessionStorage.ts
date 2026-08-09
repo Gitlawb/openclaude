@@ -5408,7 +5408,7 @@ export async function loadAllSubagentTranscriptsFromDisk(): Promise<{
 }
 
 /** Listing attachment types that must never cross remote/share/feedback paths. */
-export const PREFIX_CACHE_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> =
+export const EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> =
   new Set([
     'skill_listing',
     'agent_listing_delta',
@@ -5461,12 +5461,12 @@ export function projectTranscriptParentForExternalEgress<
   }
 }
 
-export function isPrefixCacheListingAttachment(m: {
+export function isExternalEgressListingAttachment(m: {
   type?: string
   attachment?: unknown
 }): boolean {
   const t = attachmentTypeOf(m)
-  return t !== null && PREFIX_CACHE_LISTING_ATTACHMENT_TYPES.has(t)
+  return t !== null && EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES.has(t)
 }
 
 // Exported so useLogMessages can sync-compute the last loggable uuid
@@ -5499,7 +5499,7 @@ export function isSafeForExternalEgress(entry: {
   attachment?: unknown
 }): boolean {
   // Listings must never cross remote / share / feedback — including ant.
-  if (isPrefixCacheListingAttachment(entry)) {
+  if (isExternalEgressListingAttachment(entry)) {
     return false
   }
   if (getUserType() === 'ant') {
