@@ -18,29 +18,32 @@ const dependencies = {
   shouldPreserveGeminiThoughtSignature: () => false,
 }
 
-test('store: false is still set by default and only removed via shim config', async () => {
-  const requestPreparation = await Bun.file(
-    new URL('./requestPreparation.ts', import.meta.url),
-  ).text()
+test('keeps store: false by default and removes it only for configured routes', async () => {
+  await ensureIntegrationsLoaded()
+  const prepare = (model: string, processEnv: NodeJS.ProcessEnv) =>
+    prepareOpenAIRequest({
+      request: resolveProviderRequest({ model, processEnv }),
+      requestProcessEnv: processEnv,
+      params: {
+        model,
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+      },
+      dependencies,
+    })
 
-  expect(requestPreparation).toMatch(/store:\s*false/)
-  expect(requestPreparation).toContain('shimConfig.removeBodyFields')
-  expect(requestPreparation).toContain('delete body[field]')
-})
+  const generic = prepare('gpt-4o', {
+    OPENAI_BASE_URL: 'https://gateway.example.test/v1',
+    OPENAI_API_KEY: 'test-key',
+  })
+  expect(generic.body.store).toBe(false)
 
-test('store field remains opt-out by per-route config rather than unconditional deletion', async () => {
-  const requestPreparation = await Bun.file(
-    new URL('./requestPreparation.ts', import.meta.url),
-  ).text()
-  const runtimeMetadata = await Bun.file(
-    new URL('../../../integrations/runtimeMetadata.ts', import.meta.url),
-  ).text()
-
-  expect(requestPreparation).toMatch(/store:\s*false/)
-  expect(requestPreparation).toContain(
-    'for (const field of shimConfig.removeBodyFields ?? [])',
-  )
-  expect(runtimeMetadata).toContain('mergeRemoveBodyFields')
+  const mistral = prepare('codestral-2508', {
+    OPENAI_BASE_URL: 'https://api.mistral.ai/v1',
+    OPENAI_API_KEY: 'test-key',
+  })
+  expect(mistral.shimConfig.removeBodyFields).toContain('store')
+  expect(mistral.body).not.toHaveProperty('store')
 })
 
 test('prepares a chat-completions request without executing transport', async () => {

@@ -45,11 +45,7 @@ import { logForDebugging } from '../../utils/debug.js'
 import { createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, StreamIdleTimeoutError } from './openaiShim/streamControl.js'
 export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isBareMode, isEnvTruthy } from '../../utils/envUtils.js'
-import {
-  resolveModelReasoningControl,
-  resolveOpenAIShimReasoningRequestPlan,
-  type OpenAIShimEffortLevel,
-} from '../../utils/effort.js'
+import { type OpenAIShimEffortLevel } from '../../utils/effort.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import {
@@ -57,10 +53,6 @@ import {
   refreshCopilotTokenOn401,
 } from '../../utils/githubModelsCredentials.js'
 import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
-import {
-  resolveModelRuntimeLimits,
-  resolveOpenAIShimRuntimeContext,
-} from '../../integrations/runtimeMetadata.js'
 import {
   getRouteDescriptor,
   isLongcatBaseUrl,
@@ -71,17 +63,12 @@ import { getSessionId } from '../../bootstrap/state.js'
 import {
   codexStreamToAnthropic,
   collectCodexCompletedResponse,
-  convertAnthropicMessagesToResponsesInput,
   convertCodexResponseToAnthropicMessage,
-  convertToolsToResponsesTools,
   performCodexRequest,
   type AnthropicStreamEvent,
   type ShimCreateParams,
 } from './codexShim.js'
-import {
-  createRequestBodyPlanner,
-  hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv,
-} from './openaiShim/requestPlanner.js'
+import { hydrateOpenAIShimCompatibilityEnv as hydrateRequestPlanningEnv } from './openaiShim/requestPlanner.js'
 import { prepareOpenAIRequest } from './openaiShim/requestPreparation.js'
 import {
   anthropicSsePassthrough,
@@ -92,7 +79,6 @@ import {
   openaiStreamToAnthropic as convertOpenAIResponseStream,
 } from './openaiShim/responseAdapters.js'
 export { parseTextToolCalls, parseXmlToolCalls } from './openaiShim/responseAdapters.js'
-import { compressToolHistory } from './compressToolHistory.js'
 import {
   createClassifiedTransportError,
   fetchWithHeadersDeadline,
@@ -105,19 +91,13 @@ import {
 export { getApiTimeoutMs } from './openaiShim/transport.js'
 import { executeOpenAIRequest } from './openaiShim/requestExecutor.js'
 import {
-  getLocalFastPathConfig,
   getLocalProviderRetryBaseUrls,
   getGithubEndpointType,
-  baseUrlSupportsResponsesAutoRoute,
   isAzureStyleBaseUrl,
-  isDirectLocalOllamaEndpoint,
-  isLikelyOllamaEndpoint,
   isLocalProviderUrl,
-  modelRequiresResponsesApi,
   resolveRuntimeCodexCredentials,
   resolveProviderRequest,
   shouldAttemptLocalToollessRetry,
-  type LocalFastPathConfig,
 } from './providerConfig.js'
 import {
   buildOpenAICompatibilityErrorMessage,
@@ -145,13 +125,11 @@ import {
 import {
   filterAnthropicHeaders,
   geminiThoughtSignatureFromExtraContent,
-  hasCerebrasApiHost,
   hasGeminiApiHost as matchesGeminiApiHost,
   hasMistralApiHost,
   isGithubModelsMode,
   isGeminiModelName,
   mergeGeminiThoughtSignature,
-  maybeSetNvidiaNimChatTemplateThinking,
   shouldPreserveGeminiThoughtSignature as shouldPreserveGeminiThoughtSignatureForRoute,
 } from './openaiShim/providerCompatibility.js'
 
@@ -160,8 +138,6 @@ import {
   buildOllamaChatUrl,
   convertOllamaNonStreamingResponse,
   convertOllamaStreamingResponse,
-  getOllamaNumCtx,
-  normalizeOllamaNativeMessages,
 } from './openaiShim/ollamaAdapter.js'
 import {
   convertMessages as convertAnthropicMessages,
