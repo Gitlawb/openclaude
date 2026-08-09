@@ -44,4 +44,13 @@ describe('hasPrintFlag', () => {
     expect(hasPrintFlag(['--resume', 'print'])).toBe(false)
     expect(hasPrintFlag(['--debug', 'p'])).toBe(false)
   })
+
+  test('does not skip a print flag after an inline required value or after --', () => {
+    expect(hasPrintFlag(['--model=foo', '--print'])).toBe(true)
+    expect(hasPrintFlag(['--model=foo', '-p'])).toBe(true)
+    expect(hasPrintFlag(['--system-prompt=--print=custom', '--print'])).toBe(true)
+
+    expect(hasPrintFlag(['--model', '--', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--model', '--', '-p'])).toBe(false)
+  })
 })

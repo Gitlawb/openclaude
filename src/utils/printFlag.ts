@@ -96,11 +96,26 @@ export function hasPrintFlag(argv: readonly string[]): boolean {
     const name = optionName(arg)
 
     if (REQUIRED_VALUE_OPTIONS.has(name)) {
+      // If the value is inline (`--model=foo`), do not advance past a following
+      // flag. If the next token is `--`, option arity cannot be satisfied here
+      // and the scan terminates.
+      if (arg.includes('=')) {
+        continue
+      }
+      if (argv[i + 1] === '--') {
+        break
+      }
       i++
       continue
     }
 
     if (VARIADIC_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        continue
+      }
+      if (argv[i + 1] === '--') {
+        break
+      }
       while (i + 1 < argv.length && !argv[i + 1]!.startsWith('-') && argv[i + 1] !== '--') {
         i++
       }
@@ -108,6 +123,12 @@ export function hasPrintFlag(argv: readonly string[]): boolean {
     }
 
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        continue
+      }
+      if (argv[i + 1] === '--') {
+        break
+      }
       const next = argv[i + 1]
       if (next !== undefined && !next.startsWith('-')) {
         i++
