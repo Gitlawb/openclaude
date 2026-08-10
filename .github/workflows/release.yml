@@ -29,13 +29,18 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  release-pr-sync:
-    name: Synchronize Release Please PR
+  release-pr-resolve:
+    name: Resolve Release Please PR
     needs: release-please
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
+    outputs:
+      found: ${{ steps.release-pr.outputs.found }}
+      number: ${{ steps.release-pr.outputs.number }}
+      branch: ${{ steps.release-pr.outputs.branch }}
+      head_sha: ${{ steps.release-pr.outputs.head_sha }}
     steps:
       # A rerun after a failed sync has no `pr` output because Release Please
       # does not update an unchanged pending PR. Recover that PR explicitly;
@@ -111,19 +116,27 @@ jobs:
             gh pr ready "$RELEASE_PR_NUMBER" --undo
           fi
 
+  release-pr-validate:
+    name: Validate Release Please PR
+    needs: release-pr-resolve
+    if: ${{ needs.release-pr-resolve.outputs.found == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tree_sha: ${{ steps.validated-tree.outputs.sha }}
+    steps:
       # Release Please's PR contains the generated changelog and manifest.
       # Synchronize the standalone web version there, before that PR merges.
       - name: Check out Release Please PR branch
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ steps.release-pr.outputs.head_sha }}
+          ref: ${{ needs.release-pr-resolve.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Resolve the release PR merge base
         id: sync-base
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
@@ -134,21 +147,62 @@ jobs:
           fi
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
 
+      - name: Verify the Release Please change contract
+        env:
+          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
+        run: |
+          unexpected=false
+          while IFS= read -r path; do
+            case "$path" in
+              .release-please-manifest.json|CHANGELOG.md|package.json|web/src/data/releases.ts) ;;
+              *)
+                echo "unexpected file in Release Please PR: $path" >&2
+                unexpected=true
+                ;;
+            esac
+          done < <(git diff --name-only "$RELEASE_BASE_REF"...HEAD)
+          if [ "$unexpected" = "true" ]; then
+            exit 1
+          fi
+
+          if ! diff -u \
+            <(git show "${RELEASE_BASE_REF}:package.json" | jq -S 'del(.version)') \
+            <(jq -S 'del(.version)' package.json); then
+            echo "Release Please PR changes package.json fields other than version" >&2
+            exit 1
+          fi
+
+          if ! diff -u \
+            <(git show "${RELEASE_BASE_REF}:.release-please-manifest.json" | jq -S 'del(.["."])') \
+            <(jq -S 'del(.["."])' .release-please-manifest.json); then
+            echo "Release Please PR changes manifest fields other than the root version" >&2
+            exit 1
+          fi
+
+          package_version="$(jq -r .version package.json)"
+          manifest_version="$(jq -r '.["."]' .release-please-manifest.json)"
+          if [[ ! "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] \
+            || [ "$package_version" != "$manifest_version" ]; then
+            echo "package and Release Please manifest versions do not match" >&2
+            exit 1
+          fi
+
+          # The bot owns this file. Rebuild it from the trusted base so a
+          # collaborator push cannot smuggle executable TypeScript into it.
+          git show "${RELEASE_BASE_REF}:web/src/data/releases.ts" > web/src/data/releases.ts
+
       - name: Set up current Node.js for release PR validation
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.11.x"
 
       - name: Set up Bun for release PR sync
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
           no-cache: true
 
       - name: Sync web release entry
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
         run: |
@@ -157,7 +211,6 @@ jobs:
           bun install --cwd web --frozen-lockfile
 
       - name: Commit synced web release entry
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         run: |
           if git diff --quiet -- web/src/data/releases.ts; then
             echo "releases.ts already up to date"
@@ -170,7 +223,6 @@ jobs:
           git commit -m "chore(web): sync releases.ts from release-please changelog"
 
       - name: Validate synchronized release PR on current Node.js
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
         run: |
@@ -186,13 +238,11 @@ jobs:
           git diff --check "$RELEASE_BASE_REF"...HEAD
 
       - name: Set up minimum supported Node.js for release PR validation
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.0.0"
 
       - name: Validate synchronized release PR on the Node.js floor
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         run: |
           bun run check
           node bin/openclaude --version
@@ -203,7 +253,6 @@ jobs:
           bun run --cwd web build
 
       - name: Confirm release validation left the commit unchanged
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         run: |
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "release validation changed tracked files after the synchronization commit" >&2
@@ -211,14 +260,71 @@ jobs:
             exit 1
           fi
 
+      - name: Capture validated tree
+        id: validated-tree
+        run: echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
+      - name: Save validated web release data
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-web-sync-${{ needs.release-pr-resolve.outputs.number }}-${{ needs.release-pr-resolve.outputs.head_sha }}
+          path: web/src/data/releases.ts
+          if-no-files-found: error
+          retention-days: 1
+
+  release-pr-finalize:
+    name: Finalize Release Please PR
+    needs: [release-pr-resolve, release-pr-validate]
+    if: ${{ needs.release-pr-resolve.outputs.found == 'true' && needs.release-pr-validate.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out captured Release Please PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-pr-resolve.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore validated web release data
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-web-sync-${{ needs.release-pr-resolve.outputs.number }}-${{ needs.release-pr-resolve.outputs.head_sha }}
+          path: web/src/data
+
+      - name: Recreate the validated synchronized commit
+        env:
+          VALIDATED_TREE_SHA: ${{ needs.release-pr-validate.outputs.tree_sha }}
+        run: |
+          if ! git diff --quiet -- web/src/data/releases.ts; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/src/data/releases.ts
+            git commit -m "chore(web): sync releases.ts from release-please changelog"
+          fi
+
+          actual_tree_sha="$(git rev-parse 'HEAD^{tree}')"
+          if [ "$actual_tree_sha" != "$VALIDATED_TREE_SHA" ]; then
+            echo "restored release data does not recreate the validated tree" >&2
+            echo "expected $VALIDATED_TREE_SHA, got $actual_tree_sha" >&2
+            exit 1
+          fi
+
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "finalization left uncommitted tracked changes" >&2
+            git status --short
+            exit 1
+          fi
+
       - name: Push synchronized web release entry
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
-          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-          RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
+          RELEASE_PR_BRANCH: ${{ needs.release-pr-resolve.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
+          RELEASE_PR_HEAD_SHA: ${{ needs.release-pr-resolve.outputs.head_sha }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
           current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid)"
@@ -237,12 +343,11 @@ jobs:
             "HEAD:${RELEASE_PR_BRANCH}"
 
       - name: Mark synchronized release PR ready for review
-        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
+          RELEASE_PR_BRANCH: ${{ needs.release-pr-resolve.outputs.branch }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
           local_sha="$(git rev-parse HEAD)"
