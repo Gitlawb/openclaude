@@ -3,7 +3,7 @@ import partition from 'lodash-es/partition.js';
 import React, { useCallback } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Text } from '../ink.js';
-import { getSettings_DEPRECATED, updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { SelectMulti } from './CustomSelect/SelectMulti.js';
 import { Byline } from './design-system/Byline.js';
@@ -23,27 +23,22 @@ export function MCPServerMultiselectDialog(t0) {
   let t1;
   if ($[0] !== onDone || $[1] !== serverNames) {
     t1 = function onSubmit(selectedServers) {
-      const currentSettings = getSettings_DEPRECATED() || {};
-      const enabledServers = currentSettings.enabledMcpjsonServers || [];
-      const disabledServers = currentSettings.disabledMcpjsonServers || [];
       const [approvedServers, rejectedServers] = partition(serverNames, server => selectedServers.includes(server));
       logEvent("tengu_mcp_multidialog_choice", {
         approved: approvedServers.length,
         rejected: rejectedServers.length
       });
-      if (approvedServers.length > 0) {
-        const newEnabledServers = [...new Set([...enabledServers, ...approvedServers])];
-        updateSettingsForSource("localSettings", {
-          enabledMcpjsonServers: newEnabledServers
-        });
+      const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
+        ...(approvedServers.length > 0 ? {
+          enabledMcpjsonServers: [...new Set([...(freshSettings.enabledMcpjsonServers ?? []), ...approvedServers])]
+        } : {}),
+        ...(rejectedServers.length > 0 ? {
+          disabledMcpjsonServers: [...new Set([...(freshSettings.disabledMcpjsonServers ?? []), ...rejectedServers])]
+        } : {})
+      }));
+      if (wasSettingsUpdateCommitted(result)) {
+        onDone();
       }
-      if (rejectedServers.length > 0) {
-        const newDisabledServers = [...new Set([...disabledServers, ...rejectedServers])];
-        updateSettingsForSource("localSettings", {
-          disabledMcpjsonServers: newDisabledServers
-        });
-      }
-      onDone();
     };
     $[0] = onDone;
     $[1] = serverNames;
@@ -55,13 +50,12 @@ export function MCPServerMultiselectDialog(t0) {
   let t2;
   if ($[3] !== onDone || $[4] !== serverNames) {
     t2 = () => {
-      const currentSettings_0 = getSettings_DEPRECATED() || {};
-      const disabledServers_0 = currentSettings_0.disabledMcpjsonServers || [];
-      const newDisabledServers_0 = [...new Set([...disabledServers_0, ...serverNames])];
-      updateSettingsForSource("localSettings", {
-        disabledMcpjsonServers: newDisabledServers_0
-      });
-      onDone();
+      const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => ({
+        disabledMcpjsonServers: [...new Set([...(freshSettings_0.disabledMcpjsonServers ?? []), ...serverNames])]
+      }));
+      if (wasSettingsUpdateCommitted(result_0)) {
+        onDone();
+      }
     };
     $[3] = onDone;
     $[4] = serverNames;

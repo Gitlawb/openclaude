@@ -12,7 +12,7 @@ import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, 
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions, SWITCH_PROFILE_VALUE_PREFIX, type ModelOption, parseSwitchProfileValue, resolveSelectedSwitchProfileId } from '../utils/model/modelOptions.js';
-import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { getSettingsForSource, updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
@@ -317,7 +317,7 @@ export function ModelPicker(t0) {
           const result = updateSettingsForSource("userSettings", {
             effortLevel: persistable
           });
-          if (result.error && !result.written) {
+          if (!wasSettingsUpdateCommitted(result)) {
             persisted = false;
           }
         }

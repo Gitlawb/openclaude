@@ -535,8 +535,9 @@ async function applyRemoteEntriesToLocal(
   let applyFailed = false
   let memoryWritten = false
 
-  // Helper to check size limit (defense-in-depth, matches backend limit)
-  const exceedsSizeLimit = (content: string, _path: string): boolean => {
+  // Rejects oversized content and records the apply as failed
+  // (defense-in-depth, matches backend limit).
+  const rejectIfOversized = (content: string): boolean => {
     const sizeBytes = Buffer.byteLength(content, 'utf8')
     if (sizeBytes > MAX_FILE_SIZE_BYTES) {
       applyFailed = true
@@ -553,10 +554,7 @@ async function applyRemoteEntriesToLocal(
   const userSettingsContent = entries[SYNC_KEYS.USER_SETTINGS]
   if (userSettingsContent) {
     const userSettingsPath = getSettingsFilePathForSource('userSettings')
-    if (
-      userSettingsPath &&
-      !exceedsSizeLimit(userSettingsContent, userSettingsPath)
-    ) {
+    if (userSettingsPath && !rejectIfOversized(userSettingsContent)) {
       const result = writeSettingsFileForSync(
         userSettingsPath,
         userSettingsContent,
@@ -575,7 +573,7 @@ async function applyRemoteEntriesToLocal(
   const userMemoryContent = entries[SYNC_KEYS.USER_MEMORY]
   if (userMemoryContent) {
     const userMemoryPath = getMemoryPath('User')
-    if (!exceedsSizeLimit(userMemoryContent, userMemoryPath)) {
+    if (!rejectIfOversized(userMemoryContent)) {
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
         memoryWritten = true
@@ -593,7 +591,7 @@ async function applyRemoteEntriesToLocal(
       const localSettingsPath = getSettingsFilePathForSource('localSettings')
       if (
         localSettingsPath &&
-        !exceedsSizeLimit(projectSettingsContent, localSettingsPath)
+        !rejectIfOversized(projectSettingsContent)
       ) {
         const result = writeSettingsFileForSync(
           localSettingsPath,
@@ -613,7 +611,7 @@ async function applyRemoteEntriesToLocal(
     const projectMemoryContent = entries[projectMemoryKey]
     if (projectMemoryContent) {
       const localMemoryPath = getMemoryPath('Local')
-      if (!exceedsSizeLimit(projectMemoryContent, localMemoryPath)) {
+      if (!rejectIfOversized(projectMemoryContent)) {
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
           memoryWritten = true

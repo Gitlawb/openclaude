@@ -1,7 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
-import { getSettings_DEPRECATED, updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
 import { Dialog } from './design-system/Dialog.js';
 import { MCPServerDialogCopy } from './MCPServerDialogCopy.js';
@@ -25,31 +25,25 @@ export function MCPServerApprovalDialog(t0) {
         case "yes":
         case "yes_all":
           {
-            const currentSettings_0 = getSettings_DEPRECATED() || {};
-            const enabledServers = currentSettings_0.enabledMcpjsonServers || [];
-            if (!enabledServers.includes(serverName)) {
-              updateSettingsForSource("localSettings", {
-                enabledMcpjsonServers: [...enabledServers, serverName]
-              });
-            }
-            if (value === "yes_all") {
-              updateSettingsForSource("localSettings", {
+            const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
+              enabledMcpjsonServers: [...new Set([...(freshSettings.enabledMcpjsonServers ?? []), serverName])],
+              ...(value === "yes_all" ? {
                 enableAllProjectMcpServers: true
-              });
+              } : {})
+            }));
+            if (wasSettingsUpdateCommitted(result)) {
+              onDone();
             }
-            onDone();
             break bb2;
           }
         case "no":
           {
-            const currentSettings = getSettings_DEPRECATED() || {};
-            const disabledServers = currentSettings.disabledMcpjsonServers || [];
-            if (!disabledServers.includes(serverName)) {
-              updateSettingsForSource("localSettings", {
-                disabledMcpjsonServers: [...disabledServers, serverName]
-              });
+            const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => ({
+              disabledMcpjsonServers: [...new Set([...(freshSettings_0.disabledMcpjsonServers ?? []), serverName])]
+            }));
+            if (wasSettingsUpdateCommitted(result_0)) {
+              onDone();
             }
-            onDone();
           }
       }
     };

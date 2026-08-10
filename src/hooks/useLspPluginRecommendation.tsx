@@ -21,7 +21,7 @@ import { logForDebugging } from '../utils/debug.js';
 import { logError } from '../utils/log.js';
 import { addToNeverSuggest, getMatchingLspPlugins, incrementIgnoredCount } from '../utils/plugins/lspRecommendation.js';
 import { cacheAndRegisterPlugin } from '../utils/plugins/pluginInstallationHelpers.js';
-import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { installPluginAndNotify, usePluginRecommendationBase } from './usePluginRecommendationBase.js';
 
 // Threshold for detecting timeout vs explicit dismiss (ms)
@@ -125,13 +125,15 @@ export function useLspPluginRecommendation() {
               logForDebugging(`[useLspPluginRecommendation] Installing plugin: ${pluginId}`);
               const localSourcePath = typeof pluginData.entry.source === "string" ? join(pluginData.marketplaceInstallLocation, pluginData.entry.source) : undefined;
               await cacheAndRegisterPlugin(pluginId, pluginData.entry, "user", undefined, localSourcePath);
-              const settings = getSettingsForSource("userSettings");
-              updateSettingsForSource("userSettings", {
+              const result = updateSettingsForSourceWithFreshSettings("userSettings", freshSettings => ({
                 enabledPlugins: {
-                  ...settings?.enabledPlugins,
+                  ...freshSettings.enabledPlugins,
                   [pluginId]: true
                 }
-              });
+              }));
+              if (!wasSettingsUpdateCommitted(result)) {
+                throw result.error ?? new Error('Settings update was not written');
+              }
               logForDebugging(`[useLspPluginRecommendation] Plugin installed: ${pluginId}`);
             });
             break bb60;

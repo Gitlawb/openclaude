@@ -8,6 +8,7 @@ import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import {
   getInitialSettings,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 import { isVoiceModeEnabled } from '../../voice/voiceModeEnabled.js'
 
@@ -39,7 +40,7 @@ export const call: LocalCommandCall = async () => {
     const result = updateSettingsForSource('userSettings', {
       voiceEnabled: false,
     })
-    if (result.error) {
+    if (!wasSettingsUpdateCommitted(result)) {
       return {
         type: 'text' as const,
         value:
@@ -113,7 +114,7 @@ export const call: LocalCommandCall = async () => {
 
   // All checks passed — enable voice
   const result = updateSettingsForSource('userSettings', { voiceEnabled: true })
-  if (result.error) {
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
       type: 'text' as const,
       value:

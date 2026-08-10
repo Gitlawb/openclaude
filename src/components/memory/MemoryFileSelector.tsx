@@ -21,7 +21,7 @@ import { getClaudeConfigHomeDir } from '../../utils/envUtils.js';
 import { getDisplayPath } from '../../utils/file.js';
 import { formatRelativeTimeAgo } from '../../utils/format.js';
 import { projectIsInGitRepo } from '../../utils/memory/versions.js';
-import { updateSettingsForSource } from '../../utils/settings/settings.js';
+import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { Select } from '../CustomSelect/index.js';
 import { ListItem } from '../design-system/ListItem.js';
 import { getProjectMemoryPathForSelector } from './memoryFileSelectorPaths.js';
@@ -207,9 +207,12 @@ export function MemoryFileSelector(t0) {
   if ($[12] !== autoMemoryOn) {
     t5 = function handleToggleAutoMemory() {
       const newValue = !autoMemoryOn;
-      updateSettingsForSource("userSettings", {
+      const result = updateSettingsForSource("userSettings", {
         autoMemoryEnabled: newValue
       });
+      if (!wasSettingsUpdateCommitted(result)) {
+        return;
+      }
       setAutoMemoryOn(newValue);
       logEvent("tengu_auto_memory_toggled", {
         enabled: newValue
@@ -225,9 +228,12 @@ export function MemoryFileSelector(t0) {
   if ($[14] !== autoDreamOn) {
     t6 = function handleToggleAutoDream() {
       const newValue_0 = !autoDreamOn;
-      updateSettingsForSource("userSettings", {
+      const result_0 = updateSettingsForSource("userSettings", {
         autoDreamEnabled: newValue_0
       });
+      if (!wasSettingsUpdateCommitted(result_0)) {
+        return;
+      }
       setAutoDreamOn(newValue_0);
       logEvent("tengu_auto_dream_toggled", {
         enabled: newValue_0

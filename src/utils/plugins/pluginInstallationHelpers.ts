@@ -18,8 +18,8 @@ import { toError } from '../errors.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { logError } from '../log.js'
 import {
-  getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { buildPluginTelemetryFields } from '../telemetry/pluginTelemetry.js'
 import { clearAllCaches } from './cacheUtils.js'
@@ -429,17 +429,20 @@ export async function installResolvedPlugin({
   // ── ACTION: write entire closure to settings in one call ──
   const closureEnabled: Record<string, true> = {}
   for (const id of resolution.closure) closureEnabled[id] = true
-  const { error } = updateSettingsForSource(settingSource, {
-    enabledPlugins: {
-      ...getSettingsForSource(settingSource)?.enabledPlugins,
-      ...closureEnabled,
-    },
-  })
-  if (error) {
+  const result = updateSettingsForSourceWithFreshSettings(
+    settingSource,
+    freshSettings => ({
+      enabledPlugins: {
+        ...freshSettings.enabledPlugins,
+        ...closureEnabled,
+      },
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
       ok: false,
       reason: 'settings-write-failed',
-      message: error.message,
+      message: result.error?.message ?? 'Settings update was not written',
     }
   }
 

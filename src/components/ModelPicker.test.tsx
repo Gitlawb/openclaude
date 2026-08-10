@@ -4,13 +4,15 @@ import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 
-import { render } from '../ink.js'
+import { render, Text } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import {
   AppStateProvider,
   getDefaultAppState,
   useAppState,
+  useSetAppState,
 } from '../state/AppState.js'
+import { onChangeAppState } from '../state/onChangeAppState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -355,11 +357,103 @@ test('shows cross-profile switch options when allowProfileSwitch is set', async 
   }
 })
 
+test('keeps the active model when selecting a different model cannot be persisted', async () => {
+  updateSettingsForTest = mock(
+    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+      error: null,
+      written: false,
+    }),
+  )
+  const { ModelPicker } = await import(
+    `./ModelPicker.js?model-write-failure-${Date.now()}`
+  )
+  const { stdin, stdout, getOutput } = makeStdio()
+  const initialState = {
+    ...getDefaultAppState(),
+    mainLoopModel: 'claude-haiku-4-5' as const,
+  }
+
+  function ModelSelectionHarness(): React.ReactNode {
+    const model = useAppState(state => state.mainLoopModel)
+    const setAppState = useSetAppState()
+    return <>
+      <Text>Current model: {model}</Text>
+      <ModelPicker
+        initial="claude-haiku-4-5"
+        onSelect={selectedModel => {
+          setAppState(previous => ({
+            ...previous,
+            mainLoopModel: selectedModel,
+          }))
+        }}
+        optionsOverride={[
+          {
+            value: 'claude-haiku-4-5',
+            label: 'Haiku',
+            description: 'Current model',
+          },
+          {
+            value: 'claude-opus-4-6',
+            label: 'Opus',
+            description: 'Different model',
+          },
+        ]}
+      />
+    </>
+  }
+
+  const instance = await render(
+    <AppStateProvider
+      initialState={initialState}
+      onChangeAppState={args =>
+        onChangeAppState(args, {
+          updateUserSettings: (...updateArgs) =>
+            updateSettingsForTest(...updateArgs),
+          setModelOverride: () => {},
+        })
+      }
+    >
+      <KeybindingSetup>
+        <ModelSelectionHarness />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
+    const outputBeforeMove = getOutput().length
+    stdin.write('j')
+    await waitForCondition(() => getOutput().length > outputBeforeMove)
+    stdin.write('\r')
+    await waitForCondition(() =>
+      updateSettingsForTest.mock.calls.some(
+        ([source, patch]) =>
+          source === 'userSettings' && patch.model === 'claude-opus-4-6',
+      ),
+    )
+
+    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
+      model: 'claude-opus-4-6',
+    })
+    expect(stripAnsi(getOutput())).toContain('Current model: claude-haiku-4-5')
+    expect(stripAnsi(getOutput())).not.toContain('Current model: claude-opus-4-6')
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
 test('does not advance in-memory effort when persistence fails', async () => {
   useSettings({ effortLevel: 'low' })
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
-      error: new Error('settings locked'),
+      error: null,
       written: false,
     }),
   )
@@ -370,18 +464,14 @@ test('does not advance in-memory effort when persistence fails', async () => {
   const onSelect = mock(() => {})
   let observedEffort = getDefaultAppState().effortValue
 
-  function StateProbe(): null {
-    const effort = useAppState(state => state.effortValue)
-    React.useEffect(() => {
-      observedEffort = effort
-    }, [effort])
-    return null
-  }
-
   const instance = await render(
-    <AppStateProvider initialState={getDefaultAppState()}>
+    <AppStateProvider
+      initialState={getDefaultAppState()}
+      onChangeAppState={({ newState }) => {
+        observedEffort = newState.effortValue
+      }}
+    >
       <KeybindingSetup>
-        <StateProbe />
         <ModelPicker
           initial="claude-opus-4-6"
           onSelect={onSelect}
@@ -404,10 +494,16 @@ test('does not advance in-memory effort when persistence fails', async () => {
 
   try {
     await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
+    const outputBeforeToggle = getOutput().length
+    stdin.write('\u001b[C')
+    await waitForCondition(() => getOutput().length > outputBeforeToggle)
     stdin.write('\r')
     await waitForCondition(() => onSelect.mock.calls.length === 1)
 
     expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
+    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
+      effortLevel: 'high',
+    })
     expect(observedEffort).toBeUndefined()
   } finally {
     instance.unmount()
@@ -431,18 +527,14 @@ test('advances in-memory effort when bytes landed before a release error', async
   const onSelect = mock(() => {})
   let observedEffort = getDefaultAppState().effortValue
 
-  function StateProbe(): null {
-    const effort = useAppState(state => state.effortValue)
-    React.useEffect(() => {
-      observedEffort = effort
-    }, [effort])
-    return null
-  }
-
   const instance = await render(
-    <AppStateProvider initialState={getDefaultAppState()}>
+    <AppStateProvider
+      initialState={getDefaultAppState()}
+      onChangeAppState={({ newState }) => {
+        observedEffort = newState.effortValue
+      }}
+    >
       <KeybindingSetup>
-        <StateProbe />
         <ModelPicker
           initial="claude-opus-4-6"
           onSelect={onSelect}
@@ -465,10 +557,16 @@ test('advances in-memory effort when bytes landed before a release error', async
 
   try {
     await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
+    const outputBeforeToggle = getOutput().length
+    stdin.write('\u001b[C')
+    await waitForCondition(() => getOutput().length > outputBeforeToggle)
     stdin.write('\r')
     await waitForCondition(() => onSelect.mock.calls.length === 1)
 
     expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
+    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
+      effortLevel: 'high',
+    })
     expect(observedEffort).toBe('high')
   } finally {
     instance.unmount()

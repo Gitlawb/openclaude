@@ -1,6 +1,9 @@
 import type { Command } from '../../commands.js'
 import type { LocalCommandCall } from '../../types/command.js'
-import { updateSettingsForSource } from '../../utils/settings/settings.js'
+import {
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
+} from '../../utils/settings/settings.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import { readSmartRouting } from '../../services/api/smartRouting/settings.js'
 import {
@@ -55,14 +58,28 @@ const call: LocalCommandCall = async (args, context) => {
   const current = readCurrentSmartRouting(settings)
   const agentModelKeys = Object.keys(settings?.agentModels ?? {})
 
-  const persist = (next: SmartRoutingSettings): Error | null => {
-    const { error } = updateSettingsForSource('userSettings', { smartRouting: next })
-    if (error) return error
+  const persist = (
+    createNext: (current: SmartRoutingSettings) => SmartRoutingSettings,
+  ): { error: Error | null; next?: SmartRoutingSettings } => {
+    let next: SmartRoutingSettings | undefined
+    const result = updateSettingsForSourceWithFreshSettings(
+      'userSettings',
+      freshSettings => {
+        next = createNext(readCurrentSmartRouting(freshSettings))
+        return { smartRouting: next }
+      },
+    )
+    if (!wasSettingsUpdateCommitted(result)) {
+      return {
+        error: result.error ?? new Error('Settings update was not written'),
+      }
+    }
+    if (!next) return { error: new Error('Settings update was not computed') }
     context.setAppState(s => ({
       ...s,
       settings: { ...s.settings, smartRouting: next },
     }))
-    return null
+    return { error: null, next }
   }
 
   // Status (no args).
@@ -88,16 +105,22 @@ const call: LocalCommandCall = async (args, context) => {
     if (!current.strongModel || !current.simpleModel) {
       return text('Set both roles first: /smartroute simple <key> and /smartroute strong <key>.')
     }
-    const next = { ...current, enabled: true }
-    const error = persist(next)
+    const { error, next } = persist(fresh => {
+      if (!fresh.strongModel || !fresh.simpleModel) {
+        throw new Error(
+          'Set both roles first: /smartroute simple <key> and /smartroute strong <key>.',
+        )
+      }
+      return { ...fresh, enabled: true }
+    })
     if (error) return text(formatPersistError(error))
     // Re-enabling clears any session auto-disable.
     clearSmartRoutingSessionDisable(getSessionId())
-    return text(`Smart routing enabled (simple=${next.simpleModel}, strong=${next.strongModel}).${cheaperWarning(next, settings)}`)
+    return text(`Smart routing enabled (simple=${next!.simpleModel}, strong=${next!.strongModel}).${cheaperWarning(next!, settings)}`)
   }
 
   if (lower === 'off') {
-    const error = persist({ ...current, enabled: false })
+    const { error } = persist(fresh => ({ ...fresh, enabled: false }))
     if (error) return text(formatPersistError(error))
     return text('Smart routing disabled.')
   }
@@ -110,11 +133,13 @@ const call: LocalCommandCall = async (args, context) => {
           (agentModelKeys.length ? ` Available: ${agentModelKeys.join(', ')}.` : ' Configure agentModels first.'),
       )
     }
-    const next: SmartRoutingSettings =
-      lower === 'simple' ? { ...current, simpleModel: value } : { ...current, strongModel: value }
-    const error = persist(next)
+    const { error, next } = persist(fresh =>
+      lower === 'simple'
+        ? { ...fresh, simpleModel: value }
+        : { ...fresh, strongModel: value },
+    )
     if (error) return text(formatPersistError(error))
-    return text(`Set ${lower} model to "${value}".${cheaperWarning(next, settings)}`)
+    return text(`Set ${lower} model to "${value}".${cheaperWarning(next!, settings)}`)
   }
 
   return text(HELP)

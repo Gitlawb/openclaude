@@ -4,6 +4,7 @@ import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import {
   getInitialSettings,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 
 type ParsedCoAuthor = {
@@ -86,7 +87,7 @@ function saveCommitAttribution(commit: string | undefined): string | null {
   const result = updateSettingsForSource('userSettings', {
     attribution: { commit },
   })
-  if (result.error) {
+  if (!wasSettingsUpdateCommitted(result)) {
     return 'Failed to update user settings. Check your settings file for syntax errors.'
   }
   settingsChangeDetector.notifyChange('userSettings')

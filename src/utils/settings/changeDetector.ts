@@ -85,7 +85,9 @@ const baseWatchDirectories = new Set<string>()
 const activeWatchDirectories = new Set<string>()
 const watchedSettingsFiles = new Set<string>()
 const targetRefreshGenerations = new Map<string, number>()
+let targetRefreshEpoch = 0
 let targetRefreshQueue: Promise<void> = Promise.resolve()
+let resolveWatcherReady: (() => void) | null = null
 const settingsChanged = createSignal<[source: SettingSource]>()
 
 // Test overrides for timing constants
@@ -186,6 +188,14 @@ export async function initialize(): Promise<void> {
   watcher.on('change', handleChange)
   watcher.on('unlink', handleDelete)
   watcher.on('add', handleAdd)
+  await new Promise<void>(resolve => {
+    const finish = (): void => {
+      if (resolveWatcherReady === finish) resolveWatcherReady = null
+      resolve()
+    }
+    resolveWatcherReady = finish
+    watcher?.once('ready', finish)
+  })
 }
 
 /**
@@ -196,6 +206,8 @@ export async function initialize(): Promise<void> {
  */
 export function dispose(): Promise<void> {
   disposed = true
+  resolveWatcherReady?.()
+  resolveWatcherReady = null
   if (mdmPollTimer) {
     clearInterval(mdmPollTimer)
     mdmPollTimer = null
@@ -211,6 +223,8 @@ export function dispose(): Promise<void> {
   activeWatchDirectories.clear()
   watchedSettingsFiles.clear()
   targetRefreshGenerations.clear()
+  targetRefreshEpoch++
+  targetRefreshQueue = Promise.resolve()
   lastMdmSnapshot = null
   dependencies.clearInternalWrites()
   settingsChanged.clear()
@@ -357,24 +371,31 @@ function rebuildWatchedSettingsPaths(): void {
   }
 }
 
-function refreshPhysicalSettingsTargets(path: string): Promise<void> {
+function refreshPhysicalSettingsTargets(path: string): Promise<boolean> {
+  const epoch = targetRefreshEpoch
   const refresh = targetRefreshQueue.then(() =>
-    refreshPhysicalSettingsTargetsNow(path),
+    refreshPhysicalSettingsTargetsNow(path, epoch),
   )
-  targetRefreshQueue = refresh.catch(error => {
+  const guardedRefresh = refresh.catch(error => {
     logForDebugging(
       `Failed to refresh settings symlink target: ${errorMessage(error)}`,
     )
+    return false
   })
-  return targetRefreshQueue
+  targetRefreshQueue = guardedRefresh.then(() => undefined)
+  return guardedRefresh
 }
 
-async function refreshPhysicalSettingsTargetsNow(path: string): Promise<void> {
+async function refreshPhysicalSettingsTargetsNow(
+  path: string,
+  epoch: number,
+): Promise<boolean> {
+  if (epoch !== targetRefreshEpoch) return false
   const normalizedPath = platformPath.normalize(path)
   const sources = [...logicalSettingsPaths].flatMap(([source, logicalPath]) =>
     logicalPath === normalizedPath ? [source] : [],
   )
-  if (sources.length === 0) return
+  if (sources.length === 0) return false
 
   const generation = (targetRefreshGenerations.get(normalizedPath) ?? 0) + 1
   targetRefreshGenerations.set(normalizedPath, generation)
@@ -403,11 +424,17 @@ async function refreshPhysicalSettingsTargetsNow(path: string): Promise<void> {
 
   if (
     disposed ||
+    epoch !== targetRefreshEpoch ||
     targetRefreshGenerations.get(normalizedPath) !== generation
   ) {
-    return
+    return false
   }
 
+  const targetChanged = sources.some(
+    source =>
+      (physicalSettingsPaths.get(source) ?? null) !==
+      (resolvedTargets.get(source) ?? null),
+  )
   for (const source of sources) {
     const targetPath = resolvedTargets.get(source)
     if (targetPath) {
@@ -423,7 +450,7 @@ async function refreshPhysicalSettingsTargetsNow(path: string): Promise<void> {
     desiredDirectories.add(platformPath.dirname(targetPath))
   }
 
-  if (!watcher) return
+  if (!watcher) return targetChanged
   for (const dir of desiredDirectories) {
     if (activeWatchDirectories.has(dir)) continue
     watcher.add(dir)
@@ -431,9 +458,12 @@ async function refreshPhysicalSettingsTargetsNow(path: string): Promise<void> {
   }
   for (const dir of [...activeWatchDirectories]) {
     if (desiredDirectories.has(dir)) continue
+    // Forget bookkeeping before unwatch so a partial unwatch followed by a
+    // rejection cannot prevent a later target refresh from adding it again.
     activeWatchDirectories.delete(dir)
     await watcher.unwatch(dir)
   }
+  return targetChanged
 }
 
 function settingSourceToConfigChangeSource(
@@ -460,15 +490,15 @@ function handleChange(path: string): void {
       logicalPath => logicalPath === normalizedPath,
     )
   ) {
-    void refreshPhysicalSettingsTargets(normalizedPath).then(() => {
-      processChange(path)
+    void refreshPhysicalSettingsTargets(normalizedPath).then(targetChanged => {
+      processChange(path, targetChanged)
     })
     return
   }
   processChange(path)
 }
 
-function processChange(path: string): void {
+function processChange(path: string, physicalTargetChanged = false): void {
   if (disposed) return
   const sources = getSourcesForPath(path)
   if (sources.length === 0) return
@@ -485,7 +515,10 @@ function processChange(path: string): void {
   }
 
   // Check if this was an internal write
-  if (dependencies.consumeInternalWrite(path, INTERNAL_WRITE_WINDOW_MS)) {
+  if (
+    dependencies.consumeInternalWrite(path, INTERNAL_WRITE_WINDOW_MS) &&
+    !physicalTargetChanged
+  ) {
     return
   }
 
@@ -755,6 +788,8 @@ export function resetForTesting(overrides?: {
   deletionGrace?: number
   settingsDebounce?: number
 }): Promise<void> {
+  resolveWatcherReady?.()
+  resolveWatcherReady = null
   if (mdmPollTimer) {
     clearInterval(mdmPollTimer)
     mdmPollTimer = null
@@ -770,6 +805,8 @@ export function resetForTesting(overrides?: {
   activeWatchDirectories.clear()
   watchedSettingsFiles.clear()
   targetRefreshGenerations.clear()
+  targetRefreshEpoch++
+  targetRefreshQueue = Promise.resolve()
   lastMdmSnapshot = null
   initialized = false
   disposed = false

@@ -14,12 +14,15 @@ import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, getFastModeModel, getFa
 import { formatDuration } from '../../utils/format.js';
 import { getDefaultOpusModel } from '../../utils/model/model.js';
 import { getModelPricingString } from '../../utils/modelCost.js';
-import { updateSettingsForSource } from '../../utils/settings/settings.js';
-function applyFastMode(enable: boolean, setAppState: (f: (prev: AppState) => AppState) => void): void {
-  clearFastModeCooldown();
-  updateSettingsForSource('userSettings', {
+import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+function applyFastMode(enable: boolean, setAppState: (f: (prev: AppState) => AppState) => void): boolean {
+  const result = updateSettingsForSource('userSettings', {
     fastMode: enable ? true : undefined
   });
+  if (!wasSettingsUpdateCommitted(result)) {
+    return false;
+  }
+  clearFastModeCooldown();
   if (enable) {
     setAppState(prev => {
       // Only switch model if current model doesn't support fast mode
@@ -39,6 +42,7 @@ function applyFastMode(enable: boolean, setAppState: (f: (prev: AppState) => App
       fastMode: false
     }));
   }
+  return true;
 }
 export function FastModePicker(t0) {
   const $ = _c(30);
@@ -72,7 +76,10 @@ export function FastModePicker(t0) {
       if (isUnavailable) {
         return;
       }
-      applyFastMode(enableFastMode, setAppState);
+      if (!applyFastMode(enableFastMode, setAppState)) {
+        onDone("Failed to save Fast mode settings");
+        return;
+      }
       logEvent("tengu_fast_mode_toggled", {
         enabled: enableFastMode,
         source: "picker" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -104,7 +111,10 @@ export function FastModePicker(t0) {
     t4 = function handleCancel() {
       if (isUnavailable) {
         if (initialFastMode) {
-          applyFastMode(false, setAppState);
+          if (!applyFastMode(false, setAppState)) {
+            onDone("Failed to save Fast mode settings");
+            return;
+          }
         }
         onDone("Fast mode OFF", {
           display: "system"
@@ -228,7 +238,9 @@ export async function handleFastModeShortcut(enable: boolean, getAppState: () =>
   const {
     mainLoopModel
   } = getAppState();
-  applyFastMode(enable, setAppState);
+  if (!applyFastMode(enable, setAppState)) {
+    return 'Failed to save Fast mode settings';
+  }
   logEvent('tengu_fast_mode_toggled', {
     enabled: enable,
     source: 'shortcut' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS

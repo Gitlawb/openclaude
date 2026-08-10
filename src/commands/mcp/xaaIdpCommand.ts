@@ -19,7 +19,10 @@ import {
   saveIdpIdTokenFromJwt,
 } from '../../services/mcp/xaaIdpLogin.js'
 import { errorMessage } from '../../utils/errors.js'
-import { updateSettingsForSource } from '../../utils/settings/settings.js'
+import {
+  updateSettingsForSource,
+  wasSettingsUpdateCommitted,
+} from '../../utils/settings/settings.js'
 
 export function registerMcpXaaIdpCommand(mcp: Command): void {
   const xaaIdp = mcp
@@ -103,15 +106,17 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       // callbackPort MUST be present (even as undefined) — mergeWith deep-merges
       // and only deletes on explicit `undefined`, not on absent key. A conditional
       // spread would leak a prior fixed port into a new IdP's config.
-      const { error } = updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSource('userSettings', {
         xaaIdp: {
           issuer: options.issuer,
           clientId: options.clientId,
           callbackPort,
         },
       })
-      if (error) {
-        return cliError(`Error writing settings: ${error.message}`)
+      if (!wasSettingsUpdateCommitted(result)) {
+        return cliError(
+          `Error writing settings: ${result.error?.message ?? 'settings were not written'}`,
+        )
       }
 
       // Clear stale keychain slots only after settings write succeeded —
@@ -248,11 +253,13 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       const idp = getXaaIdpSettings()
       // updateSettingsForSource uses mergeWith: set to undefined (not delete)
       // to signal key removal.
-      const { error } = updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSource('userSettings', {
         xaaIdp: undefined,
       })
-      if (error) {
-        return cliError(`Error writing settings: ${error.message}`)
+      if (!wasSettingsUpdateCommitted(result)) {
+        return cliError(
+          `Error writing settings: ${result.error?.message ?? 'settings were not written'}`,
+        )
       }
       // Clear keychain only after settings write succeeded — otherwise a
       // write failure leaves settings pointing at the IdP with its secrets

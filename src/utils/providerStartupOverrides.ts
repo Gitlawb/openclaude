@@ -1,5 +1,9 @@
 import { saveGlobalConfig, type GlobalConfig } from './config.js'
-import { updateSettingsForSource } from './settings/settings.js'
+import { logForDebugging } from './debug.js'
+import {
+  updateSettingsForSource,
+  wasSettingsUpdateCommitted,
+} from './settings/settings.js'
 
 export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -74,7 +78,19 @@ export function clearStartupProviderOverrides(options?: {
     ]),
   ) as SettingsEnvPatch
 
-  const { error } = updateUserSettings('userSettings', { env: envPatch })
+  const settingsResult = updateUserSettings('userSettings', { env: envPatch })
+  let settingsError: string | null = null
+  if (!wasSettingsUpdateCommitted(settingsResult)) {
+    settingsError =
+      settingsResult.error?.message ?? 'Settings update was not written'
+  } else if (settingsResult.error) {
+    // The override bytes reached disk. Preserve that committed truth for
+    // callers while retaining the release/cleanup warning in diagnostics.
+    logForDebugging(
+      `Startup provider override was cleared, but settings cleanup failed: ${settingsResult.error.message}`,
+      { level: 'warn' },
+    )
+  }
 
   let globalConfigError: string | null = null
   try {
@@ -95,5 +111,5 @@ export function clearStartupProviderOverrides(options?: {
       configError instanceof Error ? configError.message : String(configError)
   }
 
-  return error?.message ?? globalConfigError
+  return [settingsError, globalConfigError].filter(Boolean).join('; ') || null
 }

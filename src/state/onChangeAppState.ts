@@ -22,8 +22,17 @@ import {
   notifySessionMetadataChanged,
   type SessionExternalMetadata,
 } from '../utils/sessionState.js'
-import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  updateSettingsForSource,
+  wasSettingsUpdateCommitted,
+} from '../utils/settings/settings.js'
 import type { AppState } from './AppStateStore.js'
+
+type OnChangeAppStateDependencies = {
+  updateUserSettings?: typeof updateSettingsForSource
+  setModelOverride?: typeof setMainLoopModelOverride
+  persistProfileModel?: typeof persistActiveProviderProfileModel
+}
 
 // Inverse of the push below — restore on worker restart.
 export function externalMetadataToAppState(
@@ -51,7 +60,14 @@ export function onChangeAppState({
 }: {
   newState: AppState
   oldState: AppState
-}) {
+}, dependencies?: OnChangeAppStateDependencies): AppState | void {
+  const updateUserSettings =
+    dependencies?.updateUserSettings ?? updateSettingsForSource
+  const setModelOverride =
+    dependencies?.setModelOverride ?? setMainLoopModelOverride
+  const persistProfileModel =
+    dependencies?.persistProfileModel ?? persistActiveProviderProfileModel
+  let acceptedState = newState
   // toolPermissionContext.mode — single choke point for CCR/SDK mode sync.
   //
   // Prior to this block, mode changes were relayed to CCR by only 2 of 8+
@@ -105,29 +121,29 @@ export function onChangeAppState({
     notifyPermissionModeChanged(newMode)
   }
 
-  // mainLoopModel: remove it from settings?
-  if (
-    newState.mainLoopModel !== oldState.mainLoopModel &&
-    newState.mainLoopModel === null
-  ) {
-    // Remove from settings
-    updateSettingsForSource('userSettings', { model: undefined })
-    setMainLoopModelOverride(null)
-  }
+  if (newState.mainLoopModel !== oldState.mainLoopModel) {
+    const modelUpdate = updateUserSettings('userSettings', {
+      model: newState.mainLoopModel ?? undefined,
+    })
+    if (wasSettingsUpdateCommitted(modelUpdate)) {
+      setModelOverride(newState.mainLoopModel)
 
-  // mainLoopModel: add it to settings?
-  if (
-    newState.mainLoopModel !== oldState.mainLoopModel &&
-    newState.mainLoopModel !== null
-  ) {
-    // Save to settings
-    updateSettingsForSource('userSettings', { model: newState.mainLoopModel })
-    setMainLoopModelOverride(newState.mainLoopModel)
-
-    // Keep active provider profiles in sync with /model choices so restarts
-    // keep using the last selected model instead of the profile's old default.
-    if (process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
-      persistActiveProviderProfileModel(newState.mainLoopModel)
+      // Keep active provider profiles in sync with /model choices so restarts
+      // keep using the last selected model instead of the profile's old default.
+      if (
+        newState.mainLoopModel !== null &&
+        process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+      ) {
+        persistProfileModel(newState.mainLoopModel)
+      }
+    } else {
+      // The store accepts an observer-returned replacement state. Keep the
+      // previously active model when persistence is rejected so the UI,
+      // runtime override, and restart behavior cannot diverge.
+      acceptedState = {
+        ...newState,
+        mainLoopModel: oldState.mainLoopModel,
+      }
     }
   }
 
@@ -176,4 +192,6 @@ export function onChangeAppState({
       logError(toError(error))
     }
   }
+
+  if (acceptedState !== newState) return acceptedState
 }

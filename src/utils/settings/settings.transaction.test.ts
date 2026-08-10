@@ -718,6 +718,25 @@ test('same-host locks from a prior boot are recoverable without probing a reused
   })
 })
 
+test('same-runtime locks from a reused PID are recoverable by process start identity', async () => {
+  const result = await getScenario<{
+    skipped: boolean
+    error?: string | null
+    lockExists?: boolean
+    final?: unknown
+  }>('reused-pid-owner')
+  if (result.skipped) return
+
+  expect(result).toEqual({
+    skipped: false,
+    error: null,
+    lockExists: false,
+    final: {
+      env: { BASE: '1', RECOVERED_AFTER_PID_REUSE: 'yes' },
+    },
+  })
+})
+
 test('legacy owner metadata fails closed without a runtime boundary', async () => {
   const result = await getScenario<{
     error: string | null
@@ -983,10 +1002,14 @@ for (const mode of ['acquisition', 'release'] as const) {
     expect(result).toMatchObject({
       exitCode: 0,
       value: {
-        firstError: expect.stringContaining(
-          mode === 'acquisition'
-            ? 'ownership changed during acquisition'
-            : 'injected release quarantine failure',
+        firstError: expect.stringMatching(
+          new RegExp(
+            `^Failed to update settings at .*${
+              mode === 'acquisition'
+                ? 'ownership changed during acquisition'
+                : 'injected release quarantine failure'
+            }`,
+          ),
         ),
         firstWritten: mode === 'release',
         firstWriteLanded: mode === 'release',
@@ -1163,12 +1186,16 @@ test('unexpected PID probe errors do not authorize dead-owner recovery', async (
 test('write failure releases the settings lock for a later update', async () => {
   const result = await getScenario<{
     firstError: string | null
+    serializationError: string | null
+    markerAfterSerializationFailure: boolean
     secondError: string | null
     lockExists: boolean
     final: unknown
   }>('write-failure')
 
   expect(result.firstError).toContain('simulated settings stat failure')
+  expect(result.serializationError).toContain('BigInt')
+  expect(result.markerAfterSerializationFailure).toBe(false)
   expect(result.secondError).toBeNull()
   expect(result.lockExists).toBe(false)
   expect(result.final).toEqual({

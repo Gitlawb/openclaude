@@ -48,6 +48,7 @@ import {
   parsePluginIdentifier,
   scopeToSettingSource,
 } from '../../utils/plugins/pluginIdentifier.js'
+import { wasSettingsUpdateCommitted } from '../../utils/settings/settings.js'
 import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js'
 import type { PluginSource } from '../../utils/plugins/schemas.js'
 import {
@@ -499,7 +500,14 @@ export async function marketplaceAddHandler(
       })
 
     // Write intent to settings at the requested scope
-    saveMarketplaceToSettings(name, { source: resolvedSource }, settingSource)
+    const settingsResult = saveMarketplaceToSettings(
+      name,
+      { source: resolvedSource },
+      settingSource,
+    )
+    if (!wasSettingsUpdateCommitted(settingsResult)) {
+      throw settingsResult.error ?? new Error('Settings update was not written')
+    }
 
     clearAllCaches()
 

@@ -41,6 +41,8 @@ import {
   getInitialSettings,
   getSettingsForSource,
   updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 import {
@@ -295,11 +297,10 @@ export function saveMarketplaceToSettings(
     | 'userSettings'
     | 'projectSettings'
     | 'localSettings' = 'userSettings',
-): void {
-  const existing = getSettingsForSource(settingSource) ?? {}
-  const current = { ...existing.extraKnownMarketplaces }
-  current[name] = entry
-  updateSettingsForSource(settingSource, { extraKnownMarketplaces: current })
+): ReturnType<typeof updateSettingsForSource> {
+  return updateSettingsForSource(settingSource, {
+    extraKnownMarketplaces: { [name]: entry },
+  })
 }
 
 /**
@@ -2056,7 +2057,67 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
     )
   }
 
-  // Remove from config
+  // Clean up settings.json - remove marketplace from extraKnownMarketplaces
+  // and remove related plugin entries from enabledPlugins
+
+  // Check each editable settings source
+  const editableSources: Array<
+    'userSettings' | 'projectSettings' | 'localSettings'
+  > = ['userSettings', 'projectSettings', 'localSettings']
+
+  for (const source of editableSources) {
+    const settings = getSettingsForSource(source)
+    if (!settings) continue
+
+    const marketplaceSuffix = `@${name}`
+    const hasRelatedPlugins = Object.keys(settings.enabledPlugins ?? {}).some(
+      pluginId => pluginId.endsWith(marketplaceSuffix),
+    )
+
+    if (settings.extraKnownMarketplaces?.[name] || hasRelatedPlugins) {
+      let needsUpdate = false
+      const result = updateSettingsForSourceWithFreshSettings(
+        source,
+        freshSettings => {
+          const updates: SettingsJson = {}
+          if (freshSettings.extraKnownMarketplaces?.[name]) {
+            updates.extraKnownMarketplaces = {
+              [name]: undefined,
+            } as unknown as SettingsJson['extraKnownMarketplaces']
+            needsUpdate = true
+          }
+
+          const removedPlugins = Object.fromEntries(
+            Object.keys(freshSettings.enabledPlugins ?? {})
+              .filter(pluginId => pluginId.endsWith(marketplaceSuffix))
+              .map(pluginId => [pluginId, undefined]),
+          )
+          if (Object.keys(removedPlugins).length > 0) {
+            updates.enabledPlugins =
+              removedPlugins as unknown as SettingsJson['enabledPlugins']
+            needsUpdate = true
+          }
+          return updates
+        },
+      )
+      if (!wasSettingsUpdateCommitted(result)) {
+        if (result.error) logError(result.error)
+        throw new Error(
+          `Failed to clean up marketplace '${name}' from ${source} settings: ${result.error?.message ?? 'settings were not written'}`,
+        )
+      }
+      if (result.error) logError(result.error)
+      if (needsUpdate) {
+        logForDebugging(
+          `Cleaned up marketplace '${name}' from ${source} settings`,
+        )
+      }
+    }
+  }
+
+  // Settings declare intent, so commit their removal before deleting the
+  // materialized marketplace state. If a source is contended, callers can
+  // retry while the known entry and cache are still intact.
   delete config[name]
   await saveKnownMarketplacesConfig(config)
 
@@ -2071,75 +2132,6 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
   await fs.rm(cachePath, { recursive: true, force: true })
   const jsonCachePath = join(cacheDir, `${name}.json`)
   await fs.rm(jsonCachePath, { force: true })
-
-  // Clean up settings.json - remove marketplace from extraKnownMarketplaces
-  // and remove related plugin entries from enabledPlugins
-
-  // Check each editable settings source
-  const editableSources: Array<
-    'userSettings' | 'projectSettings' | 'localSettings'
-  > = ['userSettings', 'projectSettings', 'localSettings']
-
-  for (const source of editableSources) {
-    const settings = getSettingsForSource(source)
-    if (!settings) continue
-
-    let needsUpdate = false
-    const updates: {
-      extraKnownMarketplaces?: typeof settings.extraKnownMarketplaces
-      enabledPlugins?: typeof settings.enabledPlugins
-    } = {}
-
-    // Remove from extraKnownMarketplaces if present
-    if (settings.extraKnownMarketplaces?.[name]) {
-      const updatedMarketplaces: Partial<
-        SettingsJson['extraKnownMarketplaces']
-      > = { ...settings.extraKnownMarketplaces }
-      // Use undefined values (NOT delete) to signal key removal via mergeWith
-      updatedMarketplaces[name] = undefined
-      updates.extraKnownMarketplaces =
-        updatedMarketplaces as SettingsJson['extraKnownMarketplaces']
-      needsUpdate = true
-    }
-
-    // Remove related plugins from enabledPlugins (format: "plugin@marketplace")
-    if (settings.enabledPlugins) {
-      const marketplaceSuffix = `@${name}`
-      // Use undefined values (NOT delete) to signal key removal via mergeWith
-      const updatedPlugins: Partial<SettingsJson['enabledPlugins']> = {
-        ...settings.enabledPlugins,
-      }
-      let removedPlugins = false
-
-      for (const pluginId in updatedPlugins) {
-        if (pluginId.endsWith(marketplaceSuffix)) {
-          updatedPlugins[pluginId] = undefined
-          removedPlugins = true
-        }
-      }
-
-      if (removedPlugins) {
-        updates.enabledPlugins =
-          updatedPlugins as SettingsJson['enabledPlugins']
-        needsUpdate = true
-      }
-    }
-
-    // Update settings if changes were made
-    if (needsUpdate) {
-      const result = updateSettingsForSource(source, updates)
-      if (result.error) {
-        logError(result.error)
-        logForDebugging(
-          `Failed to clean up marketplace '${name}' from ${source} settings: ${result.error.message}`,
-        )
-      } else {
-        logForDebugging(
-          `Cleaned up marketplace '${name}' from ${source} settings`,
-        )
-      }
-    }
-  }
 
   // Remove plugins from installed_plugins.json and mark orphaned paths.
   // Also wipe their stored options/secrets — after marketplace removal
@@ -2724,12 +2716,6 @@ export async function setMarketplaceAutoUpdate(
     return
   }
 
-  config[name] = {
-    ...entry,
-    autoUpdate,
-  }
-  await saveKnownMarketplacesConfig(config)
-
   // Also update intent in settings if declared there — write to the SAME
   // source that declared it to avoid creating duplicates at wrong scope
   const declaringSource = getMarketplaceDeclaringSource(name)
@@ -2737,13 +2723,22 @@ export async function setMarketplaceAutoUpdate(
     const declared =
       getSettingsForSource(declaringSource)?.extraKnownMarketplaces?.[name]
     if (declared) {
-      saveMarketplaceToSettings(
+      const result = saveMarketplaceToSettings(
         name,
         { source: declared.source, autoUpdate },
         declaringSource,
       )
+      if (!wasSettingsUpdateCommitted(result)) {
+        throw result.error ?? new Error('Settings update was not written')
+      }
     }
   }
+
+  config[name] = {
+    ...entry,
+    autoUpdate,
+  }
+  await saveKnownMarketplacesConfig(config)
 
   logForDebugging(`Set autoUpdate=${autoUpdate} for marketplace: ${name}`)
 }

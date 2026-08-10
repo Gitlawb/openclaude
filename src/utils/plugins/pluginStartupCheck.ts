@@ -7,6 +7,7 @@ import {
   getInitialSettings,
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { getAddDirEnabledPlugins } from './addDirPluginSettings.js'
 import {
@@ -279,8 +280,7 @@ export async function installSelectedPlugins(
 
   // Get the correct settings source for this scope
   const settingSource = scopeToSettingSource(scope)
-  const settings = getSettingsForSource(settingSource)
-  const updatedEnabledPlugins = { ...settings?.enabledPlugins }
+  const newlyEnabledPlugins: Record<string, true> = {}
   const installed: string[] = []
   const failed: Array<{ name: string; error: string }> = []
 
@@ -321,7 +321,7 @@ export async function installSelectedPlugins(
       }
 
       // Mark as enabled in settings
-      updatedEnabledPlugins[pluginId] = true
+      newlyEnabledPlugins[pluginId] = true
       installed.push(pluginId)
     } catch (error) {
       const errorMessage =
@@ -332,10 +332,16 @@ export async function installSelectedPlugins(
   }
 
   // Update settings with newly enabled plugins using the correct settings source
-  updateSettingsForSource(settingSource, {
-    ...settings,
-    enabledPlugins: updatedEnabledPlugins,
-  })
+  if (installed.length > 0) {
+    const result = updateSettingsForSource(settingSource, {
+      enabledPlugins: newlyEnabledPlugins,
+    })
+    if (!wasSettingsUpdateCommitted(result)) {
+      const message = result.error?.message ?? 'Settings update was not written'
+      failed.push(...installed.map(name => ({ name, error: message })))
+      installed.length = 0
+    }
+  }
 
   return { installed, failed }
 }

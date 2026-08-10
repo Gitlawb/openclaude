@@ -396,13 +396,11 @@ describe('setAgentRoute model-key shadow guard', () => {
 
   let withSources: ReturnType<typeof spyOn> | undefined
   let update: ReturnType<typeof spyOn> | undefined
-  let forSource: ReturnType<typeof spyOn> | undefined
 
   afterEach(() => {
     withSources?.mockRestore()
     update?.mockRestore()
-    forSource?.mockRestore()
-    withSources = update = forSource = undefined
+    withSources = update = undefined
   })
 
   test('rejects a key shadowed by a higher-priority source', () => {
@@ -415,7 +413,10 @@ describe('setAgentRoute model-key shadow guard', () => {
         ['projectSettings', { mini: { model: 'project-model' } }],
       ]),
     )
-    update = spyOn(settingsModule, 'updateSettingsForSource')
+    update = spyOn(
+      settingsModule,
+      'updateSettingsForSourceWithFreshSettings',
+    )
 
     const { error } = setAgentRoute('verification', 'mini')
     expect(error).toBeInstanceOf(Error)
@@ -428,20 +429,23 @@ describe('setAgentRoute model-key shadow guard', () => {
     withSources = spyOn(settingsModule, 'getSettingsWithSources').mockReturnValue(
       sourcesWith([['userSettings', { mine: { model: 'gpt-5-mini' } }]]),
     )
-    forSource = spyOn(settingsModule, 'getSettingsForSource').mockReturnValue(
-      { agentModels: { mine: { model: 'gpt-5-mini' } } } as unknown as SettingsJson,
-    )
-    update = spyOn(settingsModule, 'updateSettingsForSource').mockReturnValue({
-      error: null,
-      written: true,
+    update = spyOn(
+      settingsModule,
+      'updateSettingsForSourceWithFreshSettings',
+    ).mockImplementation((source, updater) => {
+      expect(source).toBe('userSettings')
+      const next = updater({
+        agentModels: { mine: { model: 'gpt-5-mini' } },
+      } as unknown as SettingsJson)
+      expect((next.agentRouting as Record<string, string>).verification).toBe(
+        'mine',
+      )
+      return { error: null, written: true }
     })
 
     const { error } = setAgentRoute('verification', 'mine')
     expect(error).toBeNull()
     expect(update).toHaveBeenCalledTimes(1)
-    const [source, next] = update.mock.calls[0] as [string, SettingsJson]
-    expect(source).toBe('userSettings')
-    expect((next.agentRouting as Record<string, string>).verification).toBe('mine')
   })
 })
 

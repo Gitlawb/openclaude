@@ -10,7 +10,7 @@ import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
 import type { AppState } from '../state/AppStateStore.js';
 import { gracefulShutdown } from '../utils/gracefulShutdown.js';
-import { updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import type { ThemeSetting } from '../utils/theme.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
@@ -87,9 +87,12 @@ export function ThemePicker({
   const toggleSyntax = React.useCallback(() => {
     if (colorModuleUnavailableReason === null) {
       const newValue = !syntaxHighlightingDisabled
-      updateSettingsForSource("userSettings", {
+      const result = updateSettingsForSource("userSettings", {
         syntaxHighlightingDisabled: newValue
       });
+      if (!wasSettingsUpdateCommitted(result)) {
+        return;
+      }
       setAppState(prev => ({
         ...prev,
         settings: {

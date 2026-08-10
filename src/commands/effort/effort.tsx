@@ -6,7 +6,7 @@ import { useAppState, useSetAppState } from '../../state/AppState.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
 import { type EffortValue, clampUltracodeEffort, getAvailableEffortLevels, getDisplayedEffortLevel, getEffortEnvOverride, getEffortValueDescription, isEffortLevel, isOpenAIEffortLevel, modelUsesOpenAIEffort, openAIEffortToStandard, toPersistableEffort } from '../../utils/effort.js';
 import { EffortPicker } from '../../components/EffortPicker.js';
-import { updateSettingsForSource } from '../../utils/settings/settings.js';
+import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 const COMMON_HELP_ARGS = ['help', '-h', '--help'];
 type EffortCommandResult = {
   message: string;
@@ -20,9 +20,9 @@ function setEffortValue(effortValue: EffortValue): EffortCommandResult {
     const result = updateSettingsForSource('userSettings', {
       effortLevel: persistable
     });
-    if (result.error) {
+    if (!wasSettingsUpdateCommitted(result)) {
       return {
-        message: `Failed to set effort level: ${result.error.message}`
+        message: `Failed to set effort level: ${result.error?.message ?? 'settings were not written'}`
       };
     }
   }
@@ -79,9 +79,9 @@ function unsetEffortLevel(): EffortCommandResult {
   const result = updateSettingsForSource('userSettings', {
     effortLevel: undefined
   });
-  if (result.error) {
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
-      message: `Failed to set effort level: ${result.error.message}`
+      message: `Failed to set effort level: ${result.error?.message ?? 'settings were not written'}`
     };
   }
   logEvent('tengu_effort_command', {

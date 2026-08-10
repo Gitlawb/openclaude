@@ -1021,13 +1021,14 @@ export function PermissionRuleList(t0: Props): React.ReactNode {
           destination
         };
         const updatedContext = applyPermissionUpdate(toolPermissionContext, permissionUpdate);
+        if (remember && !persistPermissionUpdate(permissionUpdate)) {
+          setChanges(prev_5 => [...prev_5, `Could not save directory ${chalk.bold(path_0)} to local settings`]);
+          return;
+        }
         setAppState(prev_4 => ({
           ...prev_4,
           toolPermissionContext: updatedContext
         }));
-        if (remember) {
-          persistPermissionUpdate(permissionUpdate);
-        }
         setChanges(prev_5 => [...prev_5, `Added directory ${chalk.bold(path_0)} to workspace${remember ? " and saved to local settings" : " for this session"}`]);
         setIsAddingWorkspaceDirectory(false);
       };

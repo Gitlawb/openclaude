@@ -41,7 +41,7 @@ import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { loadPluginOptions, type PluginOptionSchema, savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
-import { getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource, updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { plural } from '../../utils/stringUtils.js';
 import { formatErrorMessage, getErrorGuidance } from './PluginErrors.js';
@@ -1471,15 +1471,15 @@ export function ManagePlugins({
             for (const source of editableSources) {
               const settings = getSettingsForSource(source);
               if (settings?.enabledPlugins?.[pluginId_7] !== undefined) {
-                const enabledPlugins: Record<string, boolean | string[] | undefined> = {
-                  ...settings.enabledPlugins,
-                  [pluginId_7]: undefined
-                };
-                const settingsUpdate: Record<string, unknown> = {
-                  enabledPlugins
-                };
-                updateSettingsForSource(source, settingsUpdate);
-                success = true;
+                const settingsResult = updateSettingsForSourceWithFreshSettings(source, freshSettings => ({
+                  enabledPlugins: {
+                    ...freshSettings.enabledPlugins,
+                    [pluginId_7]: undefined
+                  } as Record<string, boolean | string[]>
+                }));
+                if (wasSettingsUpdateCommitted(settingsResult)) {
+                  success = true;
+                }
               }
             }
             // Clear memoized caches so next loadAllPlugins() picks up settings changes
@@ -1515,17 +1515,14 @@ export function ManagePlugins({
       // reject this (plugin isn't in localSettings yet; the override IS the
       // point).
       const enabledPlugins: Record<string, boolean | string[]> = {
-        ...(getSettingsForSource('localSettings')?.enabledPlugins ?? {}),
         [pluginId_8]: false
       };
-      const {
-        error: error_2
-      } = updateSettingsForSource('localSettings', {
+      const result_0 = updateSettingsForSource('localSettings', {
         enabledPlugins
       });
-      if (error_2) {
+      if (!wasSettingsUpdateCommitted(result_0)) {
         setIsProcessing(false);
-        setProcessError(`Failed to write settings: ${error_2.message}`);
+        setProcessError(`Failed to write settings: ${result_0.error?.message ?? "settings were not written"}`);
         return;
       }
       clearAllCaches();

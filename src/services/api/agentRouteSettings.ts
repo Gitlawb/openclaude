@@ -2,9 +2,9 @@ import type { OptionWithDescription } from '../../components/CustomSelect/select
 import { getAgentModelOptions } from '../../utils/model/agent.js'
 import {
   getInitialSettings,
-  getSettingsForSource,
   getSettingsWithSources,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
   type SettingsWithSources,
 } from '../../utils/settings/settings.js'
 import { isSettingSourceEnabled } from '../../utils/settings/constants.js'
@@ -336,8 +336,15 @@ export function setAgentRoute(
   // shadow flag buildRouteOptions shows for the same keys.
   const modelShadow = getModelKeyShadowSource(modelKey)
   if (modelShadow) return { error: modelKeyShadowError(modelKey, modelShadow) }
-  const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
-  return updateSettingsForSource('userSettings', next)
+  const result = updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    freshSettings => computeSetRouteUpdate(freshSettings, agentType, modelKey),
+  )
+  return {
+    error: wasSettingsUpdateCommitted(result)
+      ? null
+      : result.error ?? new Error('Settings update was not written'),
+  }
 }
 
 /** Remove `agentType`'s route in user-global settings. */
@@ -345,10 +352,15 @@ export function clearAgentRoute(agentType: string): { error: Error | null } {
   if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
   const shadow = getRouteShadowSource(agentType)
   if (shadow) return { error: shadowError(agentType, shadow) }
-  return updateSettingsForSource(
+  const result = updateSettingsForSourceWithFreshSettings(
     'userSettings',
-    computeClearRouteUpdate(getSettingsForSource('userSettings'), agentType),
+    freshSettings => computeClearRouteUpdate(freshSettings, agentType),
   )
+  return {
+    error: wasSettingsUpdateCommitted(result)
+      ? null
+      : result.error ?? new Error('Settings update was not written'),
+  }
 }
 
 /**

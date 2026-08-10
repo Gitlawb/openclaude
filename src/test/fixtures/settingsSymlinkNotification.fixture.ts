@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as state from '../../bootstrap/state.js'
+import { createWaitForCondition } from '../waitForCondition.js'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
@@ -59,13 +60,33 @@ await settingsChangeDetector.resetForTesting({
   settingsDebounce: 20,
 })
 const notified: string[] = []
+const waitForNotification = createWaitForCondition(
+  'settings symlink notification',
+)
 const unsubscribe = settingsChangeDetector.subscribe(source => {
   notified.push(source)
 })
 
+async function waitForNotificationQuietPeriod(): Promise<void> {
+  const quietPeriodMs = 100
+  const timeoutMs = 2_000
+  let previousCount = notified.length
+  let unchangedSince = Date.now()
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await Bun.sleep(10)
+    if (notified.length !== previousCount) {
+      previousCount = notified.length
+      unchangedSince = Date.now()
+    } else if (Date.now() - unchangedSince >= quietPeriodMs) {
+      return
+    }
+  }
+  throw new Error('Timed out waiting for settings notifications to settle')
+}
+
 try {
   await settingsChangeDetector.initialize()
-  await Bun.sleep(200)
   const child = Bun.spawn(
     [
       process.execPath,
@@ -83,14 +104,11 @@ try {
     new Response(child.stderr).text(),
     child.exited,
   ])
-  const deadline = Date.now() + 2_000
-  while (
-    (!notified.includes('userSettings') ||
-      !notified.includes('projectSettings')) &&
-    Date.now() < deadline
-  ) {
-    await Bun.sleep(20)
-  }
+  await waitForNotification(
+    () =>
+      notified.includes('userSettings') &&
+      notified.includes('projectSettings'),
+  )
 
   const peerNotified = [...notified]
   notified.length = 0
@@ -100,7 +118,7 @@ try {
   const internalUpdate = updateSettingsForSource('userSettings', {
     env: { INTERNAL_WRITE: 'true' },
   })
-  await Bun.sleep(200)
+  await waitForNotificationQuietPeriod()
   const internalNotified = [...notified]
 
   writeFileSync(retargetPath, '{}\n', 'utf8')
@@ -110,7 +128,11 @@ try {
   symlinkSync(retargetPath, nextProjectLink, 'file')
   renameSync(nextUserLink, logicalPath)
   renameSync(nextProjectLink, projectLogicalPath)
-  await Bun.sleep(500)
+  await waitForNotification(
+    () =>
+      notified.includes('userSettings') &&
+      notified.includes('projectSettings'),
+  )
   notified.length = 0
 
   const retargetChild = Bun.spawn(
@@ -130,14 +152,12 @@ try {
     new Response(retargetChild.stderr).text(),
     retargetChild.exited,
   ])
-  const retargetDeadline = Date.now() + 2_000
-  while (
-    (!notified.includes('userSettings') ||
-      !notified.includes('projectSettings')) &&
-    Date.now() < retargetDeadline
-  ) {
-    await Bun.sleep(20)
-  }
+  await waitForNotification(
+    () =>
+      notified.includes('userSettings') &&
+      notified.includes('projectSettings'),
+  )
+  const retargetNotified = [...notified]
 
   process.stdout.write(
     JSON.stringify({
@@ -151,7 +171,7 @@ try {
       retargetExitCode,
       retargetStdout,
       retargetStderr,
-      retargetNotified: notified,
+      retargetNotified,
     }),
   )
 } finally {

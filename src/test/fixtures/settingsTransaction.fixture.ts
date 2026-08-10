@@ -23,7 +23,10 @@ import {
   setFsImplementation,
   setOriginalFsImplementation,
 } from '../../utils/fsOperations.js'
-import { clearInternalWrites } from '../../utils/settings/internalWrites.js'
+import {
+  clearInternalWrites,
+  consumeInternalWrite,
+} from '../../utils/settings/internalWrites.js'
 import {
   getSettingsForSource,
   updateSettingsForSource,
@@ -439,6 +442,41 @@ function priorBootOwnerScenario(): unknown {
   }
 }
 
+function reusedPidOwnerScenario(): unknown {
+  if (process.platform !== 'linux') {
+    return { skipped: true }
+  }
+
+  writeSettings({ env: { BASE: '1' } })
+  const targetPath = resolveSettingsFileTarget(settingsPath)
+  const lockPath = getSettingsFileLockPath(targetPath)
+  const ownerPath = join(lockPath, 'owner.json')
+  const owner = createCurrentSettingsLockOwner(
+    process.pid,
+    'reused-pid-owner',
+  )
+
+  mkdirSync(lockPath)
+  writeFileSync(
+    ownerPath,
+    JSON.stringify({
+      ...owner,
+      processStartId: 'v1:stale-process-start',
+    }),
+    'utf8',
+  )
+  const result = updateSettingsForSource('userSettings', {
+    env: { RECOVERED_AFTER_PID_REUSE: 'yes' },
+  })
+
+  return {
+    skipped: false,
+    error: result.error?.message ?? null,
+    lockExists: existsSync(lockPath),
+    final: readSettings(),
+  }
+}
+
 function legacyOwnerScenario(): unknown {
   writeSettings({ env: { BASE: '1' } })
   const targetPath = resolveSettingsFileTarget(settingsPath)
@@ -757,6 +795,13 @@ function writeFailureScenario(): unknown {
     env: { FIRST: 'blocked' },
   })
   setOriginalFsImplementation()
+  const serializationFailure = updateSettingsForSource('userSettings', {
+    env: { INVALID_BIGINT: 1n as unknown as string },
+  })
+  const markerAfterSerializationFailure = consumeInternalWrite(
+    settingsPath,
+    5_000,
+  )
   const second = updateSettingsForSource('userSettings', {
     env: { SECOND: 'landed' },
   })
@@ -766,6 +811,8 @@ function writeFailureScenario(): unknown {
 
   return {
     firstError: first.error?.message ?? null,
+    serializationError: serializationFailure.error?.message ?? null,
+    markerAfterSerializationFailure,
     secondError: second.error?.message ?? null,
     lockExists: existsSync(lockPath),
     final: readSettings(),
@@ -786,6 +833,7 @@ const individualScenarios: Record<string, () => unknown> = {
   'orphaned-recovery-claim': orphanedRecoveryClaimScenario,
   'pid-one': pidOneScenario,
   'prior-boot-owner': priorBootOwnerScenario,
+  'reused-pid-owner': reusedPidOwnerScenario,
   'separator-recovery-token': separatorRecoveryTokenScenario,
   semantics: semanticsScenario,
   'validation-fallback-cache': validationFallbackCacheScenario,

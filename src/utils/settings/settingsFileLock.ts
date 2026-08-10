@@ -94,10 +94,35 @@ function getSettingsLockRuntimeIdentity(): SettingsLockRuntimeIdentity {
 
 const SETTINGS_LOCK_RUNTIME = getSettingsLockRuntimeIdentity()
 
+function getLinuxProcessStartId(
+  pid: number,
+  runtimeId: string,
+): string | undefined {
+  if (process.platform !== 'linux') return undefined
+  const stat = readIdentityFile(`/proc/${pid}/stat`)
+  if (!stat) return undefined
+
+  // The command name in procfs is parenthesized and may contain spaces. Fields
+  // after its final ')' begin at field 3; process start time is field 22.
+  const commandEnd = stat.lastIndexOf(')')
+  if (commandEnd === -1) return undefined
+  const fields = stat.slice(commandEnd + 1).trim().split(/\s+/)
+  const startTime = fields[19]
+  if (!startTime) return undefined
+
+  return hashIdentity([
+    'openclaude-settings-process',
+    runtimeId,
+    String(pid),
+    startTime,
+  ])
+}
+
 type SettingsLockOwner = {
   bootId?: string
   hostId?: string
   pid: number
+  processStartId?: string
   runtimeId?: string
   token: string
 }
@@ -106,7 +131,16 @@ function createSettingsLockOwner(
   pid: number,
   token: string,
 ): SettingsLockOwner {
-  return { pid, ...SETTINGS_LOCK_RUNTIME, token }
+  const processStartId = getLinuxProcessStartId(
+    pid,
+    SETTINGS_LOCK_RUNTIME.runtimeId,
+  )
+  return {
+    pid,
+    ...SETTINGS_LOCK_RUNTIME,
+    ...(processStartId ? { processStartId } : {}),
+    token,
+  }
 }
 
 type LockIdentity = {
@@ -196,6 +230,7 @@ function readOwner(ownerPath: string): SettingsLockOwner | null {
       (parsed.pid ?? 0) > 0 &&
       optionalIdentityIsValid(parsed.hostId) &&
       optionalIdentityIsValid(parsed.bootId) &&
+      optionalIdentityIsValid(parsed.processStartId) &&
       optionalIdentityIsValid(parsed.runtimeId) &&
       typeof parsed.token === 'string' &&
       parsed.token.length > 0 &&
@@ -204,6 +239,9 @@ function readOwner(ownerPath: string): SettingsLockOwner | null {
           pid: parsed.pid!,
           ...(parsed.hostId ? { hostId: parsed.hostId } : {}),
           ...(parsed.bootId ? { bootId: parsed.bootId } : {}),
+          ...(parsed.processStartId
+            ? { processStartId: parsed.processStartId }
+            : {}),
           ...(parsed.runtimeId ? { runtimeId: parsed.runtimeId } : {}),
           token: parsed.token,
         }
@@ -250,6 +288,18 @@ function isProcessDead(owner: SettingsLockOwner): boolean {
   // On the same boot, a mismatch represents another PID namespace. A local
   // ESRCH result says nothing about liveness there, so recovery stays closed.
   if (owner.runtimeId !== SETTINGS_LOCK_RUNTIME.runtimeId) return false
+  if (owner.processStartId) {
+    const currentProcessStartId = getLinuxProcessStartId(
+      owner.pid,
+      owner.runtimeId,
+    )
+    if (
+      currentProcessStartId &&
+      currentProcessStartId !== owner.processStartId
+    ) {
+      return true
+    }
+  }
   try {
     process.kill(owner.pid, 0)
     return false
@@ -926,10 +976,10 @@ export function replaceSettingsFileSync(
   try {
     withSettingsFileLockSync(filePath, ({ targetPath, assertOwned }) => {
       assertOwned()
-      markInternalWrite(filePath)
-      markInternalWrite(targetPath)
       writeFileSyncAndFlush_DEPRECATED(targetPath, content)
       written = true
+      markInternalWrite(filePath)
+      markInternalWrite(targetPath)
       resetSettingsCache()
     })
     return { written: true }

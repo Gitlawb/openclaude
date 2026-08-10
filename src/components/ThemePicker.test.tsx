@@ -6,7 +6,7 @@ import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
 import { createRoot, Text, useTheme } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
-import { AppStateProvider } from '../state/AppState.js'
+import { AppStateProvider, getDefaultAppState } from '../state/AppState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -14,6 +14,25 @@ import {
 import { ThemeProvider } from './design-system/ThemeProvider.js'
 
 await acquireSharedMutationLock('components/ThemePicker.test.tsx')
+
+const actualSettings = await import(
+  `../utils/settings/settings.ts?themePickerSettingsActual=${Date.now()}-${Math.random()}`
+)
+type SettingsModule = typeof import('../utils/settings/settings.js')
+let colorModuleUnavailableReason: string | null = 'env'
+let updateSettingsForTest = mock(
+  (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+    error: null as Error | null,
+    written: true,
+  }),
+)
+
+mock.module('../utils/settings/settings.js', () => ({
+  ...actualSettings,
+  updateSettingsForSource: (
+    ...args: Parameters<SettingsModule['updateSettingsForSource']>
+  ) => updateSettingsForTest(...args),
+}))
 
 mock.module('./StructuredDiff.js', () => ({
   StructuredDiff: function StructuredDiffPreview(): React.ReactNode {
@@ -23,7 +42,7 @@ mock.module('./StructuredDiff.js', () => ({
 }))
 
 mock.module('./StructuredDiff/colorDiff.js', () => ({
-  getColorModuleUnavailableReason: () => 'env',
+  getColorModuleUnavailableReason: () => colorModuleUnavailableReason,
   getSyntaxTheme: () => null,
 }))
 
@@ -130,6 +149,7 @@ afterAll(() => {
 })
 
 test('updates the preview when keyboard focus moves to another theme', async () => {
+  colorModuleUnavailableReason = 'env'
   const { ThemePicker } = await import('./ThemePicker.js')
   const { stdout, stdin, getOutput } = createTestStreams()
   const root = await createRoot({
@@ -162,6 +182,102 @@ test('updates the preview when keyboard focus moves to another theme', async () 
       frame => frame.includes('Preview theme: light'),
     )
     expect(updatedFrame).toContain('Preview theme: light')
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+    await Bun.sleep(0)
+  }
+})
+
+test('does not advance syntax state when the settings write is not committed', async () => {
+  colorModuleUnavailableReason = null
+  updateSettingsForTest = mock(() => ({
+    error: null,
+    written: false,
+  }))
+  const { ThemePicker } = await import('./ThemePicker.js')
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+  let observedSyntaxDisabled = false
+
+  root.render(
+    <AppStateProvider
+      initialState={getDefaultAppState()}
+      onChangeAppState={({ newState }) => {
+        observedSyntaxDisabled =
+          newState.settings.syntaxHighlightingDisabled ?? false
+      }}
+    >
+      <KeybindingSetup>
+        <ThemeProvider initialState="dark">
+          <ThemePicker onThemeSelect={() => {}} />
+        </ThemeProvider>
+      </KeybindingSetup>
+    </AppStateProvider>,
+  )
+
+  try {
+    await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
+    stdin.write('\x14')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+
+    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
+      syntaxHighlightingDisabled: true,
+    })
+    expect(observedSyntaxDisabled).toBe(false)
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+    await Bun.sleep(0)
+  }
+})
+
+test('advances syntax state when bytes landed before a release error', async () => {
+  colorModuleUnavailableReason = null
+  updateSettingsForTest = mock(() => ({
+    error: new Error('lock release failed'),
+    written: true,
+  }))
+  const { ThemePicker } = await import('./ThemePicker.js')
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+  let observedSyntaxDisabled = false
+
+  root.render(
+    <AppStateProvider
+      initialState={getDefaultAppState()}
+      onChangeAppState={({ newState }) => {
+        observedSyntaxDisabled =
+          newState.settings.syntaxHighlightingDisabled ?? false
+      }}
+    >
+      <KeybindingSetup>
+        <ThemeProvider initialState="dark">
+          <ThemePicker onThemeSelect={() => {}} />
+        </ThemeProvider>
+      </KeybindingSetup>
+    </AppStateProvider>,
+  )
+
+  try {
+    await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
+    stdin.write('\x14')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+
+    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
+      syntaxHighlightingDisabled: true,
+    })
+    expect(observedSyntaxDisabled).toBe(true)
   } finally {
     root.unmount()
     stdin.end()

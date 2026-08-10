@@ -22,6 +22,7 @@ export function createCurrentSettingsLockOwner(
   bootId?: string
   hostId: string
   pid: number
+  processStartId?: string
   runtimeId: string
   token: string
 } {
@@ -49,17 +50,37 @@ export function createCurrentSettingsLockOwner(
     }
   }
 
+  const runtimeId = hashIdentity([
+    'openclaude-settings-runtime',
+    process.platform,
+    hostId,
+    bootId ?? '',
+    namespaceId,
+  ])
+  let processStartId: string | undefined
+  if (process.platform === 'linux') {
+    const stat = readIdentityFile(`/proc/${pid}/stat`)
+    const commandEnd = stat?.lastIndexOf(')') ?? -1
+    const startTime =
+      commandEnd === -1
+        ? undefined
+        : stat?.slice(commandEnd + 1).trim().split(/\s+/)[19]
+    if (startTime) {
+      processStartId = hashIdentity([
+        'openclaude-settings-process',
+        runtimeId,
+        String(pid),
+        startTime,
+      ])
+    }
+  }
+
   return {
     pid,
     hostId,
     ...(bootId ? { bootId } : {}),
-    runtimeId: hashIdentity([
-      'openclaude-settings-runtime',
-      process.platform,
-      hostId,
-      bootId ?? '',
-      namespaceId,
-    ]),
+    ...(processStartId ? { processStartId } : {}),
+    runtimeId,
     token,
   }
 }

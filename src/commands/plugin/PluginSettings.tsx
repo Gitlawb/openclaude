@@ -17,7 +17,7 @@ import { loadMarketplacesWithGracefulDegradation } from '../../utils/plugins/mar
 import { loadKnownMarketplacesConfig, removeMarketplaceSource } from '../../utils/plugins/marketplaceManager.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
 import type { EditableSettingSource } from '../../utils/settings/constants.js';
-import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getSettingsForSource, updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { AddMarketplace } from './AddMarketplace.js';
 import { BrowseMarketplace } from './BrowseMarketplace.js';
 import { DiscoverPlugins } from './DiscoverPlugins.js';
@@ -325,43 +325,33 @@ function buildErrorRows(failedMarketplaces: Array<{
  */
 function removeExtraMarketplace(name: string, sources: Array<{
   source: EditableSettingSource;
-}>): void {
+}>): boolean {
+  let committed = true;
   for (const {
     source
   } of sources) {
     const settings = getSettingsForSource(source);
     if (!settings) continue;
-    const updates: Record<string, unknown> = {};
-
-    // Remove from extraKnownMarketplaces
-    if (settings.extraKnownMarketplaces?.[name]) {
-      updates.extraKnownMarketplaces = {
-        ...settings.extraKnownMarketplaces,
-        [name]: undefined
-      };
-    }
-
-    // Remove associated enabled plugins (format: "plugin@marketplace")
-    if (settings.enabledPlugins) {
-      const suffix = `@${name}`;
-      let removedPlugins = false;
-      const updatedPlugins: Record<string, boolean | string[] | undefined> = {
-        ...settings.enabledPlugins
-      };
-      for (const pluginId in updatedPlugins) {
-        if (pluginId.endsWith(suffix)) {
-          updatedPlugins[pluginId] = undefined;
-          removedPlugins = true;
+    const suffix = `@${name}`;
+    const hasRelatedPlugins = Object.keys(settings.enabledPlugins ?? {}).some(pluginId => pluginId.endsWith(suffix));
+    if (settings.extraKnownMarketplaces?.[name] || hasRelatedPlugins) {
+      const result = updateSettingsForSourceWithFreshSettings(source, freshSettings => {
+        const updates: Record<string, unknown> = {};
+        if (freshSettings.extraKnownMarketplaces?.[name]) {
+          updates.extraKnownMarketplaces = {
+            [name]: undefined
+          };
         }
-      }
-      if (removedPlugins) {
-        updates.enabledPlugins = updatedPlugins;
-      }
-    }
-    if (Object.keys(updates).length > 0) {
-      updateSettingsForSource(source, updates);
+        const removedPlugins = Object.fromEntries(Object.keys(freshSettings.enabledPlugins ?? {}).filter(pluginId => pluginId.endsWith(suffix)).map(pluginId => [pluginId, undefined]));
+        if (Object.keys(removedPlugins).length > 0) {
+          updates.enabledPlugins = removedPlugins;
+        }
+        return updates;
+      });
+      if (!wasSettingsUpdateCommitted(result)) committed = false;
     }
   }
+  return committed;
 }
 function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
   const $ = _c(26);
@@ -453,7 +443,10 @@ function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
       case "remove-extra-marketplace":
         {
           const scopes = action.sources.map(_temp8).join(", ");
-          removeExtraMarketplace(action.name, action.sources);
+          if (!removeExtraMarketplace(action.name, action.sources)) {
+            setActionMessage(`${figures.cross} Failed to update settings; retry removal`);
+            break bb77;
+          }
           clearAllCaches();
           setAppState(prev_0 => ({
             ...prev_0,

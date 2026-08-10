@@ -430,7 +430,38 @@ export function getPolicySettingsOrigin():
 export function updateSettingsForSource(
   source: EditableSettingSource,
   settings: SettingsJson,
-): { error: Error | null; written: boolean } {
+): SettingsWriteResult {
+  return updateSettingsForSourceWithFreshSettings(source, () => settings)
+}
+
+export type SettingsWriteResult = {
+  error: Error | null
+  written: boolean
+}
+
+/**
+ * True only when the requested settings bytes reached disk. A release or
+ * cleanup error can coexist with `written: true`; stateful callers must keep
+ * their in-memory state aligned with the committed bytes in that case.
+ */
+export function wasSettingsUpdateCommitted(
+  result: SettingsWriteResult,
+): boolean {
+  return result.written
+}
+
+/**
+ * Computes a settings patch from the fresh file contents while holding the
+ * physical-target lock. Use this for read-dependent updates such as appending
+ * to arrays; constructing those patches before lock acquisition can overwrite
+ * a concurrent process's successful change.
+ *
+ * The callback is synchronous and must not re-enter settings persistence.
+ */
+export function updateSettingsForSourceWithFreshSettings(
+  source: EditableSettingSource,
+  createSettingsPatch: (settings: SettingsJson) => SettingsJson,
+): SettingsWriteResult {
   if (
     (source as unknown) === 'policySettings' ||
     (source as unknown) === 'flagSettings'
@@ -486,6 +517,9 @@ export function updateSettingsForSource(
           }
         }
 
+        const settings = createSettingsPatch(
+          structuredClone(existingSettings || {}),
+        )
         const updatedSettings = mergeWith(
           existingSettings || {},
           settings,
@@ -511,13 +545,13 @@ export function updateSettingsForSource(
         )
 
         assertOwned()
-        markInternalWrite(filePath)
-        markInternalWrite(targetPath)
         writeFileSyncAndFlush_DEPRECATED(
           targetPath,
           jsonStringify(updatedSettings, null, 2) + '\n',
         )
         written = true
+        markInternalWrite(filePath)
+        markInternalWrite(targetPath)
         resetSettingsCache()
       },
     )
@@ -531,7 +565,7 @@ export function updateSettingsForSource(
     }
   } catch (e) {
     const error = new Error(
-      `Failed to read raw settings from ${filePath}: ${e}`,
+      `Failed to update settings at ${filePath}: ${e}`,
     )
     logError(error)
     return { error, written }

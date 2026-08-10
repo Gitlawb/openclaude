@@ -14,17 +14,19 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { createWaitForCondition } from '../../test/waitForCondition.js'
 import type { LocalJSXCommandContext } from '../../types/command.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 
 type SettingsModule = typeof import('../../utils/settings/settings.js')
 
 let actualSettingsModule: SettingsModule | undefined
-let persistError: Error | null = new Error('settings locked')
+let persistError: Error | null = null
+let persistWritten = false
 let updateSettingsForTest = mock(
   (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
     error: persistError,
-    written: persistError === null,
+    written: persistWritten,
   }),
 )
 let completeOutputStyle: ((style: string | undefined) => void) | undefined
@@ -32,6 +34,10 @@ let completeOutputStyle: ((style: string | undefined) => void) | undefined
 const initialSettings: SettingsJson = {
   outputStyle: 'default',
   spinnerTipsEnabled: true,
+  permissions: {
+    allow: ['Read(concurrent)'],
+    defaultMode: 'default',
+  },
 }
 const emptyMemoryFiles = Promise.resolve([])
 
@@ -107,15 +113,9 @@ function extractLastFrame(output: string): string {
   return lastFrame ?? output
 }
 
-async function waitForCondition(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000
-  while (!predicate()) {
-    if (Date.now() >= deadline) {
-      throw new Error('Timed out waiting for Config persistence test condition')
-    }
-    await Bun.sleep(10)
-  }
-}
+const waitForCondition = createWaitForCondition(
+  'Config persistence test condition',
+)
 
 const context = {
   messages: [],
@@ -129,12 +129,13 @@ const context = {
 beforeEach(async () => {
   await acquireSharedMutationLock('components/Settings/Config.persistence.test.tsx')
   mock.restore()
-  persistError = new Error('settings locked')
+  persistError = null
+  persistWritten = false
   completeOutputStyle = undefined
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
       error: persistError,
-      written: persistError === null,
+      written: persistWritten,
     }),
   )
   await installMocks()
@@ -191,6 +192,94 @@ test('failed toggle persistence leaves displayed and dirty state unchanged', asy
   }
 })
 
+test('landed toggle persistence keeps the forward state after a release error', async () => {
+  persistError = new Error('lock release failed')
+  persistWritten = true
+  const { Config } = await import(`./Config.js?toggleLanded=${Date.now()}`)
+  const { stdin, stdout, getFrame } = makeStdio()
+  const onClose = mock(() => {})
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={onClose}
+          setTabsHidden={() => {}}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Show tips'))
+    stdin.write('Show tips')
+    await waitForCondition(() => getFrame().includes('⌕ Show tips'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 1)
+
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
+    expect(getFrame()).toContain('Show tips')
+    expect(getFrame()).toContain('false')
+
+    stdin.write('\u001b')
+    await waitForCondition(() => onClose.mock.calls.length === 1)
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('default permission mode persists only the key owned by Config', async () => {
+  persistWritten = true
+  const { Config } = await import(`./Config.js?permissionMode=${Date.now()}`)
+  const { stdin, stdout, getFrame } = makeStdio()
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={() => {}}
+          setTabsHidden={() => {}}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Type to filter'))
+    stdin.write('Default permission mode')
+    await waitForCondition(() =>
+      getFrame().includes('⌕ Default permission mode'),
+    )
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+
+    expect(updateSettingsForTest.mock.calls[0]).toEqual([
+      'userSettings',
+      { permissions: { defaultMode: 'plan' } },
+    ])
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
 test('failed submenu persistence keeps the submenu open and retryable', async () => {
   const { Config } = await import(`./Config.js?submenuFailure=${Date.now()}`)
   const { stdin, stdout, getFrame } = makeStdio()
@@ -217,7 +306,7 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
     stdin.write('Output style')
     await waitForCondition(() => getFrame().includes('Output style'))
     stdin.write('\r')
-    await Bun.sleep(20)
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
     stdin.write(' ')
     await waitForCondition(() => completeOutputStyle !== undefined)
 
@@ -227,6 +316,7 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
     expect(getFrame()).toContain('Test output style picker')
 
     persistError = null
+    persistWritten = true
     completeOutputStyle?.('Explanatory')
     await waitForCondition(() => setTabsHidden.mock.calls.length === 2)
     expect(updateSettingsForTest).toHaveBeenCalledTimes(2)
@@ -240,6 +330,7 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
 
 test('failed rollback keeps Config open and retries on the next Escape', async () => {
   persistError = null
+  persistWritten = true
   const { Config } = await import(`./Config.js?rollbackFailure=${Date.now()}`)
   const { stdin, stdout, getFrame } = makeStdio()
   const onClose = mock(() => {})
@@ -267,18 +358,33 @@ test('failed rollback keeps Config open and retries on the next Escape', async (
     stdin.write('\r')
     await waitForCondition(() => !getFrame().includes('Type to filter'))
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
-
-    persistError = new Error('settings locked')
-    stdin.write('\u001b')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 3)
-    expect(onClose).not.toHaveBeenCalled()
-    expect(getFrame()).toContain('Could not restore settings')
+    const toggleWriteCount = 1
+    const failedRollbackWriteCount = 3
+    const successfulRollbackWriteCount = 5
+    await waitForCondition(
+      () => updateSettingsForTest.mock.calls.length >= toggleWriteCount,
+    )
 
     persistError = null
+    persistWritten = false
+    stdin.write('\u001b')
+    await waitForCondition(
+      () => updateSettingsForTest.mock.calls.length >= failedRollbackWriteCount,
+    )
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(
+      failedRollbackWriteCount,
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    expect(getFrame()).toContain('Could not restore settings')
+    expect(getFrame()).toContain('Press Enter to close')
+
+    persistError = null
+    persistWritten = true
     stdin.write('\u001b')
     await waitForCondition(() => onClose.mock.calls.length === 1)
-    expect(updateSettingsForTest).toHaveBeenCalledTimes(5)
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(
+      successfulRollbackWriteCount,
+    )
   } finally {
     instance.unmount()
     stdin.end()

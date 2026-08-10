@@ -6,7 +6,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
 import type { EffortLevel } from '../utils/effort.js';
 import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, toPersistableEffort } from '../utils/effort.js';
 import { parseUserSpecifiedModel } from '../utils/model/model.js';
-import { updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import type { OptionWithDescription } from './CustomSelect/select.js';
 import { Select } from './CustomSelect/select.js';
 import { effortLevelToSymbol } from './EffortIndicator.js';
@@ -90,10 +90,12 @@ export function EffortCallout(t0) {
   if ($[9] !== defaultLevel) {
     t8 = value => {
       const effortLevel = value === defaultLevel ? undefined : value;
-      updateSettingsForSource("userSettings", {
+      const result = updateSettingsForSource("userSettings", {
         effortLevel: toPersistableEffort(effortLevel)
       });
-      onDoneRef.current(value);
+      if (wasSettingsUpdateCommitted(result)) {
+        onDoneRef.current(value);
+      }
     };
     $[9] = defaultLevel;
     $[10] = t8;

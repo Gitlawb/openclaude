@@ -43,7 +43,8 @@ import {
   getSettingsFilePathForSource,
   getSettingsForSource,
   getSettingsRootPathForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 
@@ -700,23 +701,27 @@ async function setSandboxSettings(options: {
   autoAllowBashIfSandboxed?: boolean
   allowUnsandboxedCommands?: boolean
 }): Promise<void> {
-  const existingSettings = getSettingsForSource('localSettings')
-
   // Note: Memoized caches auto-invalidate when settings change because they use
   // the settings object as the cache key (new settings object = cache miss)
 
-  updateSettingsForSource('localSettings', {
-    sandbox: {
-      ...existingSettings?.sandbox,
-      ...(options.enabled !== undefined && { enabled: options.enabled }),
-      ...(options.autoAllowBashIfSandboxed !== undefined && {
-        autoAllowBashIfSandboxed: options.autoAllowBashIfSandboxed,
-      }),
-      ...(options.allowUnsandboxedCommands !== undefined && {
-        allowUnsandboxedCommands: options.allowUnsandboxedCommands,
-      }),
-    },
-  })
+  const result = updateSettingsForSourceWithFreshSettings(
+    'localSettings',
+    freshSettings => ({
+      sandbox: {
+        ...freshSettings.sandbox,
+        ...(options.enabled !== undefined && { enabled: options.enabled }),
+        ...(options.autoAllowBashIfSandboxed !== undefined && {
+          autoAllowBashIfSandboxed: options.autoAllowBashIfSandboxed,
+        }),
+        ...(options.allowUnsandboxedCommands !== undefined && {
+          allowUnsandboxedCommands: options.allowUnsandboxedCommands,
+        }),
+      },
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
+    throw result.error ?? new Error('Sandbox settings update was not written')
+  }
 }
 
 /**
@@ -861,10 +866,6 @@ export function addToExcludedCommands(
     rules: Array<{ toolName: string; ruleContent?: string }>
   }>,
 ): string {
-  const existingSettings = getSettingsForSource('localSettings')
-  const existingExcludedCommands =
-    existingSettings?.sandbox?.excludedCommands || []
-
   // Determine the command pattern to add
   // If there are suggestions with Bash rules, extract the pattern (e.g., "npm run test" from "npm run test:*")
   // Otherwise use the exact command
@@ -889,14 +890,22 @@ export function addToExcludedCommands(
     }
   }
 
-  // Add to excludedCommands if not already present
-  if (!existingExcludedCommands.includes(commandPattern)) {
-    updateSettingsForSource('localSettings', {
+  const result = updateSettingsForSourceWithFreshSettings(
+    'localSettings',
+    freshSettings => ({
       sandbox: {
-        ...existingSettings?.sandbox,
-        excludedCommands: [...existingExcludedCommands, commandPattern],
+        ...freshSettings.sandbox,
+        excludedCommands: [
+          ...new Set([
+            ...(freshSettings.sandbox?.excludedCommands ?? []),
+            commandPattern,
+          ]),
+        ],
       },
-    })
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
+    throw result.error ?? new Error('Sandbox exclusion was not written')
   }
 
   return commandPattern

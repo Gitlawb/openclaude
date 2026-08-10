@@ -17,6 +17,7 @@ import { getSecureStorage } from '../secureStorage/index.js'
 import {
   getSettings_DEPRECATED,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
 import { getSystemDirectories } from '../systemDirectories.js'
@@ -286,44 +287,36 @@ export function saveMcpServerUserConfig(
     // sensitive keys doesn't scrub them, the disk copy merges back in. Instead:
     // set each sensitive key to explicit `undefined` — mergeWith (with the
     // customizer at settings.ts:349) treats explicit undefined as a delete.
-    const settings = getSettings_DEPRECATED()
-    const existingInSettings =
-      settings.pluginConfigs?.[pluginId]?.mcpServers?.[serverName] ?? {}
-    const keysToScrubFromSettings = Object.keys(existingInSettings).filter(k =>
-      sensitiveKeysInThisSave.has(k),
-    )
     if (
       Object.keys(nonSensitive).length > 0 ||
-      keysToScrubFromSettings.length > 0
+      sensitiveKeysInThisSave.size > 0
     ) {
-      if (!settings.pluginConfigs) {
-        settings.pluginConfigs = {}
-      }
-      if (!settings.pluginConfigs[pluginId]) {
-        settings.pluginConfigs[pluginId] = {}
-      }
-      if (!settings.pluginConfigs[pluginId].mcpServers) {
-        settings.pluginConfigs[pluginId].mcpServers = {}
-      }
       // Build the scrub-via-undefined map. The UserConfigValues type doesn't
       // include undefined, but updateSettingsForSource's mergeWith customizer
       // needs explicit undefined to delete — cast is deliberate internal
       // plumbing (same rationale as deletePluginOptions in
       // pluginOptionsStorage.ts:184, see CLAUDE.md's 10% case).
       const scrubbed = Object.fromEntries(
-        keysToScrubFromSettings.map(k => [k, undefined]),
+        [...sensitiveKeysInThisSave].map(k => [k, undefined]),
       ) as Record<string, undefined>
-      settings.pluginConfigs[pluginId].mcpServers![serverName] = {
-        ...nonSensitive,
-        ...scrubbed,
-      } as UserConfigValues
-      const result = updateSettingsForSource('userSettings', settings)
-      if (result.error) {
-        throw result.error
+      const result = updateSettingsForSource('userSettings', {
+        pluginConfigs: {
+          [pluginId]: {
+            mcpServers: {
+              [serverName]: {
+                ...nonSensitive,
+                ...scrubbed,
+              } as UserConfigValues,
+            },
+          },
+        },
+      })
+      if (!wasSettingsUpdateCommitted(result)) {
+        throw result.error ?? new Error('Settings update was not written')
       }
-      if (keysToScrubFromSettings.length > 0) {
+      if (sensitiveKeysInThisSave.size > 0) {
         logForDebugging(
-          `saveMcpServerUserConfig: scrubbed ${keysToScrubFromSettings.length} plaintext sensitive key(s) from settings.json for ${pluginId}/${serverName}`,
+          `saveMcpServerUserConfig: scrubbed plaintext copies for ${sensitiveKeysInThisSave.size} sensitive key(s) from settings.json for ${pluginId}/${serverName}`,
         )
       }
     }

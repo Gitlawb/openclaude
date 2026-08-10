@@ -4,6 +4,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { createWaitForCondition } from '../../test/waitForCondition.js'
 import type { SettingSource } from './constants.js'
 
 type SettingsChangeDetectorModule = typeof import('./changeDetector.js') & {
@@ -21,7 +22,7 @@ const pathsBySource: Record<SettingSource, string | null> = {
 }
 
 let resetSettingsCache = mock(() => {})
-let consumeInternalWrite = mock(() => false)
+let consumeInternalWrite = mock((_path: string, _maxAgeMs: number) => false)
 let hookResults: { blocked: boolean }[] = []
 let executeConfigChangeHooksImpl = async () => hookResults
 let executeConfigChangeHooks = mock(async () => hookResults)
@@ -29,7 +30,7 @@ let activeDetector: SettingsChangeDetectorModule | null = null
 
 function installMocks(): void {
   resetSettingsCache = mock(() => {})
-  consumeInternalWrite = mock(() => false)
+  consumeInternalWrite = mock((_path: string, _maxAgeMs: number) => false)
   hookResults = []
   executeConfigChangeHooksImpl = async () => hookResults
   executeConfigChangeHooks = mock(() => executeConfigChangeHooksImpl())
@@ -58,15 +59,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-async function waitForCondition(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000
-  while (!predicate()) {
-    if (Date.now() >= deadline) {
-      throw new Error('Timed out waiting for settings watcher condition')
-    }
-    await sleep(10)
-  }
-}
+const waitForCondition = createWaitForCondition(
+  'settings watcher condition',
+)
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/settings/changeDetector.test.ts')
@@ -321,6 +316,10 @@ describe('settings change detector symlink target refresh', () => {
         handlers.set(event, handler)
         return watcher
       },
+      once(event: string, handler: () => void) {
+        if (event === 'ready') queueMicrotask(handler)
+        return watcher
+      },
       unwatch,
     }
     const watch = mock((_paths: string[]) => watcher)
@@ -451,7 +450,7 @@ describe('settings change detector symlink target refresh', () => {
 
     physicalPath = nextPhysicalPath
     harness.handlers.get('add')?.(logicalPath)
-    await waitForCondition(() => harness.add.mock.calls.length === 1)
+    await waitForCondition(() => harness.add.mock.calls.length >= 1)
     expect(harness.add).toHaveBeenCalledWith(nextPhysicalDir)
     expect(harness.unwatch).toHaveBeenCalledWith(firstPhysicalDir)
 
@@ -468,4 +467,61 @@ describe('settings change detector symlink target refresh', () => {
     await sleep(20)
     expect(executeConfigChangeHooks).not.toHaveBeenCalled()
   })
+
+  test('does not suppress an external symlink retarget with a stale logical write marker', async () => {
+    const detector = await importFreshModule()
+    await detector.resetForTesting({ settingsDebounce: 5 })
+    const logicalPath = pathsBySource.userSettings!
+    const logicalDir = normalize('/tmp/openclaude/user')
+    const firstPhysicalPath = normalize('/tmp/openclaude/first/settings.json')
+    const firstPhysicalDir = normalize('/tmp/openclaude/first')
+    const nextPhysicalPath = normalize('/tmp/openclaude/next/settings.json')
+    const nextPhysicalDir = normalize('/tmp/openclaude/next')
+    let physicalPath = firstPhysicalPath
+    const harness = createWatcherHarness()
+
+    consumeInternalWrite.mockImplementation(
+      path => normalize(path) === logicalPath,
+    )
+    detector._setDependenciesForTesting({
+      clearInternalWrites: mock(() => {}),
+      consumeInternalWrite,
+      executeConfigChangeHooks,
+      getSettingsFilePathForSource: (source: SettingSource) =>
+        source === 'userSettings' ? logicalPath : null,
+      hasBlockingResult: (results: { blocked: boolean }[]) =>
+        results.some(result => result.blocked),
+      realpath: mock(async () => physicalPath),
+      resetSettingsCache,
+      resolveSettingsFileTarget: () => physicalPath,
+      stat: mock(async (path: string) => {
+        const normalizedPath = normalize(path)
+        if (
+          normalizedPath === logicalDir ||
+          normalizedPath === firstPhysicalDir ||
+          normalizedPath === nextPhysicalDir
+        ) {
+          return { isDirectory: () => true, isFile: () => false }
+        }
+        if (normalizedPath === logicalPath) {
+          return { isDirectory: () => false, isFile: () => true }
+        }
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+      }),
+      watch: harness.watch,
+    })
+
+    await detector.initialize()
+    physicalPath = nextPhysicalPath
+    harness.handlers.get('change')?.(logicalPath)
+
+    await waitForCondition(() => harness.add.mock.calls.length >= 1)
+    await waitForCondition(() => executeConfigChangeHooks.mock.calls.length > 0)
+    expect(consumeInternalWrite).toHaveBeenCalledWith(logicalPath, 5_000)
+    expect(executeConfigChangeHooks).toHaveBeenCalledWith(
+      'user_settings',
+      logicalPath,
+    )
+  })
+
 })

@@ -64,7 +64,8 @@ import type {
 } from '../../utils/plugins/schemas.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 import { plural } from '../../utils/stringUtils.js'
 
@@ -505,15 +506,23 @@ export async function uninstallPluginOp(
 
   // Remove the plugin from the appropriate settings file (delete key entirely)
   // Use undefined to signal deletion via mergeWith in updateSettingsForSource
-  const newEnabledPlugins: Record<string, boolean | string[] | undefined> = {
-    ...settings?.enabledPlugins,
+  const settingsResult = updateSettingsForSourceWithFreshSettings(
+    settingSource,
+    freshSettings => ({
+      // Cast: undefined signals key deletion to updateSettingsForSource's
+      // mergeWith customizer; the zod-derived SettingsJson type can't express that.
+      enabledPlugins: {
+        ...freshSettings.enabledPlugins,
+        [pluginId]: undefined,
+      } as Record<string, boolean | string[]>,
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(settingsResult)) {
+    return {
+      success: false,
+      message: `Failed to uninstall plugin: ${settingsResult.error?.message ?? 'settings were not written'}`,
+    }
   }
-  newEnabledPlugins[pluginId] = undefined
-  updateSettingsForSource(settingSource, {
-    // Cast: undefined signals key deletion to updateSettingsForSource's
-    // mergeWith customizer; the zod-derived SettingsJson type can't express that.
-    enabledPlugins: newEnabledPlugins as Record<string, boolean | string[]>,
-  })
 
   clearAllCaches()
 
@@ -582,16 +591,19 @@ export async function setPluginEnabledOp(
   // Built-in plugins: always use user-scope settings, bypass the normal
   // scope-resolution + installed_plugins lookup (they're not installed).
   if (isBuiltinPluginId(plugin)) {
-    const { error } = updateSettingsForSource('userSettings', {
-      enabledPlugins: {
-        ...getSettingsForSource('userSettings')?.enabledPlugins,
-        [plugin]: enabled,
-      },
-    })
-    if (error) {
+    const result = updateSettingsForSourceWithFreshSettings(
+      'userSettings',
+      freshSettings => ({
+        enabledPlugins: {
+          ...freshSettings.enabledPlugins,
+          [plugin]: enabled,
+        },
+      }),
+    )
+    if (!wasSettingsUpdateCommitted(result)) {
       return {
         success: false,
-        message: `Failed to ${operation} built-in plugin: ${error.message}`,
+        message: `Failed to ${operation} built-in plugin: ${result.error?.message ?? 'settings were not written'}`,
       }
     }
     clearAllCaches()
@@ -721,16 +733,19 @@ export async function setPluginEnabledOp(
   }
 
   // ── ACTION: write settings ──
-  const { error } = updateSettingsForSource(settingSource, {
-    enabledPlugins: {
-      ...getSettingsForSource(settingSource)?.enabledPlugins,
-      [pluginId]: enabled,
-    },
-  })
-  if (error) {
+  const result = updateSettingsForSourceWithFreshSettings(
+    settingSource,
+    freshSettings => ({
+      enabledPlugins: {
+        ...freshSettings.enabledPlugins,
+        [pluginId]: enabled,
+      },
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
       success: false,
-      message: `Failed to ${operation} plugin: ${error.message}`,
+      message: `Failed to ${operation} plugin: ${result.error?.message ?? 'settings were not written'}`,
     }
   }
 

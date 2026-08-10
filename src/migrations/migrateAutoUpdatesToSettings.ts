@@ -4,6 +4,7 @@ import { logError } from '../utils/log.js'
 import {
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 /**
  * Migration: Move user-set autoUpdates preference to settings.json env var
@@ -28,14 +29,12 @@ export function migrateAutoUpdatesToSettings(): void {
     // Always set DISABLE_AUTOUPDATER to preserve user intent
     // We need to overwrite even if it exists, to ensure the migration is complete
     const result = updateSettingsForSource('userSettings', {
-      ...userSettings,
       env: {
-        ...userSettings.env,
         DISABLE_AUTOUPDATER: '1',
       },
     })
-    if (result.error) {
-      throw result.error
+    if (!wasSettingsUpdateCommitted(result)) {
+      throw result.error ?? new Error('Settings update was not written')
     }
 
     logEvent('tengu_migrate_autoupdates_to_settings', {

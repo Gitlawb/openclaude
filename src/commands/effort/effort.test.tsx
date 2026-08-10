@@ -36,7 +36,9 @@ afterEach(() => {
   }
 })
 
-async function importFreshEffortCommandModule(): Promise<
+async function importFreshEffortCommandModule(
+  writeResult = { error: null as Error | null, written: true },
+): Promise<
   typeof import('./effort.js')
 > {
   mock.module('../../utils/model/providers.js', () => ({
@@ -49,7 +51,7 @@ async function importFreshEffortCommandModule(): Promise<
   }))
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettings,
-    updateSettingsForSource: () => ({ error: null, written: true }),
+    updateSettingsForSource: () => writeResult,
   }))
   mock.module('../../utils/auth.js', () => ({
     ...actualAuth,
@@ -233,4 +235,26 @@ test('/effort picker reports env override when selecting ultracode', async () =>
     'Not applied: CLAUDE_CODE_EFFORT_LEVEL=high overrides effort this session, and ultracode is session-only (nothing saved)',
   ])
   expect(finalEffortValue).toBe('ultracode')
+})
+
+test('/effort does not advance session state when persistence is unwritten', async () => {
+  const { executeEffort } = await importFreshEffortCommandModule({
+    error: null,
+    written: false,
+  })
+
+  expect(executeEffort('high')).toEqual({
+    message: 'Failed to set effort level: settings were not written',
+  })
+})
+
+test('/effort advances session state when bytes landed before a release error', async () => {
+  const { executeEffort } = await importFreshEffortCommandModule({
+    error: new Error('lock release failed'),
+    written: true,
+  })
+
+  const result = executeEffort('high')
+  expect(result.message).toStartWith('Set effort level to high')
+  expect(result.effortUpdate).toEqual({ value: 'high' })
 })

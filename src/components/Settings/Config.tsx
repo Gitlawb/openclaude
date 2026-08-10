@@ -37,7 +37,7 @@ import { useTabHeaderFocus } from '../design-system/Tabs.js';
 import { useIsInsideModal } from '../../context/modalContext.js';
 import { SearchBox } from '../SearchBox.js';
 import { isSupportedTerminal, hasAccessToIDEExtensionDiffFeature } from '../../utils/ide.js';
-import { getInitialSettings, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { getInitialSettings, getSettingsForSource, updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import type { SettingsJson } from '../../utils/settings/types.js';
 import { getUserMsgOptIn, setUserMsgOptIn } from '../../bootstrap/state.js';
 import { DEFAULT_OUTPUT_STYLE_NAME } from 'src/constants/outputStyles.js';
@@ -88,10 +88,7 @@ type Setting = (SettingBase & {
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
 function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
   const result = updateSettingsForSource(source, settings);
-  if (result.error && !result.written) {
-    return false;
-  }
-  return true;
+  return wasSettingsUpdateCommitted(result);
 }
 export function Config({
   onClose,
@@ -649,7 +646,6 @@ export function Config({
       const validatedMode = isExternalPermissionMode(parsedMode) ? toExternalPermissionMode(parsedMode) : parsedMode;
       if (!persistSettingsForSource('userSettings', {
         permissions: {
-          ...settingsData?.permissions,
           defaultMode: validatedMode as ExternalPermissionMode
         }
       })) return false;
@@ -1397,19 +1393,14 @@ export function Config({
       // ThemePicker's Ctrl+T writes this key directly — include it so the
       // disk state reverts along with the in-memory AppState.settings restore.
       syntaxHighlightingDisabled: iu?.syntaxHighlightingDisabled,
-      // permissions: the defaultMode onChange (above) spreads the MERGED
-      // settingsData.permissions into userSettings — project/policy allow/deny
-      // arrays can leak to disk. Spread the full initial snapshot so the
-      // mergeWith array-customizer (settings.ts:375) replaces leaked arrays.
-      // Explicitly include defaultMode so undefined triggers the customizer's
-      // delete path even when iu.permissions lacks that key.
-      permissions: iu?.permissions === undefined ? undefined : {
-        ...iu.permissions,
-        defaultMode: iu.permissions.defaultMode
+      // Restore only the key Config owns so concurrent permission-rule edits
+      // made while the dialog is open remain intact.
+      permissions: {
+        defaultMode: iu?.permissions?.defaultMode
       }
     });
-    if ([localRollback, userRollback].some(result => result.error && !result.written)) {
-      setRevertError('Could not restore settings. Press Esc to retry.');
+    if ([localRollback, userRollback].some(result => !wasSettingsUpdateCommitted(result))) {
+      setRevertError('Could not restore settings. Press Esc to retry. Press Enter to close.');
       return false;
     }
     setRevertError(null);

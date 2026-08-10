@@ -79,12 +79,13 @@ export function AddPermissionRules(t0) {
             behavior: ruleBehavior,
             destination
           });
-          persistPermissionUpdate({
+          const persisted = persistPermissionUpdate({
             type: "addRules",
             rules: ruleValues,
             behavior: ruleBehavior,
             destination
           });
+          if (!persisted) return;
           setToolPermissionContext(updatedContext);
           const rules = ruleValues.map(ruleValue => ({
             ruleValue,

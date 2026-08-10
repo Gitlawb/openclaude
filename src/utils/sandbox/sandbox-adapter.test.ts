@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve, sep } from 'path'
@@ -12,9 +13,50 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { getSettingsFilePathForSource } from '../settings/settings.js'
 import { resetSettingsCache } from '../settings/settingsCache.js'
+import { withSettingsFileLockSync } from '../settings/settingsFileLock.js'
 import type { SettingsJson } from '../settings/types.js'
-import { convertToSandboxRuntimeConfig } from './sandbox-adapter.js'
+import {
+  convertToSandboxRuntimeConfig,
+  SandboxManager,
+} from './sandbox-adapter.js'
+
+describe('sandbox settings persistence', () => {
+  let previousOriginalCwd: string
+  let tempRoot: string
+
+  beforeEach(async () => {
+    await acquireSharedMutationLock('utils/sandbox/sandbox-persistence.test.ts')
+    previousOriginalCwd = getOriginalCwd()
+    tempRoot = mkdtempSync(join(tmpdir(), 'openclaude-sandbox-persistence-'))
+    mkdirSync(join(tempRoot, '.openclaude'), { recursive: true })
+    setOriginalCwd(tempRoot)
+    resetSettingsCache()
+  })
+
+  afterEach(() => {
+    try {
+      setOriginalCwd(previousOriginalCwd)
+      resetSettingsCache()
+      rmSync(tempRoot, { recursive: true, force: true })
+    } finally {
+      releaseSharedMutationLock()
+    }
+  })
+
+  test('rejects when the settings update does not reach disk', async () => {
+    const settingsPath = getSettingsFilePathForSource('localSettings')!
+    let updatePromise: Promise<void> | undefined
+
+    withSettingsFileLockSync(settingsPath, () => {
+      updatePromise = SandboxManager.setSandboxSettings({ enabled: true })
+    })
+
+    expect(updatePromise).toBeDefined()
+    await expect(updatePromise!).rejects.toThrow('Failed to update settings')
+  })
+})
 
 describe('convertToSandboxRuntimeConfig', () => {
   let previousConfigDir: string | undefined

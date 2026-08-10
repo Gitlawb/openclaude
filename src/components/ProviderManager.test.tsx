@@ -13,6 +13,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { createWaitForCondition } from '../test/waitForCondition.js'
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
 type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
@@ -699,10 +700,12 @@ async function waitForFrameOutput(
 ): Promise<string> {
   let output = ''
 
-  await waitForCondition(() => {
+  await createWaitForCondition('ProviderManager frame output', {
+    timeoutMs,
+  })(() => {
     output = stripAnsi(extractLastFrame(getOutput()))
     return predicate(output)
-  }, { timeoutMs })
+  })
 
   // The predicate matched, but Ink registers input handlers in an effect that
   // runs after the render commits. A caller that types on the next line can lose

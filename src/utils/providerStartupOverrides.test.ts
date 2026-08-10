@@ -55,4 +55,29 @@ describe('clearStartupProviderOverrides', () => {
       (saveConfig.mock.results[0]?.value as { env: Record<string, string> }).env,
     ).toEqual({ KEEP_ME: '1' })
   })
+
+  test('treats a committed settings write with a cleanup error as cleared', async () => {
+    const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
+
+    const error = clearStartupProviderOverrides({
+      updateUserSettings: mock(() => ({
+        error: new Error('lock release failed'),
+        written: true,
+      })),
+      saveConfig: mock(updater => updater({ env: {} })) as any,
+    })
+
+    expect(error).toBeNull()
+  })
+
+  test('reports an unwritten settings update even when no error object is returned', async () => {
+    const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
+
+    const error = clearStartupProviderOverrides({
+      updateUserSettings: mock(() => ({ error: null, written: false })),
+      saveConfig: mock(updater => updater({ env: {} })) as any,
+    })
+
+    expect(error).toBe('Settings update was not written')
+  })
 })

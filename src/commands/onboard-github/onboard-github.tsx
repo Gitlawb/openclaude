@@ -21,7 +21,8 @@ import { getDisplayPath } from '../../utils/file.js'
 import {
   getSettingsFilePathForSource,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 
 const DEFAULT_MODEL = 'github:copilot'
@@ -154,29 +155,28 @@ function mergeUserSettingsEnv(
   model: string,
   gheUrl?: string,
 ): { ok: boolean; detail?: string } {
-  const currentSettings = getSettingsForSource('userSettings')
-  const currentEnv = currentSettings?.env ?? {}
+  const result = updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    freshSettings => {
+      const newEnv: Record<string, string> = {}
+      for (const [key, value] of Object.entries(freshSettings.env ?? {})) {
+        if (!PROVIDER_SPECIFIC_KEYS.has(key)) {
+          newEnv[key] = value
+        }
+      }
 
-  const newEnv: Record<string, string> = {}
-  for (const [key, value] of Object.entries(currentEnv)) {
-    if (!PROVIDER_SPECIFIC_KEYS.has(key)) {
-      newEnv[key] = value
+      newEnv.CLAUDE_CODE_USE_GITHUB = '1'
+      newEnv.OPENAI_MODEL = model
+      if (gheUrl) newEnv.GITHUB_ENTERPRISE_URL = gheUrl
+
+      return { env: newEnv }
+    },
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
+    return {
+      ok: false,
+      detail: result.error?.message ?? 'Settings update was not written',
     }
-  }
-
-  newEnv.CLAUDE_CODE_USE_GITHUB = '1'
-  newEnv.OPENAI_MODEL = model
-  if (gheUrl) {
-    newEnv.GITHUB_ENTERPRISE_URL = gheUrl
-  } else {
-    delete newEnv.GITHUB_ENTERPRISE_URL
-  }
-
-  const { error } = updateSettingsForSource('userSettings', {
-    env: newEnv,
-  })
-  if (error) {
-    return { ok: false, detail: error.message }
   }
   return { ok: true }
 }
