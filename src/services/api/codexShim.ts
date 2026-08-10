@@ -687,6 +687,8 @@ export type CodexStreamReadOptions = {
   idleTimeoutMs?: number
 }
 
+const STREAM_IDLE_TIMEOUT_MS = 120_000
+
 async function* readSseEvents(
   response: Response,
   signal?: AbortSignal,
@@ -698,7 +700,7 @@ async function* readSseEvents(
 
   const decoder = new TextDecoder()
   let buffer = ''
-  const streamIdleTimeoutMs = options.idleTimeoutMs ?? 120_000
+  const streamIdleTimeoutMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS
   let lastDataTime = Date.now()
   let lastParsedFrameTime = lastDataTime
   let streamComplete = false
