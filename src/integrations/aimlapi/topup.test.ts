@@ -270,6 +270,45 @@ test('two concurrent sign-ins for the same intent never both mint a key', async 
   expect(saved.apiKey).toBe('minted-key-1')
 }, 10_000)
 
+test('an ambiguous key-mint failure holds the lease instead of releasing it for a retry to double-mint', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      // The POST may have minted a key server-side before this response was
+      // lost — createKey is non-idempotent and irrecoverable, so the caller
+      // must not treat this as safe to blindly retry.
+      throw new Error('network error: response lost')
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow(/network request.*failed/i)
+
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as {
+    apiKey?: string
+    keyMintLeaseOwner?: string
+    keyMintLeaseAt?: number
+  }
+  expect(saved.apiKey ?? '').toBe('')
+  // The lease must still be held — releasing it here would let a retry mint
+  // (and orphan) a second key while the first POST's outcome is unknown.
+  expect(saved.keyMintLeaseOwner).toBeTruthy()
+  expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
+})
+
 test('a successful exchange persists the settled receipt before returning it', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
   temporaryDirectories.push(configDirectory)
@@ -961,6 +1000,61 @@ test('a lease reclaimed mid-wait stops the poll instead of racing the peer to /e
   ).rejects.toThrow(/reclaimed by another process/i)
   expect(reads).toBe(2)
 }, 10_000)
+
+test('an ambiguous exchange failure that actually committed surfaces alreadyExchangedError instead of a generic retry', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_test',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+
+  let reads = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/exchange') && init?.method === 'POST') {
+      // The POST commits server-side but its response is lost — the caller
+      // only ever sees a plain network failure, with no key in hand.
+      throw new Error('network error: response lost')
+    }
+    reads += 1
+    if (reads === 1) {
+      // resolveTopupSession's resume read: already paid → exchange directly.
+      return sessionJson({ sessionToken: 'session', status: 'paid' })
+    }
+    // The catch's recovery recheck (after the POST above throws) finds the
+    // session now exchanged — proof the lost response's POST actually
+    // committed.
+    return sessionJson({
+      sessionToken: 'session',
+      status: 'exchanged',
+      issuedKeyId: 'key_lost',
+    })
+  }) as unknown as typeof fetch
+
+  await expect(
+    provisionAimlapiKey({
+      sessionToken: 'account-session',
+      resumeSessionToken: 'session',
+      paymentSessionId: claimed.paymentSessionId,
+      exchange: true,
+      intent,
+      amountUsd: '25',
+      noOpen: true,
+    }),
+  ).rejects.toThrow(/already exchanged for issued key key_lost/i)
+})
 
 test('email-session checkout carries the stable payment id', async () => {
   process.env.AIMLAPI_APP_URL = 'https://app.example.test'

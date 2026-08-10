@@ -1,5 +1,9 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   beginAimlapiEmailOnboarding,
   completeAimlapiCodeSignIn,
@@ -13,8 +17,20 @@ const originalEnv = {
   AIMLAPI_INFERENCE_URL: process.env.AIMLAPI_INFERENCE_URL,
 }
 
+// completeAimlapiCodeSignIn persists the sign-in key cache/lease to disk (see
+// mintOrAdoptSignInKey), so tests need an isolated config dir per test —
+// otherwise they'd read/write the real ~/.openclaude and bleed into each other.
+let configDirectory: string
+
+beforeEach(() => {
+  configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-onboarding-'))
+  setClaudeConfigHomeDirForTesting(configDirectory)
+})
+
 afterEach(() => {
   globalThis.fetch = originalFetch
+  setClaudeConfigHomeDirForTesting(undefined)
+  rmSync(configDirectory, { force: true, recursive: true })
   for (const [name, value] of Object.entries(originalEnv)) {
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
@@ -199,3 +215,39 @@ test('completeAimlapiCodeSignIn reuses a supplied key instead of minting a new o
   // No key was minted; only verify + balance were called.
   expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
 })
+
+test('two concurrent sign-ins for the same email never both mint a key', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      // Hold the POST open long enough for the concurrent call to reach its
+      // own lease-acquire attempt and observe this one still in flight
+      // (status 'held'), instead of racing it to a second POST.
+      await new Promise(resolve => setTimeout(resolve, 200))
+      return response({ key: `minted-key-${keyMints}`, id: `minted-id-${keyMints}` })
+    }
+    if (url.endsWith('/billing/balance')) {
+      return response({ balance: 100, lowBalance: false, lowBalanceThreshold: 20 })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const runOnce = () =>
+    completeAimlapiCodeSignIn('user@example.com', '123456', undefined, 'https://api.example.test/v1')
+
+  const [resultA, resultB] = await Promise.all([runOnce(), runOnce()])
+
+  // The core guarantee: exactly one POST /v1/keys happened, not two — the
+  // loser's lease-acquire attempt found the winner's lease held and adopted
+  // its cached key instead of minting (and orphaning) its own.
+  expect(keyMints).toBe(1)
+  expect(resultA.apiKey).toBe('minted-key-1')
+  expect(resultA.apiKeyId).toBe('minted-id-1')
+  expect(resultB.apiKey).toBe('minted-key-1')
+  expect(resultB.apiKeyId).toBe('minted-id-1')
+}, 10_000)

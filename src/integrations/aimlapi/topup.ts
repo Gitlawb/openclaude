@@ -199,6 +199,17 @@ function alreadyExchangedError(session: PartnerCheckoutSession): Error {
   )
 }
 
+// Marks a client.exchange transport failure as ambiguous (see
+// isAmbiguousTransportApiError): the POST may have committed server-side with
+// only its response lost. Distinguishes that case from other doExchange
+// failures (a pre-POST bail from pollUntilExchangeSettled, or a definite
+// rejection) that carry no such ambiguity and need no recovery check.
+class AmbiguousExchangeFailure extends Error {
+  constructor(readonly original: unknown) {
+    super('Ambiguous /exchange failure: the request may have committed server-side.')
+  }
+}
+
 export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<void> {
   const endpoints = resolveEndpoints()
   const client = createAimlapiClient(endpoints)
@@ -749,17 +760,28 @@ async function mintExistingAccountKeyWithLease(
       try {
         minted = await doMint()
       } catch (error) {
-        // Release so a retry proceeds promptly instead of waiting out the
-        // stale window. Best-effort: if the release itself fails the lease
-        // still expires on its own, only more slowly.
-        await releaseAimlapiKeyMintLeaseAsync(expected, owner).catch(
-          (releaseError: unknown) => {
-            logForDebugging(
-              `Failed to release the AI/ML API key-mint lease: ${String(releaseError)}`,
-              { level: 'warn' },
-            )
-          },
-        )
+        // createKey is non-idempotent and exposes no retrieval-by-id
+        // endpoint, so a transport-level failure (network error, timeout,
+        // rate-limit, 5xx) is ambiguous: the POST may have minted a key
+        // server-side before its response was lost, with no way to recover
+        // that credential here. Releasing the lease in that case would let a
+        // retry (or a racing peer) mint a second, orphaned key. Leave the
+        // lease held so it only frees once it goes stale, narrowing (not
+        // eliminating) the double-mint window. A definite rejection (a real
+        // 4xx other than 408/429) means nothing was created, so release
+        // immediately to let a retry proceed without waiting out the window.
+        if (!isAmbiguousTransportApiError(error)) {
+          // Best-effort: if the release itself fails the lease still expires
+          // on its own, only more slowly.
+          await releaseAimlapiKeyMintLeaseAsync(expected, owner).catch(
+            (releaseError: unknown) => {
+              logForDebugging(
+                `Failed to release the AI/ML API key-mint lease: ${String(releaseError)}`,
+                { level: 'warn' },
+              )
+            },
+          )
+        }
         throw error
       }
       // Persist under the same CAS before returning it, so a crash right
@@ -826,8 +848,18 @@ async function exchangeKeyWithLease(
         expected ? () => refreshAimlapiExchangeLeaseAsync(expected, owner) : undefined,
       )
     }
-    const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
-    return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }
+    try {
+      const exchanged = await client.exchange(options.sessionToken, paidToken, options.signal)
+      return { apiKey: exchanged.apiKey.trim(), apiKeyId: exchanged.apiKeyId.trim() }
+    } catch (error) {
+      // Only a transport-level failure of THIS POST is genuinely ambiguous
+      // about whether it landed server-side. A failure from the poll above
+      // (lease reclaimed, terminal session status) never reached /exchange at
+      // all, and a definite 4xx rejection here means nothing was minted —
+      // neither needs the ambiguous-outcome recovery below.
+      if (isAmbiguousTransportApiError(error)) throw new AmbiguousExchangeFailure(error)
+      throw error
+    }
   }
 
   if (!expected) return doExchange()
@@ -877,12 +909,48 @@ async function exchangeKeyWithLease(
             apiKeyId: recheck.state.apiKeyId?.trim() ?? '',
           }
         }
-        // Release the lease so a retry proceeds promptly instead of waiting out
-        // the stale window; the settled receipt supersedes it on success. If the
-        // release itself fails the lease still expires on its own (only more
-        // slowly), so this is non-fatal — but record why, so a lock/permission
-        // problem behind the delay is diagnosable. Debug logging is file-backed,
-        // so this stays safe on the Ink GUI path too.
+        if (error instanceof AmbiguousExchangeFailure) {
+          // /exchange is non-idempotent, so this thrown error is ambiguous: it
+          // can mean the POST never reached the server (safe to retry), OR
+          // that it committed server-side and only the response was lost. In
+          // the second case the session is genuinely 'exchanged' with no
+          // local receipt for it — this process is the one whose response
+          // vanished, and the key value only ever existed in that lost
+          // response, so it cannot be recovered here (the API exposes no
+          // retrieval-by-session endpoint). Re-check the session status
+          // directly (not just the local receipt) so this run surfaces the
+          // accurate "already exchanged, rotate the key" guidance immediately,
+          // instead of a transient-looking error that just invites a retry
+          // which would hit the exact same wall one round-trip later, via
+          // resolveTopupSession's own 'exchanged' handling.
+          const ambiguousSession = options.signal?.aborted
+            ? null
+            : await client.getSession(paidToken, options.signal).catch((): null => null)
+          if (ambiguousSession?.status === 'exchanged') {
+            await releaseAimlapiExchangeLeaseAsync(expected, owner).catch(
+              (releaseError: unknown) => {
+                logForDebugging(
+                  `Failed to release the AI/ML API exchange lease: ${String(releaseError)}`,
+                  { level: 'warn' },
+                )
+              },
+            )
+            throw alreadyExchangedError(ambiguousSession)
+          }
+          // Still genuinely unresolved — the recheck above found no evidence
+          // either way. Leave the lease held (instead of releasing it) so a
+          // retry or a racing peer cannot send a second /exchange POST for
+          // this one-shot session while the first's outcome is still unknown;
+          // it frees on its own once the stale window elapses.
+          throw error.original
+        }
+        // Not ambiguous: a pre-POST bail (lease reclaimed, terminal session
+        // status) or a definite rejection. Nothing was committed by this
+        // attempt, so release the lease promptly instead of waiting out the
+        // stale window. If the release itself fails the lease still expires
+        // on its own (only more slowly), so this is non-fatal — but record
+        // why, so a lock/permission problem behind the delay is diagnosable.
+        // Debug logging is file-backed, so this stays safe on the Ink GUI path.
         await releaseAimlapiExchangeLeaseAsync(expected, owner).catch(
           (releaseError: unknown) => {
             logForDebugging(
@@ -961,7 +1029,7 @@ async function pollUntilExchangeSettled(
       if (session.status !== 'exchanging') return
     } catch (error) {
       if (signal?.aborted) throw abortError(signal)
-      if (isRetryableSessionApiError(error)) {
+      if (isAmbiguousTransportApiError(error)) {
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
@@ -999,7 +1067,7 @@ async function pollUntilByKeyToppedUp(
       }
     } catch (error) {
       if (signal?.aborted) throw abortError(signal)
-      if (isRetryableSessionApiError(error)) {
+      if (isAmbiguousTransportApiError(error)) {
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
@@ -1037,7 +1105,7 @@ export async function pollUntilPaid(
       }
     } catch (error) {
       if (signal?.aborted) throw abortError(signal)
-      if (isRetryableSessionApiError(error)) {
+      if (isAmbiguousTransportApiError(error)) {
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
@@ -1056,13 +1124,16 @@ function isTerminalSessionApiError(error: unknown): boolean {
     error instanceof AimlapiApiError &&
     error.status >= 400 &&
     error.status < 500 &&
-    !isRetryableSessionApiError(error)
+    !isAmbiguousTransportApiError(error)
   )
 }
 
-// Transient transport failures (network, timeout, rate-limit, 5xx) say nothing
-// about the session's fate, so polling retries them instead of aborting.
-function isRetryableSessionApiError(error: unknown): boolean {
+// Transient transport failures (network error, timeout, rate-limit, 5xx) say
+// nothing about whether a request landed server-side: polling retries them
+// for a session's fate instead of aborting, and a non-idempotent mutation
+// (createKey, exchange) must not treat them as proof it never happened. A
+// genuine 4xx (other than 408/429) is a definitive server rejection instead.
+function isAmbiguousTransportApiError(error: unknown): boolean {
   return (
     error instanceof AimlapiApiError &&
     (error.status === 0 ||

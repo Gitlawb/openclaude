@@ -1079,3 +1079,117 @@ export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
     }
   }, target)
 }
+
+// --- Sign-in key mint lease --------------------------------------------------
+// Looking up the sign-in key cache and minting on a miss is not itself atomic:
+// two concurrent processes for the same email can each observe an empty cache
+// and both reach createKey (non-idempotent — every call mints a fresh
+// credential) before either later saveAimlapiSignInKey call elects a first
+// writer. That election only picks which mint gets CACHED; it does not stop
+// the second mint from happening, so the loser still orphans a credential.
+// This lease closes the gap by serializing the lookup-and-mint section itself:
+// a loser waits on a live lease and adopts the winner's cached key instead of
+// minting its own. Locked on the key-cache file's path (not a lease-only
+// file) so acquiring the lease and saveAimlapiSignInKey's write are mutually
+// exclusive, keeping the "check cache" read inside acquire consistent with
+// the eventual write. Same acquire/reclaim shape as the checkout-time key-mint
+// lease; see `KEY_MINT_LEASE_STALE_MS`.
+const SIGN_IN_KEY_LEASE_STALE_MS = 75_000
+
+function signInLeasePath(): string {
+  return join(getClaudeConfigHomeDir(), 'aimlapi-signin-lease.json')
+}
+
+type AimlapiSignInLeaseRecord = { owner: string; at: number }
+type AimlapiSignInLeaseStore = Record<string, AimlapiSignInLeaseRecord>
+
+function isSignInLeaseRecord(value: unknown): value is AimlapiSignInLeaseRecord {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return typeof record.owner === 'string' && Boolean(record.owner) && typeof record.at === 'number'
+}
+
+function readSignInLeaseStoreUnlocked(): AimlapiSignInLeaseStore {
+  const path = signInLeasePath()
+  if (!existsSync(path)) return {}
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (typeof raw !== 'object' || raw === null) return {}
+    const store: AimlapiSignInLeaseStore = {}
+    for (const [email, entry] of Object.entries(raw as Record<string, unknown>)) {
+      if (email && isSignInLeaseRecord(entry)) store[normalizeEmail(email)] = entry
+    }
+    return store
+  } catch {
+    return {}
+  }
+}
+
+function writeSignInLeaseStore(store: AimlapiSignInLeaseStore): void {
+  const target = signInLeasePath()
+  if (Object.keys(store).length === 0) {
+    rmSync(target, { force: true })
+  } else {
+    writeJsonAtomic(target, store)
+  }
+}
+
+/**
+ * Status of a sign-in key-mint lease attempt:
+ * - `acquired`: the caller holds the lease and is the sole process cleared to
+ *   POST /v1/keys for this email.
+ * - `cached`: a key is already recorded for this email (a peer's completed
+ *   mint, or an earlier run) — adopt it instead of minting.
+ * - `held`: a live peer holds a fresh lease and is minting — wait for its
+ *   result rather than minting in parallel.
+ */
+export type AimlapiSignInKeyLease =
+  | { status: 'acquired' }
+  | { status: 'cached'; apiKey: string; apiKeyId: string }
+  | { status: 'held'; owner: string; ageMs: number }
+
+function acquireSignInKeyLeaseOperation(email: string, owner: string): AimlapiSignInKeyLease {
+  const normalizedEmail = normalizeEmail(email)
+  const cached = readSignInKeyStoreUnlocked()[normalizedEmail]
+  if (cached) return { status: 'cached', apiKey: cached.apiKey, apiKeyId: cached.apiKeyId }
+  const store = readSignInLeaseStoreUnlocked()
+  const existing = store[normalizedEmail]
+  const now = Date.now()
+  // See acquireExchangeLeaseOperation: a future-dated lease cannot describe a
+  // live holder on this machine, so treat it as stale and reclaimable too.
+  const ageMs =
+    existing && existing.at <= now ? now - existing.at : Number.POSITIVE_INFINITY
+  if (existing && existing.owner !== owner && ageMs < SIGN_IN_KEY_LEASE_STALE_MS) {
+    return { status: 'held', owner: existing.owner, ageMs }
+  }
+  store[normalizedEmail] = { owner, at: now }
+  writeSignInLeaseStore(store)
+  return { status: 'acquired' }
+}
+
+/**
+ * Elect a single process to mint the sign-in key for this email. Async so it
+ * never blocks the Ink event loop.
+ */
+export function acquireAimlapiSignInKeyLeaseAsync(
+  email: string,
+  owner: string,
+): Promise<AimlapiSignInKeyLease> {
+  return withStateLockAsync(() => acquireSignInKeyLeaseOperation(email, owner), signInKeyPath())
+}
+
+/**
+ * Release the sign-in key-mint lease after a definite (non-ambiguous) failure
+ * so a retry proceeds promptly instead of waiting out the stale window.
+ * Best-effort and ownership-aware. Never called on success — the cached key
+ * supersedes the lease there.
+ */
+export function releaseAimlapiSignInKeyLeaseAsync(email: string, owner: string): Promise<void> {
+  return withStateLockAsync(() => {
+    const normalizedEmail = normalizeEmail(email)
+    const store = readSignInLeaseStoreUnlocked()
+    if (store[normalizedEmail]?.owner !== owner) return
+    delete store[normalizedEmail]
+    writeSignInLeaseStore(store)
+  }, signInKeyPath())
+}
