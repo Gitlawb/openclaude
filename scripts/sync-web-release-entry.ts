@@ -123,7 +123,10 @@ export function insertReleaseEntry(releasesTs: string, entry: ReleaseEntry): str
   const insertAt = index + marker.length
   const eol = detectLineEnding(releasesTs)
   const formattedEntry = formatReleaseEntry(entry).replaceAll('\n', eol)
-  return `${releasesTs.slice(0, insertAt)}${eol}${GENERATED_ENTRY_MARKER}${eol}${formattedEntry}${releasesTs.slice(insertAt)}`
+  // A merged release can leave the automation marker on the published top
+  // entry. Strip that leftover marker so only the new draft owns it.
+  const rest = stripLeadingGeneratedMarker(releasesTs.slice(insertAt), eol)
+  return `${releasesTs.slice(0, insertAt)}${eol}${GENERATED_ENTRY_MARKER}${eol}${formattedEntry}${rest}`
 }
 
 export function replaceTopReleaseEntry(releasesTs: string, entry: ReleaseEntry): string {
@@ -131,7 +134,7 @@ export function replaceTopReleaseEntry(releasesTs: string, entry: ReleaseEntry):
   const index = releasesTs.indexOf(marker)
   if (index === -1) throw new Error(`could not find releases array in ${RELEASES_TS_PATH}`)
   const insertAt = index + marker.length
-  const existing = releasesTs.slice(insertAt)
+  const existing = stripLeadingGeneratedMarker(releasesTs.slice(insertAt), detectLineEnding(releasesTs))
   const endMatch = /^  \},\r?\n/m.exec(existing)
   if (!endMatch) throw new Error(`could not find top release entry in ${RELEASES_TS_PATH}`)
   const eol = detectLineEnding(releasesTs)
@@ -151,6 +154,11 @@ export function hasGeneratedTopEntry(releasesTs: string): boolean {
 
 function detectLineEnding(value: string): '\n' | '\r\n' {
   return value.includes('\r\n') ? '\r\n' : '\n'
+}
+
+function stripLeadingGeneratedMarker(value: string, eol: '\n' | '\r\n'): string {
+  const prefix = `${eol}${GENERATED_ENTRY_MARKER}${eol}`
+  return value.startsWith(prefix) ? value.slice(prefix.length) : value
 }
 
 export function readBaseReleasesTs(baseRef: string): string {
@@ -180,11 +188,11 @@ export function syncWebReleaseEntry(options: {
   if (baseReleasesTs === null)
     throw new Error('missing base release ref; pass --base-ref <ref> or provide baseReleasesTs')
   const baseTop = readCurrentTopVersion(baseReleasesTs)
-  if (currentTop === version && currentTop === baseTop)
-    return { status: 'unchanged', version, reason: 'releases.ts already lists this version first' }
+  const generatedTop = hasGeneratedTopEntry(releasesTs)
+  const divergedFromBase = currentTop !== baseTop
 
-  const replaceGeneratedTop = currentTop !== baseTop && hasGeneratedTopEntry(releasesTs)
-  if (currentTop !== baseTop && !replaceGeneratedTop) {
+  // Unmarked divergence is hand-owned. Never overwrite it from automation.
+  if (divergedFromBase && !generatedTop) {
     if (currentTop === version)
       return { status: 'unchanged', version, reason: 'preserving hand-curated release entry' }
     throw new Error(
@@ -192,27 +200,31 @@ export function syncWebReleaseEntry(options: {
     )
   }
 
+  // Same version without a generated marker is already published or curated.
+  if (currentTop === version && !generatedTop)
+    return { status: 'unchanged', version, reason: 'releases.ts already lists this version first' }
+
   const changelog = options.changelog ?? readFileSync(CHANGELOG_PATH, 'utf8')
   const section = parseChangelogSection(changelog, version)
   if (!section) throw new Error(`no CHANGELOG.md section found for version ${version}`)
   if (section.highlights.length === 0)
     throw new Error(`CHANGELOG.md section for ${version} has no bullet highlights`)
 
-  return {
-    status: 'updated',
-    version,
-    content: replaceGeneratedTop ? replaceTopReleaseEntry(releasesTs, {
-      version: section.version,
-      date: section.date,
-      theme: deriveTheme(section.highlights),
-      highlights: section.highlights,
-    }) : insertReleaseEntry(releasesTs, {
-      version: section.version,
-      date: section.date,
-      theme: deriveTheme(section.highlights),
-      highlights: section.highlights,
-    }),
+  const entry: ReleaseEntry = {
+    version: section.version,
+    date: section.date,
+    theme: deriveTheme(section.highlights),
+    highlights: section.highlights,
   }
+
+  // Generated tops are automation-owned: refresh in place for the same version,
+  // or replace when the pending Release Please PR bumps the draft version.
+  if (generatedTop && (currentTop === version || divergedFromBase))
+    return { status: 'updated', version, content: replaceTopReleaseEntry(releasesTs, entry) }
+
+  // New version on top of the trusted base. insertReleaseEntry strips any
+  // leftover marker that remained on a previously generated published entry.
+  return { status: 'updated', version, content: insertReleaseEntry(releasesTs, entry) }
 }
 
 if (import.meta.main) {

@@ -15,18 +15,16 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Create release commits and tags.
-      pull-requests: write # Draft and update the bot-owned release PR.
+      contents: write # Create release commits/tags and push the synced releases.ts commit.
+      pull-requests: write # Keep the bot release PR draft until sync lands, then mark ready.
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
-      pr: ${{ steps.release.outputs.pr }}
     steps:
-      # Release Please pushes an existing PR branch before it observes that
-      # the PR already exists, and its draft option applies only on creation.
-      # Draft the verified bot PR first so an updated head is never exposed as
-      # ready before the exact-head validation jobs run.
+      # Release Please's draft option applies only on PR creation. Draft any
+      # existing pending bot PR before it updates the branch so an unvalidated
+      # head is not left ready for merge.
       - name: Keep an existing Release Please PR draft before updating it
         env:
           GH_REPO: ${{ github.repository }}
@@ -78,29 +76,18 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  release-pr-resolve:
-    name: Resolve Release Please PR
-    needs: release-please
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write # Return the release PR to draft while validation runs.
-    outputs:
-      found: ${{ steps.release-pr.outputs.found }}
-      number: ${{ steps.release-pr.outputs.number }}
-      branch: ${{ steps.release-pr.outputs.branch }}
-      head_sha: ${{ steps.release-pr.outputs.head_sha }}
-    steps:
-      # A rerun after a failed sync has no `pr` output because Release Please
-      # does not update an unchanged pending PR. Recover that PR explicitly;
-      # this job owns its draft/ready state while synchronization is pending.
-      - name: Resolve Release Please PR for web synchronization
+      # Resolve the pending bot PR (from the action output, or by label on
+      # reruns where Release Please leaves an unchanged PR untouched). Keep it
+      # draft, sync releases.ts from the trusted merge base, validate the sync
+      # locally, push, then mark ready. Do not wait for ordinary PR checks:
+      # GITHUB_TOKEN pushes do not start them.
+      - name: Resolve pending Release Please PR
         id: release-pr
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          RELEASE_PR_JSON: ${{ needs.release-please.outputs.pr }}
+          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
           RELEASE_REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
@@ -117,7 +104,6 @@ jobs:
               echo "expected exactly one pending Release Please PR for $RELEASE_BASE_BRANCH, found $candidate_count" >&2
               exit 1
             fi
-
             release_pr="$(jq -c '.[0]' <<<"$candidates")"
           fi
 
@@ -127,7 +113,7 @@ jobs:
             exit 1
           fi
 
-          release_pr="$(gh pr view "$number" --json number,state,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
+          release_pr="$(gh pr view "$number" --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
           state="$(jq -r .state <<<"$release_pr")"
           author="$(jq -r .author.login <<<"$release_pr")"
           base="$(jq -r .baseRefName <<<"$release_pr")"
@@ -149,313 +135,107 @@ jobs:
             exit 1
           fi
 
+          if [ "$(jq -r .isDraft <<<"$release_pr")" = "false" ]; then
+            gh pr ready "$number" --undo
+          fi
+          if [ "$(gh pr view "$number" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "failed to keep pending Release Please PR #$number in draft state" >&2
+            exit 1
+          fi
+
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Keep the release PR as a draft until web synchronization passes
+      - name: Check out Release Please PR head
         if: ${{ steps.release-pr.outputs.found == 'true' }}
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-        run: |
-          if [ "$(gh pr view "$RELEASE_PR_NUMBER" --json isDraft --jq .isDraft)" = "false" ]; then
-            gh pr ready "$RELEASE_PR_NUMBER" --undo
-          fi
-
-  release-pr-validate:
-    name: Validate Release Please PR
-    needs: release-pr-resolve
-    if: ${{ needs.release-pr-resolve.outputs.found == 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      tree_sha: ${{ steps.validated-tree.outputs.sha }}
-      commit_sha: ${{ steps.validated-tree.outputs.commit_sha }}
-    steps:
-      # Release Please's PR contains the generated changelog and manifest.
-      # Synchronize the standalone web version there, before that PR merges.
-      - name: Check out Release Please PR branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.release-pr-resolve.outputs.head_sha }}
+          ref: ${{ steps.release-pr.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve the release PR merge base
-        id: sync-base
-        env:
-          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-        run: |
-          base_sha="$(git merge-base "origin/$RELEASE_BASE_BRANCH" HEAD)"
-          if [ -z "$base_sha" ]; then
-            echo "could not resolve the release PR merge base" >&2
-            exit 1
-          fi
-          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Verify the Release Please change contract
-        env:
-          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
-        run: |
-          unexpected=false
-          while IFS= read -r path; do
-            case "$path" in
-              .release-please-manifest.json|CHANGELOG.md|package.json|web/src/data/releases.ts) ;;
-              *)
-                echo "unexpected file in Release Please PR: $path" >&2
-                unexpected=true
-                ;;
-            esac
-          done < <(git diff --name-only "$RELEASE_BASE_REF"...HEAD)
-          if [ "$unexpected" = "true" ]; then
-            exit 1
-          fi
-
-          for path in .release-please-manifest.json CHANGELOG.md package.json web/src/data/releases.ts; do
-            entry="$(git ls-tree HEAD -- "$path")"
-            if [[ "$entry" != "100644 blob "* ]]; then
-              echo "Release Please file must remain a regular non-executable blob: $path" >&2
-              exit 1
-            fi
-          done
-
-          if ! diff -u \
-            <(git show "${RELEASE_BASE_REF}:package.json" | jq -S 'del(.version)') \
-            <(jq -S 'del(.version)' package.json); then
-            echo "Release Please PR changes package.json fields other than version" >&2
-            exit 1
-          fi
-
-          if ! diff -u \
-            <(git show "${RELEASE_BASE_REF}:.release-please-manifest.json" | jq -S 'del(.["."])') \
-            <(jq -S 'del(.["."])' .release-please-manifest.json); then
-            echo "Release Please PR changes manifest fields other than the root version" >&2
-            exit 1
-          fi
-
-          package_version="$(jq -r .version package.json)"
-          manifest_version="$(jq -r '.["."]' .release-please-manifest.json)"
-          base_package_version="$(git show "${RELEASE_BASE_REF}:package.json" | jq -r .version)"
-          base_manifest_version="$(git show "${RELEASE_BASE_REF}:.release-please-manifest.json" | jq -r '.["."]')"
-          if [ "$package_version" != "$manifest_version" ] \
-            || [ "$base_package_version" != "$base_manifest_version" ]; then
-            echo "package and Release Please manifest versions do not match" >&2
-            exit 1
-          fi
-
-          BASE_VERSION="$base_package_version" NEXT_VERSION="$package_version" node -e '
-            const identifier = "(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-            const pattern = new RegExp(
-              `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)` +
-              `(?:-(${identifier}(?:\\.${identifier})*))?` +
-              `(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
-            )
-            const parse = value => {
-              const match = value.match(pattern)
-              if (!match) throw new Error(`invalid SemVer: ${value}`)
-              return {
-                core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])],
-                prerelease: match[4]?.split(".") ?? null,
-              }
-            }
-            const compare = (left, right) => {
-              for (let index = 0; index < 3; index++) {
-                if (left.core[index] !== right.core[index])
-                  return left.core[index] < right.core[index] ? -1 : 1
-              }
-              if (left.prerelease === null || right.prerelease === null)
-                return left.prerelease === right.prerelease ? 0 : left.prerelease === null ? 1 : -1
-              const length = Math.max(left.prerelease.length, right.prerelease.length)
-              for (let index = 0; index < length; index++) {
-                const a = left.prerelease[index]
-                const b = right.prerelease[index]
-                if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1
-                if (a === b) continue
-                const aNumeric = /^[0-9]+$/.test(a)
-                const bNumeric = /^[0-9]+$/.test(b)
-                if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
-                if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
-                return a < b ? -1 : 1
-              }
-              return 0
-            }
-            const base = parse(process.env.BASE_VERSION)
-            const next = parse(process.env.NEXT_VERSION)
-            if (compare(next, base) <= 0)
-              throw new Error(`release version must advance: ${process.env.BASE_VERSION} -> ${process.env.NEXT_VERSION}`)
-          '
-
-          # The bot owns this file. Rebuild it from the trusted base so a
-          # collaborator push cannot smuggle executable TypeScript into it.
-          git show "${RELEASE_BASE_REF}:web/src/data/releases.ts" > web/src/data/releases.ts
-
-      - name: Set up current Node.js for release PR validation
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24.11.x"
-
       - name: Set up Bun for release PR sync
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
           no-cache: true
 
-      - name: Sync web release entry
+      - name: Sync and validate web release entry
+        id: sync-web
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
-          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
-          bun install --frozen-lockfile
-          bun run sync:web-release -- --base-ref "$RELEASE_BASE_REF"
-          bun install --cwd web --frozen-lockfile
+          set -euo pipefail
 
-      - name: Commit synced web release entry
-        run: |
-          if git diff --quiet -- web/src/data/releases.ts; then
-            echo "releases.ts already up to date"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/src/data/releases.ts
-          commit_date="$(git show -s --format=%cI HEAD)"
-          GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
-            git commit -m "chore(web): sync releases.ts from release-please changelog"
-
-      - name: Validate synchronized release PR on current Node.js
-        env:
-          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
-        run: |
-          bun test ./scripts/sync-web-release-entry.test.ts
-          bun run check
-          bun run typecheck
-          bun run typecheck:type-tests
-          node bin/openclaude --version
-          NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
-          bun run test:provider
-          bun run test:provider-recommendation
-          bun run security:pr-scan -- --base "$RELEASE_BASE_REF" --head HEAD
-          git diff --check "$RELEASE_BASE_REF"...HEAD
-
-      - name: Set up minimum supported Node.js for release PR validation
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22.0.0"
-
-      - name: Validate synchronized release PR on the Node.js floor
-        run: |
-          bun run check
-          node bin/openclaude --version
-          NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
-          bun run test:provider
-          bun run test:provider-recommendation
-          bun run --cwd web typecheck
-          bun run --cwd web build
-
-      - name: Confirm release validation left the commit unchanged
-        run: |
-          if ! git diff --quiet || ! git diff --cached --quiet; then
-            echo "release validation changed tracked files after the synchronization commit" >&2
-            git status --short
+          base_sha="$(git merge-base "origin/$RELEASE_BASE_BRANCH" HEAD)"
+          if [ -z "$base_sha" ]; then
+            echo "could not resolve the release PR merge base" >&2
             exit 1
           fi
 
-      - name: Capture validated tree
-        id: validated-tree
-        run: |
-          echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Rebuild from the trusted base so a collaborator push cannot smuggle
+          # executable TypeScript through the bot-owned file.
+          git show "${base_sha}:web/src/data/releases.ts" > web/src/data/releases.ts
 
-      - name: Save validated web release data
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: release-web-sync-${{ needs.release-pr-resolve.outputs.number }}-${{ needs.release-pr-resolve.outputs.head_sha }}
-          path: web/src/data/releases.ts
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 30
+          bun install --frozen-lockfile
+          bun run sync:web-release -- --base-ref "$base_sha"
+          bun test ./scripts/sync-web-release-entry.test.ts
+          bun install --cwd web --frozen-lockfile
+          bun run web:typecheck
+          bun run web:build
 
-  release-pr-finalize:
-    name: Finalize Release Please PR
-    needs: [release-pr-resolve, release-pr-validate]
-    if: ${{ needs.release-pr-resolve.outputs.found == 'true' && needs.release-pr-validate.result == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # Push the exact synchronized commit validated above.
-      pull-requests: write # Mark that release PR ready after the push is verified.
-    steps:
-      - name: Check out captured Release Please PR head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.release-pr-resolve.outputs.head_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Restore validated web release data
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: release-web-sync-${{ needs.release-pr-resolve.outputs.number }}-${{ needs.release-pr-resolve.outputs.head_sha }}
-          path: web/src/data
-
-      - name: Recreate the validated synchronized commit
-        env:
-          VALIDATED_TREE_SHA: ${{ needs.release-pr-validate.outputs.tree_sha }}
-          VALIDATED_COMMIT_SHA: ${{ needs.release-pr-validate.outputs.commit_sha }}
-        run: |
           if ! git diff --quiet -- web/src/data/releases.ts; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/src/data/releases.ts
-            commit_date="$(git show -s --format=%cI HEAD)"
-            GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
-              git commit -m "chore(web): sync releases.ts from release-please changelog"
-          fi
-
-          actual_tree_sha="$(git rev-parse 'HEAD^{tree}')"
-          if [ "$actual_tree_sha" != "$VALIDATED_TREE_SHA" ]; then
-            echo "restored release data does not recreate the validated tree" >&2
-            echo "expected $VALIDATED_TREE_SHA, got $actual_tree_sha" >&2
-            exit 1
-          fi
-
-          actual_commit_sha="$(git rev-parse HEAD)"
-          if [ "$actual_commit_sha" != "$VALIDATED_COMMIT_SHA" ]; then
-            echo "restored release data does not recreate the validated commit" >&2
-            echo "expected $VALIDATED_COMMIT_SHA, got $actual_commit_sha" >&2
-            exit 1
+            git commit -m "chore(web): sync releases.ts from release-please changelog"
+          else
+            echo "releases.ts already up to date"
           fi
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
-            echo "finalization left uncommitted tracked changes" >&2
+            echo "sync validation left uncommitted tracked changes" >&2
             git status --short
             exit 1
           fi
 
       - name: Push synchronized web release entry
-        id: push-state
+        id: push-sync
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_PR_BRANCH: ${{ needs.release-pr-resolve.outputs.branch }}
-          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
-          RELEASE_PR_HEAD_SHA: ${{ needs.release-pr-resolve.outputs.head_sha }}
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
+          RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          VALIDATED_COMMIT_SHA: ${{ needs.release-pr-validate.outputs.commit_sha }}
         run: |
-          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid)"
+          set -euo pipefail
+
+          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ]; then
-            echo "release PR changed or closed during validation" >&2
+            echo "release PR changed or closed during sync" >&2
             jq . <<<"$current" >&2
             exit 1
           fi
 
+          # Stay draft until the synced commit is on the remote head.
+          if [ "$(jq -r .isDraft <<<"$current")" != "true" ]; then
+            gh pr ready "$RELEASE_PR_NUMBER" --undo
+            if [ "$(gh pr view "$RELEASE_PR_NUMBER" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "failed to keep release PR #$RELEASE_PR_NUMBER draft before push" >&2
+              exit 1
+            fi
+          fi
+
           current_sha="$(jq -r .headRefOid <<<"$current")"
+          local_sha="$(git rev-parse HEAD)"
           if [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
             auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
             GIT_CONFIG_COUNT=1 \
@@ -465,36 +245,35 @@ jobs:
               --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
               "https://github.com/${GITHUB_REPOSITORY}.git" \
               "HEAD:${RELEASE_PR_BRANCH}"
-            validated_head_sha="$(git rev-parse HEAD)"
-          elif [ "$current_sha" = "$VALIDATED_COMMIT_SHA" ]; then
-            # A failed-job rerun may start after the prior attempt pushed but
-            # failed during readiness. Accept only the exact validated commit.
-            validated_head_sha="$current_sha"
+          elif [ "$current_sha" = "$local_sha" ]; then
+            # A rerun after a successful push can skip the lease push.
+            echo "release PR already points at the synchronized commit"
           else
             echo "release PR head changed to an unvalidated commit" >&2
             jq . <<<"$current" >&2
             exit 1
           fi
 
-          echo "head_sha=$validated_head_sha" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Mark synchronized release PR ready for review
-        id: ready-state
+        if: ${{ steps.release-pr.outputs.found == 'true' && steps.push-sync.outcome == 'success' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
-          RELEASE_PR_BRANCH: ${{ needs.release-pr-resolve.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          VALIDATED_HEAD_SHA: ${{ steps.push-state.outputs.head_sha }}
+          VALIDATED_HEAD_SHA: ${{ steps.push-sync.outputs.head_sha }}
         run: |
-          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
+          set -euo pipefail
 
+          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
             || [ "$(jq -r .headRefOid <<<"$current")" != "$VALIDATED_HEAD_SHA" ]; then
-            echo "release PR no longer points at the validated commit" >&2
+            echo "release PR no longer points at the synchronized commit" >&2
             jq . <<<"$current" >&2
             if [ "$(jq -r .state <<<"$current")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$current")" = "false" ]; then
               gh pr ready "$RELEASE_PR_NUMBER" --undo
@@ -519,49 +298,6 @@ jobs:
             fi
             exit 1
           fi
-
-      - name: Return the release PR to draft after incomplete finalization
-        if: ${{ always() && steps.ready-state.outcome != 'success' }}
-        timeout-minutes: 2
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
-        run: |
-          for attempt in 1 2 3 4 5; do
-            if current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft 2>/dev/null)"; then
-              state="$(jq -r .state <<<"$current")"
-              is_draft="$(jq -r .isDraft <<<"$current")"
-
-              if [ "$state" = "CLOSED" ]; then
-                exit 0
-              fi
-              if [ "$state" = "OPEN" ] && [ "$is_draft" = "true" ]; then
-                exit 0
-              fi
-              if [ "$state" != "OPEN" ]; then
-                echo "release PR #$RELEASE_PR_NUMBER reached terminal state $state before it could be re-drafted" >&2
-                exit 1
-              fi
-
-              if gh pr ready "$RELEASE_PR_NUMBER" --undo; then
-                if after="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft 2>/dev/null)"; then
-                  after_state="$(jq -r .state <<<"$after")"
-                  after_draft="$(jq -r .isDraft <<<"$after")"
-                  if [ "$after_state" = "CLOSED" ] \
-                    || { [ "$after_state" = "OPEN" ] && [ "$after_draft" = "true" ]; }; then
-                    exit 0
-                  fi
-                fi
-              fi
-            fi
-
-            echo "attempt $attempt failed to return release PR #$RELEASE_PR_NUMBER to draft" >&2
-            sleep "$((attempt * 2))"
-          done
-
-          echo "release PR #$RELEASE_PR_NUMBER may still be ready after incomplete finalization" >&2
-          exit 1
 
   # Zero-warning install gate: pack the release tag and install it globally in
   # a sandbox (cold + upgrade scenarios) on the supported Node floor (22 →

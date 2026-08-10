@@ -92,6 +92,54 @@ describe('syncWebReleaseEntry', () => {
     if (result.status !== 'updated') return
     expect(result.content).toContain('version: "0.29.0"')
     expect(result.content).toContain('version: "0.28.0"')
+    expect(result.content.match(new RegExp(GENERATED_ENTRY_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1)
+  })
+
+  test('strips the leftover automation marker across consecutive restore-from-base syncs', () => {
+    const first = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG,
+      releasesTs: SAMPLE_RELEASES_TS,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
+      manifestVersion: '0.28.0',
+    })
+    expect(first.status).toBe('updated')
+    if (first.status !== 'updated') return
+
+    // CI restores releases.ts from merge-base after the previous release merged,
+    // so the working tree matches the marked published entry on main.
+    const second = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0'),
+      releasesTs: first.content,
+      baseReleasesTs: first.content,
+      manifestVersion: '0.29.0',
+    })
+    expect(second.status).toBe('updated')
+    if (second.status !== 'updated') return
+    expect(readCurrentTopVersion(second.content)).toBe('0.29.0')
+    expect(second.content).toContain('version: "0.28.0"')
+    expect(second.content).toContain("version: '0.27.0'")
+    expect(second.content.match(new RegExp(GENERATED_ENTRY_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1)
+  })
+
+  test('refreshes a generated same-version entry when changelog bullets change', () => {
+    const generated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-09',
+      theme: 'stale',
+      highlights: ['stale highlight'],
+    })
+    const result = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG,
+      releasesTs: generated,
+      baseReleasesTs: generated,
+      manifestVersion: '0.28.0',
+    })
+
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') return
+    expect(result.content).toContain('auth: opt-in loopback proxy hosts')
+    expect(result.content).not.toContain('stale highlight')
+    expect(result.content.match(new RegExp(GENERATED_ENTRY_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1)
   })
 
   test('replaces an updated entry for the same release version', () => {
