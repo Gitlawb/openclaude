@@ -125,6 +125,7 @@ jobs:
       contents: read
     outputs:
       tree_sha: ${{ steps.validated-tree.outputs.sha }}
+      commit_sha: ${{ steps.validated-tree.outputs.commit_sha }}
     steps:
       # Release Please's PR contains the generated changelog and manifest.
       # Synchronize the standalone web version there, before that PR merges.
@@ -272,7 +273,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add web/src/data/releases.ts
-          git commit -m "chore(web): sync releases.ts from release-please changelog"
+          commit_date="$(git show -s --format=%cI HEAD)"
+          GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
+            git commit -m "chore(web): sync releases.ts from release-please changelog"
 
       - name: Validate synchronized release PR on current Node.js
         env:
@@ -314,7 +317,9 @@ jobs:
 
       - name: Capture validated tree
         id: validated-tree
-        run: echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Save validated web release data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -323,7 +328,7 @@ jobs:
           path: web/src/data/releases.ts
           if-no-files-found: error
           overwrite: true
-          retention-days: 1
+          retention-days: 30
 
   release-pr-finalize:
     name: Finalize Release Please PR
@@ -350,18 +355,28 @@ jobs:
       - name: Recreate the validated synchronized commit
         env:
           VALIDATED_TREE_SHA: ${{ needs.release-pr-validate.outputs.tree_sha }}
+          VALIDATED_COMMIT_SHA: ${{ needs.release-pr-validate.outputs.commit_sha }}
         run: |
           if ! git diff --quiet -- web/src/data/releases.ts; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/src/data/releases.ts
-            git commit -m "chore(web): sync releases.ts from release-please changelog"
+            commit_date="$(git show -s --format=%cI HEAD)"
+            GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
+              git commit -m "chore(web): sync releases.ts from release-please changelog"
           fi
 
           actual_tree_sha="$(git rev-parse 'HEAD^{tree}')"
           if [ "$actual_tree_sha" != "$VALIDATED_TREE_SHA" ]; then
             echo "restored release data does not recreate the validated tree" >&2
             echo "expected $VALIDATED_TREE_SHA, got $actual_tree_sha" >&2
+            exit 1
+          fi
+
+          actual_commit_sha="$(git rev-parse HEAD)"
+          if [ "$actual_commit_sha" != "$VALIDATED_COMMIT_SHA" ]; then
+            echo "restored release data does not recreate the validated commit" >&2
+            echo "expected $VALIDATED_COMMIT_SHA, got $actual_commit_sha" >&2
             exit 1
           fi
 
@@ -380,7 +395,7 @@ jobs:
           RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
           RELEASE_PR_HEAD_SHA: ${{ needs.release-pr-resolve.outputs.head_sha }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          VALIDATED_TREE_SHA: ${{ needs.release-pr-validate.outputs.tree_sha }}
+          VALIDATED_COMMIT_SHA: ${{ needs.release-pr-validate.outputs.commit_sha }}
         run: |
           current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid)"
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
@@ -398,17 +413,14 @@ jobs:
               "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
               "HEAD:${RELEASE_PR_BRANCH}"
             validated_head_sha="$(git rev-parse HEAD)"
-          else
+          elif [ "$current_sha" = "$VALIDATED_COMMIT_SHA" ]; then
             # A failed-job rerun may start after the prior attempt pushed but
-            # failed during readiness. Accept only the exact validated tree.
-            git fetch --no-tags origin "$current_sha"
-            current_tree_sha="$(git rev-parse "${current_sha}^{tree}")"
-            if [ "$current_tree_sha" != "$VALIDATED_TREE_SHA" ]; then
-              echo "release PR head changed to an unvalidated tree" >&2
-              jq . <<<"$current" >&2
-              exit 1
-            fi
+            # failed during readiness. Accept only the exact validated commit.
             validated_head_sha="$current_sha"
+          else
+            echo "release PR head changed to an unvalidated commit" >&2
+            jq . <<<"$current" >&2
+            exit 1
           fi
 
           echo "head_sha=$validated_head_sha" >> "$GITHUB_OUTPUT"
