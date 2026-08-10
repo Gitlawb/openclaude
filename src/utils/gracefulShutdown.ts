@@ -39,6 +39,7 @@ import { runCleanupFunctions } from './cleanupRegistry.js'
 import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
+import { waitForInterruptionTraceFlush } from './interruptionTrace.js'
 import { isEnvTruthy } from './envUtils.js'
 import { getCurrentSessionTitle, sessionIdExists } from './sessionStorage.js'
 import { sleep } from './sleep.js'
@@ -533,6 +534,11 @@ export async function gracefulShutdown(
       // stderr may be closed (e.g., SSH disconnect). Ignore write errors.
     }
   }
+
+  // Root interruption traces are queued off the cancellation path so they
+  // cannot delay abort. Drain that queue before the final process exit; the
+  // existing shutdown failsafe remains the upper bound for a blocked target.
+  await waitForInterruptionTraceFlush()
 
   forceExit(exitCode)
 }

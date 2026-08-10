@@ -50,4 +50,30 @@ describe('driveQueryEvents', () => {
     ).rejects.toThrow('consumer failed')
     expect(finalized).toBe(true)
   })
+
+  test('does not let generator cleanup mask an event-handler failure', async () => {
+    const generator: AsyncGenerator<{ type: string }, void> = {
+      next: async () => ({ done: false, value: { type: 'stream_event' } }),
+      return: async () => {
+        throw new Error('generator cleanup failed')
+      },
+      throw: async error => {
+        throw error
+      },
+      [Symbol.asyncIterator]() {
+        return this
+      },
+      [Symbol.asyncDispose]: async () => {},
+    }
+
+    await expect(
+      driveQueryEvents(
+        generator,
+        () => {},
+        () => {
+          throw new Error('consumer failed')
+        },
+      ),
+    ).rejects.toThrow('consumer failed')
+  })
 })

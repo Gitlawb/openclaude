@@ -190,7 +190,7 @@ function handleInteractivePermission(
           ctx.removeFromQueue()
         }
       },
-      onAbort() {
+      onAbort(source, causalEventId) {
         if (!claim()) return
         if (bridgeCallbacks && bridgeRequestId) {
           bridgeCallbacks.sendResponse(bridgeRequestId, {
@@ -205,7 +205,12 @@ function handleInteractivePermission(
           { decision: 'reject', source: { type: 'user_abort' } },
           { permissionPromptStartTimeMs },
         )
-        resolveOnce(ctx.cancelAndAbort(undefined, true))
+        resolveOnce(
+          ctx.cancelAndAbort(undefined, true, undefined, {
+            source: source ?? 'permission_dialog',
+            causalEventId,
+          }),
+        )
       },
       async onAllow(
         updatedInput,

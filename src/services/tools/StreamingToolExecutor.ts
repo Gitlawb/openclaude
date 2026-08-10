@@ -13,6 +13,10 @@ import {
   getMissingToolResultAbortMessage,
   shouldCreateUserInterruptionMessage,
 } from '../../utils/abortReasons.js'
+import {
+  getInterruptionSignalAbortEventId,
+  requestAbort,
+} from '../../utils/interruptionTrace.js'
 import { runToolUse } from './toolExecution.js'
 
 type MessageUpdate = {
@@ -77,7 +81,11 @@ export class StreamingToolExecutor {
   discard(): void {
     if (this.discarded) return
     this.discarded = true
-    this.siblingAbortController.abort('streaming_fallback')
+    requestAbort(this.siblingAbortController, 'streaming_fallback', {
+      source: 'streaming_fallback',
+      subsystem: 'streaming_tool_executor',
+      controllerRole: 'sibling-tools',
+    })
     const activeLifecycleToolUseIds = new Set(
       this.toolUseContext.queryLifecycle
         ?.snapshot()
@@ -364,8 +372,17 @@ export class StreamingToolExecutor {
             !this.toolUseContext.abortController.signal.aborted &&
             !this.discarded
           ) {
-            this.toolUseContext.abortController.abort(
+            requestAbort(
+              this.toolUseContext.abortController,
               toolAbortController.signal.reason,
+              {
+                source: 'tool_abort_propagation',
+                causalEventId: getInterruptionSignalAbortEventId(
+                  toolAbortController.signal,
+                ),
+                subsystem: 'streaming_tool_executor',
+                controllerRole: 'query-root',
+              },
             )
           }
         },
@@ -414,7 +431,11 @@ export class StreamingToolExecutor {
           if (tool.block.name === BASH_TOOL_NAME) {
             this.hasErrored = true
             this.erroredToolDescription = this.getToolDescription(tool)
-            this.siblingAbortController.abort('sibling_error')
+            requestAbort(this.siblingAbortController, 'sibling_error', {
+              source: 'sibling_error',
+              subsystem: 'streaming_tool_executor',
+              controllerRole: 'sibling-tools',
+            })
           }
         }
 

@@ -45,6 +45,10 @@ import { SYNTHETIC_OUTPUT_TOOL_NAME } from './tools/SyntheticOutputTool/Syntheti
 import type { Message } from './types/message.js'
 import type { OrphanedPermission } from './types/textInputTypes.js'
 import { createAbortController } from './utils/abortController.js'
+import {
+  registerInterruptionController,
+  requestAbort,
+} from './utils/interruptionTrace.js'
 import { validateArrayOf, assertNonEmptyString, assertObject, assertFunction } from './utils/validation.js'
 import { invalidateRemovedToolSchemas } from './utils/toolSchemaCache.js'
 import type { AttributionState } from './utils/commitAttribution.js'
@@ -205,6 +209,10 @@ export class QueryEngine {
     this.config = config
     this.mutableMessages = config.initialMessages ?? []
     this.abortController = config.abortController ?? createAbortController()
+    registerInterruptionController(this.abortController, {
+      subsystem: 'query_engine',
+      controllerRole: 'query-root',
+    })
     this.permissionDenials = []
     this.readFileState = config.readFileCache
     this.totalUsage = EMPTY_USAGE
@@ -1212,8 +1220,12 @@ export class QueryEngine {
     }
   }
 
-  interrupt(): void {
-    this.abortController.abort()
+  interrupt(source = 'programmatic_interrupt'): void {
+    requestAbort(this.abortController, undefined, {
+      source,
+      subsystem: 'query_engine',
+      controllerRole: 'query-root',
+    })
   }
 
   getMessages(): readonly Message[] {

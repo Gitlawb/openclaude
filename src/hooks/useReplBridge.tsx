@@ -20,10 +20,7 @@ import type { Message } from '../types/message.js';
 import { getCwd } from '../utils/cwd.js';
 import { logForDebugging } from '../utils/debug.js';
 import { errorMessage } from '../utils/errors.js';
-import {
-  requestAbort,
-  traceInterruptionEvent,
-} from '../utils/interruptionTrace.js';
+import { requestBridgeInterrupt } from '../utils/replInterruption.js';
 import { enqueue } from '../utils/messageQueueManager.js';
 import { buildSystemInitMessage } from '../utils/messages/systemInit.js';
 import { createBridgeStatusMessage, createSystemMessage } from '../utils/messages.js';
@@ -397,22 +394,7 @@ export function useReplBridge(messages: Message[], setMessages: (action: React.S
             onInboundMessage: handleInboundMessage,
             onPermissionResponse: handlePermissionResponse,
             onInterrupt() {
-              const controller = abortControllerRef.current;
-              const causalEventId = traceInterruptionEvent(
-                'input.bridge_interrupt',
-                {
-                  source: 'bridge_interrupt',
-                  subsystem: 'repl_bridge',
-                },
-              );
-              if (controller) {
-                requestAbort(controller, 'interrupt', {
-                  source: 'bridge_interrupt',
-                  subsystem: 'repl_bridge',
-                  controllerRole: 'query-root',
-                  causalEventId,
-                });
-              }
+              requestBridgeInterrupt(abortControllerRef);
             },
             onSetModel(model) {
               const resolved = model === 'default' ? null : model ?? null;

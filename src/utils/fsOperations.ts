@@ -97,6 +97,12 @@ export type FsOperations = {
   }
   /** Appends string to file */
   appendFileSync(path: string, data: string, options?: { mode?: number }): void
+  /** Atomically opens a regular file without following the final symlink and appends data. */
+  appendRegularFile(
+    path: string,
+    data: string,
+    options?: { mode?: number },
+  ): Promise<void>
   /** Copies file from source to destination */
   copyFileSync(src: string, dest: string): void
   /** Deletes file */
@@ -544,6 +550,32 @@ export const NodeFsOperations: FsOperations = {
       }
     }
     fs.appendFileSync(path, data)
+  },
+
+  async appendRegularFile(path, data, options) {
+    if (process.platform === 'win32' && fs.existsSync(path)) {
+      const stats = fs.lstatSync(path)
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error('Diagnostics target is not a regular file')
+      }
+    }
+    const flags = process.platform === 'win32'
+      ? 'a'
+      : fs.constants.O_APPEND |
+        fs.constants.O_CREAT |
+        fs.constants.O_NONBLOCK |
+        fs.constants.O_WRONLY |
+        fs.constants.O_NOFOLLOW
+    const handle = await open(path, flags, options?.mode ?? 0o600)
+    try {
+      const stats = await handle.stat()
+      if (!stats.isFile()) {
+        throw new Error('Diagnostics target is not a regular file')
+      }
+      await handle.writeFile(data, { encoding: 'utf8' })
+    } finally {
+      await handle.close()
+    }
   },
 
   copyFileSync(src, dest) {

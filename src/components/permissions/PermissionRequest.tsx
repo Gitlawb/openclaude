@@ -120,7 +120,7 @@ export type ToolUseConfirm<Input extends AnyObject = AnyObject> = {
   classifierMatchedRule?: string;
   workerBadge?: WorkerBadgeProps;
   onUserInteraction(): void;
-  onAbort(): void;
+  onAbort(source?: string, causalEventId?: string): void;
   onDismissCheckmark?(): void;
   onAllow(updatedInput: z.infer<Input>, permissionUpdates: PermissionUpdate[], feedback?: string, contentBlocks?: ContentBlockParam[]): void;
   onReject(feedback?: string, contentBlocks?: ContentBlockParam[]): void;

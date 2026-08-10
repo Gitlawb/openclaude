@@ -177,6 +177,8 @@ import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import {
   flushInterruptionTrace,
+  getInterruptionSignalAbortEventId,
+  requestAbort,
   traceInterruptionEvent,
 } from 'src/utils/interruptionTrace.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
@@ -2138,14 +2140,25 @@ async function* queryModel(
     function closeStreamIterator(
       iterator: AsyncIterator<BetaRawMessageStreamEvent>,
       reason: Error,
+      source: 'claude_stream_watchdog' | 'claude_stream_parent',
+      causalEventId?: string,
     ): void {
       const activeStream = stream
-      releaseStreamResources()
       try {
-        activeStream?.controller?.abort(reason)
+        if (activeStream?.controller) {
+          requestAbort(activeStream.controller, reason, {
+            source,
+            causalEventId,
+            subsystem: 'claude_stream',
+            transport: 'anthropic_messages',
+            model: options.model,
+            controllerRole: 'provider-stream',
+          })
+        }
       } catch {
         // Ignore - the stream may already be closed by the SDK.
       }
+      releaseStreamResources()
 
       try {
         const returned = iterator.return?.()
@@ -2168,7 +2181,7 @@ async function* queryModel(
         { level: 'error' },
       )
       logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
-      traceInterruptionEvent('claude_stream.idle_timeout', {
+      const causalEventId = traceInterruptionEvent('claude_stream.idle_timeout', {
         subsystem: 'claude_stream',
         transport: 'anthropic_messages',
         model: options.model,
@@ -2183,7 +2196,12 @@ async function* queryModel(
         timeout_ms: STREAM_IDLE_TIMEOUT_MS,
       })
 
-      closeStreamIterator(iterator, timeoutError)
+      closeStreamIterator(
+        iterator,
+        timeoutError,
+        'claude_stream_watchdog',
+        causalEventId,
+      )
     }
 
     function readNextStreamPart(
@@ -2191,7 +2209,12 @@ async function* queryModel(
     ): Promise<IteratorResult<BetaRawMessageStreamEvent>> {
       if (signal.aborted) {
         const abortError = new APIUserAbortError()
-        closeStreamIterator(iterator, abortError)
+        closeStreamIterator(
+          iterator,
+          abortError,
+          'claude_stream_parent',
+          getInterruptionSignalAbortEventId(signal),
+        )
         return Promise.reject(abortError)
       }
 
@@ -2217,13 +2240,20 @@ async function* queryModel(
         }
         const onAbort = () => {
           const abortError = new APIUserAbortError()
-          traceInterruptionEvent('claude_stream.parent_abort', {
+          const parentCausalEventId = getInterruptionSignalAbortEventId(signal)
+          const causalEventId = traceInterruptionEvent('claude_stream.parent_abort', {
             subsystem: 'claude_stream',
             transport: 'anthropic_messages',
             model: options.model,
             reason: signal.reason,
+            causalEventId: parentCausalEventId,
           })
-          closeStreamIterator(iterator, abortError)
+          closeStreamIterator(
+            iterator,
+            abortError,
+            'claude_stream_parent',
+            causalEventId ?? parentCausalEventId,
+          )
           settleReject(abortError)
         }
 
@@ -2914,6 +2944,7 @@ async function* queryModel(
         model: options.model,
         trigger: streamIdleAborted ? 'watchdog' : 'other',
       })
+      flushInterruptionTrace('claude_stream_fallback_started')
       logEvent('tengu_nonstreaming_fallback_started', {
         request_id: (streamRequestId ??
           'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -3317,7 +3348,11 @@ export function cleanupStream(
   try {
     // Abort the stream via its controller if not already aborted
     if (!stream.controller.signal.aborted) {
-      stream.controller.abort()
+      requestAbort(stream.controller, undefined, {
+        source: 'claude_stream_cleanup',
+        subsystem: 'claude_stream',
+        controllerRole: 'provider-stream',
+      })
     }
   } catch {
     // Ignore - stream may already be closed

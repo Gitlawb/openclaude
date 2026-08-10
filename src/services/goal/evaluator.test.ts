@@ -6,6 +6,15 @@ import {
   evaluateGoal,
   type GoalModelCaller,
 } from './evaluator.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 function user(uuid: string, content: string) {
   return {
@@ -27,6 +36,34 @@ function assistant(uuid: string, content: string) {
 }
 
 describe('goal evaluator', () => {
+  test.serial('traces provider failures without serializing the error message', async () => {
+    await acquireSharedMutationLock('goal/evaluator trace')
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    try {
+      await evaluateGoal({
+        goal: createGoalState('finish implementation'),
+        messages: [],
+        signal: new AbortController().signal,
+        isNonInteractiveSession: false,
+        modelCaller: async () => {
+          throw new Error('private provider detail')
+        },
+      })
+
+      const serialized = JSON.stringify(__getInterruptionTraceSnapshotForTests())
+      expect(serialized).toContain('goal.evaluation_failed')
+      expect(serialized).not.toContain('private provider detail')
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      releaseSharedMutationLock()
+    }
+  })
+
   test('valid complete JSON', async () => {
     const caller: GoalModelCaller = async () =>
       JSON.stringify({

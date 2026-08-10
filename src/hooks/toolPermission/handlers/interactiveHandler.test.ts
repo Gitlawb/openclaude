@@ -9,7 +9,7 @@ import {
 // bypasses resolveOnce fails here instead of silently stranding the watchdog.
 
 type QueueItem = {
-  onAbort: () => void
+  onAbort: (source?: string, causalEventId?: string) => void
   onAllow: (
     updatedInput: Record<string, unknown>,
     permissionUpdates: unknown[],
@@ -118,10 +118,19 @@ describe('handleInteractivePermission watchdog suspension', () => {
   })
 
   test('resumes exactly once on abort', () => {
-    const { getQueueItem, resume, resolve } = setup()
-    getQueueItem().onAbort()
+    const { ctx, getQueueItem, resume, resolve } = setup()
+    getQueueItem().onAbort('cancel_keybinding', 'input-event-1')
     expect(resume).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledTimes(1)
+    expect(ctx.cancelAndAbort).toHaveBeenCalledWith(
+      undefined,
+      true,
+      undefined,
+      {
+        source: 'cancel_keybinding',
+        causalEventId: 'input-event-1',
+      },
+    )
   })
 
   test('resumes only once when two resolution paths race', async () => {

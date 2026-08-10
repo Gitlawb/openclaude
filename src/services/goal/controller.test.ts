@@ -8,6 +8,15 @@ import {
 } from './controller.js'
 import type { GoalState } from './types.js'
 import type { AssistantMessage } from '../../types/message.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 
 function assistant(uuid: string, text: string) {
   // Minimal fixture — cast rather than fabricate the full envelope.
@@ -57,6 +66,47 @@ async function drain(
 }
 
 describe('goal continuation controller', () => {
+  test.serial('traces goal evaluation start and completion', async () => {
+    await acquireSharedMutationLock('goal/controller trace')
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    try {
+      const { context } = makeContext()
+      await drain(
+        evaluateGoalAfterTurn({
+          messagesForQuery: [],
+          assistantMessages: [assistant('assistant-trace', 'Done.')],
+          toolUseContext: context,
+          querySource: 'repl_main_thread',
+          deps: {
+            evaluateGoal: async () => ({
+              complete: true,
+              confidence: 1,
+              decision: 'complete',
+              reason: 'done',
+              nextInstruction: null,
+            }),
+            saveGoalState: async () => {},
+          },
+        }),
+      )
+
+      expect(__getInterruptionTraceSnapshotForTests().map(entry => entry.event)).toEqual(
+        expect.arrayContaining([
+          'goal.evaluation_started',
+          'goal.evaluation_completed',
+        ]),
+      )
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      releaseSharedMutationLock()
+    }
+  })
+
   test('evaluator complete => no blocking error, goal achieved', async () => {
     const { context, getState } = makeContext()
     const deps: GoalEvaluationDeps = {

@@ -234,6 +234,10 @@ import {
   traceInterruptionEvent,
 } from '../utils/interruptionTrace.js';
 import { driveQueryEvents } from '../utils/queryEventDriver.js';
+import {
+  requestBackgroundHandoffAbort,
+  requestPriorityNowAbort,
+} from '../utils/replInterruption.js';
 import { MCPConnectionManager } from 'src/services/mcp/MCPConnectionManager.js';
 import { useFeedbackSurvey } from 'src/components/FeedbackSurvey/useFeedbackSurvey.js';
 import { useMemorySurvey } from 'src/components/FeedbackSurvey/useMemorySurvey.js';
@@ -2463,7 +2467,7 @@ export function REPL({
     }
     if (focusedInputDialog === 'tool-permission') {
       // Tool use confirm handles the abort signal itself
-      toolUseConfirmQueue[0]?.onAbort();
+      toolUseConfirmQueue[0]?.onAbort(cancelSource, causalEventId);
       setToolUseConfirmQueue([]);
     } else if (focusedInputDialog === 'prompt') {
       // Reject all pending prompts and clear the queue
@@ -3059,13 +3063,7 @@ export function REPL({
     // but its controller must be reachable during preparation so Escape can
     // cancel the handoff before it dispatches a provider request.
     setAbortController(backgroundSession.abortController);
-    if (abortController) {
-      requestAbort(abortController, 'background', {
-        source: 'background_handoff',
-        subsystem: 'repl',
-        controllerRole: 'query-root',
-      });
-    }
+    requestBackgroundHandoffAbort(abortController);
   }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification, terminalTitle]);
   const {
     handleBackgroundSession
@@ -4720,14 +4718,7 @@ export function REPL({
   // (e.g. from a chat UI client via UDS).
   useEffect(() => {
     if (queuedCommands.some(cmd => cmd.priority === 'now')) {
-      const currentController = abortControllerRef.current;
-      if (currentController) {
-        requestAbort(currentController, 'interrupt', {
-          source: 'priority_now',
-          subsystem: 'repl',
-          controllerRole: 'query-root',
-        });
-      }
+      requestPriorityNowAbort(abortControllerRef);
     }
   }, [queuedCommands]);
 

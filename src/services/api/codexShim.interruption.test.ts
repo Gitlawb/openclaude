@@ -4,7 +4,12 @@ import { codexStreamToAnthropic } from './codexShim.js'
 import { QueryGuard, type QueryGuardTimeoutReason } from '../../utils/QueryGuard.js'
 import type { QueryGuardTimeoutInfo } from '../../utils/queryLifecycle.js'
 import { driveQueryEvents } from '../../utils/queryEventDriver.js'
-import { requestAbort } from '../../utils/interruptionTrace.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+  requestAbort,
+} from '../../utils/interruptionTrace.js'
 
 async function bounded<T>(promise: Promise<T>, timeoutMs = 500): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -29,6 +34,7 @@ function makeTimedStream(
 ): {
   response: Response
   cancelReasons: unknown[]
+  getEmissionCount: () => number
   stop: () => void
 } {
   const cancelReasons: unknown[] = []
@@ -36,8 +42,10 @@ function makeTimedStream(
   let index = 0
   let timer: ReturnType<typeof setInterval> | undefined
   let stopped = false
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      streamController = controller
       timer = setInterval(() => {
         if (stopped) return
         try {
@@ -56,9 +64,15 @@ function makeTimedStream(
   return {
     response: new Response(stream),
     cancelReasons,
+    getEmissionCount: () => index,
     stop: () => {
       stopped = true
       if (timer !== undefined) clearInterval(timer)
+      try {
+        streamController?.close()
+      } catch {
+        // The production reader may already have cancelled the stream.
+      }
     },
   }
 }
@@ -90,20 +104,36 @@ async function driveWithGuard(
     })
   })
   const events: AnthropicStreamEvent[] = []
-  const result = await bounded(
-    driveQueryEvents(
-      codexStreamToAnthropic(response, 'gpt-test', controller.signal, {
-        idleTimeoutMs: 45,
-      }),
-      reason => guard.registerActivity(reason, start.generation),
-      event => events.push(event),
-    ).then(
-      () => ({ status: 'resolved' as const }),
-      error => ({ status: 'rejected' as const, error }),
-    ),
+  const stream = codexStreamToAnthropic(
+    response,
+    'gpt-test',
+    controller.signal,
+    { idleTimeoutMs: 45 },
   )
-  if (!timeout) throw new Error('QueryGuard did not own the terminal decision')
-  return { events, timeout, result, signalReason: controller.signal.reason }
+  try {
+    const result = await bounded(
+      driveQueryEvents(
+        stream,
+        reason => guard.registerActivity(reason, start.generation),
+        event => events.push(event),
+      ).then(
+        () => ({ status: 'resolved' as const }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+    )
+    if (!timeout) throw new Error('QueryGuard did not own the terminal decision')
+    return { events, timeout, result, signalReason: controller.signal.reason }
+  } finally {
+    if (!controller.signal.aborted) {
+      requestAbort(controller, 'test-cleanup', {
+        source: 'issue_1830_test_cleanup',
+        subsystem: 'issue_1830_test',
+        controllerRole: 'query-root',
+      })
+    }
+    guard.forceEnd('unknown', 'test-cleanup')
+    await bounded(stream.return(undefined), 100).catch(() => {})
+  }
 }
 
 describe('issue #1830 Codex interruption ownership', () => {
@@ -123,21 +153,26 @@ describe('issue #1830 Codex interruption ownership', () => {
       { idleTimeoutMs: 25 },
     )[Symbol.asyncIterator]()
 
-    expect((await bounded(iterator.next())).value?.type).toBe('message_start')
-    const result = await bounded(
-      iterator.next().then(
-        value => ({ status: 'resolved' as const, value }),
-        error => ({ status: 'rejected' as const, error }),
-      ),
-    )
-
-    expect(result.status).toBe('rejected')
-    if (result.status === 'rejected') {
-      expect((result.error as Error).message).toContain(
-        'Codex SSE stream idle',
+    try {
+      expect((await bounded(iterator.next())).value?.type).toBe('message_start')
+      const result = await bounded(
+        iterator.next().then(
+          value => ({ status: 'resolved' as const, value }),
+          error => ({ status: 'rejected' as const, error }),
+        ),
       )
+
+      expect(result.status).toBe('rejected')
+      if (result.status === 'rejected') {
+        expect((result.error as Error).message).toContain(
+          'Codex SSE stream idle',
+        )
+      }
+      expect(cancelReasons).toHaveLength(1)
+    } finally {
+      const returned = iterator.return?.(undefined)
+      if (returned) await bounded(Promise.resolve(returned), 100).catch(() => {})
     }
-    expect(cancelReasons).toHaveLength(1)
   })
 
   test('parent abort settles the pending read before its idle deadline', async () => {
@@ -156,24 +191,33 @@ describe('issue #1830 Codex interruption ownership', () => {
       controller.signal,
       { idleTimeoutMs: 1_000 },
     )[Symbol.asyncIterator]()
-    expect((await bounded(iterator.next())).value?.type).toBe('message_start')
+    try {
+      expect((await bounded(iterator.next())).value?.type).toBe('message_start')
 
-    const pending = iterator.next().then(
-      value => ({ status: 'resolved' as const, value }),
-      error => ({ status: 'rejected' as const, error }),
-    )
-    controller.abort('query-timeout')
-    const result = await bounded(pending)
+      const pending = iterator.next().then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      )
+      controller.abort('query-timeout')
+      const result = await bounded(pending)
 
-    expect(controller.signal.reason).toBe('query-timeout')
-    expect(result.status).toBe('rejected')
-    if (result.status === 'rejected') {
-      expect((result.error as { name?: unknown }).name).toBe('AbortError')
+      expect(controller.signal.reason).toBe('query-timeout')
+      expect(result.status).toBe('rejected')
+      if (result.status === 'rejected') {
+        expect((result.error as { name?: unknown }).name).toBe('AbortError')
+      }
+      expect(cancelReasons).toHaveLength(1)
+    } finally {
+      if (!controller.signal.aborted) controller.abort('test-cleanup')
+      const returned = iterator.return?.(undefined)
+      if (returned) await bounded(Promise.resolve(returned), 100).catch(() => {})
     }
-    expect(cancelReasons).toHaveLength(1)
   })
 
   test('keepalives and parsed-but-ignored frames cannot reset QueryGuard', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
     const timed = makeTimedStream(
       index => {
         if (index % 3 === 0) return ': keepalive\n\n'
@@ -198,9 +242,29 @@ describe('issue #1830 Codex interruption ownership', () => {
       expect(outcome.events.map(event => event.type)).toEqual([
         'message_start',
       ])
+      const readerClosed = __getInterruptionTraceSnapshotForTests()
+        .filter(entry => entry.event === 'codex_stream.cancelled')
+        .at(-1)
+      const traceEvents = __getInterruptionTraceSnapshotForTests().map(
+        entry => entry.event,
+      )
+      expect(timed.getEmissionCount()).toBeGreaterThan(3)
+      expect(readerClosed?.rawByteCount).toBeGreaterThan(0)
+      expect(readerClosed?.parsedFrameCount).toBeGreaterThan(0)
+      expect(readerClosed?.ignoredFrameCount).toBeGreaterThan(0)
+      expect(traceEvents.indexOf('codex_stream.converter_closed')).toBeGreaterThan(
+        traceEvents.indexOf('codex_stream.cancelled'),
+      )
       expect(timed.cancelReasons).toHaveLength(1)
     } finally {
       timed.stop()
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
     }
   })
 
@@ -248,13 +312,21 @@ describe('issue #1830 Codex interruption ownership', () => {
         controller.signal,
         { idleTimeoutMs: 1_000 },
       )[Symbol.asyncIterator]()
-      expect((await bounded(iterator.next())).value?.type).toBe(
-        'message_start',
-      )
-      const pending = iterator.next().catch(error => error as unknown)
-      controller.abort('user-cancel')
-      await bounded(pending)
-      expect(cancelReasons).toHaveLength(1)
+      try {
+        expect((await bounded(iterator.next())).value?.type).toBe(
+          'message_start',
+        )
+        const pending = iterator.next().catch(error => error as unknown)
+        controller.abort('user-cancel')
+        await bounded(pending)
+        expect(cancelReasons).toHaveLength(1)
+      } finally {
+        if (!controller.signal.aborted) controller.abort('test-cleanup')
+        const returned = iterator.return?.(undefined)
+        if (returned) {
+          await bounded(Promise.resolve(returned), 100).catch(() => {})
+        }
+      }
     }
   })
 })

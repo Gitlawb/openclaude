@@ -8,6 +8,7 @@ export async function driveQueryEvents<TEvent extends { type: string }, TReturn>
   onEvent: (event: TEvent) => void,
 ): Promise<TReturn> {
   let generatorDone = false
+  let failed = false
   try {
     while (true) {
       const next = await queryGenerator.next()
@@ -18,7 +19,16 @@ export async function driveQueryEvents<TEvent extends { type: string }, TReturn>
       registerActivity(`query_event:${next.value.type}`)
       onEvent(next.value)
     }
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    if (!generatorDone) await queryGenerator.return(undefined as never)
+    if (!generatorDone) {
+      try {
+        await queryGenerator.return(undefined as never)
+      } catch (cleanupError) {
+        if (!failed) throw cleanupError
+      }
+    }
   }
 }

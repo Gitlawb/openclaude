@@ -18,23 +18,25 @@ type DiagnosticLogEntry = {
  * must rebuild records from an allowlist before using it; arbitrary runtime
  * objects, messages, prompts, and file paths are not safe inputs.
  */
-export function appendDiagnosticsNoPII(
+export async function appendDiagnosticsNoPII(
   logFile: string,
   entries: readonly Record<string, unknown>[],
-): void {
-  if (entries.length === 0) return
+): Promise<boolean> {
+  if (entries.length === 0) return true
 
   const fs = getFsImplementation()
   const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
   try {
-    fs.appendFileSync(logFile, lines)
+    await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
+    return true
   } catch {
-    // Match the existing diagnostic logger's best-effort contract.
     try {
-      fs.mkdirSync(dirname(logFile))
-      fs.appendFileSync(logFile, lines)
+      fs.mkdirSync(dirname(logFile), { mode: 0o700 })
+      await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
+      return true
     } catch {
       // Diagnostics must never change application behavior.
+      return false
     }
   }
 }
@@ -69,7 +71,19 @@ export function logForDiagnosticsNoPII(
     data: data ?? {},
   }
 
-  appendDiagnosticsNoPII(logFile, [entry])
+  const fs = getFsImplementation()
+  const line = jsonStringify(entry) + '\n'
+  try {
+    fs.appendFileSync(logFile, line)
+  } catch {
+    // Preserve the legacy diagnostic logger's append-through-symlink contract.
+    try {
+      fs.mkdirSync(dirname(logFile))
+      fs.appendFileSync(logFile, line)
+    } catch {
+      // Silently fail if logging is not possible.
+    }
+  }
 }
 
 function getDiagnosticLogFile(): string | undefined {

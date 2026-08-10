@@ -839,7 +839,8 @@ async function* readSseEvents(
     flushInterruptionTrace('codex_stream_error')
     throw error
   } finally {
-    if (!streamComplete || signal?.aborted) {
+    const readerWasInterrupted = !streamComplete || signal?.aborted
+    if (readerWasInterrupted) {
       traceInterruptionEvent('codex_stream.cancelled', {
         subsystem: 'codex_stream',
         transport: 'codex_responses',
@@ -852,6 +853,9 @@ async function* readSseEvents(
     }
     readerCanceller.cleanup()
     reader.releaseLock()
+    if (readerWasInterrupted) {
+      flushInterruptionTrace('codex_stream_reader_closed')
+    }
   }
 }
 
@@ -1206,6 +1210,7 @@ export async function* codexStreamToAnthropic(
     })
     if (!streamComplete || signal?.aborted) {
       cancelResponseBody()
+      flushInterruptionTrace('codex_stream_converter_closed')
     }
     signal?.removeEventListener('abort', cancelResponseBody)
   }
