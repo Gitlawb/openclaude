@@ -5579,12 +5579,7 @@ export function isSafeForExternalEgress(entry: {
   }
   if (entry.type === 'progress') return false
   if (entry.type !== 'attachment') return true
-  if (!entry.attachment || typeof entry.attachment !== 'object') {
-    return false
-  }
-  const t = (entry.attachment as { type?: unknown }).type
-  if (typeof t !== 'string') return false
-  // Other attachment types remain blocked on egress for external users.
+  // Every remaining attachment type is blocked on egress for external users.
   return false
 }
 

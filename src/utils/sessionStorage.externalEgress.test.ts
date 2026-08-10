@@ -3,7 +3,10 @@ import type { UUID } from 'crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setSessionPersistenceDisabled } from '../bootstrap/state.js'
+import {
+  isSessionPersistenceDisabled,
+  setSessionPersistenceDisabled,
+} from '../bootstrap/state.js'
 import type { Message } from '../types/message.js'
 import {
   clearSessionMessagesCache,
@@ -29,6 +32,7 @@ const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
 const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
 const originalNodeEnv = process.env.NODE_ENV
 const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+const originalSessionPersistenceDisabled = isSessionPersistenceDisabled()
 
 afterEach(() => {
   if (originalUserType === undefined) {
@@ -61,6 +65,7 @@ afterEach(() => {
   } else {
     process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipHistory
   }
+  setSessionPersistenceDisabled(originalSessionPersistenceDisabled)
   resetProjectForTesting()
   clearSessionMessagesCache()
 })
@@ -308,6 +313,7 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
         path,
         [
           JSON.stringify(user(userUuid, null, 'resume turn')),
+          '{not-json',
           JSON.stringify(
             listing(listingUuid, userUuid, 'skill_listing', 'REBUILD-LEAK'),
           ),
