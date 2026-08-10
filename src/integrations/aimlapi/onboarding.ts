@@ -7,13 +7,15 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { AimlapiApiError, AimlapiClient, type BalanceResult } from './client.js'
+import { logForDebugging } from '../../utils/debug.js'
+import { AimlapiClient, type BalanceResult } from './client.js'
 import { resolveEndpoints } from './config.js'
 import {
   acquireAimlapiSignInKeyLeaseAsync,
   releaseAimlapiSignInKeyLeaseAsync,
-  saveAimlapiSignInKey,
+  saveAimlapiSignInKeyAsync,
 } from './topupState.js'
+import { abortError, isAmbiguousTransportApiError, sleep } from './transport.js'
 
 function clientForInferenceBaseUrl(inferenceBaseUrl?: string): AimlapiClient {
   const endpoints = resolveEndpoints()
@@ -25,39 +27,6 @@ const SIGN_IN_KEY_LEASE_POLL_INTERVAL_MS = 3000
 // A single POST /v1/keys with no long poll before it; a few retry cycles
 // covers a slow network or a couple of lease hand-offs.
 const SIGN_IN_KEY_LEASE_POLL_TIMEOUT_MS = 2 * 60 * 1000
-
-function abortError(signal?: AbortSignal): unknown {
-  return signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.reject(abortError(signal))
-  return new Promise<void>((resolve, reject) => {
-    const cleanup = (): void => signal?.removeEventListener('abort', onAbort)
-    const timer = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, ms)
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      cleanup()
-      reject(abortError(signal))
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
-// The same transport-failure set topup.ts treats as ambiguous for a
-// non-idempotent mutation: network error, timeout, rate-limit, or 5xx say
-// nothing about whether createKey's POST landed server-side, so releasing the
-// lease on one of these could let a retry (or a racing peer) mint a second,
-// orphaned key. A genuine 4xx (other than 408/429) is a definitive rejection.
-function isAmbiguousKeyMintApiError(error: unknown): boolean {
-  return (
-    error instanceof AimlapiApiError &&
-    (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)
-  )
-}
 
 /**
  * Mint the sign-in key for this email under a cross-process lease so racing
@@ -84,14 +53,29 @@ async function mintOrAdoptSignInKey(
       try {
         const created = await client.createKey(accessToken, 'OpenClaude CLI', signal)
         try {
-          saveAimlapiSignInKey(email, created.key, created.id)
+          await saveAimlapiSignInKeyAsync(email, created.key, created.id)
         } catch {
           // Retained in memory below; the cache is only a recovery aid.
         }
         return { apiKey: created.key, apiKeyId: created.id }
       } catch (error) {
-        if (!isAmbiguousKeyMintApiError(error)) {
-          await releaseAimlapiSignInKeyLeaseAsync(email, owner).catch(() => {})
+        // createKey is non-idempotent and exposes no retrieval-by-id
+        // endpoint, so a transport-level failure is ambiguous: the POST may
+        // have minted a key server-side before its response was lost, with
+        // no way to recover that credential here. Releasing the lease in
+        // that case would let a retry (or a racing peer) mint a second,
+        // orphaned key. A caller-driven abort mid-flight is ambiguous too —
+        // cancelling client-side does not stop the server from completing an
+        // already-sent POST. A definite rejection means nothing was created,
+        // so release immediately to let a retry proceed without waiting out
+        // the stale window.
+        if (!isAmbiguousTransportApiError(error) && !signal?.aborted) {
+          await releaseAimlapiSignInKeyLeaseAsync(email, owner).catch((releaseError: unknown) => {
+            logForDebugging(
+              `Failed to release the AI/ML API sign-in key-mint lease: ${String(releaseError)}`,
+              { level: 'warn' },
+            )
+          })
         }
         throw error
       }

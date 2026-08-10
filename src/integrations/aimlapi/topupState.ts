@@ -1047,6 +1047,16 @@ export function loadAimlapiSignInKey(
 // Keeping whichever key was recorded first — instead of last-writer-wins —
 // means every caller converges on the SAME credential instead of the loser
 // silently overwriting the winner's cached key with its own orphaned one.
+function saveSignInKeyOperation(
+  normalizedEmail: string,
+  apiKey: string,
+  apiKeyId: string,
+): void {
+  const store = readSignInKeyStoreUnlocked()
+  if (!store[normalizedEmail]) store[normalizedEmail] = { apiKey, apiKeyId }
+  writeJsonAtomic(signInKeyPath(), store)
+}
+
 export function saveAimlapiSignInKey(
   email: string,
   apiKey: string,
@@ -1054,12 +1064,28 @@ export function saveAimlapiSignInKey(
 ): void {
   const normalizedEmail = normalizeEmail(email)
   if (!normalizedEmail || !apiKey.trim() || !apiKeyId.trim()) return
-  const target = signInKeyPath()
-  withStateLock(() => {
-    const store = readSignInKeyStoreUnlocked()
-    if (!store[normalizedEmail]) store[normalizedEmail] = { apiKey, apiKeyId }
-    writeJsonAtomic(target, store)
-  }, target)
+  withStateLock(
+    () => saveSignInKeyOperation(normalizedEmail, apiKey, apiKeyId),
+    signInKeyPath(),
+  )
+}
+
+/**
+ * Non-blocking counterpart for the interactive (Ink) flow: it awaits between
+ * lock retries so a contended lock never freezes timers, the UI, or SIGINT
+ * while it waits. See `saveAimlapiSignInKey`.
+ */
+export function saveAimlapiSignInKeyAsync(
+  email: string,
+  apiKey: string,
+  apiKeyId: string,
+): Promise<void> {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail || !apiKey.trim() || !apiKeyId.trim()) return Promise.resolve()
+  return withStateLockAsync(
+    () => saveSignInKeyOperation(normalizedEmail, apiKey, apiKeyId),
+    signInKeyPath(),
+  )
 }
 
 // Delete only this email's entry, and only when it still holds the key this flow
@@ -1092,8 +1118,15 @@ export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
 // minting its own. Locked on the key-cache file's path (not a lease-only
 // file) so acquiring the lease and saveAimlapiSignInKey's write are mutually
 // exclusive, keeping the "check cache" read inside acquire consistent with
-// the eventual write. Same acquire/reclaim shape as the checkout-time key-mint
-// lease; see `KEY_MINT_LEASE_STALE_MS`.
+// the eventual write. Same acquire/reclaim shape (and no refresh function,
+// unlike the exchange lease) as the checkout-time key-mint lease; see
+// `KEY_MINT_LEASE_STALE_MS`. No refresh is needed here either: a live holder
+// never sits in a long poll before its single POST — it acquires the lease,
+// then immediately calls createKey, which client.request hard-caps at
+// REQUEST_TIMEOUT_MS (60s) regardless of the caller's own signal — so the
+// stale window only needs to clear that one bounded request (plus the
+// following cache-save's own lock wait) with headroom, not cover an
+// open-ended wait.
 const SIGN_IN_KEY_LEASE_STALE_MS = 75_000
 
 function signInLeasePath(): string {

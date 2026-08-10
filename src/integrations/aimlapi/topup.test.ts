@@ -1021,9 +1021,11 @@ test('an ambiguous exchange failure that actually committed surfaces alreadyExch
   const claimed = claimAimlapiTopupState(intent)
 
   let reads = 0
+  let exchangePosts = 0
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/exchange') && init?.method === 'POST') {
+      exchangePosts += 1
       // The POST commits server-side but its response is lost — the caller
       // only ever sees a plain network failure, with no key in hand.
       throw new Error('network error: response lost')
@@ -1054,6 +1056,67 @@ test('an ambiguous exchange failure that actually committed surfaces alreadyExch
       noOpen: true,
     }),
   ).rejects.toThrow(/already exchanged for issued key key_lost/i)
+  // /exchange is non-idempotent: the recovery path must recognize the lost
+  // response instead of retrying the POST itself.
+  expect(exchangePosts).toBe(1)
+})
+
+test('a caller-aborted exchange POST holds the lease instead of releasing it for a retry to double-exchange', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_test',
+    partnerName: 'Gitlawb',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  const controller = new AbortController()
+
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/exchange') && init?.method === 'POST') {
+      // The caller cancels while the POST is in flight — cancelling
+      // client-side does not stop the server from completing it, so this is
+      // just as ambiguous as a lost response.
+      controller.abort()
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    return sessionJson({ sessionToken: 'session', status: 'paid' })
+  }) as unknown as typeof fetch
+
+  await expect(
+    provisionAimlapiKey({
+      sessionToken: 'account-session',
+      resumeSessionToken: 'session',
+      paymentSessionId: claimed.paymentSessionId,
+      exchange: true,
+      intent,
+      amountUsd: '25',
+      noOpen: true,
+      signal: controller.signal,
+    }),
+  ).rejects.toThrow(/aborted/i)
+
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as {
+    apiKey?: string
+    exchangeLeaseOwner?: string
+    exchangeLeaseAt?: number
+  }
+  expect(saved.apiKey ?? '').toBe('')
+  // The lease must still be held — releasing it here would let a retry
+  // exchange (and strand) the same one-shot session a second time.
+  expect(saved.exchangeLeaseOwner).toBeTruthy()
+  expect(saved.exchangeLeaseAt).toBeGreaterThan(0)
 })
 
 test('email-session checkout carries the stable payment id', async () => {

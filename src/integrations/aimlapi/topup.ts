@@ -50,6 +50,7 @@ import {
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
 } from './topupState.js'
+import { abortError, isAmbiguousTransportApiError, sleep } from './transport.js'
 import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
 
 export type AimlapiTopupOptions = {
@@ -159,27 +160,6 @@ export function setAimlapiTopupTestDoubles(
   writeAimlapiProviderProfile = doubles?.writeProfile ?? saveProfileFile
   promptTextFn = doubles?.promptText ?? promptText
   promptHiddenFn = doubles?.promptHidden ?? promptHidden
-}
-
-function abortError(signal?: AbortSignal): unknown {
-  return signal?.reason ?? new DOMException('The operation was aborted.', 'AbortError')
-}
-
-async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) throw abortError(signal)
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = (): void => signal?.removeEventListener('abort', onAbort)
-    const timer = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, ms)
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      cleanup()
-      reject(abortError(signal))
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 function maskKey(key: string): string {
@@ -770,7 +750,11 @@ async function mintExistingAccountKeyWithLease(
         // eliminating) the double-mint window. A definite rejection (a real
         // 4xx other than 408/429) means nothing was created, so release
         // immediately to let a retry proceed without waiting out the window.
-        if (!isAmbiguousTransportApiError(error)) {
+        // A caller-driven abort mid-flight is ambiguous too — cancelling
+        // client-side does not stop the server from completing an
+        // already-sent POST, and client.request rethrows the raw abort error
+        // instead of an AimlapiApiError for it.
+        if (!isAmbiguousTransportApiError(error) && !signal?.aborted) {
           // Best-effort: if the release itself fails the lease still expires
           // on its own, only more slowly.
           await releaseAimlapiKeyMintLeaseAsync(expected, owner).catch(
@@ -856,8 +840,14 @@ async function exchangeKeyWithLease(
       // about whether it landed server-side. A failure from the poll above
       // (lease reclaimed, terminal session status) never reached /exchange at
       // all, and a definite 4xx rejection here means nothing was minted —
-      // neither needs the ambiguous-outcome recovery below.
-      if (isAmbiguousTransportApiError(error)) throw new AmbiguousExchangeFailure(error)
+      // neither needs the ambiguous-outcome recovery below. A caller-driven
+      // abort mid-flight is ambiguous too: client.request rethrows the raw
+      // abort error (not an AimlapiApiError) when options.signal fired, and
+      // cancelling client-side does not stop the server from completing an
+      // already-sent POST.
+      if (isAmbiguousTransportApiError(error) || options.signal?.aborted) {
+        throw new AmbiguousExchangeFailure(error)
+      }
       throw error
     }
   }
@@ -1125,20 +1115,5 @@ function isTerminalSessionApiError(error: unknown): boolean {
     error.status >= 400 &&
     error.status < 500 &&
     !isAmbiguousTransportApiError(error)
-  )
-}
-
-// Transient transport failures (network error, timeout, rate-limit, 5xx) say
-// nothing about whether a request landed server-side: polling retries them
-// for a session's fate instead of aborting, and a non-idempotent mutation
-// (createKey, exchange) must not treat them as proof it never happened. A
-// genuine 4xx (other than 408/429) is a definitive server rejection instead.
-function isAmbiguousTransportApiError(error: unknown): boolean {
-  return (
-    error instanceof AimlapiApiError &&
-    (error.status === 0 ||
-      error.status === 408 ||
-      error.status === 429 ||
-      error.status >= 500)
   )
 }
