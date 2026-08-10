@@ -57,6 +57,7 @@ import {
 } from './utils/abortReasons.js'
 import {
   flushInterruptionTrace,
+  getInterruptionSignalAbortEventId,
   traceInterruptionEvent,
 } from './utils/interruptionTrace.js'
 import {
@@ -190,15 +191,17 @@ async function cleanupComputerUseAtTerminal(
 }
 
 function traceAbortMessageSelection(
-  abortReason: unknown,
+  signal: AbortSignal,
   phase: 'streaming' | 'tools' | 'post-tools',
 ): void {
+  const abortReason = signal.reason
   const createsUserInterruption = shouldCreateUserInterruptionMessage(abortReason)
   const createsSystemWarning = getQueryAbortSystemMessage(abortReason) !== null
   traceInterruptionEvent('query.abort_classified', {
     subsystem: 'query',
     phase,
     reason: abortReason,
+    causalEventId: getInterruptionSignalAbortEventId(signal),
     outcome: createsUserInterruption
       ? 'user_interruption'
       : createsSystemWarning
@@ -217,7 +220,7 @@ async function* emitAbortedStreaming(
 > {
   await cleanupComputerUseAtTerminal(toolUseContext)
   const abortReason = signal.reason
-  traceAbortMessageSelection(abortReason, 'streaming')
+  traceAbortMessageSelection(signal, 'streaming')
   const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
   if (abortSystemMessage) {
     yield createSystemMessage(abortSystemMessage, 'warning')
@@ -235,7 +238,7 @@ function* emitAbortedToolsAfterCleanup(
   hasSharedTurnBudget: boolean,
 ): Generator<Message, Extract<Terminal, { reason: 'aborted_tools' }>> {
   const abortReason = signal.reason
-  traceAbortMessageSelection(abortReason, 'tools')
+  traceAbortMessageSelection(signal, 'tools')
   const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
   if (abortSystemMessage) {
     yield createSystemMessage(abortSystemMessage, 'warning')
@@ -2042,7 +2045,7 @@ async function* queryLoop(
     // Without this, tool_use blocks would lack matching tool_result blocks.
     if (toolUseContext.abortController.signal.aborted) {
       const abortReason = toolUseContext.abortController.signal.reason
-      traceAbortMessageSelection(abortReason, 'post-tools')
+      traceAbortMessageSelection(toolUseContext.abortController.signal, 'post-tools')
       if (streamingToolExecutor) {
         // Consume remaining results - executor generates synthetic tool_results for
         // aborted tools since it checks the abort signal in executeTool()

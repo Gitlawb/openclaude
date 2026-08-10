@@ -2107,6 +2107,7 @@ async function* queryModel(
     const STREAM_IDLE_TIMEOUT_MS = getStreamIdleTimeoutMs()
     const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
     let streamIdleAborted = false
+    let streamSettlementCausalEventId: string | undefined
     // performance.now() snapshot when watchdog fires, for measuring abort propagation delay
     let streamWatchdogFiredAt: number | null = null
     let streamIdleWarningTimer: ReturnType<typeof setTimeout> | null = null
@@ -2187,6 +2188,7 @@ async function* queryModel(
         model: options.model,
         sinceLastYieldMs: STREAM_IDLE_TIMEOUT_MS,
       })
+      streamSettlementCausalEventId = causalEventId
       flushInterruptionTrace('claude_stream_idle_timeout')
       logEvent('tengu_streaming_idle_timeout', {
         model:
@@ -2209,6 +2211,8 @@ async function* queryModel(
     ): Promise<IteratorResult<BetaRawMessageStreamEvent>> {
       if (signal.aborted) {
         const abortError = new APIUserAbortError()
+        streamSettlementCausalEventId =
+          getInterruptionSignalAbortEventId(signal)
         closeStreamIterator(
           iterator,
           abortError,
@@ -2248,6 +2252,8 @@ async function* queryModel(
             reason: signal.reason,
             causalEventId: parentCausalEventId,
           })
+          streamSettlementCausalEventId =
+            causalEventId ?? parentCausalEventId
           closeStreamIterator(
             iterator,
             abortError,
@@ -2688,6 +2694,7 @@ async function* queryModel(
           transport: 'anthropic_messages',
           model: options.model,
           outcome: 'clean',
+          causalEventId: streamSettlementCausalEventId,
           sinceLastYieldMs: exitDelayMs,
         })
         logForDiagnosticsNoPII(
@@ -2785,6 +2792,9 @@ async function* queryModel(
         model: options.model,
         outcome: signal.aborted ? 'root_aborted' : 'external_error',
         reason: signal.reason,
+        causalEventId:
+          getInterruptionSignalAbortEventId(signal) ??
+          streamSettlementCausalEventId,
         error: streamingError,
       })
 
@@ -2800,6 +2810,7 @@ async function* queryModel(
           transport: 'anthropic_messages',
           model: options.model,
           outcome: 'error',
+          causalEventId: streamSettlementCausalEventId,
           error: streamingError,
           sinceLastYieldMs: exitDelayMs,
         })
@@ -2943,6 +2954,7 @@ async function* queryModel(
         transport: 'anthropic_messages',
         model: options.model,
         trigger: streamIdleAborted ? 'watchdog' : 'other',
+        causalEventId: streamSettlementCausalEventId,
       })
       flushInterruptionTrace('claude_stream_fallback_started')
       logEvent('tengu_nonstreaming_fallback_started', {

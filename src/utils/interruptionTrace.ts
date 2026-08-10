@@ -44,6 +44,7 @@ export type InterruptionTraceFields = {
   sinceLastYieldMs?: number
   rawByteCount?: number
   parsedFrameCount?: number
+  controlFrameCount?: number
   ignoredFrameCount?: number
   yieldedEventCount?: number
   activeApiCallCount?: number
@@ -137,17 +138,69 @@ function safeFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+const BUILTIN_ERROR_NAMES = new Set([
+  'AggregateError',
+  'Error',
+  'EvalError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'TypeError',
+  'URIError',
+])
+
+const STANDARD_DOM_EXCEPTION_NAMES = new Set([
+  'AbortError',
+  'DataCloneError',
+  'DataError',
+  'EncodingError',
+  'HierarchyRequestError',
+  'InUseAttributeError',
+  'IndexSizeError',
+  'InvalidAccessError',
+  'InvalidCharacterError',
+  'InvalidModificationError',
+  'InvalidNodeTypeError',
+  'InvalidStateError',
+  'NamespaceError',
+  'NetworkError',
+  'NoDataAllowedError',
+  'NoModificationAllowedError',
+  'NotAllowedError',
+  'NotFoundError',
+  'NotReadableError',
+  'NotSupportedError',
+  'OperationError',
+  'QuotaExceededError',
+  'ReadOnlyError',
+  'SecurityError',
+  'TimeoutError',
+  'TransactionInactiveError',
+  'UnknownError',
+  'URLMismatchError',
+  'VersionError',
+  'WrongDocumentError',
+])
+
+function getSafeErrorName(error: Error): string {
+  if (error instanceof DOMException) {
+    return STANDARD_DOM_EXCEPTION_NAMES.has(error.name)
+      ? `DOMException:${error.name}`
+      : 'DOMException'
+  }
+  return BUILTIN_ERROR_NAMES.has(error.name) ? error.name : 'Error'
+}
+
 function getRawReasonType(reason: unknown): string {
   if (reason === null) return 'null'
-  if (reason instanceof DOMException) return `DOMException:${safeString(reason.name) ?? 'unknown'}`
-  if (reason instanceof Error) return `Error:${safeString(reason.name) ?? 'unknown'}`
+  if (reason instanceof DOMException) return getSafeErrorName(reason)
+  if (reason instanceof Error) return `Error:${getSafeErrorName(reason)}`
   if (Array.isArray(reason)) return 'array'
   return typeof reason
 }
 
 function getSafeErrorIdentity(error: unknown): string | undefined {
-  if (error instanceof DOMException) return `DOMException:${safeString(error.name) ?? 'unknown'}`
-  if (error instanceof Error) return safeString(error.name) ?? 'Error'
+  if (error instanceof Error) return getSafeErrorName(error)
   return error === undefined ? undefined : typeof error
 }
 
@@ -185,6 +238,7 @@ function toSafeFields(fields: InterruptionTraceFields): SafeTraceFields {
     'sinceLastYieldMs',
     'rawByteCount',
     'parsedFrameCount',
+    'controlFrameCount',
     'ignoredFrameCount',
     'yieldedEventCount',
     'activeApiCallCount',
@@ -339,6 +393,9 @@ export function registerInterruptionController(
     )
     if (observed && !signalAbortEventIds.has(controller.signal)) {
       signalAbortEventIds.set(controller.signal, observed.eventId)
+    }
+    if (observed && state && !state.firstAbortEventId) {
+      state.firstAbortEventId = observed.eventId
     }
     if (state?.fields.controllerRole === 'query-root') {
       flushInterruptionTrace('root_abort_observed')

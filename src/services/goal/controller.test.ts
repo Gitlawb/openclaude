@@ -12,6 +12,8 @@ import {
   __getInterruptionTraceSnapshotForTests,
   __resetInterruptionTraceForTests,
   __waitForInterruptionTraceFlushForTests,
+  registerInterruptionController,
+  requestAbort,
 } from '../../utils/interruptionTrace.js'
 import {
   acquireSharedMutationLock,
@@ -72,7 +74,10 @@ describe('goal continuation controller', () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     __resetInterruptionTraceForTests()
     try {
-      const { context } = makeContext()
+      const { context, abortController } = makeContext()
+      registerInterruptionController(abortController, {
+        controllerRole: 'query-root',
+      })
       await drain(
         evaluateGoalAfterTurn({
           messagesForQuery: [],
@@ -80,24 +85,40 @@ describe('goal continuation controller', () => {
           toolUseContext: context,
           querySource: 'repl_main_thread',
           deps: {
-            evaluateGoal: async () => ({
-              complete: true,
-              confidence: 1,
-              decision: 'complete',
-              reason: 'done',
-              nextInstruction: null,
-            }),
+            evaluateGoal: async () => {
+              requestAbort(abortController, 'user-cancel', {
+                source: 'cancel_keybinding',
+                controllerRole: 'query-root',
+              })
+              return {
+                complete: false,
+                confidence: 0,
+                decision: 'error',
+                reason: 'cancelled',
+                nextInstruction: null,
+              }
+            },
             saveGoalState: async () => {},
           },
         }),
       )
 
-      expect(__getInterruptionTraceSnapshotForTests().map(entry => entry.event)).toEqual(
+      const trace = __getInterruptionTraceSnapshotForTests()
+      expect(trace.map(entry => entry.event)).toEqual(
         expect.arrayContaining([
           'goal.evaluation_started',
           'goal.evaluation_completed',
         ]),
       )
+      const rootAbort = trace.find(entry => entry.event === 'abort.requested')
+      const completed = trace.find(
+        entry => entry.event === 'goal.evaluation_completed',
+      )
+      expect(rootAbort).toBeDefined()
+      expect(completed).toBeDefined()
+      expect(typeof rootAbort!.eventId).toBe('string')
+      expect(typeof completed!.causalEventId).toBe('string')
+      expect(completed!.causalEventId).toBe(rootAbort!.eventId)
     } finally {
       await __waitForInterruptionTraceFlushForTests()
       __resetInterruptionTraceForTests()

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { AnthropicStreamEvent } from './codexShim.js'
-import { codexStreamToAnthropic } from './codexShim.js'
+import {
+  __codexStreamToAnthropicForTests,
+  codexStreamToAnthropic,
+} from './codexShim.js'
 import { QueryGuard, type QueryGuardTimeoutReason } from '../../utils/QueryGuard.js'
 import type { QueryGuardTimeoutInfo } from '../../utils/queryLifecycle.js'
 import { driveQueryEvents } from '../../utils/queryEventDriver.js'
@@ -11,7 +14,7 @@ import {
   requestAbort,
 } from '../../utils/interruptionTrace.js'
 
-async function bounded<T>(promise: Promise<T>, timeoutMs = 500): Promise<T> {
+async function bounded<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
@@ -79,7 +82,11 @@ function makeTimedStream(
 
 async function driveWithGuard(
   response: Response,
-  options: { idleTimeoutMs: number; hardMaxQueryMs: number },
+  options: {
+    idleTimeoutMs: number
+    hardMaxQueryMs: number
+    readerIdleTimeoutMs: number
+  },
 ): Promise<{
   events: AnthropicStreamEvent[]
   timeout: QueryGuardTimeoutInfo
@@ -104,11 +111,11 @@ async function driveWithGuard(
     })
   })
   const events: AnthropicStreamEvent[] = []
-  const stream = codexStreamToAnthropic(
+  const stream = __codexStreamToAnthropicForTests(
     response,
     'gpt-test',
     controller.signal,
-    { idleTimeoutMs: 45 },
+    { idleTimeoutMs: options.readerIdleTimeoutMs },
   )
   try {
     const result = await bounded(
@@ -138,6 +145,9 @@ async function driveWithGuard(
 
 describe('issue #1830 Codex interruption ownership', () => {
   test('raw transport silence is owned by the Codex reader deadline', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
     const cancelReasons: unknown[] = []
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -146,7 +156,7 @@ describe('issue #1830 Codex interruption ownership', () => {
         },
       }),
     )
-    const iterator = codexStreamToAnthropic(
+    const iterator = __codexStreamToAnthropicForTests(
       response,
       'gpt-test',
       undefined,
@@ -169,9 +179,40 @@ describe('issue #1830 Codex interruption ownership', () => {
         )
       }
       expect(cancelReasons).toHaveLength(1)
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const idleTimeout = trace.find(
+        entry => entry.event === 'codex_stream.idle_timeout',
+      )
+      const readerError = trace.find(
+        entry => entry.event === 'codex_stream.error',
+      )
+      const readerCancelled = trace.find(
+        entry => entry.event === 'codex_stream.cancelled',
+      )
+      const converterClosed = trace.find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )
+      expect(idleTimeout).toBeDefined()
+      expect(readerError).toBeDefined()
+      expect(readerCancelled).toBeDefined()
+      expect(converterClosed).toBeDefined()
+      expect(typeof idleTimeout!.eventId).toBe('string')
+      expect(typeof readerError!.causalEventId).toBe('string')
+      expect(typeof readerCancelled!.causalEventId).toBe('string')
+      expect(typeof converterClosed!.causalEventId).toBe('string')
+      expect(readerError!.causalEventId).toBe(idleTimeout!.eventId)
+      expect(readerCancelled!.causalEventId).toBe(idleTimeout!.eventId)
+      expect(converterClosed!.causalEventId).toBe(idleTimeout!.eventId)
     } finally {
       const returned = iterator.return?.(undefined)
       if (returned) await bounded(Promise.resolve(returned), 100).catch(() => {})
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
     }
   })
 
@@ -185,7 +226,7 @@ describe('issue #1830 Codex interruption ownership', () => {
       }),
     )
     const controller = new AbortController()
-    const iterator = codexStreamToAnthropic(
+    const iterator = __codexStreamToAnthropicForTests(
       response,
       'gpt-test',
       controller.signal,
@@ -214,6 +255,117 @@ describe('issue #1830 Codex interruption ownership', () => {
     }
   })
 
+  test('normal terminal frames close the reader without an interruption trace', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const cancelReasons: unknown[] = []
+    const encoder = new TextEncoder()
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array())
+          controller.enqueue(encoder.encode([
+            ': keepalive',
+            '',
+            'event: response.completed',
+            'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+            '',
+            '',
+          ].join('\n')))
+        },
+        cancel(reason) {
+          cancelReasons.push(reason)
+        },
+      }),
+    )
+
+    try {
+      const events: AnthropicStreamEvent[] = []
+      await bounded((async () => {
+        for await (const event of codexStreamToAnthropic(response, 'gpt-test')) {
+          events.push(event)
+        }
+      })())
+
+      expect(events.at(-1)?.type).toBe('message_stop')
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const firstRawBytes = trace.filter(
+        entry => entry.event === 'codex_stream.first_raw_byte',
+      )
+      const terminal = trace.find(
+        entry => entry.event === 'codex_stream.protocol_terminal',
+      )
+      expect(firstRawBytes).toHaveLength(1)
+      expect(firstRawBytes[0]!.rawByteCount).toBeGreaterThan(0)
+      expect(terminal).toBeDefined()
+      expect(terminal!.controlFrameCount).toBe(1)
+      expect(terminal!.ignoredFrameCount).toBe(0)
+      expect(
+        trace.some(entry => entry.event === 'codex_stream.cancelled'),
+      ).toBe(false)
+      expect(cancelReasons).toHaveLength(1)
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
+    }
+  })
+
+  test('marks the converter complete before yielding message_stop', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const cancelReasons: unknown[] = []
+    const encoder = new TextEncoder()
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'event: response.completed',
+            'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+            '',
+            '',
+          ].join('\n')))
+        },
+        cancel(reason) {
+          cancelReasons.push(reason)
+        },
+      }),
+    )
+    const iterator = codexStreamToAnthropic(response, 'gpt-test')
+
+    try {
+      let next: IteratorResult<AnthropicStreamEvent>
+      do {
+        next = await bounded(iterator.next())
+      } while (!next.done && next.value.type !== 'message_stop')
+      expect(next.done).toBe(false)
+
+      await bounded(iterator.return(undefined))
+
+      const converterClosed = __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )
+      expect(converterClosed).toBeDefined()
+      expect(converterClosed!.outcome).toBe('complete')
+      expect(cancelReasons).toHaveLength(1)
+    } finally {
+      await bounded(iterator.return(undefined)).catch(() => {})
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
+    }
+  })
+
   test('keepalives and parsed-but-ignored frames cannot reset QueryGuard', async () => {
     const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
@@ -226,12 +378,13 @@ describe('issue #1830 Codex interruption ownership', () => {
         }
         return `event: response.reasoning_summary_text.delta\ndata: {"type":"response.reasoning_summary_text.delta","delta":"r","sequence_number":${index}}\n\n`
       },
-      10,
+      25,
     )
     try {
       const outcome = await driveWithGuard(timed.response, {
-        idleTimeoutMs: 65,
-        hardMaxQueryMs: 180,
+        idleTimeoutMs: 250,
+        hardMaxQueryMs: 1_500,
+        readerIdleTimeoutMs: 500,
       })
 
       expect(outcome.timeout.reason satisfies QueryGuardTimeoutReason).toBe(
@@ -245,13 +398,23 @@ describe('issue #1830 Codex interruption ownership', () => {
       const readerClosed = __getInterruptionTraceSnapshotForTests()
         .filter(entry => entry.event === 'codex_stream.cancelled')
         .at(-1)
+      const rootAbort = __getInterruptionTraceSnapshotForTests().find(
+        entry =>
+          entry.event === 'abort.requested' && entry.source === 'query_guard',
+      )
       const traceEvents = __getInterruptionTraceSnapshotForTests().map(
         entry => entry.event,
       )
       expect(timed.getEmissionCount()).toBeGreaterThan(3)
       expect(readerClosed?.rawByteCount).toBeGreaterThan(0)
       expect(readerClosed?.parsedFrameCount).toBeGreaterThan(0)
-      expect(readerClosed?.ignoredFrameCount).toBeGreaterThan(0)
+      expect(readerClosed?.controlFrameCount).toBeGreaterThan(0)
+      expect(readerClosed?.ignoredFrameCount).toBe(0)
+      expect(rootAbort).toBeDefined()
+      expect(readerClosed).toBeDefined()
+      expect(typeof rootAbort!.eventId).toBe('string')
+      expect(typeof readerClosed!.causalEventId).toBe('string')
+      expect(readerClosed!.causalEventId).toBe(rootAbort!.eventId)
       expect(traceEvents.indexOf('codex_stream.converter_closed')).toBeGreaterThan(
         traceEvents.indexOf('codex_stream.cancelled'),
       )
@@ -272,12 +435,13 @@ describe('issue #1830 Codex interruption ownership', () => {
     const timed = makeTimedStream(
       index =>
         `event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"x","sequence_number":${index}}\n\n`,
-      12,
+      25,
     )
     try {
       const outcome = await driveWithGuard(timed.response, {
-        idleTimeoutMs: 50,
-        hardMaxQueryMs: 105,
+        idleTimeoutMs: 250,
+        hardMaxQueryMs: 600,
+        readerIdleTimeoutMs: 500,
       })
       const countAtAbort = outcome.events.length
       await Bun.sleep(30)
@@ -306,7 +470,7 @@ describe('issue #1830 Codex interruption ownership', () => {
         }),
       )
       const controller = new AbortController()
-      const iterator = codexStreamToAnthropic(
+      const iterator = __codexStreamToAnthropicForTests(
         response,
         'gpt-test',
         controller.signal,

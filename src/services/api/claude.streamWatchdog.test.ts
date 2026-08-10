@@ -389,7 +389,12 @@ describe('Claude stream watchdog', () => {
       const trace = readFileSync(traceFile, 'utf8')
         .trim()
         .split('\n')
-        .map(line => JSON.parse(line) as { event: string; source?: string })
+        .map(line => JSON.parse(line) as {
+          event: string
+          eventId?: string
+          causalEventId?: string
+          source?: string
+        })
       const events = trace.map(entry => entry.event)
       expect(events.indexOf('claude_stream.idle_timeout')).toBeGreaterThanOrEqual(0)
       expect(events.indexOf('claude_stream.loop_settled')).toBeGreaterThan(
@@ -404,6 +409,31 @@ describe('Claude stream watchdog', () => {
           source: 'claude_stream_watchdog',
         }),
       )
+      const idleTimeout = trace.find(
+        entry => entry.event === 'claude_stream.idle_timeout',
+      )
+      const providerAbort = trace.find(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.source === 'claude_stream_watchdog',
+      )
+      const loopSettled = trace.find(
+        entry => entry.event === 'claude_stream.loop_settled',
+      )
+      const fallbackStarted = trace.find(
+        entry => entry.event === 'claude_stream.fallback_started',
+      )
+      expect(idleTimeout).toBeDefined()
+      expect(providerAbort).toBeDefined()
+      expect(loopSettled).toBeDefined()
+      expect(fallbackStarted).toBeDefined()
+      expect(typeof idleTimeout!.eventId).toBe('string')
+      expect(typeof providerAbort!.causalEventId).toBe('string')
+      expect(typeof loopSettled!.causalEventId).toBe('string')
+      expect(typeof fallbackStarted!.causalEventId).toBe('string')
+      expect(providerAbort!.causalEventId).toBe(idleTimeout!.eventId)
+      expect(loopSettled!.causalEventId).toBe(idleTimeout!.eventId)
+      expect(fallbackStarted!.causalEventId).toBe(idleTimeout!.eventId)
       expect(
         (result as unknown[]).some(
           message =>
@@ -468,8 +498,15 @@ describe('Claude stream watchdog', () => {
           entry.event === 'abort.requested' &&
           entry.source === 'claude_stream_parent',
       )
-      expect(parentAbort?.causalEventId).toBe(rootAbort?.eventId)
-      expect(providerAbort?.causalEventId).toBe(parentAbort?.eventId)
+      expect(rootAbort).toBeDefined()
+      expect(parentAbort).toBeDefined()
+      expect(providerAbort).toBeDefined()
+      expect(typeof rootAbort!.eventId).toBe('string')
+      expect(typeof parentAbort!.eventId).toBe('string')
+      expect(typeof parentAbort!.causalEventId).toBe('string')
+      expect(typeof providerAbort!.causalEventId).toBe('string')
+      expect(parentAbort!.causalEventId).toBe(rootAbort!.eventId)
+      expect(providerAbort!.causalEventId).toBe(parentAbort!.eventId)
     } finally {
       wedged.rejectPendingNext(new Error('test cleanup'))
       await settleForCleanup(request)

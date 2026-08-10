@@ -40,7 +40,11 @@ describe('REPL interruption source wiring', () => {
     const input = trace.find(entry => entry.event === 'input.bridge_interrupt')
     const abort = trace.find(entry => entry.event === 'abort.requested')
     expect(abort?.source).toBe('bridge_interrupt')
-    expect(abort?.causalEventId).toBe(input?.eventId)
+    expect(input).toBeDefined()
+    expect(abort).toBeDefined()
+    expect(typeof input!.eventId).toBe('string')
+    expect(typeof abort!.causalEventId).toBe('string')
+    expect(abort!.causalEventId).toBe(input!.eventId)
   })
 
   test('background handoff aborts the foreground query with its source', () => {

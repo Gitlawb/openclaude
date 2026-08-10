@@ -1,4 +1,13 @@
 import { expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../../utils/interruptionTrace.js'
 import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
   createShimRequest,
@@ -105,6 +114,47 @@ test('OpenAIShimStream combines parent and controller cancellation', async () =>
   parent.abort()
   await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   expect(receivedSignal?.aborted).toBe(true)
+})
+
+test('OpenAIShimStream records its parent signal relationship', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-parent-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
+  const parent = new AbortController()
+  let stream: OpenAIShimStream | undefined
+  try {
+    stream = new OpenAIShimStream(async function* () {
+      yield { type: 'unused' }
+    }, parent.signal)
+    const trace = __getInterruptionTraceSnapshotForTests()
+    const parentRegistration = trace.find(
+      entry =>
+        entry.event === 'signal.registered' &&
+        entry.controllerRole === 'combined-parent',
+    )
+    const streamRegistration = trace.find(
+      entry =>
+        entry.event === 'controller.registered' &&
+        entry.controllerRole === 'stream-controller',
+    )
+    expect(parentRegistration).toBeDefined()
+    expect(streamRegistration).toBeDefined()
+    if (!parentRegistration?.controllerId || !streamRegistration) {
+      throw new Error('missing interruption controller registration')
+    }
+    expect(streamRegistration.parentControllerIds).toEqual([
+      parentRegistration.controllerId,
+    ])
+  } finally {
+    stream?.controller.abort('test-cleanup')
+    parent.abort('test-cleanup')
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
 })
 
 test('OpenAIShimStream cancels the response before iteration starts', () => {

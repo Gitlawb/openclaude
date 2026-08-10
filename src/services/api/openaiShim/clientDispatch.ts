@@ -2,8 +2,8 @@ import { APIError } from '@anthropic-ai/sdk'
 import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
 import {
   registerInterruptionController,
+  registerInterruptionSignal,
   requestAbort,
-  traceInterruptionEvent,
 } from '../../../utils/interruptionTrace.js'
 import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
@@ -95,16 +95,17 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   ) {
     this.makeGenerator = makeGenerator
     this.parentSignal = parentSignal
+    const parentId = parentSignal
+      ? registerInterruptionSignal(parentSignal, {
+          subsystem: 'openai_shim_dispatch',
+          controllerRole: 'combined-parent',
+        })
+      : undefined
     registerInterruptionController(this.controller, {
       subsystem: 'openai_shim_dispatch',
       controllerRole: 'stream-controller',
+      ...(parentId && { parentControllerIds: [parentId] }),
     })
-    if (parentSignal) {
-      traceInterruptionEvent('stream.parent_attached', {
-        subsystem: 'openai_shim_dispatch',
-        controllerRole: 'stream-controller',
-      })
-    }
 
     if (cancelBeforeIteration) {
       let cleaned = false

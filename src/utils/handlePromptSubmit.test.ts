@@ -12,6 +12,7 @@ import {
   __resetInterruptionTraceForTests,
   __waitForInterruptionTraceFlushForTests,
 } from './interruptionTrace.js'
+import type { HandlePromptSubmitParams } from './handlePromptSubmit.js'
 
 const realAnalytics = { ...realAnalyticsModule }
 const realProcessUserInput = { ...realProcessUserInputModule }
@@ -679,7 +680,7 @@ describe('handlePromptSubmit', () => {
     const controller = new AbortController()
     const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
     try {
-      await handlePromptSubmit({
+      const params: HandlePromptSubmitParams = {
         input: 'echo ready',
         mode: 'bash',
         pastedContents: {},
@@ -706,7 +707,8 @@ describe('handlePromptSubmit', () => {
         setAbortController: () => {},
         onQuery: async () => {},
         setAppState: () => ({}) as never,
-      } as never)
+      }
+      await handlePromptSubmit(params)
 
       expect(controller.signal.aborted).toBe(true)
       const trace = __getInterruptionTraceSnapshotForTests()
@@ -715,7 +717,11 @@ describe('handlePromptSubmit', () => {
       )
       const abortEvent = trace.find(entry => entry.event === 'abort.requested')
       expect(abortEvent?.source).toBe('interrupt_on_submit')
-      expect(abortEvent?.causalEventId).toBe(inputEvent?.eventId)
+      expect(inputEvent).toBeDefined()
+      expect(abortEvent).toBeDefined()
+      expect(typeof inputEvent!.eventId).toBe('string')
+      expect(typeof abortEvent!.causalEventId).toBe('string')
+      expect(abortEvent!.causalEventId).toBe(inputEvent!.eventId)
     } finally {
       await __waitForInterruptionTraceFlushForTests()
       __resetInterruptionTraceForTests()

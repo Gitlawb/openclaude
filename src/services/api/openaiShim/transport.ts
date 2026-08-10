@@ -143,7 +143,10 @@ function combineRequestSignals(
   const cleanupAfterHeaders = () => {
     deadlineSignal.removeEventListener('abort', abortFromDeadline)
   }
+  let cleanedUp = false
   const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
     callerSignal.removeEventListener('abort', abortFromCaller)
     cleanupAfterHeaders()
     traceInterruptionEvent('combined_signal.cleanup', {

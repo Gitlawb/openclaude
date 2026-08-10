@@ -31,6 +31,7 @@ const originalFile = process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE
 const originalDiagnosticsFile = process.env.CLAUDE_CODE_DIAGNOSTICS_FILE
 let tempDirectory: string | undefined
 let originalFs: FsOperations
+const testPosixTraceFile = process.platform === 'win32' ? test.skip : test
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/interruptionTrace.test.ts')
@@ -154,6 +155,15 @@ describe('interruptionTrace', () => {
     expect(getInterruptionSignalAbortEventId(controller.signal)).toBe(
       observed?.eventId,
     )
+
+    requestAbort(controller, 'second-abort', {
+      source: 'native-abort-test',
+      controllerRole: 'external',
+    })
+    const repeated = __getInterruptionTraceSnapshotForTests().find(
+      entry => entry.event === 'abort.repeated',
+    )
+    expect(repeated?.firstAbortEventId).toBe(observed?.eventId)
   })
 
   test('observes and flushes a query-root controller already aborted when registered', async () => {
@@ -239,6 +249,44 @@ describe('interruptionTrace', () => {
     combined.cleanup()
   })
 
+  test('does not persist arbitrary custom error names', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const reason = new Error('private reason message')
+    reason.name = 'private customer prompt'
+
+    traceInterruptionEvent('custom.error', { reason, error: reason })
+
+    const serialized = JSON.stringify(__getInterruptionTraceSnapshotForTests())
+    expect(serialized).not.toContain('private customer prompt')
+    expect(serialized).not.toContain('private reason message')
+    const entry = __getInterruptionTraceSnapshotForTests().at(-1)
+    expect(entry?.rawReasonType).toBe('Error:Error')
+    expect(entry?.safeErrorIdentity).toBe('Error')
+  })
+
+  test('preserves only standardized DOMException names', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const standard = new DOMException('private message', 'AbortError')
+    const custom = new DOMException('private message', 'private customer prompt')
+
+    traceInterruptionEvent('standard.dom.error', {
+      reason: standard,
+      error: standard,
+    })
+    traceInterruptionEvent('custom.dom.error', {
+      reason: custom,
+      error: custom,
+    })
+
+    const entries = __getInterruptionTraceSnapshotForTests()
+    expect(entries.at(-2)?.rawReasonType).toBe('DOMException:AbortError')
+    expect(entries.at(-2)?.safeErrorIdentity).toBe('DOMException:AbortError')
+    expect(entries.at(-1)?.rawReasonType).toBe('DOMException')
+    expect(entries.at(-1)?.safeErrorIdentity).toBe('DOMException')
+    expect(JSON.stringify(entries)).not.toContain('private customer prompt')
+    expect(JSON.stringify(entries)).not.toContain('private message')
+  })
+
   test('keeps only the newest allowlisted records up to capacity', () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = 'true'
     const emitted = __INTERRUPTION_TRACE_CAPACITY_FOR_TESTS + 88
@@ -258,7 +306,7 @@ describe('interruptionTrace', () => {
     expect(JSON.stringify(entries)).not.toContain('prompt')
   })
 
-  test('flushes valid JSONL once to an explicit absolute path', async () => {
+  testPosixTraceFile('flushes valid JSONL once to an explicit absolute path', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const traceFile = join(tempDirectory, 'trace.jsonl')
@@ -280,7 +328,7 @@ describe('interruptionTrace', () => {
     ])
   })
 
-  test('flushes every pending record when the ring is at capacity', async () => {
+  testPosixTraceFile('flushes every pending record when the ring is at capacity', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const traceFile = join(tempDirectory, 'trace.jsonl')
@@ -305,11 +353,13 @@ describe('interruptionTrace', () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let failWrites = true
+    let writeAttempts = 0
     const successfulWrites: string[] = []
     setFsImplementation({
       ...originalFs,
       mkdirSync: () => {},
       appendRegularFile: async (_path, data) => {
+        writeAttempts++
         if (failWrites) throw new Error('synthetic write failure')
         successfulWrites.push(data)
       },
@@ -318,11 +368,13 @@ describe('interruptionTrace', () => {
     traceInterruptionEvent('first')
     flushInterruptionTrace('failed')
     await __waitForInterruptionTraceFlushForTests()
+    expect(writeAttempts).toBe(1)
     failWrites = false
     traceInterruptionEvent('second')
     flushInterruptionTrace('retry')
     await __waitForInterruptionTraceFlushForTests()
 
+    expect(writeAttempts).toBe(2)
     expect(successfulWrites).toHaveLength(1)
     const events = successfulWrites[0]!
       .trim()
@@ -331,7 +383,7 @@ describe('interruptionTrace', () => {
     expect(events).toEqual(['first', 'second', 'trace.flush'])
   })
 
-  test('rejects an existing non-regular trace target', async () => {
+  testPosixTraceFile('rejects an existing non-regular trace target', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = tempDirectory
@@ -347,7 +399,7 @@ describe('interruptionTrace', () => {
     ).toBe(false)
   })
 
-  test('rejects symlink targets and creates private files and directories', async () => {
+  testPosixTraceFile('rejects symlink targets and creates private files and directories', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const target = join(tempDirectory, 'target.jsonl')
@@ -367,9 +419,17 @@ describe('interruptionTrace', () => {
     await __waitForInterruptionTraceFlushForTests()
     expect((await stat(privateDirectory)).mode & 0o777).toBe(0o700)
     expect((await stat(privateTrace)).mode & 0o777).toBe(0o600)
+
+    const existingTrace = join(tempDirectory, 'existing.jsonl')
+    await writeFile(existingTrace, '', { mode: 0o644 })
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = existingTrace
+    traceInterruptionEvent('existing-private-target')
+    flushInterruptionTrace('existing-private-target')
+    await __waitForInterruptionTraceFlushForTests()
+    expect((await stat(existingTrace)).mode & 0o777).toBe(0o600)
   })
 
-  test('preserves legacy diagnostics append-through-symlink behavior', async () => {
+  testPosixTraceFile('preserves legacy diagnostics append-through-symlink behavior', async () => {
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-diagnostics-'))
     const target = join(tempDirectory, 'target.jsonl')
     const link = join(tempDirectory, 'diagnostics-link.jsonl')
@@ -396,14 +456,17 @@ describe('interruptionTrace', () => {
     })
     const controller = new AbortController()
 
-    requestAbort(controller, 'user-cancel', {
-      source: 'cancel_keybinding',
-      controllerRole: 'query-root',
-    })
+    try {
+      requestAbort(controller, 'user-cancel', {
+        source: 'cancel_keybinding',
+        controllerRole: 'query-root',
+      })
 
-    expect(controller.signal.aborted).toBe(true)
-    releaseWrite()
-    await __waitForInterruptionTraceFlushForTests()
+      expect(controller.signal.aborted).toBe(true)
+    } finally {
+      releaseWrite()
+      await __waitForInterruptionTraceFlushForTests()
+    }
   })
 
   test('keeps sequence IDs unique and later events pending during an async flush', async () => {
@@ -431,11 +494,14 @@ describe('interruptionTrace', () => {
 
     traceInterruptionEvent('before')
     flushInterruptionTrace('first')
-    await firstWriteStarted
-    traceInterruptionEvent('during_one')
-    traceInterruptionEvent('during_two')
-    releaseFirstWrite()
-    await __waitForInterruptionTraceFlushForTests()
+    try {
+      await firstWriteStarted
+      traceInterruptionEvent('during_one')
+      traceInterruptionEvent('during_two')
+    } finally {
+      releaseFirstWrite()
+      await __waitForInterruptionTraceFlushForTests()
+    }
     flushInterruptionTrace('second')
     await __waitForInterruptionTraceFlushForTests()
 

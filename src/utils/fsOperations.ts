@@ -553,25 +553,21 @@ export const NodeFsOperations: FsOperations = {
   },
 
   async appendRegularFile(path, data, options) {
-    if (process.platform === 'win32' && fs.existsSync(path)) {
-      const stats = fs.lstatSync(path)
-      if (stats.isSymbolicLink() || !stats.isFile()) {
-        throw new Error('Diagnostics target is not a regular file')
-      }
+    if (process.platform === 'win32') {
+      throw new Error('Secure diagnostic file output is unavailable on Windows')
     }
-    const flags = process.platform === 'win32'
-      ? 'a'
-      : fs.constants.O_APPEND |
-        fs.constants.O_CREAT |
-        fs.constants.O_NONBLOCK |
-        fs.constants.O_WRONLY |
-        fs.constants.O_NOFOLLOW
+    const flags = fs.constants.O_APPEND |
+      fs.constants.O_CREAT |
+      fs.constants.O_NONBLOCK |
+      fs.constants.O_WRONLY |
+      fs.constants.O_NOFOLLOW
     const handle = await open(path, flags, options?.mode ?? 0o600)
     try {
       const stats = await handle.stat()
       if (!stats.isFile()) {
         throw new Error('Diagnostics target is not a regular file')
       }
+      if (options?.mode !== undefined) await handle.chmod(options.mode)
       await handle.writeFile(data, { encoding: 'utf8' })
     } finally {
       await handle.close()

@@ -112,7 +112,13 @@ export async function readWithIdleTimeout(
     }
 
     timeoutId = setTimeout(() => {
-      const error = options.createTimeoutError?.() ?? new StreamIdleTimeoutError(timeoutMs)
+      let error: unknown
+      try {
+        error = options.createTimeoutError?.()
+      } catch {
+        // Fall back to the standard timeout error.
+      }
+      error ??= new StreamIdleTimeoutError(timeoutMs)
       try {
         options.onTimeout?.()
       } catch {

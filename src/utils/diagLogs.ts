@@ -27,17 +27,13 @@ export async function appendDiagnosticsNoPII(
   const fs = getFsImplementation()
   const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
   try {
+    fs.mkdirSync(dirname(logFile), { mode: 0o700 })
     await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
     return true
   } catch {
-    try {
-      fs.mkdirSync(dirname(logFile), { mode: 0o700 })
-      await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
-      return true
-    } catch {
-      // Diagnostics must never change application behavior.
-      return false
-    }
+    // Do not retry the same payload here: an append can fail after a partial
+    // write. The trace ring retains the batch for a later explicit flush.
+    return false
   }
 }
 

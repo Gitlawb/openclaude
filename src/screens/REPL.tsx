@@ -229,6 +229,7 @@ import { activityManager } from '../utils/activityManager.js';
 import { createAbortController } from '../utils/abortController.js';
 import {
   flushInterruptionTrace,
+  getInterruptionSignalAbortEventId,
   registerInterruptionController,
   requestAbort,
   traceInterruptionEvent,
@@ -3512,6 +3513,9 @@ export function REPL({
         queryGeneration: thisGeneration,
         querySource: queryContext.querySource,
         reason: abortController.signal.reason,
+        causalEventId: getInterruptionSignalAbortEventId(
+          abortController.signal,
+        ),
         activeApiCallCount: activeOperations.apiCalls.length,
         activeToolUseCount: activeOperations.toolUses.length,
       });

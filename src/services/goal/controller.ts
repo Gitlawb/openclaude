@@ -5,7 +5,10 @@ import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
-import { traceInterruptionEvent } from '../../utils/interruptionTrace.js'
+import {
+  getInterruptionSignalAbortEventId,
+  traceInterruptionEvent,
+} from '../../utils/interruptionTrace.js'
 import { createSystemMessage, createUserMessage } from '../../utils/messages.js'
 import { evaluateGoal as evaluateGoalDefault } from './evaluator.js'
 import { buildGoalContinuationInstruction } from './instructions.js'
@@ -197,6 +200,9 @@ export async function* evaluateGoalAfterTurn({
     attemptId: goal.id,
     outcome: decision.decision,
     reason: toolUseContext.abortController.signal.reason,
+    causalEventId: getInterruptionSignalAbortEventId(
+      toolUseContext.abortController.signal,
+    ),
   })
 
   if (toolUseContext.abortController.signal.aborted) return []

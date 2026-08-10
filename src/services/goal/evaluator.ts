@@ -1,6 +1,9 @@
 import type { SystemPrompt } from '../../utils/systemPromptType.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
-import { traceInterruptionEvent } from '../../utils/interruptionTrace.js'
+import {
+  getInterruptionSignalAbortEventId,
+  traceInterruptionEvent,
+} from '../../utils/interruptionTrace.js'
 import { queryHaiku } from '../api/claude.js'
 import type { GoalEvaluatorDecision, GoalState } from './types.js'
 
@@ -274,6 +277,7 @@ export async function evaluateGoal({
       phase: 'evaluator',
       error,
       reason: signal.reason,
+      causalEventId: getInterruptionSignalAbortEventId(signal),
     })
     return {
       complete: false,
