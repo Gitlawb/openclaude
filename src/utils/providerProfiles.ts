@@ -67,6 +67,7 @@ import {
   sanitizeProfileCustomHeaders,
   serializeProfileCustomHeaders,
 } from './providerCustomHeaders.js'
+import { sanitizeApiKey } from './providerSecrets.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
@@ -361,7 +362,8 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     provider,
     baseUrl,
     model,
-    apiKey: trimOrUndefined(profile.apiKey),
+    // Drop template/dotenv sentinels so placeholders never persist as keys.
+    apiKey: sanitizeApiKey(trimOrUndefined(profile.apiKey)),
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat

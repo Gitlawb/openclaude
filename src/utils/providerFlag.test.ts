@@ -995,6 +995,19 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
+  test.each(['null', 'undefined', ' NULL ', ' Undefined '])(
+    'treats placeholder OPENAI_BASE_URL %s as unset and applies ApiSmart defaults',
+    sentinel => {
+      process.env.APISMART_API_KEY = 'apismart-secret-key'
+      process.env.OPENAI_BASE_URL = sentinel
+
+      applyProviderFlag('apismart', [])
+
+      expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+      expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
+    },
+  )
+
   test('clears unsupported OpenAI shim settings from a previous route', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.OPENAI_API_FORMAT = 'responses'

@@ -865,6 +865,31 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.APISMART_API_KEY).toBeUndefined()
   })
 
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'addProviderProfile drops placeholder ApiSmart credential %s',
+    async placeholder => {
+      const { addProviderProfile, getProviderProfiles } =
+        await importFreshProviderProfileModules()
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [],
+        activeProviderProfileId: undefined,
+      }))
+
+      const saved = addProviderProfile({
+        provider: 'apismart',
+        name: 'ApiSmart',
+        baseUrl: 'https://gw.apismart.ai/v1',
+        model: 'DEEPSEEK_V4_FLASH',
+        apiKey: placeholder,
+      })
+
+      expect(saved?.apiKey).toBeUndefined()
+      expect(getProviderProfiles()[0]?.apiKey).toBeUndefined()
+    },
+  )
+
   test('cloudflare profile applies OpenAI-compatible env with CLOUDFLARE_API_TOKEN mirror', async () => {
     // Account-scoped URL: a real user has substituted `<ACCOUNT_ID>` for their
     // Cloudflare account id. The env-build path should mirror the api key into

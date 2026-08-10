@@ -135,7 +135,12 @@ function hasUsableCredentialEnvValue(
     return false
   }
 
-  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+  if (
+    envVar === 'OPENAI_API_KEYS' ||
+    envVar === 'OPENAI_API_KEY' ||
+    envVar === 'AIMLAPI_API_KEY' ||
+    envVar === 'APISMART_API_KEY'
+  ) {
     return hasUsableOpenAICredential(value)
   }
 

@@ -172,7 +172,16 @@ function getRouteDefaults(provider: string): {
 
 function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
-  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+  if (!trimmed) {
+    return undefined
+  }
+  const normalized = trimmed.toLowerCase()
+  // dotenv / shell sentinels are not usable endpoints. Treating them as
+  // configured would preserve an invalid OPENAI_BASE_URL and block dedicated
+  // provider defaults (for example ApiSmart key mirroring).
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 function getConfiguredOpenAIBaseUrl(): string | undefined {
