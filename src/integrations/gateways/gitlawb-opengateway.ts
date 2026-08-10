@@ -154,6 +154,16 @@ export default defineGateway({
         label: 'Ling 3.0 Flash (via Opengateway)',
         modelDescriptorId: 'inclusionai/ling-3.0-flash',
       },
+      // Day-0 Novita launch via the gateway's OpenRouter wiring — the
+      // gateway time-boxes it (free through Aug 13) and delists it when the
+      // window closes.
+      {
+        id: 'opengateway-ling-3.0-tiny-free',
+        apiName: 'inclusionai/ling-3.0-tiny:free',
+        label: 'Ling 3.0 Tiny Free (via Opengateway)',
+        modelDescriptorId: 'inclusionai/ling-3.0-tiny:free',
+        notes: 'Free until Aug 13 (rate limited)',
+      },
       // Macaron — served by the gateway via direct Novita (not on
       // OpenRouter). Paid since 2026-08-10.
       {

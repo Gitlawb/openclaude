@@ -1449,6 +1449,7 @@ test('/model applies auto provider surface for single-model static descriptor pr
       'nvidia/nemotron-3-ultra-550b-a55b:free',
       'nvidia/nemotron-3-ultra-550b-a55b',
       'inclusionai/ling-3.0-flash',
+      'inclusionai/ling-3.0-tiny:free',
       'mindai/macaron-v1-tall',
       'mindai/macaron-v1-venti',
       'tencent/hy3',
