@@ -140,7 +140,7 @@ AI-assisted and vibe-coded contributions are welcome, but please review your own
 
 ### Release web synchronization
 
-Release automation normally regenerates `web/src/data/releases.ts` from the pending Release Please PR. To recover that entry on an explicit release/web PR, run `bun run sync:web-release`; it rewrites only that generated file. Then run `bun test ./scripts/sync-web-release-entry.test.ts` and `bun run web:build` before committing the result.
+Release automation normally regenerates `web/src/data/releases.ts` from the pending Release Please PR. To recover that entry on an explicit release/web PR, run `bun run sync:web-release`; it rewrites only that generated file. Before committing the result, run `bun test ./scripts/sync-web-release-entry.test.ts`, `bun run typecheck`, `bun run typecheck:type-tests`, `bun run security:pr-scan -- --base origin/main --head HEAD`, `git diff --check origin/main...HEAD`, and `bun run web:build`.
 
 Before submitting, run multiple rounds of review on generated code:
 
