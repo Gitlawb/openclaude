@@ -33,6 +33,7 @@ jobs:
       # this job owns its draft/ready state while synchronization is pending.
       - name: Resolve Release Please PR for web synchronization
         id: release-pr
+        if: ${{ steps.release.outputs.release_created != 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -89,6 +90,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Resolve the release PR merge base
+        id: sync-base
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          base_sha="$(git merge-base "origin/$RELEASE_BASE_BRANCH" HEAD)"
+          if [ -z "$base_sha" ]; then
+            echo "could not resolve the release PR merge base" >&2
+            exit 1
+          fi
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up current Node.js for release PR validation
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.x"
+
       - name: Set up Bun for release PR sync
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -99,7 +119,7 @@ jobs:
       - name: Sync web release entry
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
-          RELEASE_BASE_REF: ${{ github.sha }}
+          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
         run: |
           bun install --frozen-lockfile
           bun run sync:web-release -- --base-ref "$RELEASE_BASE_REF"
@@ -118,18 +138,42 @@ jobs:
           git add web/src/data/releases.ts
           git commit -m "chore(web): sync releases.ts from release-please changelog"
 
-      - name: Validate committed synchronized release entry
+      - name: Validate synchronized release PR on current Node.js
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
-          RELEASE_BASE_REF: ${{ github.sha }}
+          RELEASE_BASE_REF: ${{ steps.sync-base.outputs.sha }}
         run: |
           bun test ./scripts/sync-web-release-entry.test.ts
+          bun run check
           bun run typecheck
           bun run typecheck:type-tests
-          bun run --cwd web build
+          node bin/openclaude --version
+          NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
+          bun run test:provider
+          bun run test:provider-recommendation
           bun run security:pr-scan -- --base "$RELEASE_BASE_REF" --head HEAD
           git diff --check "$RELEASE_BASE_REF"...HEAD
 
+      - name: Set up minimum supported Node.js for release PR validation
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.0.0"
+
+      - name: Validate synchronized release PR on the Node.js floor
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        run: |
+          bun run check
+          node bin/openclaude --version
+          NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
+          bun run test:provider
+          bun run test:provider-recommendation
+          bun run --cwd web typecheck
+          bun run --cwd web build
+
+      - name: Confirm release validation left the commit unchanged
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        run: |
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "release validation changed tracked files after the synchronization commit" >&2
             git status --short

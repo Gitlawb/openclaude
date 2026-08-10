@@ -103,7 +103,7 @@ export function readCurrentTopVersion(releasesTs: string): string | null {
 
 export function formatReleaseEntry(entry: ReleaseEntry, indent = '  '): string {
   const quote = (value: string) => JSON.stringify(value)
-  const highlightLines = entry.highlights.map(highlight => `${indent}  ${quote(highlight)},`).join('\n')
+  const highlightLines = entry.highlights.map(highlight => `${indent}    ${quote(highlight)},`).join('\n')
   return `${indent}{
 ${indent}  version: ${quote(entry.version)},
 ${indent}  date: ${quote(entry.date)},
