@@ -350,11 +350,13 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 For best results, use models with strong tool/function calling support.
 
 
+
 ## Agents
 
 Route different agents to different models (cost optimization, splitting work
 by model strength), cap sub-agent tool steps with `maxSteps`, and tune GitHub
-Copilot sub-agent behavior. All settings-driven:
+Copilot sub-agent behavior. Configured via settings, agent frontmatter, and
+environment variables:
 
 - per-agent provider/model overrides via `agentModels` + `agentRouting` in `~/.openclaude/settings.json`
 - model-only routes that reuse your current provider's credentials

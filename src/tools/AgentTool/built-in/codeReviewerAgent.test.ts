@@ -10,7 +10,10 @@ import {
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { setAllowedSettingSources } from 'src/bootstrap/state.js'
+import {
+  getAllowedSettingSources,
+  setAllowedSettingSources,
+} from 'src/bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -67,6 +70,7 @@ async function loadCodeReviewerAgent(): Promise<BuiltInAgentDefinition> {
   const configDir = join(dir, '.openclaude')
 
   const previousOverride = getClaudeConfigHomeDirOverrideForTesting()
+  const previousSettingSources = getAllowedSettingSources()
   setClaudeConfigHomeDirForTesting(configDir)
   process.env.HOME = dir
   process.env.OPENCLAUDE_CONFIG_DIR = configDir
@@ -89,7 +93,7 @@ async function loadCodeReviewerAgent(): Promise<BuiltInAgentDefinition> {
     restoreAllEnv()
     setClaudeConfigHomeDirForTesting(previousOverride)
     getClaudeConfigHomeDir.cache?.clear?.()
-    setAllowedSettingSources([...SETTING_SOURCES])
+    setAllowedSettingSources(previousSettingSources)
     resetSettingsCache()
     clearAgentDefinitionsCache()
     loadMarkdownFilesForSubdir.cache.clear?.()
