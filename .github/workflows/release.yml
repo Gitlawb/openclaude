@@ -165,6 +165,14 @@ jobs:
             exit 1
           fi
 
+          for path in .release-please-manifest.json CHANGELOG.md package.json web/src/data/releases.ts; do
+            entry="$(git ls-tree HEAD -- "$path")"
+            if [[ "$entry" != "100644 blob "* ]]; then
+              echo "Release Please file must remain a regular non-executable blob: $path" >&2
+              exit 1
+            fi
+          done
+
           if ! diff -u \
             <(git show "${RELEASE_BASE_REF}:package.json" | jq -S 'del(.version)') \
             <(jq -S 'del(.version)' package.json); then
