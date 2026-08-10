@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write # Return the release PR to draft while validation runs.
     outputs:
       found: ${{ steps.release-pr.outputs.found }}
       number: ${{ steps.release-pr.outputs.number }}
@@ -226,8 +226,8 @@ jobs:
                 const b = right.prerelease[index]
                 if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1
                 if (a === b) continue
-                const aNumeric = /^\\d+$/.test(a)
-                const bNumeric = /^\\d+$/.test(b)
+                const aNumeric = /^[0-9]+$/.test(a)
+                const bNumeric = /^[0-9]+$/.test(b)
                 if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
                 if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
                 return a < b ? -1 : 1
@@ -336,8 +336,8 @@ jobs:
     if: ${{ needs.release-pr-resolve.outputs.found == 'true' && needs.release-pr-validate.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write # Push the exact synchronized commit validated above.
+      pull-requests: write # Mark that release PR ready after the push is verified.
     steps:
       - name: Check out captured Release Please PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -408,9 +408,13 @@ jobs:
 
           current_sha="$(jq -r .headRefOid <<<"$current")"
           if [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
-            git push \
+            auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+            GIT_CONFIG_COUNT=1 \
+              GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
+              git push \
               --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
-              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "https://github.com/${GITHUB_REPOSITORY}.git" \
               "HEAD:${RELEASE_PR_BRANCH}"
             validated_head_sha="$(git rev-parse HEAD)"
           elif [ "$current_sha" = "$VALIDATED_COMMIT_SHA" ]; then

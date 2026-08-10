@@ -187,6 +187,9 @@ describe('formatting helpers', () => {
     expect(sanitizeChangelogBullet('* accept &lt;tag&gt;, arrows -&gt; and &#x1F525;')).toBe(
       'accept <tag>, arrows -> and 🔥',
     )
+    expect(sanitizeChangelogBullet('* invalid &#x110000; and &#55296;')).toBe(
+      'invalid &#x110000; and &#55296;',
+    )
   })
 
   test('derives safe compact themes and escapes generated strings', () => {
