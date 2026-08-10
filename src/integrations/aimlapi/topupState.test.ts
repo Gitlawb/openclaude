@@ -154,6 +154,23 @@ test('a failed exchange releases the lease so a retry can proceed', async () => 
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
 })
 
+test('a future-dated key-mint lease is reclaimed instead of pinning the slot forever', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // A foreign lease timestamped in the future (backwards clock jump or an
+  // edited state file) must be treated as stale and reclaimed — mirrors the
+  // equivalent exchange-lease test.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    keyMintLeaseOwner: 'ghost-owner',
+    keyMintLeaseAt: Date.now() + 60 * 60 * 1000,
+  })
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
+})
+
 test('the key-mint lease elects one minter and lets peers resume the recorded key', async () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -215,6 +232,42 @@ test('releasing the key-mint lease is scoped to the owner and never drops a mint
   })
   await releaseAimlapiKeyMintLeaseAsync(expected, 'owner-a')
   expect(loadAimlapiTopupState(intent)?.apiKey).toBe('minted-key')
+})
+
+test('an unrelated saveAimlapiTopupState call must not drop an in-flight key-mint lease', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // owner-a is actively minting.
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+
+  // A concurrent, otherwise-unrelated save (e.g. persisting whether this
+  // checkout must be exchanged) passes a plain AimlapiCheckoutState-shaped
+  // object, which carries neither lease pair at all — that must not silently
+  // clear owner-a's lease, or a third process would see it free and mint its
+  // own key too.
+  saveAimlapiTopupState({ ...expected, resumeSessionToken: '', exchange: false })
+
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('held')
+})
+
+test('recording a checkout session must not drop an in-flight key-mint lease', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+
+  // Recording a freshly-elected checkout session is a routine, unrelated
+  // event and must not clear the concurrently-held mint lease.
+  const recorded = recordAimlapiCheckoutSession({
+    ...expected,
+    resumeSessionToken: 'live-session',
+  })
+  expect(recorded?.resumeSessionToken).toBe('live-session')
+
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('held')
 })
 
 test('releasing the exchange lease is scoped to the owner and never drops a settled receipt', async () => {

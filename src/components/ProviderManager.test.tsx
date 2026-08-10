@@ -543,7 +543,30 @@ function mockProviderManagerDependencies(
     saveAimlapiTopupStateAsync:
       options?.saveAimlapiTopupStateAsync ??
       (async (state: Record<string, unknown>) => {
-        persistedAimlapiTopup = state
+        // Mirror the real CAS (saveTopupStateOperation): a slot that no longer
+        // matches this intent + payment id is left untouched, and a
+        // first-writer-wins resumeSessionToken/apiKey survive a caller whose
+        // in-memory copy is still empty — the sibling
+        // recordAimlapiCheckoutSessionAsync mock below models the same rule.
+        const matchable: Record<string, unknown> = { ...state }
+        for (const key of ['resumeSessionToken', 'apiKey', 'apiKeyId', 'model', 'settled', 'exchange']) {
+          delete matchable[key]
+        }
+        if (!matchesAimlapiIntent(persistedAimlapiTopup, matchable)) return
+        const existingToken = persistedAimlapiTopup?.resumeSessionToken
+        const existingApiKey = persistedAimlapiTopup?.apiKey
+        persistedAimlapiTopup = {
+          ...state,
+          resumeSessionToken:
+            (typeof existingToken === 'string' && existingToken.trim() && existingToken) ||
+            state.resumeSessionToken,
+          apiKey:
+            (typeof existingApiKey === 'string' && existingApiKey.trim() && existingApiKey) ||
+            state.apiKey,
+          apiKeyId:
+            (typeof existingApiKey === 'string' && existingApiKey.trim() && persistedAimlapiTopup?.apiKeyId) ||
+            state.apiKeyId,
+        }
       }),
     recordAimlapiCheckoutSessionAsync:
       options?.recordAimlapiCheckoutSessionAsync ??

@@ -515,6 +515,12 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
     exchange: state.exchange ?? current.exchange,
     exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
     exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
+    // AimlapiCheckoutState (what callers spread `checkoutState` from) carries
+    // neither lease pair, so an unrelated save (e.g. persisting the exchange
+    // flag) must not silently drop an in-flight peer's key-mint lease — that
+    // would let a THIRD process see the lease as absent and mint a second key.
+    keyMintLeaseOwner: state.keyMintLeaseOwner ?? current.keyMintLeaseOwner,
+    keyMintLeaseAt: state.keyMintLeaseAt ?? current.keyMintLeaseAt,
   })
 }
 
@@ -596,6 +602,9 @@ function recordCheckoutSessionOperation(state: AimlapiPersistedTopup): AimlapiCh
     exchange: state.exchange ?? current.exchange,
     exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
     exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
+    // See saveTopupStateOperation: must not drop an in-flight key-mint lease.
+    keyMintLeaseOwner: state.keyMintLeaseOwner ?? current.keyMintLeaseOwner,
+    keyMintLeaseAt: state.keyMintLeaseAt ?? current.keyMintLeaseAt,
   }
   writeAimlapiTopupStateUnlocked(recorded)
   return toCheckoutState(recorded)
