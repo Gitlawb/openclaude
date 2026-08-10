@@ -113,6 +113,26 @@ describe('syncWebReleaseEntry', () => {
     expect(result.content.match(/version: "0.29.0"/g)).toHaveLength(1)
   })
 
+  test('replaces a generated entry in a CRLF checkout and preserves its line endings', () => {
+    const generated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-10',
+      theme: 'draft',
+      highlights: ['draft'],
+    }).replaceAll('\n', '\r\n')
+    const result = syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0'),
+      releasesTs: generated,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
+      manifestVersion: '0.29.0',
+    })
+
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') return
+    expect(result.content).toContain('version: "0.29.0"')
+    expect(result.content.replaceAll('\r\n', '')).not.toContain('\n')
+  })
+
   test('preserves a hand-curated pending entry for the target version', () => {
     const curated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
       version: '0.28.0',

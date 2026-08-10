@@ -121,7 +121,9 @@ export function insertReleaseEntry(releasesTs: string, entry: ReleaseEntry): str
   if (index === -1) throw new Error(`could not find releases array in ${RELEASES_TS_PATH}`)
 
   const insertAt = index + marker.length
-  return `${releasesTs.slice(0, insertAt)}\n${GENERATED_ENTRY_MARKER}\n${formatReleaseEntry(entry)}${releasesTs.slice(insertAt)}`
+  const eol = detectLineEnding(releasesTs)
+  const formattedEntry = formatReleaseEntry(entry).replaceAll('\n', eol)
+  return `${releasesTs.slice(0, insertAt)}${eol}${GENERATED_ENTRY_MARKER}${eol}${formattedEntry}${releasesTs.slice(insertAt)}`
 }
 
 export function replaceTopReleaseEntry(releasesTs: string, entry: ReleaseEntry): string {
@@ -130,16 +132,25 @@ export function replaceTopReleaseEntry(releasesTs: string, entry: ReleaseEntry):
   if (index === -1) throw new Error(`could not find releases array in ${RELEASES_TS_PATH}`)
   const insertAt = index + marker.length
   const existing = releasesTs.slice(insertAt)
-  const end = existing.search(/^  \},\n/m)
-  if (end === -1) throw new Error(`could not find top release entry in ${RELEASES_TS_PATH}`)
-  return `${releasesTs.slice(0, insertAt)}\n${GENERATED_ENTRY_MARKER}\n${formatReleaseEntry(entry)}${existing.slice(end + 5)}`
+  const endMatch = /^  \},\r?\n/m.exec(existing)
+  if (!endMatch) throw new Error(`could not find top release entry in ${RELEASES_TS_PATH}`)
+  const eol = detectLineEnding(releasesTs)
+  const formattedEntry = formatReleaseEntry(entry).replaceAll('\n', eol)
+  const afterEntry = endMatch.index + endMatch[0].length
+  return `${releasesTs.slice(0, insertAt)}${eol}${GENERATED_ENTRY_MARKER}${eol}${formattedEntry}${existing.slice(afterEntry)}`
 }
 
 export function hasGeneratedTopEntry(releasesTs: string): boolean {
   const marker = 'export const releases: Release[] = ['
   const index = releasesTs.indexOf(marker)
   if (index === -1) return false
-  return releasesTs.slice(index + marker.length).startsWith(`\n${GENERATED_ENTRY_MARKER}\n`)
+  const existing = releasesTs.slice(index + marker.length)
+  return existing.startsWith(`\n${GENERATED_ENTRY_MARKER}\n`)
+    || existing.startsWith(`\r\n${GENERATED_ENTRY_MARKER}\r\n`)
+}
+
+function detectLineEnding(value: string): '\n' | '\r\n' {
+  return value.includes('\r\n') ? '\r\n' : '\n'
 }
 
 export function readBaseReleasesTs(baseRef: string): string {
