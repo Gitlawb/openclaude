@@ -2,12 +2,12 @@ import { defineModel } from '../define.js'
 
 export default [
   defineModel({
-    id: 'inclusionai/ling-3.0-flash:free',
-    label: 'Ling 3.0 Flash (free)',
+    id: 'inclusionai/ling-3.0-flash',
+    label: 'Ling 3.0 Flash',
     brandId: 'ling',
     vendorId: 'openai',
     classification: ['chat', 'reasoning', 'coding'],
-    defaultModel: 'inclusionai/ling-3.0-flash:free',
+    defaultModel: 'inclusionai/ling-3.0-flash',
     capabilities: {
       supportsVision: false,
       supportsStreaming: true,

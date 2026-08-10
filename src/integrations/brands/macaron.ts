@@ -12,5 +12,5 @@ export default defineBrand({
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
   },
-  modelIds: ['mindai/macaron-v1-tall'],
+  modelIds: ['mindai/macaron-v1-tall', 'mindai/macaron-v1-venti'],
 })
