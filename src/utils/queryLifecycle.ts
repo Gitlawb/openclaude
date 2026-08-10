@@ -63,6 +63,7 @@ export type QueryGuardTimeoutInfo = {
   generation: number
   reason: QueryGuardTimeoutReason
   timeoutMs: number
+  /** Monotonic milliseconds since query start; do not compare with context.startedAt. */
   elapsedMs: number
   context: QueryLifecycleContext
   activeOperations: QueryActiveOperationSnapshot

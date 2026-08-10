@@ -119,6 +119,8 @@ export class QueryGuard {
   private _changed = createSignal()
   private _timeoutId: ReturnType<typeof setTimeout> | null = null
   private _timeoutHandler: QueryTimeoutHandler | null = null
+  // Deadline arithmetic is monotonic so NTP/manual wall-clock jumps cannot
+  // manufacture an immediate timeout or postpone an already-scheduled one.
   private _queryStartedAt = 0
   private _lastActivityAt = 0
   private _suspendCount = 0
@@ -187,7 +189,7 @@ export class QueryGuard {
     this._suspendedAt = 0
     this._totalSuspendedMs = 0
     this._lastContext = null
-    this._queryStartedAt = Date.now()
+    this._queryStartedAt = performance.now()
     this._lastActivityAt = this._queryStartedAt
     this._context = this._createContext(metadata)
     this._getActiveOperations = metadata?.getActiveOperations ?? null
@@ -258,7 +260,7 @@ export class QueryGuard {
     void reason
     if (this._status !== 'running') return
     if (generation !== undefined && generation !== this._generation) return
-    this._lastActivityAt = Date.now()
+    this._lastActivityAt = performance.now()
     this._scheduleTimeout()
   }
 
@@ -279,7 +281,7 @@ export class QueryGuard {
       }
     }
 
-    const now = Date.now()
+    const now = performance.now()
     const leaseTimeoutMs =
       typeof input.timeoutMs === 'number' &&
       Number.isFinite(input.timeoutMs) &&
@@ -347,7 +349,7 @@ export class QueryGuard {
       return () => {}
     }
     if (this._suspendCount === 0) {
-      this._suspendedAt = Date.now()
+      this._suspendedAt = performance.now()
     }
     this._suspendCount++
     this._scheduleTimeout()
@@ -373,7 +375,7 @@ export class QueryGuard {
    */
   private _resumeAfterInteraction(): void {
     if (this._status !== 'running') return
-    const now = Date.now()
+    const now = performance.now()
     const suspendedStartedAt = this._suspendedAt
     const suspendedMs = Math.max(0, now - suspendedStartedAt)
     this._suspendedAt = 0
@@ -493,7 +495,7 @@ export class QueryGuard {
     this._clearTimeout()
     if (this._status !== 'running') return
 
-    const now = Date.now()
+    const now = performance.now()
     const reason = this._getTimeoutReason(now)
     if (reason) {
       this._timeoutId = setTimeout(() => this._handleTimeout(), 0)
@@ -512,7 +514,7 @@ export class QueryGuard {
     this._timeoutId = null
     if (this._status !== 'running') return
 
-    const now = Date.now()
+    const now = performance.now()
     const reason = this._getTimeoutReason(now)
     if (!reason) {
       this._scheduleTimeout()
@@ -528,7 +530,7 @@ export class QueryGuard {
       generation: this._generation,
       reason,
       timeoutMs: this._getTimeoutMsForReason(reason, now),
-      elapsedMs: now - context.startedAt,
+      elapsedMs: now - this._queryStartedAt,
       context,
       activeOperations: this._snapshotActiveOperations(),
     }
