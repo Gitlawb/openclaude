@@ -389,6 +389,20 @@ test('resolveProviderRequest ignores APISMART_MODEL without APISMART_API_KEY', (
   expect(request.baseUrl).toBe('https://api.openai.com/v1')
 })
 
+test('resolveProviderRequest ignores placeholder ApiSmart credentials', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'SUA_CHAVE',
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
 test('resolveProviderRequest prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
   const request = resolveProviderRequest({
     processEnv: {

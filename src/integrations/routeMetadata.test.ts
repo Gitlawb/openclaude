@@ -476,6 +476,26 @@ test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmar
   ).toBe('apismart')
 })
 
+test('resolveActiveRouteIdFromEnv ignores placeholder ApiSmart credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'SUA_CHAVE',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'SUA_CHAVE',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: { APISMART_API_KEY: 'SUA_CHAVE' },
+    }),
+  ).toBeUndefined()
+})
+
 test('resolveActiveRouteIdFromEnv prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
   expect(
     resolveActiveRouteIdFromEnv({

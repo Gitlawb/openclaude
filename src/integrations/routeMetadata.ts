@@ -224,7 +224,8 @@ function hasUsableEnvCredentialValue(
   if (
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
-    envVar === 'AIMLAPI_API_KEY'
+    envVar === 'AIMLAPI_API_KEY' ||
+    envVar === 'APISMART_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -628,7 +629,7 @@ function hasCompetingApismartCredential(
   isRouteBaseUrl: (value: string | undefined) => boolean,
 ): boolean {
   return (
-    hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
     !hasExplicitOpenAIBaseUrlForRoute(processEnv, isRouteBaseUrl)
   )
 }
@@ -819,7 +820,7 @@ export function hasApismartEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
   return (
-    hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )

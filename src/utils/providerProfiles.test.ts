@@ -841,6 +841,17 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
   })
 
+  test('apismart profile without a base URL retains its dedicated credential for the default route', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildApismartProfile({ baseUrl: undefined }))
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-test-key')
+    expect(process.env.APISMART_API_KEY).toBe('apismart-test-key')
+  })
+
   test('retargeted ApiSmart profile withholds its dedicated credential', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

@@ -29,6 +29,7 @@ import {
   isApismartBaseUrl,
   isClinePassBaseUrl,
 } from '../../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential } from './credentialPool.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -932,7 +933,7 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
-  const isApismartMode = Boolean(processEnv.APISMART_API_KEY?.trim())
+  const isApismartMode = hasUsableOpenAICredential(processEnv.APISMART_API_KEY)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(

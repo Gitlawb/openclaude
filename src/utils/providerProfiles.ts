@@ -51,6 +51,7 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isApismartBaseUrl,
@@ -152,7 +153,8 @@ function isClinePassProfile(profile: ProviderProfile): boolean {
 }
 
 function isApismartProfile(profile: ProviderProfile): boolean {
-  return isApismartBaseUrl(profile.baseUrl)
+  const baseUrl = profile.baseUrl?.trim()
+  return !baseUrl || isApismartBaseUrl(baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -963,6 +965,8 @@ export function applyProviderProfileToProcessEnv(
     const normalizedProfileBaseUrl =
       route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
+        : route.routeId === 'apismart' && !profile.baseUrl?.trim()
+          ? getRouteDefaultBaseUrl('apismart') ?? profile.baseUrl
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
@@ -994,17 +998,17 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'apismart' && !isApismartProfile(profile)
     if (profile.apiKey && !withholdRetargetedApismartCredential) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
-      if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
+      if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
       if (
         route.gatewayId === 'nvidia-nim' ||
-        profile.baseUrl.toLowerCase().includes('nvidia') ||
-        profile.baseUrl.toLowerCase().includes('integrate.api.nvidia')
+        normalizedProfileBaseUrl.toLowerCase().includes('nvidia') ||
+        normalizedProfileBaseUrl.toLowerCase().includes('integrate.api.nvidia')
       ) {
         openAIProfileEnv.NVIDIA_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
+      if (route.routeId === 'bankr' || normalizedProfileBaseUrl.toLowerCase().includes('bankr')) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
       if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
@@ -1013,7 +1017,7 @@ export function applyProviderProfileToProcessEnv(
       if (isAimlapiProfile) {
         openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
+      if (route.routeId === 'venice' || normalizedProfileBaseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
       if (
@@ -1023,7 +1027,7 @@ export function applyProviderProfileToProcessEnv(
       ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
+      if (route.routeId === 'atlas-cloud' || normalizedProfileBaseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
       if (isApismartProfile(profile)) {
