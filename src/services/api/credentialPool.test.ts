@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { CredentialPool, firstUsableCredential, hasInvalidCredentialPlaceholder, parseCredentialList } from './credentialPool.js'
+import { CredentialPool, firstUsableCredential, hasInvalidCredentialPlaceholder, hasUsableOpenAICredential, parseCredentialList } from './credentialPool.js'
 
 test('parseCredentialList trims comma-separated keys', () => {
   expect(parseCredentialList(' key-a, key-b ,,key-c ')).toEqual([
@@ -13,6 +13,12 @@ test('firstUsableCredential rejects pools containing placeholder credentials', (
   expect(firstUsableCredential('key-a,key-b')).toBe('key-a')
   expect(firstUsableCredential('key-a,SUA_CHAVE')).toBeUndefined()
   expect(hasInvalidCredentialPlaceholder('key-a,SUA_CHAVE')).toBe(true)
+  expect(hasInvalidCredentialPlaceholder('null')).toBe(true)
+  expect(hasInvalidCredentialPlaceholder('undefined')).toBe(true)
+  expect(hasInvalidCredentialPlaceholder(' NULL ')).toBe(true)
+  expect(hasUsableOpenAICredential('null')).toBe(false)
+  expect(hasUsableOpenAICredential('sua_chave')).toBe(false)
+  expect(hasUsableOpenAICredential('apismart-key')).toBe(true)
 })
 test('CredentialPool rotates through healthy credentials', () => {
   const pool = new CredentialPool(['key-a', 'key-b'])

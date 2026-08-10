@@ -87,7 +87,19 @@ export type SecretValueSource = Partial<Record<string, string | undefined>>
 export function sanitizeApiKey(
   key: string | null | undefined,
 ): string | undefined {
-  if (!key || key === 'SUA_CHAVE') return undefined
+  if (!key) return undefined
+  const trimmed = key.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  // Keep profile/env sanitization aligned with credentialPool placeholders so
+  // template values like SUA_CHAVE / null / undefined never persist as keys.
+  if (
+    normalized === 'sua_chave' ||
+    normalized === 'null' ||
+    normalized === 'undefined'
+  ) {
+    return undefined
+  }
   return key
 }
 

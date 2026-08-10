@@ -241,7 +241,10 @@ function asEnvUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   if (!trimmed) return undefined
-  if (trimmed === 'undefined') {
+  const normalized = trimmed.toLowerCase()
+  // Windows/dotenv templates often materialize unset vars as the literal
+  // strings "undefined" or "null". Neither is a usable endpoint.
+  if (normalized === 'undefined' || normalized === 'null') {
     return undefined
   }
   return trimmed
@@ -256,11 +259,12 @@ function asNamedEnvUrl(
   const trimmed = value.trim()
   if (!trimmed) return undefined
 
-  if (trimmed === 'undefined') {
+  const normalized = trimmed.toLowerCase()
+  if (normalized === 'undefined' || normalized === 'null') {
     if (!warnedUndefinedEnvNames.has(envName)) {
       warnedUndefinedEnvNames.add(envName)
       logForDebugging(
-        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
+        `[provider-config] Environment variable ${envName} is the literal string "${trimmed}"; ignoring it.`,
         { level: 'warn' },
       )
     }
@@ -268,6 +272,15 @@ function asNamedEnvUrl(
   }
 
   return trimmed
+}
+
+function asUsableModelEnvValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 function readNestedString(
@@ -1012,8 +1025,8 @@ export function resolveProviderRequest(options?: {
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
           : effectiveApismartMode
-            ? processEnv.APISMART_MODEL?.trim() ||
-              processEnv.OPENAI_MODEL?.trim()
+            ? asUsableModelEnvValue(processEnv.APISMART_MODEL) ||
+              asUsableModelEnvValue(processEnv.OPENAI_MODEL)
             : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||

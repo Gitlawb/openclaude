@@ -193,8 +193,8 @@ export const providers: Provider[] = [
     name: 'ApiSmart',
     group: 'gateways',
     setup: '/provider or env vars',
-    envVars: ['APISMART_API_KEY'],
-    notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1 with hybrid /v1/models discovery.',
+    envVars: ['APISMART_API_KEY', 'APISMART_MODEL'],
+    notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1; defaults to DEEPSEEK_V4_FLASH with hybrid /v1/models discovery.',
   },
   {
     id: 'cloudflare',

@@ -55,6 +55,7 @@ import {
   shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
+import { hasUsableOpenAICredential } from './credentialPool.js'
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
@@ -376,24 +377,42 @@ function applyAimlapiEnvOnlyDefaults(): void {
 
 function applyApismartEnvOnlyDefaults(): void {
   const baseUrlOverride =
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE?.trim() ||
+    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
     undefined
   const modelOverride =
-    process.env.APISMART_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
+    usableProviderConfigEnvValue(process.env.APISMART_MODEL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) ||
     undefined
+  const apiKey = process.env.APISMART_API_KEY
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL =
     baseUrlOverride ?? getRouteDefaultBaseUrl('apismart')
   process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('apismart')
-  process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
+  // Mirror only a usable dedicated key. Template placeholders must not become
+  // OPENAI_API_KEY side effects for later routes in this process.
+  if (hasUsableOpenAICredential(apiKey)) {
+    process.env.OPENAI_API_KEY = apiKey
+  } else {
+    delete process.env.OPENAI_API_KEY
+  }
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
+function usableProviderConfigEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 export async function getAnthropicClient({

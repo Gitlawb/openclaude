@@ -30,6 +30,7 @@ import {
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 import { isApismartBaseUrl } from '../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
@@ -240,6 +241,17 @@ function clearUnsupportedOpenAIShimSettings(routeId: string): void {
     delete process.env.OPENAI_AUTH_SCHEME
     delete process.env.OPENAI_AUTH_HEADER_VALUE
   }
+}
+
+function usableProviderModelEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 /**
@@ -607,10 +619,19 @@ export function applyProviderFlag(
         provider,
         defaultBaseUrl ?? 'https://gw.apismart.ai/v1',
       )
-      process.env.OPENAI_MODEL ??=
-        process.env.APISMART_MODEL?.trim() ||
-        defaultModel ||
-        'DEEPSEEK_V4_FLASH'
+      {
+        const apismartModel = usableProviderModelEnvValue(
+          process.env.APISMART_MODEL,
+        )
+        if (apismartModel) {
+          process.env.OPENAI_MODEL = apismartModel
+        } else {
+          process.env.OPENAI_MODEL ??=
+            usableProviderModelEnvValue(process.env.OPENAI_MODEL) ||
+            defaultModel ||
+            'DEEPSEEK_V4_FLASH'
+        }
+      }
       if (model) {
         process.env.OPENAI_MODEL = model
         process.env.APISMART_MODEL = model
@@ -620,7 +641,7 @@ export function applyProviderFlag(
       // and clear any stale generic key so another provider's credential is
       // never forwarded to ApiSmart.
       if (
-        process.env.APISMART_API_KEY &&
+        hasUsableOpenAICredential(process.env.APISMART_API_KEY) &&
         isApismartBaseUrl(getConfiguredOpenAIBaseUrl())
       ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY

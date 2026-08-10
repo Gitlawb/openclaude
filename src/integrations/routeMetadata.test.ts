@@ -484,6 +484,28 @@ test('resolveActiveRouteIdFromEnv ignores placeholder ApiSmart credentials', () 
   ).not.toBe('apismart')
   expect(
     resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'null',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'undefined',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'sua_chave',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'null',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveActiveRouteIdFromEnv({
       APISMART_API_KEY: 'SUA_CHAVE',
       AIMLAPI_API_KEY: 'aimlapi-key',
     }),
@@ -492,6 +514,12 @@ test('resolveActiveRouteIdFromEnv ignores placeholder ApiSmart credentials', () 
     resolveRouteCredentialValue({
       routeId: 'apismart',
       processEnv: { APISMART_API_KEY: 'SUA_CHAVE' },
+    }),
+  ).toBeUndefined()
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: { APISMART_API_KEY: 'null' },
     }),
   ).toBeUndefined()
 })

@@ -1046,6 +1046,17 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder ApiSmart credential %s',
+    placeholder => {
+      process.env.APISMART_API_KEY = placeholder
+
+      applyProviderFlag('apismart', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
   test('clears a copied ApiSmart key from OPENAI_API_KEY when switching to another provider', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.OPENAI_API_KEY = 'apismart-secret-key'
