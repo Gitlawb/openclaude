@@ -28,12 +28,48 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Keep the release PR as a draft until web synchronization passes
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+      # A rerun after a failed sync has no `pr` output because Release Please
+      # does not update an unchanged pending PR. Recover that draft explicitly.
+      - name: Resolve Release Please PR for web synchronization
+        id: release-pr
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          release_pr="$RELEASE_PR_JSON"
+          if [ -z "$release_pr" ] || [ "$release_pr" = "null" ]; then
+            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number,headRefName,isDraft)"
+            candidate_count="$(jq length <<<"$candidates")"
+            if [ "$candidate_count" -eq 0 ]; then
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$candidate_count" -ne 1 ]; then
+              echo "expected exactly one pending Release Please PR for $RELEASE_BASE_BRANCH, found $candidate_count" >&2
+              exit 1
+            fi
+
+            release_pr="$(jq -c '.[0]' <<<"$candidates")"
+            if [ "$(jq -r .isDraft <<<"$release_pr")" != "true" ]; then
+              echo "found=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "number=$(jq -r .number <<<"$release_pr")" >> "$GITHUB_OUTPUT"
+          echo "branch=$(jq -r .headRefName <<<"$release_pr")" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the release PR as a draft until web synchronization passes
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
         run: |
           if [ "$(gh pr view "$RELEASE_PR_NUMBER" --json isDraft --jq .isDraft)" = "false" ]; then
             gh pr ready "$RELEASE_PR_NUMBER" --undo
@@ -42,22 +78,22 @@ jobs:
       # Release Please's PR contains the generated changelog and manifest.
       # Synchronize the standalone web version there, before that PR merges.
       - name: Check out Release Please PR branch
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          ref: ${{ steps.release-pr.outputs.branch }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Bun for release PR sync
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
           no-cache: true
 
       - name: Sync and validate web release entry
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         run: |
           bun install --frozen-lockfile
           bun run sync:web-release
@@ -66,10 +102,10 @@ jobs:
           bun run --cwd web build
 
       - name: Commit synced web release entry
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
         run: |
           if git diff --quiet -- web/src/data/releases.ts; then
             echo "releases.ts already up to date"
@@ -83,11 +119,11 @@ jobs:
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${RELEASE_PR_BRANCH}"
 
       - name: Mark synchronized release PR ready for review
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
         run: gh pr ready "$RELEASE_PR_NUMBER"
 
   # Zero-warning install gate: pack the release tag and install it globally in

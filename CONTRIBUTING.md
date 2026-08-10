@@ -138,6 +138,10 @@ Dependency changes need a clear project benefit — fixing a bug, addressing a s
 
 AI-assisted and vibe-coded contributions are welcome, but please review your own changes thoroughly before opening a PR. Even frontier models produce subtle bugs, incorrect assumptions, and code that looks right but isn't.
 
+### Release web synchronization
+
+Release automation normally regenerates `web/src/data/releases.ts` from the pending Release Please PR. To recover that entry on an explicit release/web PR, run `bun run sync:web-release`; it rewrites only that generated file. Then run `bun test ./scripts/sync-web-release-entry.test.ts` and `bun run web:build` before committing the result.
+
 Before submitting, run multiple rounds of review on generated code:
 
 - check for correctness, not just whether it compiles
