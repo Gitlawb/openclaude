@@ -15,14 +15,63 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write # Create release commits and tags.
+      pull-requests: write # Draft and update the bot-owned release PR.
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
+      # Release Please pushes an existing PR branch before it observes that
+      # the PR already exists, and its draft option applies only on creation.
+      # Draft the verified bot PR first so an updated head is never exposed as
+      # ready before the exact-head validation jobs run.
+      - name: Keep an existing Release Please PR draft before updating it
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number)"
+          candidate_count="$(jq length <<<"$candidates")"
+          if [ "$candidate_count" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$candidate_count" -ne 1 ]; then
+            echo "expected at most one pending Release Please PR for $RELEASE_BASE_BRANCH, found $candidate_count" >&2
+            exit 1
+          fi
+
+          number="$(jq -r '.[0].number' <<<"$candidates")"
+          release_pr="$(gh pr view "$number" --json state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
+          expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
+
+          if [ "$(jq -r .state <<<"$release_pr")" != "OPEN" ] \
+            || { [ "$(jq -r .author.login <<<"$release_pr")" != "app/github-actions" ] \
+              && [ "$(jq -r .author.login <<<"$release_pr")" != "github-actions[bot]" ]; } \
+            || [ "$(jq -r .baseRefName <<<"$release_pr")" != "$RELEASE_BASE_BRANCH" ] \
+            || [[ "$(jq -r .headRefName <<<"$release_pr")" != "$expected_prefix"* ]] \
+            || [ -z "$(jq -r .headRefOid <<<"$release_pr")" ] \
+            || [ "$(jq -r .headRepositoryOwner.login <<<"$release_pr")" != "$RELEASE_REPO_OWNER" ] \
+            || [ "$(jq -r .isCrossRepository <<<"$release_pr")" != "false" ]; then
+            echo "pending PR #$number does not match the expected same-repository Release Please identity" >&2
+            jq . <<<"$release_pr" >&2
+            exit 1
+          fi
+
+          if [ "$(jq -r .isDraft <<<"$release_pr")" = "false" ]; then
+            gh pr ready "$number" --undo
+          fi
+
+          if [ "$(gh pr view "$number" --json isDraft --jq .isDraft)" != "true" ]; then
+            echo "failed to keep pending Release Please PR #$number in draft state" >&2
+            exit 1
+          fi
+
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -430,6 +479,7 @@ jobs:
           echo "head_sha=$validated_head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Mark synchronized release PR ready for review
+        id: ready-state
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -447,7 +497,7 @@ jobs:
             echo "release PR no longer points at the validated commit" >&2
             jq . <<<"$current" >&2
             if [ "$(jq -r .state <<<"$current")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$current")" = "false" ]; then
-              gh pr ready "$RELEASE_PR_NUMBER" --undo || true
+              gh pr ready "$RELEASE_PR_NUMBER" --undo
             fi
             exit 1
           fi
@@ -465,10 +515,53 @@ jobs:
             echo "release PR changed while it was being marked ready" >&2
             jq . <<<"$final" >&2
             if [ "$(jq -r .state <<<"$final")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$final")" = "false" ]; then
-              gh pr ready "$RELEASE_PR_NUMBER" --undo || true
+              gh pr ready "$RELEASE_PR_NUMBER" --undo
             fi
             exit 1
           fi
+
+      - name: Return the release PR to draft after incomplete finalization
+        if: ${{ always() && steps.ready-state.outcome != 'success' }}
+        timeout-minutes: 2
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft 2>/dev/null)"; then
+              state="$(jq -r .state <<<"$current")"
+              is_draft="$(jq -r .isDraft <<<"$current")"
+
+              if [ "$state" = "CLOSED" ]; then
+                exit 0
+              fi
+              if [ "$state" = "OPEN" ] && [ "$is_draft" = "true" ]; then
+                exit 0
+              fi
+              if [ "$state" != "OPEN" ]; then
+                echo "release PR #$RELEASE_PR_NUMBER reached terminal state $state before it could be re-drafted" >&2
+                exit 1
+              fi
+
+              if gh pr ready "$RELEASE_PR_NUMBER" --undo; then
+                if after="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft 2>/dev/null)"; then
+                  after_state="$(jq -r .state <<<"$after")"
+                  after_draft="$(jq -r .isDraft <<<"$after")"
+                  if [ "$after_state" = "CLOSED" ] \
+                    || { [ "$after_state" = "OPEN" ] && [ "$after_draft" = "true" ]; }; then
+                    exit 0
+                  fi
+                fi
+              fi
+            fi
+
+            echo "attempt $attempt failed to return release PR #$RELEASE_PR_NUMBER to draft" >&2
+            sleep "$((attempt * 2))"
+          done
+
+          echo "release PR #$RELEASE_PR_NUMBER may still be ready after incomplete finalization" >&2
+          exit 1
 
   # Zero-warning install gate: pack the release tag and install it globally in
   # a sandbox (cold + upgrade scenarios) on the supported Node floor (22 →
