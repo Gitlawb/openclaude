@@ -221,6 +221,18 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       ATLAS_CLOUD_API_KEY: 'atlas-key',
     }),
   ).toBe('atlas-key')
+  expect(getRouteCredentialEnvVars('apismart')).toEqual(['APISMART_API_KEY'])
+  expect(
+    getRouteCredentialValue('apismart', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('apismart', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+      APISMART_API_KEY: 'apismart-key',
+    }),
+  ).toBe('apismart-key')
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -303,6 +315,15 @@ test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => 
   expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1')).toBe('aimlapi')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1/chat/completions')).toBe('aimlapi')
+})
+
+test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('apismart')).toBe('https://gw.apismart.ai/v1')
+  expect(getRouteDefaultModel('apismart')).toBe('DEEPSEEK_V4_FLASH')
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1')).toBe('apismart')
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1/chat/completions')).toBe(
+    'apismart',
+  )
 })
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
@@ -436,6 +457,42 @@ test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML 
       AIMLAPI_API_KEY: 'aimlapi-key',
     }),
   ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmart', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      CLINE_API_KEY: 'cline-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv prefers ApiSmart over AI/ML API when both dedicated keys are set', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ApiSmart base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'sk-openai-generic',
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+    }),
+  ).toBe('apismart')
 })
 
 test('resolveActiveRouteIdFromEnv prefers dedicated AI/ML API key over ambient OpenAI keys', () => {

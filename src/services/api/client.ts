@@ -374,6 +374,28 @@ function applyAimlapiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
+function applyApismartEnvOnlyDefaults(): void {
+  const baseUrlOverride =
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim() ||
+    undefined
+  const modelOverride =
+    process.env.APISMART_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    undefined
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('apismart')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('apismart')
+  process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -511,6 +533,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
   const useAimlapiEnvOnlyProvider =
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
+  const useApismartEnvOnlyProvider =
+    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -531,6 +555,9 @@ export async function getAnthropicClient({
   }
   if (useAimlapiEnvOnlyProvider) {
     applyAimlapiEnvOnlyDefaults()
+  }
+  if (useApismartEnvOnlyProvider) {
+    applyApismartEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
@@ -636,6 +663,7 @@ export async function getAnthropicClient({
     useNearaiEnvOnlyProvider ||
     useFireworksEnvOnlyProvider ||
     useAimlapiEnvOnlyProvider ||
+    useApismartEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

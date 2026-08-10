@@ -40,6 +40,7 @@ const ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'APISMART_API_KEY',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -89,6 +90,7 @@ const RESET_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'APISMART_API_KEY',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -965,6 +967,55 @@ describe('applyProviderFlag - atlas-cloud', () => {
     applyProviderFlag('atlas-cloud', ['--model', 'zai-org/glm-5'])
 
     expect(process.env.OPENAI_MODEL).toBe('zai-org/glm-5')
+  })
+})
+
+describe('applyProviderFlag - apismart', () => {
+  test('sets ApiSmart OpenAI-compatible defaults and mirrors APISMART_API_KEY', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+
+    const result = applyProviderFlag('apismart', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
+  })
+
+  test('uses APISMART_MODEL from env when --model is not provided', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_MODEL).toBe('KIMI_K3')
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
+  })
+
+  test('clears a stale OPENAI_API_KEY when no ApiSmart key is set', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('clears a copied ApiSmart key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.OPENAI_API_KEY = 'apismart-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 })
 

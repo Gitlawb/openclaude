@@ -28,6 +28,7 @@ import {
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
   buildAtlasCloudProfileEnv,
+  buildApismartProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   deleteProfileFile,
@@ -52,6 +53,7 @@ import {
 import {
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
+  isApismartBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -147,6 +149,11 @@ function resolveProfileCompatibility(provider: string): {
 function isClinePassProfile(profile: ProviderProfile): boolean {
   const { route } = resolveProfileCompatibility(profile.provider)
   return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
+}
+
+function isApismartProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  return route.routeId === 'apismart' || isApismartBaseUrl(profile.baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -797,6 +804,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
+    (isApismartProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.APISMART_API_KEY, profile.apiKey)
+      : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
@@ -1013,6 +1024,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (isApismartProfile(profile)) {
+        openAIProfileEnv.APISMART_API_KEY = profile.apiKey
       }
       if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
@@ -1369,6 +1383,9 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
+      if (isApismartProfile(activeProfile)) {
+        strictEnv.APISMART_API_KEY = activeProfile.apiKey
+      }
       if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
       }
@@ -1437,6 +1454,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (isApismartProfile(activeProfile)) {
+      env.APISMART_API_KEY = activeProfile.apiKey
     }
     if (isClinePassProfile(activeProfile)) {
       env.CLINE_API_KEY = activeProfile.apiKey
@@ -1617,6 +1637,19 @@ function buildStartupProfileFromActiveProfile(
       if (route.routeId === 'atlas-cloud') {
         const env =
           buildAtlasCloudProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.routeId === 'apismart') {
+        const env =
+          buildApismartProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,

@@ -402,6 +402,19 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
   }
 }
 
+export function isApismartBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === 'gw.apismart.ai'
+  } catch {
+    return false
+  }
+}
+
 /**
  * Checks whether the given URL value targets the Cloudflare Workers AI
  * OpenAI-compatible API, i.e. `api.cloudflare.com` **and** the Workers AI path
@@ -627,6 +640,7 @@ export function hasAimlapiEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasUsableOpenAICredential(processEnv.AIMLAPI_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isAimlapiBaseUrl) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
@@ -638,6 +652,7 @@ export function hasXaiEnvOnlyProviderIntent(
   return (
     hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -659,6 +674,7 @@ export function hasMiniMaxEnvOnlyProviderIntent(
       (!hasAnyUsableOpenAICredential(processEnv) &&
         !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
         !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+        !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
         hasNoExplicitNonOpenAICompatibleProvider(processEnv)))
   )
 }
@@ -672,6 +688,7 @@ export function hasVeniceEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -687,6 +704,7 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXiaomiMimoBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -704,6 +722,7 @@ export function hasNearaiEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -726,6 +745,7 @@ export function hasFireworksEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isFireworksBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -744,6 +764,7 @@ export function hasLongcatEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLongcatBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -759,7 +780,18 @@ export function hasClinePassEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
+    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isClinePassBaseUrl) &&
+    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  )
+}
+
+export function hasApismartEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
 }
@@ -776,6 +808,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'fireworks'
   | 'longcat'
   | 'clinepass'
+  | 'apismart'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -818,6 +851,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasClinePassEnvOnlyProviderIntent(processEnv)) {
     return 'clinepass'
+  }
+
+  if (hasApismartEnvOnlyProviderIntent(processEnv)) {
+    return 'apismart'
   }
 
   return null

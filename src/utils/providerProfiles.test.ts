@@ -70,6 +70,7 @@ const RESTORED_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'APISMART_API_KEY',
   'CLINE_API_KEY',
   'HICAP_API_KEY',
   'CLOUDFLARE_API_TOKEN',
@@ -261,6 +262,17 @@ function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): Provi
     baseUrl: 'https://api.atlascloud.ai/v1',
     model: 'deepseek-ai/deepseek-v4-pro',
     apiKey: 'atlas-test-key',
+    ...overrides,
+  })
+}
+
+function buildApismartProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'apismart',
+    name: 'ApiSmart',
+    baseUrl: 'https://gw.apismart.ai/v1',
+    model: 'DEEPSEEK_V4_FLASH',
+    apiKey: 'apismart-test-key',
     ...overrides,
   })
 }
@@ -796,6 +808,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('deepseek-ai/deepseek-v4-pro')
     expect(process.env.OPENAI_API_KEY).toBe('atlas-test-key')
     expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('apismart profile applies OpenAI-compatible env with APISMART_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildApismartProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-test-key')
+    expect(process.env.APISMART_API_KEY).toBe('apismart-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
   })
 

@@ -111,6 +111,7 @@ const PROFILE_ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'APISMART_API_KEY',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
   'LONGCAT_API_KEY',
@@ -196,6 +197,7 @@ export type ProfileEnv = {
   VENICE_API_KEY?: string
   MIMO_API_KEY?: string
   ATLAS_CLOUD_API_KEY?: string
+  APISMART_API_KEY?: string
   CLINE_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
@@ -629,6 +631,49 @@ export function buildAtlasCloudProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     ATLAS_CLOUD_API_KEY: key,
+  }
+}
+
+export function buildApismartProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.APISMART_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('apismart')
+  const defaultModel = getRouteDefaultModel('apismart')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('ApiSmart route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    APISMART_API_KEY: key,
+  }
+
+  return {
+    OPENAI_BASE_URL:
+      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
+      defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.APISMART_MODEL, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    APISMART_API_KEY: key,
   }
 }
 
@@ -1350,7 +1395,8 @@ function hasConcreteProviderSelection(
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined
   )
 }
 
@@ -2047,6 +2093,7 @@ export async function buildLaunchEnv(options: {
   }
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
+    'APISMART_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
@@ -2060,6 +2107,9 @@ export async function buildLaunchEnv(options: {
     // actually targets the aimlapi route — otherwise an ambient or persisted
     // AI/ML key would leak into an unrelated OpenAI-compatible session.
     if (dedicatedKey === 'AIMLAPI_API_KEY' && effectiveOpenAIRouteId !== 'aimlapi') {
+      continue
+    }
+    if (dedicatedKey === 'APISMART_API_KEY' && effectiveOpenAIRouteId !== 'apismart') {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {

@@ -189,6 +189,14 @@ export const providers: Provider[] = [
     notes: 'OpenAI-compatible hosted open models with reasoning support at https://api.atlascloud.ai/v1.',
   },
   {
+    id: 'apismart',
+    name: 'ApiSmart',
+    group: 'gateways',
+    setup: '/provider or env vars',
+    envVars: ['APISMART_API_KEY'],
+    notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1 with hybrid /v1/models discovery.',
+  },
+  {
     id: 'cloudflare',
     name: 'Cloudflare Workers AI',
     group: 'gateways',

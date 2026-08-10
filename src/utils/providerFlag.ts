@@ -316,6 +316,9 @@ export function applyProviderFlag(
                       process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
                     ? 'atlas-cloud'
                     : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
+                      ? 'apismart'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                         process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                       ? 'nearai'
                       : process.env.OPENAI_API_KEY !== undefined &&
@@ -575,6 +578,28 @@ export function applyProviderFlag(
       // the missing ATLAS_CLOUD_API_KEY instead.
       if (process.env.ATLAS_CLOUD_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.ATLAS_CLOUD_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'apismart':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://gw.apismart.ai/v1',
+      )
+      process.env.OPENAI_MODEL ??=
+        process.env.APISMART_MODEL?.trim() ||
+        defaultModel ||
+        'DEEPSEEK_V4_FLASH'
+      if (model) process.env.OPENAI_MODEL = model
+      // DedicatedCredentialsOnly: only APISMART_API_KEY authenticates this
+      // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
+      // and clear any stale generic key so another provider's credential is
+      // never forwarded to ApiSmart.
+      if (process.env.APISMART_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
       }

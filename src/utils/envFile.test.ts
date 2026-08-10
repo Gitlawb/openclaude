@@ -274,6 +274,22 @@ describe('loadEnvFile', () => {
     })
   })
 
+  it('loads documented ApiSmart env-only provider setup values', () => {
+    const filePath = writeTempEnvFile([
+      'APISMART_API_KEY=apismart-key',
+      'APISMART_MODEL=KIMI_K3',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.APISMART_API_KEY).toBe('apismart-key')
+    expect(process.env.APISMART_MODEL).toBe('KIMI_K3')
+    expect(loaded).toEqual({
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+    })
+  })
+
   it('loads documented Azure OpenAI API version values', () => {
     const filePath = writeTempEnvFile(
       'AZURE_OPENAI_API_VERSION=2024-12-01-preview',

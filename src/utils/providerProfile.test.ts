@@ -16,6 +16,7 @@ import {
   applyStartupEnvFromProfile,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
+  buildApismartProfileEnv,
   buildCompatibilityProcessEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
@@ -255,6 +256,70 @@ test('openai launch preserves persisted dedicated vendor credentials across rest
   assert.equal(env.OPENAI_MODEL, 'deepseek-ai/deepseek-v4-pro')
   assert.equal(env.OPENAI_API_KEY, 'atlas-secret-key')
   assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-secret-key')
+})
+
+test('openai launch preserves persisted ApiSmart dedicated credentials across restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+      APISMART_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://gw.apismart.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'DEEPSEEK_V4_FLASH')
+  assert.equal(env.OPENAI_API_KEY, 'apismart-secret-key')
+  assert.equal(env.APISMART_API_KEY, 'apismart-secret-key')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+})
+
+test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
+  const env = buildApismartProfileEnv({
+    apiKey: 'apismart-secret-key',
+    processEnv: {
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_MODEL: 'GLM_5.2',
+    },
+  })
+
+  assert.ok(env)
+  assert.equal(env?.OPENAI_MODEL, 'KIMI_K3')
+})
+
+test('openai launch carries APISMART_API_KEY only when the route resolves to apismart', async () => {
+  const offRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-openai',
+      APISMART_API_KEY: 'apismart-persisted',
+    }),
+    goal: 'coding',
+    processEnv: {
+      APISMART_API_KEY: 'apismart-ambient',
+    },
+  })
+
+  assert.equal(offRoute.APISMART_API_KEY, undefined)
+
+  const onRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-key',
+      APISMART_API_KEY: 'apismart-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(onRoute.APISMART_API_KEY, 'apismart-key')
 })
 
 test('openai launch prefers a live dedicated vendor key over the persisted one', async () => {

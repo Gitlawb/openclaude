@@ -24,7 +24,9 @@ import {
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
+  getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isApismartBaseUrl,
   isClinePassBaseUrl,
 } from '../../integrations/routeMetadata.js'
 import {
@@ -930,6 +932,7 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
+  const isApismartMode = Boolean(processEnv.APISMART_API_KEY?.trim())
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -972,9 +975,25 @@ export function resolveProviderRequest(options?: {
   const hasConcreteNonClinePassBaseUrl =
     Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
   const effectiveClinePassMode =
-    isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
+    isClinePassMode &&
+    !isApismartMode &&
+    !isGithubMode &&
+    !hasConcreteNonClinePassBaseUrl
   const clinePassDefaultModel = effectiveClinePassMode
     ? getRouteDefaultModel('clinepass')
+    : undefined
+
+  // ApiSmart model selection is only valid when no concrete non-ApiSmart
+  // base URL is explicitly provided via options or env. This prevents stale
+  // APISMART_API_KEY/APISMART_MODEL from overriding an explicit OPENAI_BASE_URL
+  // pointing at a different provider.
+  const hasConcreteNonApismartBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) &&
+    !isApismartBaseUrl(concreteBaseUrlBeforeDefault)
+  const effectiveApismartMode =
+    isApismartMode && !isGithubMode && !hasConcreteNonApismartBaseUrl
+  const apismartDefaultModel = effectiveApismartMode
+    ? getRouteDefaultModel('apismart')
     : undefined
 
   const requestedModel =
@@ -986,10 +1005,14 @@ export function resolveProviderRequest(options?: {
         : effectiveClinePassMode
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
-          : processEnv.OPENAI_MODEL?.trim()) ||
+          : effectiveApismartMode
+            ? processEnv.APISMART_MODEL?.trim() ||
+              processEnv.OPENAI_MODEL?.trim()
+            : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     clinePassDefaultModel ||
+    apismartDefaultModel ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
 
@@ -997,7 +1020,10 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
     fallbackEnvBaseUrl ??
-    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
+    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined) ??
+    (effectiveApismartMode
+      ? getRouteDefaultBaseUrl('apismart') ?? undefined
+      : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,
