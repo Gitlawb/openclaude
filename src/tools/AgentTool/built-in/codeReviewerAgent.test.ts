@@ -149,17 +149,6 @@ describe('code-reviewer built-in agent', () => {
     expect(agent.whenToUse).toContain('inline')
   })
 
-  test('uses an explicit read-only allow-list', () => {
-    // The definition always lists Read, Glob, Grep. In embedded-search
-    // builds resolveAgentTools() silently drops unavailable tools at
-    // runtime; the definition itself is static.
-    const tools = agent.tools ?? []
-    expect(tools).toEqual(['Read', 'Glob', 'Grep'])
-    expect(tools).not.toContain('Bash')
-    expect(tools).not.toContain('Edit')
-    expect(tools).not.toContain('Write')
-  })
-
   test('disallows mutation tools', () => {
     const disallowed = agent.disallowedTools ?? []
     expect(disallowed).toContain('Agent')
@@ -187,6 +176,11 @@ describe('code-reviewer built-in agent', () => {
     test('returns non-empty string', () => {
       expect(typeof prompt).toBe('string')
       expect(prompt.length).toBeGreaterThan(0)
+    })
+
+    test('lists Read, Glob, and Grep in tools', () => {
+      const tools = agent.tools ?? []
+      expect(tools).toEqual(['Read', 'Glob', 'Grep'])
     })
 
     test('covers all review dimensions', () => {
@@ -246,6 +240,11 @@ describe('code-reviewer built-in agent', () => {
     test('returns non-empty string', () => {
       expect(typeof prompt).toBe('string')
       expect(prompt.length).toBeGreaterThan(0)
+    })
+
+    test('lists only Read in tools since Glob/Grep are absent', () => {
+      const tools = agent.tools ?? []
+      expect(tools).toEqual(['Read'])
     })
 
     test('documents limited search capability', () => {

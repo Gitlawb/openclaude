@@ -31,6 +31,8 @@ by model strength.
 
 Add to `~/.openclaude/settings.json`:
 
+> **Note:** `api_key` values in `settings.json` are stored in plaintext. Keep this file private and do not commit it to version control.
+
 ```json
 {
   "agentModels": {

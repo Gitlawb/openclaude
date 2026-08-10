@@ -67,21 +67,22 @@ Be direct and specific. Skip praise. Focus on what could break, be exploited, or
 // Agent) and any user-configured write-capable mcp__* server tools can never
 // be handed to this agent — an omitted `tools` list would wildcard them in.
 //
-// Both Glob and Grep are always listed. In non-embedded builds they resolve
-// normally; in embedded-search builds they are absent from the tool registry
-// and resolveAgentTools() silently drops them, leaving only Read. The system
-// prompt documents this narrowed contract for the embedded case.
-const CODE_REVIEWER_TOOLS: string[] = [
-  FILE_READ_TOOL_NAME,
-  GLOB_TOOL_NAME,
-  GREP_TOOL_NAME,
-]
+// In embedded-search builds, Glob and Grep are absent from the tool registry,
+// so we omit them from the allow-list here to prevent advertising unrecognized
+// capabilities to callers or in the `/agents` UI.
+function getCodeReviewerTools(): string[] {
+  return hasEmbeddedSearchTools()
+    ? [FILE_READ_TOOL_NAME]
+    : [FILE_READ_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME]
+}
 
 export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
   agentType: 'code-reviewer',
   whenToUse:
     'Independent code reviewer for changes, diffs, and pull requests. Provides balanced critique across correctness, security, performance, maintainability, and design. Use after completing a coding task or when asked to review specific changes. The caller must provide the diff or changed hunks inline in the prompt because this agent cannot run shell commands. Invoke with subagent_type: "code-reviewer".',
-  tools: CODE_REVIEWER_TOOLS,
+  get tools() {
+    return getCodeReviewerTools()
+  },
   // Defense-in-depth: also deny mutation tools by name so the read-only
   // contract holds even if the allow-list above is later widened.
   disallowedTools: [
