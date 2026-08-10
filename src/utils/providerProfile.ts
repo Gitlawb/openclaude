@@ -679,6 +679,7 @@ export function buildApismartProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     APISMART_API_KEY: key,
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
   }
 }
 
@@ -1396,12 +1397,17 @@ function hasConcreteProviderSelection(
     return true
   }
 
-  // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed
+  // Env-only provider setups — no CLAUDE_CODE_USE_* flag needed.
+  // ApiSmart deliberately follows AIMLAPI here: a bare APISMART_API_KEY is NOT
+  // a "concrete selection" that skips the persisted-profile launch path.
+  // Env-only ApiSmart routing is applied later via resolveEnvOnlyProviderRouteId
+  // + applyApismartEnvOnlyDefaults. Treating the dedicated key as concrete would
+  // short-circuit buildStartupEnvFromProfile and let an ambient mirrored
+  // OPENAI_API_KEY reach a keyless ApiSmart proxy profile on relaunch.
   return (
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
   )
 }
 
@@ -2052,12 +2058,12 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   }
-  // A keyless retained aimlapi profile on a non-canonical (proxy) base URL must
-  // not receive the ambient canonical credential via the generic OPENAI_API_KEY
-  // /OPENAI_API_KEYS alias either (the generic selection above prefers the live
-  // shell value). Re-source the generic credential from the profile's OWN
-  // persisted env and drop a purely ambient one.
-  // Scoped to a launch that actually carries the aimlapi identity. A profile
+  // A keyless retained aimlapi/apismart profile on a non-canonical (proxy) base
+  // URL must not receive the ambient canonical credential via the generic
+  // OPENAI_API_KEY / OPENAI_API_KEYS alias either (the generic selection above
+  // prefers the live shell value). Re-source the generic credential from the
+  // profile's OWN persisted env and drop a purely ambient one.
+  // Scoped to a launch that actually carries the route identity. A profile
   // retargeted to an endpoint it was not saved for keeps no identity, so it is
   // handled by the route-agnostic precedence above rather than here: forcing the
   // profile's own credential in would both hand a key to an endpoint it was not
@@ -2066,7 +2072,13 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'aimlapi' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
-  if (isNoncanonicalAimlapiLaunch) {
+  const isNoncanonicalApismartLaunch =
+    effectiveOpenAIRouteId === 'apismart' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isApismartBaseUrl(env.OPENAI_BASE_URL)
+  const isNoncanonicalDedicatedOpenAILaunch =
+    isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch
+  if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
     const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
@@ -2126,16 +2138,23 @@ export async function buildLaunchEnv(options: {
     ) {
       continue
     }
-    // On a non-canonical (proxy) aimlapi base URL, never source AIMLAPI_API_KEY
-    // from ambient/session credentials — that would leak the canonical AIMLAPI
-    // key to a user-controlled proxy on restart. The profile's OWN persisted key
-    // is still applied, since the user configured that key for that proxy.
-    const aimlapiBaseUrl = env.OPENAI_BASE_URL?.trim()
+    // On a non-canonical (proxy) aimlapi/apismart base URL, never source the
+    // dedicated key from ambient/session credentials — that would leak the
+    // canonical provider key to a user-controlled proxy on restart. The
+    // profile's OWN persisted key is still applied, since the user configured
+    // that key for that proxy.
+    const dedicatedBaseUrl = env.OPENAI_BASE_URL?.trim()
     const withholdAmbientAimlapiKey =
       dedicatedKey === 'AIMLAPI_API_KEY' &&
-      !!aimlapiBaseUrl &&
-      !isCanonicalAimlapiInferenceBaseUrl(aimlapiBaseUrl)
-    const dedicatedValue = withholdAmbientAimlapiKey
+      !!dedicatedBaseUrl &&
+      !isCanonicalAimlapiInferenceBaseUrl(dedicatedBaseUrl)
+    const withholdAmbientApismartKey =
+      dedicatedKey === 'APISMART_API_KEY' &&
+      !!dedicatedBaseUrl &&
+      !isApismartBaseUrl(dedicatedBaseUrl)
+    const withholdAmbientDedicatedKey =
+      withholdAmbientAimlapiKey || withholdAmbientApismartKey
+    const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
           ? sanitizeApiKey(openAICredential.value)
@@ -2157,9 +2176,9 @@ export async function buildLaunchEnv(options: {
   // client, and its own filter only drops `authorization`, `x-api-key` and
   // `api-key` — a custom-named header such as `X-Proxy-Auth: <secret>` survives
   // and is sent on every request. So an ambient value must be withheld from a
-  // non-canonical aimlapi launch exactly like the API key and the custom-auth
-  // trio; only headers the profile itself persisted are restored.
-  const customHeaders = isNoncanonicalAimlapiLaunch
+  // non-canonical aimlapi/apismart launch exactly like the API key and the
+  // custom-auth trio; only headers the profile itself persisted are restored.
+  const customHeaders = isNoncanonicalDedicatedOpenAILaunch
     ? persistedCustomHeaders
     : shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {

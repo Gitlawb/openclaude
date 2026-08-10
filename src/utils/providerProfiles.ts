@@ -1080,6 +1080,13 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
       }
     }
+    // Keep ApiSmart route identity even when the profile is retargeted to a
+    // proxy. Dedicated credentials stay withheld above; the route id is what
+    // lets buildLaunchEnv refuse ambient APISMART_API_KEY / mirrored
+    // OPENAI_API_KEY on relaunch (AIMLAPI parity).
+    if (route.routeId === 'apismart') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
+    }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'
     }
@@ -1441,6 +1448,12 @@ function buildOpenAICompatibleStartupEnv(
 
   if (isAimlapiProfile) {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
+  }
+  // Preserve ApiSmart identity on retargeted/proxy startup envs so relaunch
+  // withholding can refuse ambient dedicated credentials. Canonical profiles
+  // already stamp this via buildApismartProfileEnv.
+  if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
   if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     env.OPENAI_API_KEY = activeProfile.apiKey

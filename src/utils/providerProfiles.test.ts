@@ -827,6 +827,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
     expect(process.env.OPENAI_API_KEY).toBe('apismart-test-key')
     expect(process.env.APISMART_API_KEY).toBe('apismart-test-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
@@ -863,6 +864,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
   })
 
   test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
@@ -3214,7 +3216,7 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
-  test('retargeted ApiSmart profiles persist without their dedicated credential', async () => {
+  test('retargeted ApiSmart profiles keep route identity but persist without their dedicated credential', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
@@ -3241,9 +3243,25 @@ describe('setActiveProviderProfile', () => {
       expect(result?.id).toBe('apismart_proxy')
       expect(persisted.profile).toBe('openai')
       expect(persisted.env).toEqual({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
         OPENAI_BASE_URL: 'https://proxy.example/v1',
         OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
       })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          APISMART_API_KEY: 'ambient-apismart-key',
+          OPENAI_API_KEY: 'ambient-apismart-key',
+        },
+      })
+
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+      expect(startupEnv.APISMART_API_KEY).toBeUndefined()
+      expect(startupEnv.OPENAI_API_KEY).toBeUndefined()
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

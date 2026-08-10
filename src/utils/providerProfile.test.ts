@@ -289,6 +289,7 @@ test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
 
   assert.ok(env)
   assert.equal(env?.OPENAI_MODEL, 'KIMI_K3')
+  assert.equal(env?.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
 })
 
 test('buildApismartProfileEnv refuses to copy the dedicated credential to a custom endpoint', () => {
@@ -298,6 +299,44 @@ test('buildApismartProfileEnv refuses to copy the dedicated credential to a cust
   })
 
   assert.equal(env, null)
+})
+
+test('openai launch withholds ambient ApiSmart credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-apismart-key',
+      APISMART_API_KEY: 'ambient-apismart-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.APISMART_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_API_KEY: 'ambient-apismart-key',
+      APISMART_API_KEY: 'ambient-apismart-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-apismart-key')
+  assert.equal(canonical.APISMART_API_KEY, 'ambient-apismart-key')
 })
 
 test('openai launch carries APISMART_API_KEY only when the route resolves to apismart', async () => {

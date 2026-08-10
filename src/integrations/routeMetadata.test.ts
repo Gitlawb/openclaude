@@ -601,6 +601,15 @@ test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with AI/
   ).toBe('aimlapi')
 })
 
+test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with ApiSmart key-only setup', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      CLAUDE_CODE_USE_OPENAI: '1',
+    }),
+  ).toBe('apismart')
+})
+
 test('resolveActiveRouteIdFromEnv does not infer AI/ML API with a conflicting OpenAI base URL', () => {
   expect(
     resolveActiveRouteIdFromEnv({

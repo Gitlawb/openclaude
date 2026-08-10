@@ -819,10 +819,14 @@ export function hasClinePassEnvOnlyProviderIntent(
 export function hasApismartEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
+  // Match AIMLAPI: ApiSmart is an OpenAI-compatible dedicated-key route, so a
+  // lingering CLAUDE_CODE_USE_OPENAI=1 from a prior OpenAI session must not
+  // suppress env-only ApiSmart identity. Only true non-OpenAI providers
+  // (Gemini/GitHub/Bedrock/...) block this intent.
   return (
     hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
-    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+    hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
 
