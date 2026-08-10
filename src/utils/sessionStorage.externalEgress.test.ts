@@ -33,6 +33,8 @@ const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
 const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
 const originalNodeEnv = process.env.NODE_ENV
 const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+// Snapshot/restore sessionPersistenceDisabled so append tests that force
+// persistence on cannot leak enabled writes into later suites (order-safe).
 const originalSessionPersistenceDisabled = isSessionPersistenceDisabled()
 
 afterEach(() => {
@@ -69,6 +71,21 @@ afterEach(() => {
   setSessionPersistenceDisabled(originalSessionPersistenceDisabled)
   resetProjectForTesting()
   clearSessionMessagesCache()
+})
+
+describe('sessionPersistenceDisabled suite isolation', () => {
+  test('step1: append-style mutation leaves flag away from suite snapshot', () => {
+    setSessionPersistenceDisabled(!originalSessionPersistenceDisabled)
+    expect(isSessionPersistenceDisabled()).not.toBe(
+      originalSessionPersistenceDisabled,
+    )
+  })
+
+  test('step2: afterEach restored the suite snapshot from step1', () => {
+    expect(isSessionPersistenceDisabled()).toBe(
+      originalSessionPersistenceDisabled,
+    )
+  })
 })
 
 function id(n: number): UUID {
