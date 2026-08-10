@@ -2584,6 +2584,126 @@ test('ProviderManager carries a confirmed email-switch abandonment into the atom
   }
 })
 
+test('ProviderManager does not carry a stale force-abandon confirmation into an unrelated later flow', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  let accountSequence = 0
+  let onboardingSequence = 0
+  const beginAimlapiEmailOnboarding = mock(async () => {
+    onboardingSequence += 1
+    // The second email's onboarding fails, so the force-abandon flag armed
+    // by confirming that switch is never consumed by a claim — it must not
+    // leak into the third (unrelated) flow started after backing all the
+    // way out and re-entering the aimlapi preset.
+    if (onboardingSequence === 2) throw new Error('temporary onboarding failure')
+    return { action: 'new-account' as const, sessionToken: `account-session-${++accountSequence}` }
+  })
+  // Deliberately permissive (unlike the real CAS, which would itself refuse
+  // an unconfirmed conflict): this test isolates whether the STALE
+  // force-abandon flag leaks into the third flow's claim, not whether the
+  // real refusal logic also happens to catch it.
+  let claimSequence = 0
+  const claimAimlapiTopupStateAsync = mock(
+    async (_intent: Record<string, unknown>, _claimOptions?: { abandonExisting?: boolean }) => {
+      claimSequence += 1
+      return { paymentSessionId: `payment-${claimSequence}`, resumeSessionToken: '' }
+    },
+  )
+  const clearAimlapiTopupStateAsync = mock(async () => {})
+  const recordAimlapiCheckoutSessionAsync = mock(async (state: Record<string, unknown>) => state)
+  let provisionSequence = 0
+  const provisionAimlapiKey = mock(async (options: any) => {
+    provisionSequence += 1
+    if (provisionSequence === 1) {
+      options.onSession?.('checkout-for-first-account')
+      throw new Error('temporary checkout failure')
+    }
+    return {
+      apiKey: `issued-${provisionSequence}`,
+      apiKeyId: `key_${provisionSequence}`,
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    provisionAimlapiKey,
+    claimAimlapiTopupStateAsync,
+    clearAimlapiTopupStateAsync,
+    recordAimlapiCheckoutSessionAsync,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    const firstEmail = 'first@example.com'
+    mounted.stdin.write(firstEmail)
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 1)
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('temporary checkout failure'))
+
+    // Switch to a second email and confirm abandoning the first's checkout —
+    // this arms the force-abandon flag — but the second email's own
+    // onboarding then fails, so the flag is never consumed by a claim.
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('\x7f'.repeat(firstEmail.length))
+    mounted.stdin.write('second@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('checkout from a previous email is still pending'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('temporary onboarding failure'))
+
+    // Back all the way out to preset selection and start a completely fresh
+    // aimlapi flow with a third email.
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Do you have an aimlapi.com key?'))
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\x1b')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('third@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // No conflict warning: this fresh mount has nothing chargeable of its
+    // own, and the stale force-abandon flag from the second flow must not
+    // silently authorize overriding the still-live first-email checkout.
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
+
+    const thirdClaimCall = claimAimlapiTopupStateAsync.mock.calls.at(-1)
+    expect((thirdClaimCall?.[1] as any)?.abandonExisting).toBeFalsy()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager cancellation returns a live checkout to the resumable amount screen', async () => {
   delete process.env.AIMLAPI_EMAIL
   let provisionSequence = 0

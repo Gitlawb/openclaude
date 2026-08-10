@@ -322,6 +322,10 @@ test('a competing claim cannot orphan a key mint already in flight for a differe
   const keyMintPostHeld = new Promise<void>(resolve => {
     releaseKeyMintPost = resolve
   })
+  let signalKeyMintReached: (() => void) | undefined
+  const keyMintReached = new Promise<void>(resolve => {
+    signalKeyMintReached = resolve
+  })
 
   globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
@@ -333,6 +337,7 @@ test('a competing claim cannot orphan a key mint already in flight for a differe
       // claimed and its key-mint lease acquired at this point, but no
       // resumeSessionToken/settled/apiKey exists yet, so it still "looks"
       // blank to a naive in-progress check.
+      signalKeyMintReached?.()
       await keyMintPostHeld
       return Response.json({ key: 'minted-key', id: 'minted-id' })
     }
@@ -352,9 +357,10 @@ test('a competing claim cannot orphan a key mint already in flight for a differe
     noOpen: true,
   })
 
-  // Give the run a moment to claim the receipt, acquire the key-mint lease,
-  // and reach the held-open POST before the competing claim below races it.
-  await new Promise(resolve => setTimeout(resolve, 20))
+  // The run has claimed the receipt and acquired the key-mint lease by the
+  // time the held-open POST is reached — deterministic, unlike a fixed sleep
+  // that could be missed on a loaded CI runner.
+  await keyMintReached
   const persisted = JSON.parse(readFileSync(statePath, 'utf8')) as { amountUsdMinor: number }
   expect(persisted.amountUsdMinor).toBe(2500)
 

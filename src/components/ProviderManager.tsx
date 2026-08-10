@@ -1837,6 +1837,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     aimlapiOpenedCheckoutRef.current = null
     aimlapiAbandonAckRef.current = false
     aimlapiPersistedIntentRef.current = null
+    // A confirmation armed in an earlier flow (e.g. the user confirmed an
+    // email switch, then backed out before that claim ever consumed the
+    // flag) must not authorize THIS flow's first claim — it was never
+    // confirmed against this flow's receipt.
+    aimlapiForceAbandonExistingRef.current = false
     setAimlapiResumeSessionToken('')
     setAimlapiExistingProfileId(null)
     setAimlapiExistingUsesEnv(false)
