@@ -29,7 +29,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # A rerun after a failed sync has no `pr` output because Release Please
-      # does not update an unchanged pending PR. Recover that draft explicitly.
+      # does not update an unchanged pending PR. Recover that PR explicitly;
+      # this job owns its draft/ready state while synchronization is pending.
       - name: Resolve Release Please PR for web synchronization
         id: release-pr
         env:
@@ -42,7 +43,7 @@ jobs:
 
           release_pr="$RELEASE_PR_JSON"
           if [ -z "$release_pr" ] || [ "$release_pr" = "null" ]; then
-            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number,headRefName,isDraft)"
+            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number,headRefName)"
             candidate_count="$(jq length <<<"$candidates")"
             if [ "$candidate_count" -eq 0 ]; then
               echo "found=false" >> "$GITHUB_OUTPUT"
@@ -54,10 +55,6 @@ jobs:
             fi
 
             release_pr="$(jq -c '.[0]' <<<"$candidates")"
-            if [ "$(jq -r .isDraft <<<"$release_pr")" != "true" ]; then
-              echo "found=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
           fi
 
           number="$(jq -r '.number // empty' <<<"$release_pr")"
@@ -101,9 +98,11 @@ jobs:
 
       - name: Sync web release entry
         if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          RELEASE_BASE_REF: ${{ github.sha }}
         run: |
           bun install --frozen-lockfile
-          bun run sync:web-release
+          bun run sync:web-release -- --base-ref "$RELEASE_BASE_REF"
           bun install --cwd web --frozen-lockfile
 
       - name: Commit synced web release entry
@@ -121,13 +120,15 @@ jobs:
 
       - name: Validate committed synchronized release entry
         if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          RELEASE_BASE_REF: ${{ github.sha }}
         run: |
           bun test ./scripts/sync-web-release-entry.test.ts
           bun run typecheck
           bun run typecheck:type-tests
           bun run --cwd web build
-          bun run security:pr-scan -- --base origin/main --head HEAD
-          git diff --check origin/main...HEAD
+          bun run security:pr-scan -- --base "$RELEASE_BASE_REF" --head HEAD
+          git diff --check "$RELEASE_BASE_REF"...HEAD
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "release validation changed tracked files after the synchronization commit" >&2

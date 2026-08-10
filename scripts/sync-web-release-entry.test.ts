@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   deriveTheme,
   formatReleaseEntry,
+  GENERATED_ENTRY_MARKER,
   insertReleaseEntry,
   parseChangelogSection,
   readCurrentTopVersion,
@@ -49,6 +50,7 @@ describe('syncWebReleaseEntry', () => {
     expect(result.content).toContain('auth: opt-in loopback proxy hosts')
     expect(result.content).toContain('fifth highlight')
     expect(result.content).not.toContain('sixth highlight')
+    expect(result.content).toContain(GENERATED_ENTRY_MARKER)
   })
 
   test('replaces an already-generated release PR entry when its version changes', () => {
@@ -69,7 +71,7 @@ describe('syncWebReleaseEntry', () => {
     if (result.status !== 'updated') return
     expect(result.content).toContain('version: "0.29.0"')
     expect(result.content).not.toContain('version: "0.28.0"')
-    expect(result.content).not.toContain('release-please: draft')
+    expect(result.content.match(new RegExp(GENERATED_ENTRY_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1)
   })
 
   test('preserves a published entry when creating the next release', () => {
@@ -111,6 +113,42 @@ describe('syncWebReleaseEntry', () => {
     expect(result.content.match(/version: "0.29.0"/g)).toHaveLength(1)
   })
 
+  test('preserves a hand-curated pending entry for the target version', () => {
+    const curated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-10',
+      theme: 'curated theme',
+      highlights: ['curated highlight'],
+    }).replace(`${GENERATED_ENTRY_MARKER}\n`, '')
+
+    expect(syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG,
+      releasesTs: curated,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
+      manifestVersion: '0.28.0',
+    })).toEqual({
+      status: 'unchanged',
+      version: '0.28.0',
+      reason: 'preserving hand-curated release entry',
+    })
+  })
+
+  test('refuses to overwrite an unmarked divergent pending entry for another version', () => {
+    const curated = insertReleaseEntry(SAMPLE_RELEASES_TS, {
+      version: '0.28.0',
+      date: '2026-08-10',
+      theme: 'curated theme',
+      highlights: ['curated highlight'],
+    }).replace(`${GENERATED_ENTRY_MARKER}\n`, '')
+
+    expect(() => syncWebReleaseEntry({
+      changelog: SAMPLE_CHANGELOG.replaceAll('0.28.0', '0.29.0'),
+      releasesTs: curated,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
+      manifestVersion: '0.29.0',
+    })).toThrow('differs from the base without the generated-entry marker')
+  })
+
   test('is a no-op when the top entry already matches without a draft marker', () => {
     const releasesTs = SAMPLE_RELEASES_TS.replace("version: '0.27.0'", "version: '0.28.0'")
     expect(
@@ -146,12 +184,16 @@ describe('formatting helpers', () => {
     expect(
       sanitizeChangelogBullet('* **auth:** ready ([#12](https://example.test/12)) ([abcdef1](https://example.test))'),
     ).toBe('auth: ready')
+    expect(sanitizeChangelogBullet('* accept &lt;tag&gt;, arrows -&gt; and &#x1F525;')).toBe(
+      'accept <tag>, arrows -> and 🔥',
+    )
   })
 
   test('derives safe compact themes and escapes generated strings', () => {
     expect(deriveTheme([])).toBe('release highlights')
     expect(deriveTheme(['plain highlight'])).toBe('plain highlight')
     expect(deriveTheme([`scope: ${'x'.repeat(80)}`])).toBe(`${'x'.repeat(69)}…`)
+    expect(deriveTheme([`scope: ${'x'.repeat(68)}🔥more`])).toBe(`${'x'.repeat(68)}🔥…`)
     expect(formatReleaseEntry({ version: '0.28.0', date: '2026-08-10', theme: "it's\rready", highlights: ["don't"] })).toContain(
       'theme: "it\'s\\rready"',
     )
