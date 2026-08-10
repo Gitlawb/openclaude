@@ -25,6 +25,9 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  getRouteCredentialEnvVars,
+  hasExplicitOpenAICompatibleOptOut,
+  hasUsableRouteCredentialEnvValue,
   isApismartBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
@@ -644,7 +647,7 @@ export function buildApismartProfileEnv(options: {
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
   const key = sanitizeApiKey(options.apiKey ?? processEnv.APISMART_API_KEY)
-  if (!key) {
+  if (!key || !hasUsableRouteCredentialEnvValue('APISMART_API_KEY', key)) {
     return null
   }
 
@@ -1316,15 +1319,6 @@ function hasExplicitNonOpenAIProviderSelection(
   )
 }
 
-function hasExplicitOpenAICompatibleOptOut(
-  processEnv: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return (
-    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
-  )
-}
-
 function hasConcreteProviderSelection(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -1401,7 +1395,10 @@ function hasConcreteProviderSelection(
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined
+    hasUsableRouteCredentialEnvValue(
+      'APISMART_API_KEY',
+      processEnv.APISMART_API_KEY,
+    )
   )
 }
 
@@ -2015,10 +2012,9 @@ export async function buildLaunchEnv(options: {
   } else {
     delete env.OPENAI_AUTH_HEADER_VALUE
   }
-  const openAICredential = resolveOpenAICredentialEnvOverride(
-    processEnv,
-    persistedEnv,
-  )
+  const liveOpenAICredential = resolveOpenAICredentialEnvSelection(processEnv)
+  const openAICredential =
+    liveOpenAICredential || resolveOpenAICredentialEnvSelection(persistedEnv)
   if (openAICredential) {
     env[openAICredential.envVar] = openAICredential.value
   }
@@ -2045,6 +2041,30 @@ export async function buildLaunchEnv(options: {
   const effectiveOpenAIRouteId =
     resolvedOpenAIRouteId ||
     (shouldUsePersistedOpenAIRouteId ? persistedOpenAIRouteId : undefined)
+  const persistedCredentialRouteId =
+    resolveRouteIdFromBaseUrl(persistedOpenAIBaseUrl) || persistedOpenAIRouteId
+  const persistedOpenAICredential =
+    resolveOpenAICredentialEnvSelection(persistedEnv)
+  const persistedGenericCredentialMirrorsDedicatedRoute =
+    !liveOpenAICredential &&
+    persistedOpenAICredential?.envVar === 'OPENAI_API_KEY' &&
+    !!persistedCredentialRouteId &&
+    getRouteCredentialEnvVars(persistedCredentialRouteId)
+      .filter(
+        envVar =>
+          envVar !== 'OPENAI_API_KEY' && envVar !== 'OPENAI_API_KEYS',
+      )
+      .some(
+        envVar =>
+          sanitizeApiKey(persistedEnv[envVar]) ===
+          persistedOpenAICredential.value,
+      )
+  if (
+    persistedGenericCredentialMirrorsDedicatedRoute &&
+    effectiveOpenAIRouteId !== persistedCredentialRouteId
+  ) {
+    delete env.OPENAI_API_KEY
+  }
   if (resolvedOpenAIRouteId && resolvedOpenAIRouteId !== 'openai') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = resolvedOpenAIRouteId
   } else if (shouldUsePersistedOpenAIRouteId && persistedOpenAIRouteId) {

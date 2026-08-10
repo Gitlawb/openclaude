@@ -43,8 +43,8 @@ import {
   routeShowsAuthHeader,
   routeShowsAuthHeaderValue,
   routeShowsCustomHeaders,
+  resolveProfileCapabilityRouteId,
   resolveProfileRoute,
-  resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import {
   provisionAimlapiKey,
@@ -335,18 +335,6 @@ function getGithubCredentialSourceFromEnv(
     return 'env'
   }
   return 'none'
-}
-
-function resolveProviderEditorRouteId(
-  provider: ProviderProfile['provider'],
-  baseUrl?: string,
-): string {
-  const route = resolveProfileRoute(provider).routeId
-  if (route !== 'openai') {
-    return route
-  }
-
-  return resolveRouteIdFromBaseUrl(baseUrl) ?? route
 }
 
 function routeSupportsResponsesModel(routeId: string, model: string): boolean {
@@ -885,7 +873,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   const formSteps = React.useMemo(
     () => {
-      const routeId = resolveProviderEditorRouteId(draftProvider, draft.baseUrl)
+      const routeId = resolveProfileCapabilityRouteId(draftProvider, draft.baseUrl)
       const showsAuthHeader = routeShowsAuthHeader(routeId)
       const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
       const showsCustomHeaders = routeShowsCustomHeaders(routeId)
@@ -1659,7 +1647,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setErrorMessage('Base URL must be a real Anthropic-compatible endpoint.')
       return
     }
-    const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const routeId = resolveProfileCapabilityRouteId(provider, nextDraft.baseUrl)
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const showsAuthHeader = routeShowsAuthHeader(routeId)
     const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)
@@ -1768,7 +1756,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     nextDraft: ProviderDraft,
     provider: ProviderProfile['provider'],
   ): ProviderDraft {
-    const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    const routeId = resolveProfileCapabilityRouteId(provider, nextDraft.baseUrl)
     const preferredResponsesMode = nextDraft.apiFormat === 'responses_compat' ? 'responses_compat' : 'responses'
     const apiFormat =
       routeSupportsApiFormatSelection(routeId) &&
@@ -2198,7 +2186,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           Provider type:{' '}
           {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
         </Text>
-        {routeSupportsCustomHeaders(resolveProfileRoute(draftProvider).routeId) ? (
+        {routeSupportsCustomHeaders(
+          resolveProfileCapabilityRouteId(draftProvider, draft.baseUrl),
+        ) ? (
           <Text dimColor>
             Advanced: this provider supports custom request headers when you
             need them.

@@ -21,6 +21,7 @@ import {
   getAllVendors,
   getGateway,
   getVendor,
+  getTransportKindForRoute,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   routeSupportsApiFormatSelection,
@@ -29,7 +30,13 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isApismartBaseUrl } from '../integrations/routeMetadata.js'
+import {
+  hasApismartEnvOnlyProviderIntent,
+  getUsableRouteConfigEnvValue,
+  getUsableRouteModelEnvValue,
+  hasUsableRouteCredentialEnvValue,
+  isApismartBaseUrl,
+} from '../integrations/routeMetadata.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
@@ -170,8 +177,7 @@ function getRouteDefaults(provider: string): {
 }
 
 function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+  return getUsableRouteConfigEnvValue(value)
 }
 
 function getConfiguredOpenAIBaseUrl(): string | undefined {
@@ -193,7 +199,6 @@ function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
 
   const targetRouteId = resolveProfileRoute(provider).routeId
   return (
-    targetRouteId !== 'openai' &&
     targetRouteId !== 'custom' &&
     targetRouteId !== 'unknown-fallback' &&
     currentRouteId !== targetRouteId
@@ -229,6 +234,25 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   ) {
     process.env.OPENAI_BASE_URL = normalizedBaseUrl
   }
+}
+
+function replaceStaleKnownBaseUrlForExplicitProvider(
+  provider: string,
+  baseUrl: string | undefined,
+): boolean {
+  const routeId = resolveProfileRoute(provider).routeId
+  const transportKind = getTransportKindForRoute(routeId)
+  if (
+    (transportKind !== 'openai-compatible' && transportKind !== 'local') ||
+    !baseUrl ||
+    isPlaceholderBaseUrl(baseUrl) ||
+    !shouldReplaceStaleKnownBaseUrl(provider)
+  ) {
+    return false
+  }
+
+  process.env.OPENAI_BASE_URL = baseUrl.trim()
+  return true
 }
 
 function clearUnsupportedOpenAIShimSettings(routeId: string): void {
@@ -273,6 +297,7 @@ export function applyModelFlagFromArgs(args: string[]): void {
   const useGithub =
     process.env.CLAUDE_CODE_USE_GITHUB === '1' ||
     process.env.CLAUDE_CODE_USE_GITHUB === 'true'
+  const useApismartEnvOnly = hasApismartEnvOnlyProviderIntent(process.env)
 
   if (useGemini) {
     process.env.GEMINI_MODEL = model
@@ -280,6 +305,12 @@ export function applyModelFlagFromArgs(args: string[]): void {
     process.env.MISTRAL_MODEL = model
   } else if (useOpenAI || useGithub) {
     process.env.OPENAI_MODEL = model
+    if (useApismartEnvOnly) {
+      process.env.APISMART_MODEL = model
+    }
+  } else if (useApismartEnvOnly) {
+    process.env.OPENAI_MODEL = model
+    process.env.APISMART_MODEL = model
   } else {
     process.env.ANTHROPIC_MODEL = model
   }
@@ -304,6 +335,12 @@ export function applyProviderFlag(
       error: `Unknown provider "${provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}`,
     }
   }
+
+  // Record explicit CLI provider intent separately from compatibility flags.
+  // In particular, built-in Anthropic has no CLAUDE_CODE_USE_* flag, while an
+  // OpenAI-compatible flag alone does not identify a concrete gateway.
+  process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID =
+    resolveProfileRoute(provider).routeId
 
   const opengatewayApiKey = process.env.OPENGATEWAY_API_KEY?.trim()
   const copiedOpenAIKeyProvider =
@@ -365,6 +402,19 @@ export function applyProviderFlag(
 
   const model = parseModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
+
+  // A CLI provider selection is a route transition, not just a flag change.
+  // Replace endpoints owned by the previously selected known route for every
+  // OpenAI-shim provider, while preserving unknown user-managed proxy URLs.
+  const replacedKnownProviderEndpoint =
+    replaceStaleKnownBaseUrlForExplicitProvider(provider, defaultBaseUrl)
+  if (replacedKnownProviderEndpoint && !model) {
+    if (defaultModel) {
+      process.env.OPENAI_MODEL = defaultModel
+    } else {
+      delete process.env.OPENAI_MODEL
+    }
+  }
 
   // Azure-style routing changes both request paths and authentication. It is
   // only meaningful for an explicit OpenAI/Azure configuration, so never let
@@ -428,6 +478,10 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.openai.com/v1',
+      )
       if (model) process.env.OPENAI_MODEL = model
       break
 
@@ -607,10 +661,19 @@ export function applyProviderFlag(
         provider,
         defaultBaseUrl ?? 'https://gw.apismart.ai/v1',
       )
-      process.env.OPENAI_MODEL ??=
-        process.env.APISMART_MODEL?.trim() ||
-        defaultModel ||
-        'DEEPSEEK_V4_FLASH'
+      {
+        const apismartModel = getUsableRouteModelEnvValue(
+          process.env.APISMART_MODEL,
+        )
+        if (apismartModel) {
+          process.env.OPENAI_MODEL = apismartModel
+        } else {
+          process.env.OPENAI_MODEL =
+            getUsableRouteModelEnvValue(process.env.OPENAI_MODEL) ??
+            defaultModel ??
+            'DEEPSEEK_V4_FLASH'
+        }
+      }
       if (model) {
         process.env.OPENAI_MODEL = model
         process.env.APISMART_MODEL = model
@@ -620,7 +683,10 @@ export function applyProviderFlag(
       // and clear any stale generic key so another provider's credential is
       // never forwarded to ApiSmart.
       if (
-        process.env.APISMART_API_KEY &&
+        hasUsableRouteCredentialEnvValue(
+          'APISMART_API_KEY',
+          process.env.APISMART_API_KEY,
+        ) &&
         isApismartBaseUrl(getConfiguredOpenAIBaseUrl())
       ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY

@@ -522,6 +522,12 @@ class OpenAIShimMessages {
         runtimeShimContext.routeId === null ||
         getRouteDescriptor(runtimeShimContext.routeId)?.setup
           .dedicatedCredentialsOnly !== true,
+      routeSupportsAuthHeaders:
+        runtimeShimContext.descriptor?.transportConfig.openaiShim
+          ?.supportsAuthHeaders !== false,
+      routeSupportsCustomHeaders:
+        runtimeShimContext.descriptor?.transportConfig.openaiShim
+          ?.supportsAuthHeaders !== false,
       getCredentialPool: value => this.getCredentialPool(value),
       filterAnthropicHeaders, isGeminiMode, resolveRouteCredentialValue, isXaiBaseUrl, isLongcatBaseUrl, parseCredentialList, resolveXaiAccessToken, hasInvalidCredentialPlaceholder, buildOpenAICompatibilityErrorMessage, isAzureStyleBaseUrl, resolveGeminiCredential, COPILOT_HEADERS, getSessionId, getLocalProviderRetryBaseUrls, buildOllamaChatUrl, logForDebugging, redactUrlForDiagnostics, redactSecretValueForDisplay, headersWithRequestUrl, classifyOpenAINetworkFailure, classifyOpenAIHttpFailure, markOpenAIRequestNonReplayable, fetchRequest: (url, init) => fetchWithHeadersDeadline(url, init, { callerSignal: options?.signal, timeoutMs: apiTimeoutMs }), isResponseHeadersTimeout: error => error instanceof ResponseHeadersTimeoutError, requestBodyContainsImages, formatRetryAfterHint, redactUrlsInMessage, sleepMs, shouldAttemptLocalToollessRetry, refreshCopilotTokenOn401, isCopilotTokenExpiredError, convertOllamaStreamingResponse, convertOllamaNonStreamingResponse, logApiCallStart, logApiCallEnd, stableStringifyJson, APIError, GITHUB_429_MAX_RETRIES, GITHUB_429_BASE_DELAY_SEC, GITHUB_429_MAX_DELAY_SEC, request, params, options, requestProcessEnv, fastPath, shimConfig, runtimeShimContext, body, effectiveTransport, useNativeOllamaChat, buildResponsesBody, serializeBody, isLocal, isGithub, isGithubCopilot, isGithubModels, omitTools,
     })

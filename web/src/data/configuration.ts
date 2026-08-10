@@ -78,6 +78,8 @@ export const envVars: EnvVar[] = [
   { name: 'GEMINI_API_KEY', description: 'Gemini API key (the preset reads this, not GOOGLE_API_KEY).' },
   { name: 'XAI_API_KEY', description: "xAI Grok key (or sign in with 'openclaude auth xai login')." },
   { name: 'AIMLAPI_API_KEY', description: 'AI/ML API key.' },
+  { name: 'APISMART_API_KEY', description: 'ApiSmart gateway key; selects the ApiSmart route when no conflicting endpoint is configured.' },
+  { name: 'APISMART_MODEL', description: 'Optional ApiSmart model override; defaults to DEEPSEEK_V4_FLASH.' },
   { name: 'CLOUDFLARE_API_TOKEN', description: 'Cloudflare Workers AI token.' },
   { name: 'NVIDIA_API_KEY', description: 'NVIDIA NIM key.' },
   { name: 'NEARAI_API_KEY', description: 'NEAR AI unified gateway key.' },

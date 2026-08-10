@@ -830,6 +830,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
+  test.each(['SUA_CHAVE', 'null', 'undefined', ' NULL '])(
+    'rejects an ApiSmart profile with invalid credential placeholder %p',
+    async apiKey => {
+      const { addProviderProfile } = await importFreshProviderProfileModules()
+
+      const saved = addProviderProfile({
+        provider: 'apismart',
+        name: 'ApiSmart invalid',
+        baseUrl: 'https://gw.apismart.ai/v1',
+        model: 'KIMI_K3',
+        apiKey,
+      })
+
+      expect(saved).toBeNull()
+      expect(mockConfigState.providerProfiles).toEqual([])
+    },
+  )
+
   test('apismart profile clears a stale route-specific model before applying its saved model', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -857,12 +875,46 @@ describe('applyProviderProfileToProcessEnv', () => {
       await importFreshProviderProfileModules()
 
     applyProviderProfileToProcessEnv(
-      buildApismartProfile({ baseUrl: 'https://proxy.example/v1' }),
+      buildApismartProfile({
+        baseUrl: 'https://proxy.example/v1',
+        authHeader: 'X-Proxy-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'proxy-secret',
+        customHeaders: { 'X-Team': 'devtools' },
+      }),
     )
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-secret')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe('X-Team: devtools')
+  })
+
+  test('custom profile targeting ApiSmart mirrors its key into the endpoint credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'custom',
+        baseUrl: 'https://gw.apismart.ai/v1',
+        model: 'KIMI_K3',
+        apiKey: 'apismart-custom-profile-key',
+        apiFormat: 'responses',
+        authHeader: 'X-Api-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'unsupported-custom-auth',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-custom-profile-key')
+    expect(process.env.APISMART_API_KEY).toBe('apismart-custom-profile-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
   })
 
   test('cloudflare profile applies OpenAI-compatible env with CLOUDFLARE_API_TOKEN mirror', async () => {
@@ -3189,6 +3241,46 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('removes stale startup persistence when an active profile has no usable startup credential', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const { createProfileFile, saveProfileFile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      saveProfileFile(
+        createProfileFile('openai', {
+          OPENAI_BASE_URL: 'https://api.openai.com/v1',
+          OPENAI_MODEL: 'gpt-4o',
+          OPENAI_API_KEY: 'stale-openai-key',
+        }),
+        { configDir },
+      )
+      const apismartProfile = buildApismartProfile({
+        id: 'apismart_keyless',
+        apiKey: undefined,
+      })
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [apismartProfile],
+      }))
+
+      expect(
+        setActiveProviderProfile('apismart_keyless', { configDir })?.id,
+      ).toBe('apismart_keyless')
+      expect(existsSync(join(configDir, '.openclaude-profile.json'))).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('retargeted ApiSmart profiles persist without their dedicated credential', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
@@ -3201,6 +3293,10 @@ describe('setActiveProviderProfile', () => {
       const apismartProfile = buildApismartProfile({
         id: 'apismart_proxy',
         baseUrl: 'https://proxy.example/v1',
+        authHeader: 'X-Proxy-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'proxy-secret',
+        customHeaders: { 'X-Team': 'devtools' },
       })
 
       saveMockGlobalConfig(current => ({
@@ -3218,7 +3314,51 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'https://proxy.example/v1',
         OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+        OPENAI_AUTH_HEADER: 'X-Proxy-Key',
+        OPENAI_AUTH_SCHEME: 'raw',
+        OPENAI_AUTH_HEADER_VALUE: 'proxy-secret',
+        ANTHROPIC_CUSTOM_HEADERS: 'X-Team: devtools',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists credentials by concrete ApiSmart endpoint before provider label', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const profile = buildAtlasCloudProfile({
+        id: 'atlas_label_apismart_endpoint',
+        baseUrl: 'https://gw.apismart.ai/v1',
+        model: 'KIMI_K3',
+        apiKey: 'endpoint-owned-key',
+      })
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [profile],
+      }))
+
+      expect(
+        setActiveProviderProfile(profile.id, { configDir })?.id,
+      ).toBe(profile.id)
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+      expect(persisted.env).toMatchObject({
+        OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+        OPENAI_MODEL: 'KIMI_K3',
+        OPENAI_API_KEY: 'endpoint-owned-key',
+        APISMART_API_KEY: 'endpoint-owned-key',
+      })
+      expect(persisted.env.ATLAS_CLOUD_API_KEY).toBeUndefined()
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

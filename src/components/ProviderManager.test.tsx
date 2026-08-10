@@ -127,6 +127,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'ApiSmart',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -692,6 +693,8 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Base URL'),
     )
+    mounted.stdin.write('\x7f'.repeat(64))
+    mounted.stdin.write('https://proxy.example/v1')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Default model'),

@@ -181,7 +181,8 @@ export function getRouteDiscoveryHeaders(
 ): Record<string, string> | undefined {
   const transportConfig = getRouteDescriptor(routeId)?.transportConfig
   const acceptsCallerHeaders =
-    getRouteCatalog(routeId)?.discovery?.requiresAuth !== false
+    getRouteCatalog(routeId)?.discovery?.requiresAuth !== false &&
+    transportConfig?.openaiShim?.supportsAuthHeaders !== false
   // Descriptor headers are attribution, not transport plumbing: an `aimlapi`
   // profile keeps its route id while pointing at a user-controlled proxy, so the
   // `/models` request must be filtered on the same canonical predicate the

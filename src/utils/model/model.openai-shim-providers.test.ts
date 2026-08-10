@@ -75,6 +75,8 @@ const SAVED_ENV = {
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  APISMART_API_KEY: process.env.APISMART_API_KEY,
+  APISMART_MODEL: process.env.APISMART_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
@@ -131,6 +133,8 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
+  delete process.env.APISMART_API_KEY
+  delete process.env.APISMART_MODEL
   delete process.env.ANTHROPIC_MODEL
   delete process.env.MIMO_API_KEY
   delete process.env.OPENAI_MODEL
@@ -338,6 +342,41 @@ test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   } = await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
+})
+
+test('getDefaultMainLoopModelSetting uses the credential-only ApiSmart model', async () => {
+  process.env.APISMART_API_KEY = 'apismart-key'
+  process.env.APISMART_MODEL = 'KIMI_K3'
+
+  const {
+    getDefaultMainLoopModel,
+    getDefaultMainLoopModelSetting,
+  } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('KIMI_K3')
+  expect(getDefaultMainLoopModel()).toBe('KIMI_K3')
+})
+
+test('ApiSmart model selection is consistent across main and helper tiers', async () => {
+  process.env.APISMART_API_KEY = 'apismart-key'
+  process.env.APISMART_MODEL = 'KIMI_K3'
+
+  const {
+    getDefaultHaikuModel,
+    getDefaultOpusModel,
+    getDefaultSonnetModel,
+    getSmallFastModel,
+  } = await importFreshModelModule()
+  expect(getDefaultOpusModel()).toBe('KIMI_K3')
+  expect(getDefaultSonnetModel()).toBe('KIMI_K3')
+  expect(getDefaultHaikuModel()).toBe('KIMI_K3')
+  expect(getSmallFastModel()).toBe('KIMI_K3')
+})
+
+test('getDefaultMainLoopModelSetting uses the ApiSmart descriptor default', async () => {
+  process.env.APISMART_API_KEY = 'apismart-key'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('DEEPSEEK_V4_FLASH')
 })
 
 test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {

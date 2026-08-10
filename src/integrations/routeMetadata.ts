@@ -205,7 +205,7 @@ function readFirstNonEmptyEnvValue(
 ): string | undefined {
   for (const envVar of envVars) {
     const value = processEnv[envVar]
-    if (hasUsableEnvCredentialValue(envVar, value)) {
+    if (hasUsableRouteCredentialEnvValue(envVar, value)) {
       return value!.trim()
     }
   }
@@ -213,7 +213,7 @@ function readFirstNonEmptyEnvValue(
   return undefined
 }
 
-function hasUsableEnvCredentialValue(
+export function hasUsableRouteCredentialEnvValue(
   envVar: string,
   value: string | undefined,
 ): boolean {
@@ -221,11 +221,20 @@ function hasUsableEnvCredentialValue(
     return false
   }
 
+  if (envVar === 'APISMART_API_KEY') {
+    const normalized = value.trim().toLowerCase()
+    return (
+      normalized !== '' &&
+      normalized !== 'sua_chave' &&
+      normalized !== 'null' &&
+      normalized !== 'undefined'
+    )
+  }
+
   if (
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
-    envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar === 'AIMLAPI_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -234,14 +243,40 @@ function hasUsableEnvCredentialValue(
 
 function hasAnyUsableOpenAICredential(processEnv: NodeJS.ProcessEnv): boolean {
   return (
-    hasUsableEnvCredentialValue('OPENAI_API_KEYS', processEnv.OPENAI_API_KEYS) ||
-    hasUsableEnvCredentialValue('OPENAI_API_KEY', processEnv.OPENAI_API_KEY)
+    hasUsableRouteCredentialEnvValue('OPENAI_API_KEYS', processEnv.OPENAI_API_KEYS) ||
+    hasUsableRouteCredentialEnvValue('OPENAI_API_KEY', processEnv.OPENAI_API_KEY)
   )
 }
 
 function hasNonEmptyEnvValue(value: string | undefined): boolean {
   const trimmed = value?.trim().toLowerCase()
   return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
+}
+
+export function getUsableRouteConfigEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
+}
+
+export function getUsableRouteModelEnvValue(
+  value: string | undefined,
+): string | undefined {
+  return getUsableRouteConfigEnvValue(value)
+}
+
+export function hasExplicitOpenAICompatibleOptOut(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+  )
 }
 
 export function isMiniMaxBaseUrl(value: string | undefined): boolean {
@@ -661,7 +696,13 @@ function hasNoExplicitNonOpenAIProvider(
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK) &&
     !isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX) &&
-    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY) &&
+    !(
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
+      hasNonEmptyEnvValue(processEnv.ANTHROPIC_BASE_URL) &&
+      (hasNonEmptyEnvValue(processEnv.ANTHROPIC_AUTH_TOKEN) ||
+        hasNonEmptyEnvValue(processEnv.ANTHROPIC_API_KEY))
+    )
   )
 }
 
@@ -816,13 +857,35 @@ export function hasClinePassEnvOnlyProviderIntent(
   )
 }
 
+function hasApismartProviderIntent(
+  processEnv: NodeJS.ProcessEnv,
+  hasCredential: boolean,
+): boolean {
+  const explicitRouteId = processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+  return (
+    hasCredential &&
+    (!explicitRouteId || explicitRouteId === 'apismart') &&
+    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
+export function hasConfiguredApismartProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return hasApismartProviderIntent(
+    processEnv,
+    Boolean(processEnv.APISMART_API_KEY?.trim()),
+  )
+}
+
 export function hasApismartEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  return (
-    hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
-    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
-    hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  return hasApismartProviderIntent(
+    processEnv,
+    hasUsableOpenAICredential(processEnv.APISMART_API_KEY),
   )
 }
 
@@ -1113,6 +1176,64 @@ function profileRouteHonorsBaseUrlBoundary(
     return isApismartBaseUrl(baseUrl)
   }
   return true
+}
+
+/**
+ * Reports whether a profile's endpoint belongs to a specific route. A concrete
+ * endpoint owns credential routing regardless of the editor label; without an
+ * endpoint, only the declared provider may supply that route's default.
+ */
+export function profileTargetsRoute(
+  provider: string,
+  baseUrl: string | undefined,
+  targetRouteId: string,
+): boolean {
+  const trimmedBaseUrl = baseUrl?.trim()
+  if (trimmedBaseUrl) {
+    return resolveRouteIdFromBaseUrl(trimmedBaseUrl) === targetRouteId
+  }
+  return resolveProfileRoute(provider).routeId === targetRouteId
+}
+
+/**
+ * Resolves the route whose capabilities apply to a saved or edited profile.
+ * A concrete endpoint refines OpenAI-compatible profiles, while native
+ * provider families retain their declared transport contract. An
+ * endpoint-scoped provider retargeted elsewhere becomes a generic route.
+ */
+export function resolveProfileCapabilityRouteId(
+  provider: string,
+  baseUrl?: string,
+): string {
+  const providerRouteId = resolveProfileRoute(provider).routeId
+  if (providerRouteId === 'custom-anthropic') {
+    return providerRouteId
+  }
+
+  const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
+  if (providerRouteId === 'custom') {
+    return routeIdFromBaseUrl ?? providerRouteId
+  }
+
+  const providerTransportKind = getTransportKindForRoute(providerRouteId)
+  if (
+    providerTransportKind !== 'openai-compatible' &&
+    providerTransportKind !== 'local'
+  ) {
+    return providerRouteId
+  }
+  if (routeIdFromBaseUrl) {
+    return routeIdFromBaseUrl
+  }
+
+  if (
+    baseUrl?.trim() &&
+    !profileRouteHonorsBaseUrlBoundary(providerRouteId, baseUrl)
+  ) {
+    return 'custom'
+  }
+
+  return providerRouteId
 }
 
 export function resolveActiveRouteIdFromEnv(

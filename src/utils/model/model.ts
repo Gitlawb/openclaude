@@ -35,7 +35,11 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
-import { getRouteDefaultModel } from '../../integrations/routeMetadata.js'
+import {
+  getRouteDefaultModel,
+  getUsableRouteModelEnvValue,
+  resolveEnvOnlyProviderRouteId,
+} from '../../integrations/routeMetadata.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -43,6 +47,18 @@ export type ModelSetting = ModelName | ModelAlias | null
 
 function getMiniMaxModelEnv(): string | undefined {
   return process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL
+}
+
+function getApiSmartModelEnv(): string | undefined {
+  if (resolveEnvOnlyProviderRouteId(process.env) !== 'apismart') {
+    return undefined
+  }
+  return (
+    getUsableRouteModelEnvValue(process.env.APISMART_MODEL) ||
+    getUsableRouteModelEnvValue(process.env.OPENAI_MODEL) ||
+    getRouteDefaultModel('apismart') ||
+    'DEEPSEEK_V4_FLASH'
+  )
 }
 
 function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefined {
@@ -56,6 +72,8 @@ export function getSmallFastModel(): ModelName {
   if (isCustomAnthropicProvider()) {
     return process.env.ANTHROPIC_MODEL || getDefaultHaikuModel()
   }
+  const apiSmartModel = getApiSmartModelEnv()
+  if (apiSmartModel) return apiSmartModel
   // For Gemini provider, use a fast model
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite'
@@ -195,6 +213,8 @@ export function getDefaultOpusModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
   }
+  const apiSmartModel = getApiSmartModelEnv()
+  if (apiSmartModel) return apiSmartModel
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || 'gemini-2.5-pro'
@@ -245,6 +265,8 @@ export function getDefaultSonnetModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
   }
+  const apiSmartModel = getApiSmartModelEnv()
+  if (apiSmartModel) return apiSmartModel
   // Gemini provider
   if (getAPIProvider() === 'gemini') {
     return process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
@@ -293,6 +315,8 @@ export function getDefaultHaikuModel(): ModelName {
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
+  const apiSmartModel = getApiSmartModelEnv()
+  if (apiSmartModel) return apiSmartModel
   // Mistral provider
   if (getAPIProvider() === 'mistral') {
     return process.env.MISTRAL_MODEL || 'ministral-3b-latest'
@@ -379,6 +403,8 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (isCustomAnthropicProvider()) {
     return process.env.ANTHROPIC_MODEL || getDefaultSonnetModel()
   }
+  const apiSmartModel = getApiSmartModelEnv()
+  if (apiSmartModel) return apiSmartModel
   // GitHub Copilot provider: check settings.model first, then env, then default
   if (getAPIProvider() === 'github') {
     const settings = getSettings_DEPRECATED() || {}

@@ -13,6 +13,7 @@ import {
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
+import { resolveEnvOnlyProviderRouteId } from '../integrations/routeMetadata.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -22,6 +23,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -73,6 +75,7 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -190,6 +193,16 @@ describe('applyProviderFlag - anthropic', () => {
 
     expect(result.error).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBe('first-party-key')
+  })
+
+  test('explicit Anthropic selection suppresses an ambient ApiSmart key', () => {
+    process.env.ANTHROPIC_API_KEY = 'first-party-key'
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+
+    applyProviderFlag('anthropic', [])
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('anthropic')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
   })
 })
 
@@ -1019,11 +1032,56 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_MODEL).toBe('KIMI_K3')
   })
 
+  test('ApiSmart-specific model replaces a stale generic OpenAI model', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+    process.env.OPENAI_MODEL = 'gpt-4o'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_MODEL).toBe('KIMI_K3')
+  })
+
+  test.each(['undefined', 'null', ' NULL '])(
+    'ignores stale generic model sentinel %s for ApiSmart',
+    placeholder => {
+      process.env.APISMART_API_KEY = 'apismart-secret-key'
+      process.env.OPENAI_MODEL = placeholder
+
+      applyProviderFlag('apismart', [])
+
+      expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+    },
+  )
+
+  test.each(['undefined', 'null', ' NULL '])(
+    'ignores stale generic base URL sentinel %s for ApiSmart',
+    placeholder => {
+      process.env.APISMART_API_KEY = 'apismart-secret-key'
+      process.env.OPENAI_BASE_URL = placeholder
+
+      applyProviderFlag('apismart', [])
+
+      expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+      expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
+    },
+  )
+
   test('makes an explicit --model override APISMART_MODEL', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.APISMART_MODEL = 'KIMI_K3'
 
     applyProviderFlag('apismart', ['--model', 'GLM_5.2'])
+
+    expect(process.env.OPENAI_MODEL).toBe('GLM_5.2')
+    expect(process.env.APISMART_MODEL).toBe('GLM_5.2')
+  })
+
+  test('standalone --model overrides credential-only ApiSmart model selection', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyModelFlagFromArgs(['--model', 'GLM_5.2'])
 
     expect(process.env.OPENAI_MODEL).toBe('GLM_5.2')
     expect(process.env.APISMART_MODEL).toBe('GLM_5.2')
@@ -1046,14 +1104,54 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
+  test.each(['SUA_CHAVE', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder ApiSmart credential %s',
+    placeholder => {
+      process.env.APISMART_API_KEY = placeholder
+
+      applyProviderFlag('apismart', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
   test('clears a copied ApiSmart key from OPENAI_API_KEY when switching to another provider', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.OPENAI_API_KEY = 'apismart-secret-key'
+    process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai/v1'
 
     applyProviderFlag('openai', [])
 
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('openai')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
   })
+
+  test.each([
+    ['openai', 'https://api.openai.com/v1'],
+    ['github', 'https://api.githubcopilot.com'],
+    ['ollama', 'http://localhost:11434/v1'],
+    ['nvidia-nim', 'https://integrate.api.nvidia.com/v1'],
+    ['bankr', 'https://llm.bankr.bot/v1'],
+    ['xai', 'https://api.x.ai/v1'],
+    ['xiaomi-mimo', 'https://api.xiaomimimo.com/v1'],
+    ['venice', 'https://api.venice.ai/api/v1'],
+  ])(
+    'explicit %s selection replaces a stale ApiSmart endpoint',
+    (provider, expectedBaseUrl) => {
+      process.env.APISMART_API_KEY = 'apismart-secret-key'
+      process.env.OPENAI_API_KEY = 'apismart-secret-key'
+      process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai/v1'
+      process.env.OPENAI_MODEL = 'KIMI_K3'
+
+      applyProviderFlag(provider, [])
+
+      expect(process.env.OPENAI_BASE_URL).toBe(expectedBaseUrl)
+      expect(process.env.OPENAI_API_KEY).not.toBe('apismart-secret-key')
+      expect(process.env.OPENAI_MODEL).not.toBe('KIMI_K3')
+    },
+  )
 })
 
 describe('applyProviderFlag - xai', () => {

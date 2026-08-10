@@ -35,6 +35,7 @@ import {
   PROFILE_FILE_NAME,
   redactSecretValueForDisplay,
   saveProfileFile,
+  sanitizeOpenAICredentialPool,
   sanitizeProviderConfigValue,
   hasInvalidOpenAICredentialPool,
   selectAutoProfile,
@@ -278,6 +279,47 @@ test('openai launch preserves persisted ApiSmart dedicated credentials across re
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
 })
 
+test('openai launch withholds a persisted mirrored ApiSmart key after live endpoint retargeting', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+      APISMART_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example/v1')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.APISMART_API_KEY, undefined)
+})
+
+test('openai launch keeps a live generic key when retargeting a persisted ApiSmart profile', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+      APISMART_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+      OPENAI_API_KEY: 'proxy-key',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example/v1')
+  assert.equal(env.OPENAI_API_KEY, 'proxy-key')
+  assert.equal(env.APISMART_API_KEY, undefined)
+})
+
 test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
   const env = buildApismartProfileEnv({
     apiKey: 'apismart-secret-key',
@@ -299,6 +341,12 @@ test('buildApismartProfileEnv refuses to copy the dedicated credential to a cust
 
   assert.equal(env, null)
 })
+
+for (const placeholder of ['SUA_CHAVE', 'null', 'undefined', ' NULL ']) {
+  test(`buildApismartProfileEnv rejects placeholder credential ${placeholder}`, () => {
+    assert.equal(buildApismartProfileEnv({ apiKey: placeholder }), null)
+  })
+}
 
 test('openai launch carries APISMART_API_KEY only when the route resolves to apismart', async () => {
   const offRoute = await buildLaunchEnv({
@@ -964,6 +1012,30 @@ test('applyStartupEnvFromProfile applies valid startup env (issue #1651)', async
   assert.equal(processEnv.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
   assert.equal(processEnv.OPENAI_MODEL, 'mimo-v2.5-pro')
   assert.equal(processEnv.OPENGATEWAY_API_KEY, 'test-key')
+})
+
+test('invalid ambient ApiSmart placeholder does not suppress a saved profile', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    APISMART_API_KEY: ' SUA_CHAVE ',
+  }
+  const warnings: string[] = []
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'saved-openai-key',
+    }),
+    processEnv,
+    onValidationError: message => warnings.push(message),
+  })
+
+  assert.equal(error, null)
+  assert.deepEqual(warnings, [])
+  assert.equal(processEnv.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+  assert.equal(processEnv.OPENAI_MODEL, 'gpt-4o')
+  assert.equal(processEnv.OPENAI_API_KEY, 'saved-openai-key')
+  assert.equal(processEnv.APISMART_API_KEY, undefined)
 })
 
 test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env without a saved profile', async () => {
@@ -2728,6 +2800,7 @@ test('openai launch preserves invalid live pooled credentials for launch validat
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(hasInvalidOpenAICredentialPool(env.OPENAI_API_KEYS), true)
 })
+
 test('openai launch lets a live singular key override a saved pool', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

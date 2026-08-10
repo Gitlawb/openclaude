@@ -47,6 +47,8 @@ type RequestExecutorContext = {
   defaultHeaders: Record<string, string>
   providerOverride?: { apiKey?: string }
   routeAcceptsGenericOpenAICredentials: boolean
+  routeSupportsAuthHeaders: boolean
+  routeSupportsCustomHeaders: boolean
   getCredentialPool: (rawCredentials: string) => CredentialPool | null
   filterAnthropicHeaders: (
     headers?: Record<string, string>,
@@ -181,6 +183,8 @@ export async function executeOpenAIRequest(
     defaultHeaders,
     providerOverride,
     routeAcceptsGenericOpenAICredentials,
+    routeSupportsAuthHeaders,
+    routeSupportsCustomHeaders,
     getCredentialPool,
     filterAnthropicHeaders,
     isGeminiMode,
@@ -240,11 +244,25 @@ export async function executeOpenAIRequest(
     isGithubCopilot,
     isGithubModels,
   } = context
+  const managedClientHeaders = Object.fromEntries(
+    Object.entries(defaultHeaders).filter(([name]) =>
+      [
+        'user-agent',
+        'x-app',
+        'x-client-app',
+        'x-claude-code-session-id',
+        'x-claude-remote-container-id',
+        'x-claude-remote-session-id',
+      ].includes(name.toLowerCase()),
+    ),
+  )
   const baseHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...filterAnthropicHeaders(shimConfig.headers),
-    ...defaultHeaders,
-    ...filterAnthropicHeaders(options?.headers),
+    ...(routeSupportsCustomHeaders ? defaultHeaders : managedClientHeaders),
+    ...(routeSupportsCustomHeaders
+      ? filterAnthropicHeaders(options?.headers)
+      : {}),
   }
 
   const isGemini = isGeminiMode()
@@ -331,7 +349,9 @@ export async function executeOpenAIRequest(
       ?.defaultAuthHeader
   const configuredAuthHeaderValue = catalogAuthHeader
     ? undefined
-    : requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
+    : routeSupportsAuthHeaders
+      ? requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
+      : undefined
   if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
     throw new Error(
       'OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters',
@@ -339,7 +359,9 @@ export async function executeOpenAIRequest(
   }
   const customAuthHeader = catalogAuthHeader
     ? undefined
-    : requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
+    : routeSupportsAuthHeaders
+      ? requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
+      : undefined
   const hasCustomAuthHeader = Boolean(
     customAuthHeader && /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
   )
@@ -354,7 +376,7 @@ export async function executeOpenAIRequest(
       401,
       undefined,
       buildOpenAICompatibilityErrorMessage(
-        'OpenAI API error 401: invalid credential pool placeholder SUA_CHAVE detected',
+        'OpenAI API error 401: invalid credential placeholder detected',
         {
           category: 'auth_invalid',
           requestUrl: request.baseUrl,

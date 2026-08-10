@@ -195,6 +195,43 @@ test('non-canonical ApiSmart host falls back to generic OpenAI validation', asyn
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test.each(['SUA_CHAVE', 'null', 'undefined', ' NULL '])(
+  'ApiSmart validation rejects placeholder dedicated credential %s',
+  async placeholder => {
+    await expect(
+      getProviderValidationError({
+        APISMART_API_KEY: placeholder,
+        APISMART_MODEL: 'KIMI_K3',
+      }),
+    ).resolves.toBe('ApiSmart auth is required. Set APISMART_API_KEY.')
+  },
+)
+
+test.each(['SUA_CHAVE', 'null', 'undefined', ' NULL '])(
+  'ApiSmart compatibility mode rejects placeholder dedicated credential %s',
+  async placeholder => {
+    await expect(
+      getProviderValidationError({
+        CLAUDE_CODE_USE_OPENAI: '1',
+        APISMART_API_KEY: placeholder,
+        APISMART_MODEL: 'KIMI_K3',
+      }),
+    ).resolves.toBe('ApiSmart auth is required. Set APISMART_API_KEY.')
+  },
+)
+
+test('ApiSmart placeholder does not override a runnable explicit OpenAI setup', async () => {
+  await expect(
+    getProviderValidationError({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'sk-valid-openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+      APISMART_API_KEY: 'SUA_CHAVE',
+      APISMART_MODEL: 'KIMI_K3',
+    }),
+  ).resolves.toBeNull()
+})
+
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
   const providerSecret = 'ogw-provider-secret'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

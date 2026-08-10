@@ -26,10 +26,11 @@ import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  getUsableRouteModelEnvValue,
+  hasApismartEnvOnlyProviderIntent,
   isApismartBaseUrl,
   isClinePassBaseUrl,
 } from '../../integrations/routeMetadata.js'
-import { hasUsableOpenAICredential } from './credentialPool.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -235,13 +236,13 @@ function isPrivateIpv6Address(hostname: string): boolean {
 }
 
 // Reads an env-var-style string intended as a URL or path, rejecting both
-// empty strings and the literal string "undefined" that Windows shells can
+// empty strings and literal nullish strings that shells and dotenv templates
 // write when a variable is unset-then-referenced without quotes (issue #336).
 function asEnvUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   if (!trimmed) return undefined
-  if (trimmed === 'undefined') {
+  if (trimmed.toLowerCase() === 'undefined' || trimmed.toLowerCase() === 'null') {
     return undefined
   }
   return trimmed
@@ -256,11 +257,12 @@ function asNamedEnvUrl(
   const trimmed = value.trim()
   if (!trimmed) return undefined
 
-  if (trimmed === 'undefined') {
+  const normalized = trimmed.toLowerCase()
+  if (normalized === 'undefined' || normalized === 'null') {
     if (!warnedUndefinedEnvNames.has(envName)) {
       warnedUndefinedEnvNames.add(envName)
       logForDebugging(
-        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
+        `[provider-config] Environment variable ${envName} is the literal string "${trimmed}"; ignoring it.`,
         { level: 'warn' },
       )
     }
@@ -933,7 +935,7 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
-  const isApismartMode = hasUsableOpenAICredential(processEnv.APISMART_API_KEY)
+  const isApismartMode = hasApismartEnvOnlyProviderIntent(processEnv)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -1012,8 +1014,8 @@ export function resolveProviderRequest(options?: {
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
           : effectiveApismartMode
-            ? processEnv.APISMART_MODEL?.trim() ||
-              processEnv.OPENAI_MODEL?.trim()
+            ? getUsableRouteModelEnvValue(processEnv.APISMART_MODEL) ||
+              getUsableRouteModelEnvValue(processEnv.OPENAI_MODEL)
             : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||

@@ -6,6 +6,7 @@ import {
   registerGateway,
 } from '../../integrations/index.js'
 import { publicBuildVersion } from '../../utils/version.js'
+import { resolveEnvOnlyProviderRouteId } from '../../integrations/routeMetadata.js'
 
 // bun:test keeps mock.module() registrations process-global across test files.
 // Load and re-register the real module before importing the client so a prior
@@ -317,7 +318,7 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   expect(capturedHeaders).toBeDefined()
 })
 
-test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requiring an API key', async () => {
+test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN despite an ambient ApiSmart key', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined
 
@@ -331,9 +332,12 @@ test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requi
   process.env.ANTHROPIC_API_KEY = 'must-not-forward'
   process.env.ANTHROPIC_AUTH_TOKEN = 'custom-anthropic-token'
   process.env.ANTHROPIC_BASE_URL = 'https://anthropic.example/api/v1'
+  process.env.APISMART_API_KEY = 'ambient-apismart-key'
   process.env.USER_TYPE = 'ant'
   process.env.USE_STAGING_OAUTH = '1'
   process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant: tenant-a\nauthorization: stale-value'
+
+  expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
 
   const fetchOverride = (async (input, init) => {
     capturedUrl =
@@ -1534,6 +1538,123 @@ test('strips Anthropic-specific custom headers before sending OpenAI-compatible 
   expect(capturedHeaders?.get('api-key')).toBeNull()
   expect(capturedHeaders?.get('x-safe-header')).toBe('keep-me')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer openai-test-key')
+})
+
+test('does not forward ambient custom headers to routes that disable custom headers', async () => {
+  let capturedHeaders: Headers | undefined
+  let capturedUrl: string | undefined
+
+  clearEnvForMiniMaxOnlyTest()
+  process.env.APISMART_API_KEY = 'apismart-test-key'
+  process.env.APISMART_MODEL = 'KIMI_K3'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Secret: stale-secret'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-apismart',
+        model: 'KIMI_K3',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'KIMI_K3',
+  })) as unknown as ShimClient
+  await client.beta.messages.create({
+    model: 'KIMI_K3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://gw.apismart.ai/v1/chat/completions')
+  expect(capturedHeaders?.get('x-proxy-secret')).toBeNull()
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer apismart-test-key')
+})
+
+test.each([
+  ['OPENAI_BASE_URL', 'null'],
+  ['OPENAI_BASE_URL', ' UNDEFINED '],
+  ['OPENAI_API_BASE', 'NULL'],
+  ['OPENAI_API_BASE', ' undefined '],
+] as const)(
+  'ApiSmart env-only defaults ignore nullish %s value %s',
+  async (envVar, sentinel) => {
+    clearEnvForMiniMaxOnlyTest()
+    process.env.APISMART_API_KEY = 'apismart-test-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+    process.env[envVar] = sentinel
+
+    await getAnthropicClient({ maxRetries: 0, model: 'KIMI_K3' })
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+  },
+)
+
+test('enforces route header capabilities for an ApiSmart provider override', async () => {
+  let capturedHeaders: Headers | undefined
+
+  clearEnvForMiniMaxOnlyTest()
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Secret: stale-secret'
+  process.env.OPENAI_AUTH_HEADER = 'X-Parent-Secret'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-parent-token'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-apismart-override',
+        model: 'KIMI_K3',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    providerOverride: {
+      model: 'KIMI_K3',
+      baseURL: 'https://gw.apismart.ai/v1',
+      apiKey: 'child-apismart-key',
+    },
+  })) as unknown as ShimClient
+  await client.beta.messages.create({
+    model: 'unused',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedHeaders?.get('x-proxy-secret')).toBeNull()
+  expect(capturedHeaders?.get('x-parent-secret')).toBeNull()
+  expect(capturedHeaders?.get('authorization')).toBe(
+    'Bearer child-apismart-key',
+  )
 })
 
 test('strips Anthropic-specific custom headers on providerOverride shim requests too', async () => {

@@ -6,13 +6,97 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  getUsableRouteConfigEnvValue,
+  hasUsableRouteCredentialEnvValue,
   isApismartBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
+  profileTargetsRoute,
   resolveActiveRouteIdFromEnv,
+  resolveProfileCapabilityRouteId,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+
+test('profile capability routing keeps provider identity and endpoint boundaries together', () => {
+  expect(resolveProfileCapabilityRouteId('apismart')).toBe('apismart')
+  expect(resolveProfileCapabilityRouteId('openai')).toBe('openai')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'custom',
+      'http://localhost:11434/v1',
+    ),
+  ).toBe('ollama')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'custom',
+      'https://gw.apismart.ai/v1',
+    ),
+  ).toBe('apismart')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'custom',
+      'https://api.aimlapi.com/v1',
+    ),
+  ).toBe('aimlapi')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'gemini',
+      'https://gw.apismart.ai/v1',
+    ),
+  ).toBe('gemini')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'openai',
+      'https://gw.apismart.ai/v1',
+    ),
+  ).toBe('apismart')
+  expect(
+    resolveProfileCapabilityRouteId(
+      'apismart',
+      'https://proxy.example/v1',
+    ),
+  ).toBe('custom')
+})
+
+test('profile endpoint routing separates credential ownership from editor capabilities', () => {
+  expect(profileTargetsRoute('apismart', undefined, 'apismart')).toBe(true)
+  expect(profileTargetsRoute('openai', undefined, 'apismart')).toBe(false)
+  expect(
+    profileTargetsRoute('custom', 'https://gw.apismart.ai/v1', 'apismart'),
+  ).toBe(true)
+  expect(
+    profileTargetsRoute('apismart', 'https://proxy.example/v1', 'apismart'),
+  ).toBe(false)
+})
+
+test('route credential usability applies OpenAI placeholder rules to dedicated keys', () => {
+  expect(hasUsableRouteCredentialEnvValue('APISMART_API_KEY', 'SUA_CHAVE')).toBe(
+    false,
+  )
+  expect(
+    hasUsableRouteCredentialEnvValue('APISMART_API_KEY', 'apismart-key'),
+  ).toBe(true)
+})
+
+test('route config normalization rejects nullish environment sentinels', () => {
+  expect(getUsableRouteConfigEnvValue(' https://proxy.example/v1 ')).toBe(
+    'https://proxy.example/v1',
+  )
+  for (const value of [undefined, '', ' undefined ', 'NULL']) {
+    expect(getUsableRouteConfigEnvValue(value)).toBeUndefined()
+  }
+})
+
+test('ApiSmart env-only intent respects an explicit OpenAI-compatible opt-out', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '0',
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+    }),
+  ).toBe('anthropic')
+})
 
 test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway', () => {
   // Workers AI lives on api.cloudflare.com.
@@ -472,6 +556,16 @@ test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmar
   expect(
     resolveActiveRouteIdFromEnv({
       APISMART_API_KEY: 'apismart-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv treats the generic OpenAI flag as compatible with ApiSmart intent', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
     }),
   ).toBe('apismart')
 })
