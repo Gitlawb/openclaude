@@ -417,6 +417,30 @@ test('an empty key id is stored as absent so the settled receipt stays readable'
   expect(loaded?.apiKeyId).toBeUndefined()
 })
 
+test('a new key never inherits a stale apiKeyId left over from a different key', () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // Simulates a record left inconsistent by something outside this function
+  // (an older build, a hand edit): an apiKeyId with no apiKey of its own.
+  // saveAimlapiTopupState's own writes can no longer produce this shape, but
+  // a record already on disk in this shape must still not get paired with an
+  // unrelated new key.
+  const statePath = join(directory, 'aimlapi-topup.json')
+  const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+  seeded.apiKeyId = 'stale-id-from-a-different-key'
+  writeFileSync(statePath, JSON.stringify(seeded))
+
+  // A genuinely new key arrives with no id of its own (the existing-key
+  // top-up path's "not applicable" sentinel).
+  saveAimlapiTopupState({ ...expected, resumeSessionToken: '', apiKey: 'new-key', apiKeyId: '' })
+
+  const loaded = loadAimlapiTopupState(intent)
+  expect(loaded?.apiKey).toBe('new-key')
+  expect(loaded?.apiKeyId).toBeUndefined()
+})
+
 test('recordAimlapiSettledKeyAsync persists the key and clears the lease under the CAS', async () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)

@@ -473,9 +473,17 @@ export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
       // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
       // top-up path), NOT a value to persist: the reader rejects empty strings, so
       // a serialized "" would make the whole receipt unreadable and lose an
-      // otherwise-recoverable checkout. Coerce it to absent instead.
-      apiKey: existingApiKeyWins ? current.apiKey : state.apiKey?.trim() || current.apiKey,
-      apiKeyId: existingApiKeyWins ? current.apiKeyId : state.apiKeyId?.trim() || current.apiKeyId,
+      // otherwise-recoverable checkout. Coerce it to absent instead. Never fall
+      // back to current.apiKeyId here: current.apiKey is already known falsy in
+      // this branch, so that id (if somehow present) belongs to no key of ours,
+      // and pairing it with a genuinely new state.apiKey would tag it with the
+      // wrong id.
+      apiKey: existingApiKeyWins ? current.apiKey : state.apiKey?.trim() || undefined,
+      apiKeyId: existingApiKeyWins
+        ? current.apiKeyId
+        : state.apiKey?.trim()
+          ? state.apiKeyId?.trim() || undefined
+          : undefined,
       model: state.model ?? current.model,
       settled: state.settled ?? current.settled,
       exchange: state.exchange ?? current.exchange,
