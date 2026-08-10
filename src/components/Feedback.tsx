@@ -88,13 +88,19 @@ export async function assembleFeedbackEgressReportData(args: {
   description: string;
   backgroundTasks?: FeedbackBackgroundTasks;
   gitRepo?: boolean;
+  /** @internal test seam — avoid mock.module of sessionStorage */
+  transcriptPathForTesting?: string;
+  /** @internal test seam — avoid mock.module of sessionStorage */
+  subagentTranscriptsForTesting?: Record<string, Message[]>;
 }): Promise<FeedbackData> {
   const backgroundTasks = args.backgroundTasks ?? {};
   const lastAssistantMessage = getLastAssistantMessage(args.messages);
   const lastAssistantMessageId = lastAssistantMessage?.requestId ?? null;
   const [diskTranscripts, rawTranscriptJsonl] = await Promise.all([
-    loadAllSubagentTranscriptsFromDisk(),
-    loadRawTranscriptJsonl(),
+    args.subagentTranscriptsForTesting !== undefined
+      ? Promise.resolve(args.subagentTranscriptsForTesting)
+      : loadAllSubagentTranscriptsFromDisk(),
+    loadRawTranscriptJsonl(args.transcriptPathForTesting),
   ]);
   const teammateTranscripts = extractTeammateTranscriptsFromTasks(backgroundTasks);
   const subagentTranscripts = filterSubagentTranscriptsForExternalEgress({
@@ -150,9 +156,13 @@ function getSanitizedErrorLogs(): Array<{
     return errorCopy;
   });
 }
-async function loadRawTranscriptJsonl(): Promise<string | null> {
+async function loadRawTranscriptJsonl(
+  transcriptPath?: string,
+): Promise<string | null> {
   try {
-    return await readFilteredTranscriptJsonlForExternalEgress(getTranscriptPath());
+    return await readFilteredTranscriptJsonlForExternalEgress(
+      transcriptPath ?? getTranscriptPath(),
+    );
   } catch {
     return null;
   }

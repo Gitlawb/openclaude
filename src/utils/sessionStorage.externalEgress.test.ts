@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { UUID } from 'crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -17,6 +17,7 @@ import {
   getRemoteEgressOmittedParentsForTesting,
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
+  MAX_TRANSCRIPT_READ_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
   recordExternalEgressOmission,
@@ -142,6 +143,22 @@ describe('isSafeForExternalEgress', () => {
         }),
       ).toBe(false)
     }
+  })
+
+  test('rejects skill_discovery for ant users (denylist membership)', () => {
+    process.env.USER_TYPE = 'ant'
+    expect(EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES.has('skill_discovery')).toBe(
+      true,
+    )
+    expect(
+      isSafeForExternalEgress({
+        type: 'attachment',
+        attachment: {
+          type: 'skill_discovery',
+          skills: [{ name: 'leak-discovery', description: 'must not egress' }],
+        },
+      }),
+    ).toBe(false)
   })
 
   test('rejects progress for both ant and external', () => {
@@ -318,6 +335,42 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
             listing(listingUuid, userUuid, 'skill_listing', 'REBUILD-LEAK'),
           ),
         ].join('\n') + '\n',
+      )
+      resetProjectForTesting()
+      setSessionFileForTesting(path)
+      rebuildRemoteEgressOmittedParentsForTesting()
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(listingUuid)).toBe(true)
+      expect(map.get(listingUuid)).toBe(userUuid)
+      const projected = projectTranscriptParentForExternalEgress(
+        { parentUuid: listingUuid },
+        map,
+      )
+      expect(projected.parentUuid).toBe(userUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('bounded tail rebuild recovers recent omissions when over MAX_TRANSCRIPT_READ_BYTES', async () => {
+    process.env.USER_TYPE = 'external'
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-rebuild-tail-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(21)
+    const listingUuid = id(22)
+    try {
+      // Prefix larger than the rebuild budget so the oversized path runs.
+      await writeFile(path, Buffer.alloc(MAX_TRANSCRIPT_READ_BYTES + 1, 0x78))
+      await appendFile(
+        path,
+        '\n' +
+          [
+            JSON.stringify(user(userUuid, null, 'tail resume turn')),
+            JSON.stringify(
+              listing(listingUuid, userUuid, 'skill_listing', 'TAIL-LEAK'),
+            ),
+          ].join('\n') +
+          '\n',
       )
       resetProjectForTesting()
       setSessionFileForTesting(path)

@@ -13,18 +13,17 @@ type ProvidersModule = typeof import('../utils/model/providers.js')
 type AuthModule = typeof import('../utils/auth.js')
 type HttpModule = typeof import('../utils/http.js')
 type PrivacyModule = typeof import('../utils/privacyLevel.js')
-type SessionStorageModule = typeof import('../utils/sessionStorage.js')
 
 let originalAxiosModule: AxiosModule | undefined
 let originalProvidersModule: ProvidersModule | undefined
 let originalAuthModule: AuthModule | undefined
 let originalHttpModule: HttpModule | undefined
 let originalPrivacyModule: PrivacyModule | undefined
-let originalSessionStorageModule: SessionStorageModule | undefined
 let originalUserType: string | undefined
 let hadMacro = false
 let originalMacro: unknown
 let tempDir: string | undefined
+let transcriptPath: string | undefined
 let postedBodies: Array<{ content?: string }> = []
 
 function buildAxiosModuleStub(
@@ -84,7 +83,7 @@ beforeAll(async () => {
   }))
 
   tempDir = await mkdtemp(join(tmpdir(), 'openclaude-feedback-egress-'))
-  const transcriptPath = join(tempDir, 'session.jsonl')
+  transcriptPath = join(tempDir, 'session.jsonl')
   // f001 user → f002 listing (omitted) → f003 user (parent=f002, must reparent to f001)
   await writeFile(
     transcriptPath,
@@ -114,33 +113,8 @@ beforeAll(async () => {
     })}\n`,
   )
 
-  originalSessionStorageModule = await import('../utils/sessionStorage.js')
-  mock.module('../utils/sessionStorage.js', () => ({
-    ...originalSessionStorageModule!,
-    getTranscriptPath: () => transcriptPath,
-    loadAllSubagentTranscriptsFromDisk: async () => ({
-      'agent-leak': [
-        {
-          type: 'attachment',
-          uuid: '00000000-0000-4000-8000-00000000a201',
-          attachment: {
-            type: 'agent_listing_delta',
-            addedTypes: ['Explore'],
-            addedLines: ['- Explore: /leak-agent-listing'],
-            removedTypes: [],
-            isInitial: true,
-            showConcurrencyNote: false,
-          },
-        },
-        {
-          type: 'user',
-          uuid: '00000000-0000-4000-8000-00000000a202',
-          message: { role: 'user', content: 'subagent turn' },
-        },
-      ],
-    }),
-  }))
-
+  // Do NOT mock.module sessionStorage — that leaks into later suites under
+  // --max-concurrency=1. Pass transcript / subagent data via test seams.
   mock.module('axios', () =>
     buildAxiosModuleStub(async (_url: unknown, body: unknown) => {
       postedBodies.push(body as { content?: string })
@@ -161,8 +135,6 @@ afterAll(async () => {
     } else {
       ;(globalThis as { MACRO?: unknown }).MACRO = originalMacro
     }
-    // mock.module is process-global in Bun — restore every module mocked in
-    // beforeAll, not only axios (otherwise later suites inherit leaks).
     if (originalAxiosModule) {
       mock.module('axios', () => originalAxiosModule!)
     }
@@ -177,9 +149,6 @@ afterAll(async () => {
     }
     if (originalPrivacyModule) {
       mock.module('../utils/privacyLevel.js', () => originalPrivacyModule!)
-    }
-    if (originalSessionStorageModule) {
-      mock.module('../utils/sessionStorage.js', () => originalSessionStorageModule!)
     }
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true })
@@ -216,6 +185,28 @@ test('Feedback upload strips listing payloads from the posted content body', asy
   const report = await assembleFeedbackEgressReportData({
     messages: [listing, user],
     description: 'egress regression',
+    transcriptPathForTesting: transcriptPath,
+    subagentTranscriptsForTesting: {
+      'agent-leak': [
+        {
+          type: 'attachment',
+          uuid: '00000000-0000-4000-8000-00000000a201',
+          attachment: {
+            type: 'agent_listing_delta',
+            addedTypes: ['Explore'],
+            addedLines: ['- Explore: /leak-agent-listing'],
+            removedTypes: [],
+            isInitial: true,
+            showConcurrencyNote: false,
+          },
+        } as unknown as Message,
+        {
+          type: 'user',
+          uuid: '00000000-0000-4000-8000-00000000a202',
+          message: { role: 'user', content: 'subagent turn' },
+        } as unknown as Message,
+      ],
+    },
   })
   const result = await submitFeedback(report)
 

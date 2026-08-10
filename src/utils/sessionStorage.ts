@@ -1271,60 +1271,21 @@ class Project {
    * so the first post-resume remote append whose parentUuid pointed at a
    * withheld entry can reparent instead of dangling on CCR / session-ingress.
    *
-   * Size-guarded before readFileSync so a huge transcript cannot OOM the
-   * resume path. Skip rebuild (leave map empty) when over the shared
-   * MAX_TRANSCRIPT_READ_BYTES budget used by Feedback / share uploads.
+   * Reads the full file when under MAX_TRANSCRIPT_READ_BYTES. For larger
+   * sessions (can reach GBs), performs a bounded tail read of that same
+   * budget so recent omission ancestry is still available for post-resume
+   * reparenting — never abandons the map as empty solely due to size.
    */
   rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
     this.remoteEgressOmittedParents.clear()
     const path = this.sessionFile
     if (!path) return
-    try {
-      const fd = openSync(path, 'r')
-      let size: number
-      try {
-        size = fstatSync(fd).size
-      } finally {
-        closeSync(fd)
-      }
-      if (size > MAX_TRANSCRIPT_READ_BYTES) {
-        logForDebugging(
-          'Skipping remote egress omission rebuild: session file too large ' +
-            `(${size} bytes)`,
-          { level: 'warn' },
-        )
-        return
-      }
-    } catch {
-      return
-    }
-    let content: string
-    try {
-      content = readFileSync(path, 'utf8')
-    } catch {
-      return
-    }
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue
-      let parsed: unknown
-      try {
-        parsed = jsonParse(line)
-      } catch {
-        continue
-      }
-      if (!isTranscriptMessage(parsed as Entry)) continue
-      const entry = parsed as TranscriptMessage
-      // Always apply current external egress policy. hook_additional_context is
-      // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
-      // allows local persistence — local save ≠ upload consent.
-      if (!isSafeForExternalEgress(entry)) {
-        recordExternalEgressOmission(
-          this.remoteEgressOmittedParents,
-          entry.uuid,
-          entry.parentUuid ?? null,
-        )
-      }
-    }
+    const content = readTranscriptContentForOmissionRebuild(path)
+    if (content === null) return
+    ingestRemoteEgressOmissionsFromTranscriptContent(
+      content,
+      this.remoteEgressOmittedParents,
+    )
   }
 
   resetSessionFile(): void {
@@ -3661,6 +3622,90 @@ function appendEntryToFile(
 }
 
 /**
+ * Parse transcript JSONL lines into an omission map for remote egress
+ * reparenting. Shared by full-file and bounded-tail rebuild paths.
+ */
+function ingestRemoteEgressOmissionsFromTranscriptContent(
+  content: string,
+  omittedParents: Map<UUID, UUID | null>,
+): void {
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue
+    let parsed: unknown
+    try {
+      parsed = jsonParse(line)
+    } catch {
+      continue
+    }
+    if (!isTranscriptMessage(parsed as Entry)) continue
+    const entry = parsed as TranscriptMessage
+    // Always apply current external egress policy. hook_additional_context is
+    // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+    // allows local persistence — local save ≠ upload consent.
+    if (!isSafeForExternalEgress(entry)) {
+      recordExternalEgressOmission(
+        omittedParents,
+        entry.uuid,
+        entry.parentUuid ?? null,
+      )
+    }
+  }
+}
+
+/**
+ * Load transcript text for omission-map rebuild. Full file when under
+ * MAX_TRANSCRIPT_READ_BYTES; otherwise a bounded tail of that budget
+ * (skipping a leading partial line) so huge sessions still recover recent
+ * withheld ancestry without OOM.
+ */
+function readTranscriptContentForOmissionRebuild(
+  fullPath: string,
+): string | null {
+  let fd: number | undefined
+  try {
+    fd = openSync(fullPath, 'r')
+    const size = fstatSync(fd).size
+    if (size === 0) return ''
+    if (size <= MAX_TRANSCRIPT_READ_BYTES) {
+      closeSync(fd)
+      fd = undefined
+      return readFileSync(fullPath, 'utf8')
+    }
+    const readSize = MAX_TRANSCRIPT_READ_BYTES
+    const start = size - readSize
+    const buf = Buffer.allocUnsafe(readSize)
+    const bytesRead = readSync(fd, buf, 0, readSize, start)
+    let content = buf.toString('utf8', 0, bytesRead)
+    // Tail window may start mid-line — drop the incomplete first fragment.
+    const nl = content.indexOf('\n')
+    if (nl < 0) {
+      logForDebugging(
+        'Bounded remote egress omission rebuild: no complete line in tail ' +
+          `window (${size} bytes)`,
+        { level: 'warn' },
+      )
+      return ''
+    }
+    content = content.slice(nl + 1)
+    logForDebugging(
+      'Bounded remote egress omission rebuild from last ' +
+        `${readSize} bytes of ${size}-byte session file`,
+    )
+    return content
+  } catch {
+    return null
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // closeSync can throw; preserve null/content return
+      }
+    }
+  }
+}
+
+/**
  * Sync tail read for reAppendSessionMetadata's external-writer check.
  * fstat on the already-open fd (no extra path lookup); reads the same
  * LITE_READ_BUF_SIZE window that readLiteMetadata scans. Returns empty
@@ -5471,6 +5516,7 @@ export async function loadAllSubagentTranscriptsFromDisk(): Promise<{
 export const EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> =
   new Set([
     'skill_listing',
+    'skill_discovery',
     'agent_listing_delta',
     'deferred_tools_delta',
     'mcp_instructions_delta',
