@@ -115,6 +115,98 @@ test('refreshes an expired GitHub Copilot token once before retrying', async () 
   expect(refresh).toHaveBeenCalledTimes(1)
 })
 
+test('does not retry a Copilot request when token refresh fails', async () => {
+  process.env.OPENAI_API_KEY = 'initial-token'
+  const error = APIError.generate(401, undefined, 'token expired', new Headers())
+  const perform = mock(async () => {
+    throw error
+  }) as unknown as typeof performCodexRequest
+  const refresh = mock(async () => false)
+
+  await expect(dispatchCodexRequest({
+    request: request('codex_responses', 'https://api.githubcopilot.com'),
+    params,
+    defaultHeaders: {},
+    dependencies,
+    operations: {
+      isGithubModelsMode: () => true,
+      performCodexRequest: perform,
+      refreshCopilotTokenOn401: refresh,
+    },
+  })).rejects.toBe(error)
+
+  expect(perform).toHaveBeenCalledTimes(1)
+  expect(refresh).toHaveBeenCalledTimes(1)
+})
+
+test('does not retry a Copilot request when refresh returns the same token', async () => {
+  process.env.OPENAI_API_KEY = 'unchanged-token'
+  const error = APIError.generate(401, undefined, 'token expired', new Headers())
+  const perform = mock(async () => {
+    throw error
+  }) as unknown as typeof performCodexRequest
+  const refresh = mock(async () => true)
+
+  await expect(dispatchCodexRequest({
+    request: request('codex_responses', 'https://api.githubcopilot.com'),
+    params,
+    defaultHeaders: {},
+    dependencies,
+    operations: {
+      isGithubModelsMode: () => true,
+      performCodexRequest: perform,
+      refreshCopilotTokenOn401: refresh,
+    },
+  })).rejects.toBe(error)
+
+  expect(perform).toHaveBeenCalledTimes(1)
+  expect(refresh).toHaveBeenCalledTimes(1)
+})
+
+test('preserves a caller abort while dispatching a Copilot request', async () => {
+  process.env.OPENAI_API_KEY = 'test-token'
+  const controller = new AbortController()
+  const preserved = new Error('preserved caller abort')
+  controller.abort()
+  const requestError = new Error('request aborted')
+  const perform = mock(async () => {
+    throw requestError
+  }) as unknown as typeof performCodexRequest
+  const preserveCallerAbortError = mock(() => preserved)
+
+  await expect(dispatchCodexRequest({
+    request: request('codex_responses', 'https://api.githubcopilot.com'),
+    params,
+    requestOptions: { signal: controller.signal },
+    defaultHeaders: {},
+    dependencies: { ...dependencies, preserveCallerAbortError },
+    operations: {
+      isGithubModelsMode: () => true,
+      performCodexRequest: perform,
+    },
+  })).rejects.toBe(preserved)
+
+  expect(perform).toHaveBeenCalledTimes(1)
+  expect(preserveCallerAbortError).toHaveBeenCalledWith(requestError, controller.signal)
+})
+
+test('rejects a Copilot request without credentials before dispatch', async () => {
+  const perform = mock(async () => new Response('unexpected')) as unknown as typeof performCodexRequest
+
+  await expect(dispatchCodexRequest({
+    request: request('codex_responses', 'https://api.githubcopilot.com'),
+    params,
+    defaultHeaders: {},
+    dependencies,
+    operations: {
+      isGithubModelsMode: () => true,
+      performCodexRequest: perform,
+    },
+  })).rejects.toThrow('/onboard-github')
+
+  expect(perform).not.toHaveBeenCalled()
+})
+
 test('classifies a GitHub Copilot pre-header timeout without replaying', async () => {
   process.env.OPENAI_API_KEY = 'test-token'
   const timeout = new Error('headers timed out')

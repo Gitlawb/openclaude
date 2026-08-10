@@ -5,6 +5,7 @@ import {
 } from '../../../utils/codexCredentials.js'
 import { logForDebugging } from '../../../utils/debug.js'
 import { isBareMode } from '../../../utils/envUtils.js'
+import { COPILOT_HEADERS } from '../../github/deviceFlow.js'
 import { refreshCopilotTokenOn401 } from '../../../utils/githubModelsCredentials.js'
 import {
   performCodexRequest,
@@ -24,21 +25,15 @@ import {
   isGithubModelsMode,
 } from './providerCompatibility.js'
 
-const COPILOT_HEADERS: Record<string, string> = {
-  'User-Agent': 'GitHubCopilotChat/0.26.7',
-  'Editor-Version': 'vscode/1.99.3',
-  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
-  'Copilot-Integration-Id': 'vscode-chat',
-}
-
 type PerformCodexRequest = typeof performCodexRequest
+type ResponseHeadersTimeoutClassification = Error | undefined
 
 export type CodexDispatchDependencies = {
   classifyResponseHeadersTimeout(
     error: unknown,
     requestUrl: string,
     model: string,
-  ): unknown | undefined
+  ): ResponseHeadersTimeoutClassification
   fetchWithHeadersDeadline(
     url: string,
     init: RequestInit,

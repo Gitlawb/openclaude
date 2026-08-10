@@ -42,6 +42,7 @@ import { createStreamAbortError, getStreamIdleTimeoutMs, readWithIdleTimeout, St
 export { getStreamIdleTimeoutMs } from './openaiShim/streamControl.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { type OpenAIShimEffortLevel } from '../../utils/effort.js'
+import { COPILOT_HEADERS } from '../github/deviceFlow.js'
 import { resolveGeminiCredential } from '../../utils/geminiAuth.js'
 import { hydrateGeminiAccessTokenFromSecureStorage } from '../../utils/geminiCredentials.js'
 import {
@@ -148,13 +149,6 @@ const GITHUB_429_MAX_DELAY_SEC = 32
 const CREDENTIAL_POOL_COOLDOWN_MS = 30_000
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com'
-const COPILOT_HEADERS: Record<string, string> = {
-  'User-Agent': 'GitHubCopilotChat/0.26.7',
-  'Editor-Version': 'vscode/1.99.3',
-  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
-  'Copilot-Integration-Id': 'vscode-chat',
-}
-
 function isCopilotTokenExpiredError(text: string): boolean {
   const lower = text.toLowerCase()
   return lower.includes('token expired') || lower.includes('token has expired')
