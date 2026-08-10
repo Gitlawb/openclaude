@@ -90,8 +90,8 @@ no credential duplication:
 ```
 
 **Built-in agents are routable by their type name.** Useful keys:
-`verification` (the read-only auditor that runs before completion), `Explore`,
-`Plan`, and `code-reviewer`. For example, `"agentRouting": { "verification": "mini" }` runs the
+`verification` (the read-only auditor that runs before completion), `Explore`
+and `Plan` (if feature-gated on), and `code-reviewer`. For example, `"agentRouting": { "verification": "mini" }` runs the
 verifier on `gpt-5-mini` while your main session stays on its model. Absent
 any entry, the verifier inherits the main-loop model.
 

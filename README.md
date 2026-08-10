@@ -360,7 +360,7 @@ environment variables:
 
 - per-agent provider/model overrides via `agentModels` + `agentRouting` in `~/.openclaude/settings.json`
 - model-only routes that reuse your current provider's credentials
-- built-in agents (`Explore`, `Plan`, `verification`, `code-reviewer`) routable by type name
+- built-in agents (`Explore` and `Plan` [feature-gated], `verification`, `code-reviewer`) routable by type name
 
 See [Agent Routing and Step Limits](docs/agent-routing.md) for the full guide.
 
