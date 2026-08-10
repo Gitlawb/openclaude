@@ -60,9 +60,16 @@ jobs:
             fi
           fi
 
+          number="$(jq -r '.number // empty' <<<"$release_pr")"
+          branch="$(jq -r '.headBranchName // .headRefName // empty' <<<"$release_pr")"
+          if [ -z "$number" ] || [ -z "$branch" ]; then
+            echo "release PR JSON is missing its number or head branch name" >&2
+            exit 1
+          fi
+
           echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "number=$(jq -r .number <<<"$release_pr")" >> "$GITHUB_OUTPUT"
-          echo "branch=$(jq -r .headRefName <<<"$release_pr")" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - name: Keep the release PR as a draft until web synchronization passes
         if: ${{ steps.release-pr.outputs.found == 'true' }}
@@ -100,8 +107,6 @@ jobs:
           bun test ./scripts/sync-web-release-entry.test.ts
           bun run typecheck
           bun run typecheck:type-tests
-          bun run security:pr-scan -- --base origin/main --head HEAD
-          git diff --check origin/main...HEAD
           bun install --cwd web --frozen-lockfile
           bun run --cwd web build
 
@@ -120,7 +125,28 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add web/src/data/releases.ts
           git commit -m "chore(web): sync releases.ts from release-please changelog"
+
+      - name: Validate committed synchronized release entry
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        run: |
+          bun run security:pr-scan -- --base origin/main --head HEAD
+          git diff --check origin/main...HEAD
+
+      - name: Push synchronized web release entry
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+        run: |
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${RELEASE_PR_BRANCH}"
+
+      - name: Wait for required release PR checks
+        if: ${{ steps.release-pr.outputs.found == 'true' }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
+        run: timeout 15m gh pr checks "$RELEASE_PR_NUMBER" --watch --interval 10
 
       - name: Mark synchronized release PR ready for review
         if: ${{ steps.release-pr.outputs.found == 'true' }}
