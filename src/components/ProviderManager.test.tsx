@@ -549,7 +549,18 @@ function mockProviderManagerDependencies(
         // in-memory copy is still empty — the sibling
         // recordAimlapiCheckoutSessionAsync mock below models the same rule.
         const matchable: Record<string, unknown> = { ...state }
-        for (const key of ['resumeSessionToken', 'apiKey', 'apiKeyId', 'model', 'settled', 'exchange']) {
+        for (const key of [
+          'resumeSessionToken',
+          'apiKey',
+          'apiKeyId',
+          'model',
+          'settled',
+          'exchange',
+          'exchangeLeaseOwner',
+          'exchangeLeaseAt',
+          'keyMintLeaseOwner',
+          'keyMintLeaseAt',
+        ]) {
           delete matchable[key]
         }
         if (!matchesAimlapiIntent(persistedAimlapiTopup, matchable)) return
@@ -566,6 +577,14 @@ function mockProviderManagerDependencies(
           apiKeyId:
             (typeof existingApiKey === 'string' && existingApiKey.trim() && persistedAimlapiTopup?.apiKeyId) ||
             state.apiKeyId,
+          // AimlapiCheckoutState (what real callers spread checkoutState from)
+          // never carries either lease pair, so a plain checkout save must not
+          // drop a peer's in-flight lease — mirrors both merges in
+          // topupState.ts (saveTopupStateOperation / recordCheckoutSessionOperation).
+          exchangeLeaseOwner: state.exchangeLeaseOwner ?? persistedAimlapiTopup?.exchangeLeaseOwner,
+          exchangeLeaseAt: state.exchangeLeaseAt ?? persistedAimlapiTopup?.exchangeLeaseAt,
+          keyMintLeaseOwner: state.keyMintLeaseOwner ?? persistedAimlapiTopup?.keyMintLeaseOwner,
+          keyMintLeaseAt: state.keyMintLeaseAt ?? persistedAimlapiTopup?.keyMintLeaseAt,
         }
       }),
     recordAimlapiCheckoutSessionAsync:
@@ -576,7 +595,18 @@ function mockProviderManagerDependencies(
         // matches records nothing and returns null; otherwise the first writer
         // wins and a peer's recorded token is retained.
         const matchable: Record<string, unknown> = { ...state }
-        for (const key of ['resumeSessionToken', 'apiKey', 'apiKeyId', 'model', 'settled']) {
+        for (const key of [
+          'resumeSessionToken',
+          'apiKey',
+          'apiKeyId',
+          'model',
+          'settled',
+          'exchange',
+          'exchangeLeaseOwner',
+          'exchangeLeaseAt',
+          'keyMintLeaseOwner',
+          'keyMintLeaseAt',
+        ]) {
           delete matchable[key]
         }
         if (!matchesAimlapiIntent(persistedAimlapiTopup, matchable)) {
@@ -586,8 +616,15 @@ function mockProviderManagerDependencies(
         if (typeof existingToken === 'string' && existingToken.trim()) {
           return { ...persistedAimlapiTopup }
         }
-        persistedAimlapiTopup = state
-        return { ...state }
+        // Same lease-preservation rule as saveAimlapiTopupStateAsync above.
+        persistedAimlapiTopup = {
+          ...state,
+          exchangeLeaseOwner: state.exchangeLeaseOwner ?? persistedAimlapiTopup?.exchangeLeaseOwner,
+          exchangeLeaseAt: state.exchangeLeaseAt ?? persistedAimlapiTopup?.exchangeLeaseAt,
+          keyMintLeaseOwner: state.keyMintLeaseOwner ?? persistedAimlapiTopup?.keyMintLeaseOwner,
+          keyMintLeaseAt: state.keyMintLeaseAt ?? persistedAimlapiTopup?.keyMintLeaseAt,
+        }
+        return { ...persistedAimlapiTopup }
       }),
     resetAimlapiCheckoutSessionAsync:
       options?.resetAimlapiCheckoutSessionAsync ??
@@ -758,6 +795,50 @@ afterEach(() => {
   } finally {
     releaseSharedMutationLock()
   }
+})
+
+test('the mocked saveAimlapiTopupStateAsync/recordAimlapiCheckoutSessionAsync preserve an in-flight key-mint lease', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {})
+
+  // No cache-busting query string here: this must resolve to the mocked
+  // module mock.module just registered, not a fresh (real) one.
+  const impl = await import('./providerManagerAimlapi.js')
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_test',
+    partnerName: 'OpenClaude',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.example.test/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = (await impl.claimAimlapiTopupStateAsync(intent)) as {
+    paymentSessionId: string
+  }
+  const base = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // A peer process is actively minting (an in-flight key-mint lease).
+  await impl.saveAimlapiTopupStateAsync({
+    ...base,
+    resumeSessionToken: '',
+    keyMintLeaseOwner: 'owner-a',
+    keyMintLeaseAt: Date.now(),
+  })
+
+  // A plain, unrelated checkout save must not drop that lease.
+  await impl.saveAimlapiTopupStateAsync({ ...base, resumeSessionToken: '', exchange: false })
+  // Elect a checkout session so persistedAimlapiTopup.resumeSessionToken is
+  // non-empty, making the next call return a full snapshot to assert against.
+  await impl.recordAimlapiCheckoutSessionAsync({ ...base, resumeSessionToken: 'live-session' })
+  const snapshot = (await impl.recordAimlapiCheckoutSessionAsync({
+    ...base,
+    resumeSessionToken: 'a-different-session',
+  })) as { keyMintLeaseOwner?: string }
+
+  expect(snapshot.keyMintLeaseOwner).toBe('owner-a')
 })
 
 test('ProviderManager resolves GitHub virtual provider from async storage without sync reads in render flow', async () => {
