@@ -358,7 +358,7 @@ function mockProviderManagerDependencies(
     beginAimlapiEmailOnboarding?: (...args: any[]) => Promise<unknown>
     completeAimlapiCodeSignIn?: (...args: any[]) => Promise<unknown>
     validateAimlapiApiKey?: (...args: any[]) => Promise<unknown>
-    claimAimlapiTopupState?: (...args: any[]) => unknown
+    claimAimlapiTopupStateAsync?: (...args: any[]) => unknown
     clearAimlapiTopupStateAsync?: (...args: any[]) => unknown
     recordAimlapiCheckoutSession?: (...args: any[]) => unknown
     resetAimlapiCheckoutSessionAsync?: (...args: any[]) => unknown
@@ -514,9 +514,9 @@ function mockProviderManagerDependencies(
     validateAimlapiApiKey:
       options?.validateAimlapiApiKey ??
       (async () => ({ balance: 25, lowBalance: false, lowBalanceThreshold: 20 })),
-    claimAimlapiTopupState:
-      options?.claimAimlapiTopupState ??
-      ((intent: Record<string, unknown>) => {
+    claimAimlapiTopupStateAsync:
+      options?.claimAimlapiTopupStateAsync ??
+      (async (intent: Record<string, unknown>) => {
         if (matchesAimlapiIntent(persistedAimlapiTopup, intent)) {
           return {
             paymentSessionId: persistedAimlapiTopup?.paymentSessionId,
@@ -1333,22 +1333,24 @@ test('ProviderManager switch-account overrides a stale receipt left by an earlie
   // Simulates a durable on-disk record left by an EARLIER process for a
   // different account — this mount's refs were never populated for it, so
   // only an explicit "switch account" forces the claim through.
-  const claimAimlapiTopupState = mock((intent: any, options?: { abandonExisting?: boolean }) => {
-    if (intent.email === 'old@example.com') {
-      return { paymentSessionId: 'stale-payment-id', resumeSessionToken: 'stale-session' }
-    }
-    if (!options?.abandonExisting) {
-      throw new Error(
-        "An earlier AI/ML API top-up of $25.00 hasn't finished and may already be paid.",
-      )
-    }
-    return { paymentSessionId: 'new-payment-id', resumeSessionToken: '' }
-  })
+  const claimAimlapiTopupStateAsync = mock(
+    async (intent: any, options?: { abandonExisting?: boolean }) => {
+      if (intent.email === 'old@example.com') {
+        return { paymentSessionId: 'stale-payment-id', resumeSessionToken: 'stale-session' }
+      }
+      if (!options?.abandonExisting) {
+        throw new Error(
+          "An earlier AI/ML API top-up of $25.00 hasn't finished and may already be paid.",
+        )
+      }
+      return { paymentSessionId: 'new-payment-id', resumeSessionToken: '' }
+    },
+  )
   const provisionAimlapiKey = mock(async () => await new Promise<never>(() => {}))
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     getProviderProfiles: () => [profile],
     getActiveProviderProfile: () => profile,
-    claimAimlapiTopupState,
+    claimAimlapiTopupStateAsync,
     provisionAimlapiKey,
   })
 
@@ -1399,8 +1401,8 @@ test('ProviderManager switch-account overrides a stale receipt left by an earlie
     // The claim for the NEW email must go through with abandonExisting: true —
     // not throw the stale receipt's refusal — because the user just explicitly
     // chose to switch accounts.
-    await waitForCondition(() => claimAimlapiTopupState.mock.calls.length > 0)
-    const call = claimAimlapiTopupState.mock.calls.find(
+    await waitForCondition(() => claimAimlapiTopupStateAsync.mock.calls.length > 0)
+    const call = claimAimlapiTopupStateAsync.mock.calls.find(
       (c: any) => c[0]?.email === 'new@example.com',
     )
     expect(call?.[1]).toEqual({ abandonExisting: true })
@@ -2438,7 +2440,7 @@ test('ProviderManager recovers a settled receipt without re-provisioning', async
   })
   // A prior run paid + exchanged the key and saved the settled receipt, then was
   // interrupted before the profile write.
-  const claimAimlapiTopupState = mock(() => ({
+  const claimAimlapiTopupStateAsync = mock(async () => ({
     paymentSessionId: 'persisted-payment-id',
     resumeSessionToken: 'exchanged-session',
     settled: true,
@@ -2450,7 +2452,7 @@ test('ProviderManager recovers a settled receipt without re-provisioning', async
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
     provisionAimlapiKey,
-    claimAimlapiTopupState,
+    claimAimlapiTopupStateAsync,
     clearAimlapiTopupStateAsync,
   })
 
@@ -2526,7 +2528,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       model: 'gpt-4o',
     }
   })
-  const claimAimlapiTopupState = mock(() => ({
+  const claimAimlapiTopupStateAsync = mock(async () => ({
     paymentSessionId: 'persisted-payment-id',
     resumeSessionToken: 'persisted-checkout-session',
   }))
@@ -2535,7 +2537,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
   mockProviderManagerDependencies(() => undefined, async () => undefined, {
     addProviderProfile,
     provisionAimlapiKey,
-    claimAimlapiTopupState,
+    claimAimlapiTopupStateAsync,
     clearAimlapiTopupStateAsync,
     saveAimlapiTopupState,
   })
@@ -2657,7 +2659,7 @@ test('ProviderManager can top up AI/ML API and save the issued key', async () =>
       }),
       expect.objectContaining({ makeActive: true }),
     )
-    expect(claimAimlapiTopupState).toHaveBeenCalledTimes(1)
+    expect(claimAimlapiTopupStateAsync).toHaveBeenCalledTimes(1)
     expect(clearAimlapiTopupStateAsync).toHaveBeenCalledTimes(1)
     // The settled receipt (the paid, one-shot exchanged key) is persisted BEFORE
     // the profile write, so an interrupted or failed write resumes with the paid

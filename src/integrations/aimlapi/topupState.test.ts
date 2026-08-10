@@ -16,6 +16,7 @@ import {
   refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
+  claimAimlapiTopupStateAsync,
   clearAimlapiTopupState,
   clearAimlapiTopupStateAsync,
   clearAimlapiSignInKey,
@@ -77,6 +78,37 @@ test('top-up state round-trips only for the same checkout intent', () => {
   if (process.platform !== 'win32') {
     expect(statSync(join(directory, 'aimlapi-topup.json')).mode & 0o777).toBe(0o600)
   }
+})
+
+test('claimAimlapiTopupStateAsync behaves like the sync claim (non-blocking for the interactive flow)', async () => {
+  useTemporaryConfig()
+
+  // Fresh claim.
+  const claimed = await claimAimlapiTopupStateAsync(intent)
+  expect(claimed.paymentSessionId).toBeTruthy()
+  expect(claimed.resumeSessionToken).toBe('')
+
+  // Resuming the SAME intent returns the same claim.
+  const resumed = await claimAimlapiTopupStateAsync(intent)
+  expect(resumed.paymentSessionId).toBe(claimed.paymentSessionId)
+
+  // A differing intent against an opened (chargeable) checkout is refused
+  // without abandonExisting, same as the sync claim.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'live-session',
+  })
+  await expect(
+    claimAimlapiTopupStateAsync({ ...intent, amountUsdMinor: 5000 }),
+  ).rejects.toThrow(/hasn't finished and may already be paid/i)
+
+  // abandonExisting overrides the refusal, same as the sync claim.
+  const abandoned = await claimAimlapiTopupStateAsync(
+    { ...intent, amountUsdMinor: 5000 },
+    { abandonExisting: true },
+  )
+  expect(abandoned.paymentSessionId).not.toBe(claimed.paymentSessionId)
 })
 
 test('the exchange lease elects one exchanger and lets peers resume the settled key', async () => {
@@ -508,6 +540,26 @@ test('saveAimlapiTopupState never wipes a peer-recorded resumeSessionToken', () 
   expect(after?.apiKeyId).toBe('minted-id')
 })
 
+test('saveAimlapiTopupState elects the first-recorded existing-account key over a later mint', () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const base = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // Peer A mints and records its key first.
+  saveAimlapiTopupState({ ...base, resumeSessionToken: '', apiKey: 'key-a', apiKeyId: 'id-a' })
+
+  // Peer B, racing the same intent, minted its OWN (different) key before
+  // seeing peer A's save, and now tries to persist it.
+  saveAimlapiTopupState({ ...base, resumeSessionToken: '', apiKey: 'key-b', apiKeyId: 'id-b' })
+
+  // Peer A's key must stay authoritative — peer B's mint is now an orphan
+  // that nobody's receipt points to, but it must not silently replace the
+  // key everyone else (and the eventual profile write) converges on.
+  const after = loadAimlapiTopupState(intent)
+  expect(after?.apiKey).toBe('key-a')
+  expect(after?.apiKeyId).toBe('id-a')
+})
+
 test('top-up state is cleared only by its matching intent', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -581,6 +633,23 @@ test('sign-in key cache round-trips by normalized email and clears', () => {
 
   clearAimlapiSignInKey('user@example.com', 'id_signin')
   expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+})
+
+test('sign-in key cache elects the first-recorded key over a later mint', () => {
+  useTemporaryConfig()
+
+  // Peer A mints and caches its key for this email first.
+  saveAimlapiSignInKey('user@example.com', 'key-a', 'id-a')
+  // Peer B, racing the same email, minted its OWN key before seeing peer A's
+  // save and now tries to cache it.
+  saveAimlapiSignInKey('user@example.com', 'key-b', 'id-b')
+
+  // Peer A's key stays authoritative — every caller converges on it instead
+  // of whichever peer happened to save last.
+  expect(loadAimlapiSignInKey('user@example.com')).toEqual({
+    apiKey: 'key-a',
+    apiKeyId: 'id-a',
+  })
 })
 
 test('sign-in key cache rejects records missing the key identifier', () => {

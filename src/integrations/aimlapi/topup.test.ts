@@ -172,6 +172,57 @@ test('CLI retries reuse the persisted checkout session and payment id', async ()
   expect(() => readFileSync(join(configDirectory, 'aimlapi-topup.json'))).toThrow()
 })
 
+test('sign-in adopts a peer-recorded key instead of minting a second one', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      // This process already claimed (synchronously, before the first await)
+      // and its own in-memory checkoutState.apiKey is still empty. A peer
+      // running the SAME intent races ahead and records its own key during
+      // this await gap — matching this exact record's intent + payment id,
+      // read back off disk since paymentSessionId is a fresh random UUID.
+      const claimedState = JSON.parse(readFileSync(statePath, 'utf8'))
+      saveAimlapiTopupState({ ...claimedState, apiKey: 'peer-key', apiKeyId: 'peer-id' })
+      return Response.json({ token: 'account-token', exp: 1 })
+    }
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      return Response.json({ key: 'minted-key', id: 'minted-id' })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    // Fail right after the retained-key check — full payment settlement is
+    // not what's under test here.
+    if (url.endsWith('/pay')) throw new Error('ambiguous payment response')
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow('ambiguous payment response')
+
+  // The peer's key was adopted — this process never minted its own.
+  expect(keyMints).toBe(0)
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as {
+    apiKey: string
+    apiKeyId: string
+  }
+  expect(saved.apiKey).toBe('peer-key')
+  expect(saved.apiKeyId).toBe('peer-id')
+})
+
 test('a successful exchange persists the settled receipt before returning it', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
   temporaryDirectories.push(configDirectory)

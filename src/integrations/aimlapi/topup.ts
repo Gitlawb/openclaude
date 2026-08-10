@@ -40,6 +40,7 @@ import {
   acquireAimlapiExchangeLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
+  loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
   recordAimlapiSettledKeyAsync,
   refreshAimlapiExchangeLeaseAsync,
@@ -337,20 +338,43 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       // Do not mint a key when the retained checkout was a paid sign-up that must
       // still be exchanged (see `mustExchange` below): the exchange yields the key.
       if (!apiKey && checkoutState.exchange !== true) {
-        const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
-        apiKey = created.key
-        apiKeyId = created.id
-        // Retain the issued key with the intent so a retry after an interrupted
-        // checkout reuses it instead of minting another. Best-effort: the key is
-        // already held in `apiKey`/`checkoutState` and drives the rest of this
-        // run, so a state-write failure must not throw away the minted key.
+        // Re-check right before minting: a concurrent run for this exact
+        // intent (e.g. the same top-up started twice) may have already
+        // minted and recorded a key in the window since this process
+        // claimed. Adopt it instead of minting a second, orphaned credential.
+        const retained = loadAimlapiTopupState(intent)
+        if (retained?.apiKey?.trim()) {
+          apiKey = retained.apiKey.trim()
+          apiKeyId = retained.apiKeyId?.trim() ?? ''
+        } else {
+          const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
+          apiKey = created.key
+          apiKeyId = created.id
+          // Retain the issued key with the intent so a retry after an interrupted
+          // checkout reuses it instead of minting another. Best-effort: the key is
+          // already held in `apiKey`/`checkoutState` and drives the rest of this
+          // run, so a state-write failure must not throw away the minted key.
+          checkoutState.apiKey = apiKey
+          checkoutState.apiKeyId = apiKeyId
+          try {
+            saveAimlapiTopupState({ ...intent, ...checkoutState })
+          } catch {
+            // Retained in memory for this run; persistence is only a resume aid.
+          }
+          // saveAimlapiTopupState elects the FIRST recorded key (keeps an
+          // already-stored one over ours), so a peer that recorded one first
+          // wins the race despite losing the check above. Adopt whatever
+          // ended up authoritative instead of trusting our own local mint
+          // blindly — otherwise this run provisions against an orphaned key
+          // nobody else's receipt points to.
+          const elected = loadAimlapiTopupState(intent)
+          if (elected?.apiKey?.trim()) {
+            apiKey = elected.apiKey.trim()
+            apiKeyId = elected.apiKeyId?.trim() ?? ''
+          }
+        }
         checkoutState.apiKey = apiKey
         checkoutState.apiKeyId = apiKeyId
-        try {
-          saveAimlapiTopupState({ ...intent, ...checkoutState })
-        } catch {
-          // Retained in memory for this run; persistence is only a resume aid.
-        }
       }
       exchange = false
       break

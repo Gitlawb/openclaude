@@ -451,27 +451,31 @@ export function loadAimlapiTopupState(
  * `model`, `settled`) are MERGED, not replaced, so omitting them preserves what
  * is already stored rather than wiping an already-issued credential.
  *
- * `resumeSessionToken` is merged the same way: callers save this record at
- * points (right after sign-in, before a checkout session exists) where their
- * in-memory copy is still empty. A concurrent peer running the same intent can
- * have already elected and recorded a real token for this payment id in that
- * window (`recordAimlapiCheckoutSession`); overwriting it with the caller's
- * stale empty value would strand that peer's chargeable checkout and let a
- * later run open a second one.
+ * `resumeSessionToken` and `apiKey`/`apiKeyId` are elected FIRST-WRITER-WINS,
+ * not last-writer-wins: two concurrent runs for the same intent can each mint
+ * their own key or create their own checkout session before either one's save
+ * lands. Whichever save lands first must stick — a later save from a losing
+ * peer must adopt (not overwrite) the already-recorded value, or the "elected"
+ * credential/session becomes whichever process happened to save last, and the
+ * loser's own mint/session becomes an orphaned, unreferenced duplicate.
  */
 export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
   withStateLock(() => {
     const current = matchingStateOrNull(state)
     if (!current) return
+    // apiKey/apiKeyId travel as a pair: once a key is elected, its id (which
+    // may itself legitimately be an empty "not applicable" sentinel) must come
+    // from the SAME winner, never mixed with a losing caller's id.
+    const existingApiKeyWins = Boolean(current.apiKey?.trim())
     writeAimlapiTopupStateUnlocked({
       ...state,
-      resumeSessionToken: state.resumeSessionToken?.trim() || current.resumeSessionToken,
+      resumeSessionToken: current.resumeSessionToken?.trim() || state.resumeSessionToken,
       // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
       // top-up path), NOT a value to persist: the reader rejects empty strings, so
       // a serialized "" would make the whole receipt unreadable and lose an
       // otherwise-recoverable checkout. Coerce it to absent instead.
-      apiKey: state.apiKey?.trim() || current.apiKey,
-      apiKeyId: state.apiKeyId?.trim() || current.apiKeyId,
+      apiKey: existingApiKeyWins ? current.apiKey : state.apiKey?.trim() || current.apiKey,
+      apiKeyId: existingApiKeyWins ? current.apiKeyId : state.apiKeyId?.trim() || current.apiKeyId,
       model: state.model ?? current.model,
       settled: state.settled ?? current.settled,
       exchange: state.exchange ?? current.exchange,
@@ -572,56 +576,74 @@ export function claimAimlapiTopupState(
   intent: AimlapiTopupIntent,
   options: { abandonExisting?: boolean } = {},
 ): AimlapiCheckoutState {
-  return withStateLock(() => {
-    const existing = readAimlapiTopupStateUnlocked()
-    if (existing && matchesIntent(existing, intent)) {
-      return toCheckoutState(existing)
-    }
-    if (existing && existing.settled === true && existing.apiKey?.trim()) {
-      // abandonExisting confirms giving up an UNPAID checkout (the amount-edit
-      // "do NOT pay it" gate) — never an already paid + exchanged credential
-      // just waiting on its profile write. Refuse unconditionally, so a rare
-      // race (a peer settled this exact payment id while the caller was
-      // confirming abandonment of what it still saw as unpaid) can't silently
-      // discard a paid credential; the caller must go through the normal
-      // settled-receipt recovery path instead.
-      const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
-      throw new Error(
-        `An earlier AI/ML API top-up of $${priorUsd} already succeeded and is waiting to ` +
-          `be saved. Re-run that same top-up to finish saving it before starting a ` +
-          `different one.`,
-      )
-    }
-    if (
-      !options.abandonExisting &&
-      existing &&
-      (Boolean(existing.resumeSessionToken?.trim()) ||
-        existing.settled === true ||
-        Boolean(existing.apiKey?.trim()))
-    ) {
-      const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
-      throw new Error(
-        `An earlier AI/ML API top-up of $${priorUsd} hasn't finished and may already be ` +
-          `paid. Re-run that same top-up to complete it (or cancel it) before starting a ` +
-          `different one.`,
-      )
-    }
-    const claimed: AimlapiCheckoutState = {
-      paymentSessionId: randomUUID(),
-      resumeSessionToken: '',
-      // A settled credential is already refused above regardless of
-      // abandonExisting, so anything reaching here is (at worst) a minted but
-      // not-yet-paid existing-account key — still worth keeping, matching
-      // resetAimlapiCheckoutSession's retain-key pattern. Deliberately
-      // excludes `settled`/`exchange`: those describe the OLD payment
-      // intent's outcome, not this new one's.
-      ...(options.abandonExisting && existing?.apiKey?.trim()
-        ? { apiKey: existing.apiKey, apiKeyId: existing.apiKeyId, model: existing.model }
-        : {}),
-    }
-    writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
-    return claimed
-  })
+  return withStateLock(() => claimTopupStateOperation(intent, options))
+}
+
+/**
+ * Non-blocking counterpart for the interactive flow, which must never risk
+ * freezing Ink's render loop, Esc, or SIGINT on lock contention (the sync
+ * lock's `Atomics.wait` retry blocks the whole event loop for up to
+ * `LOCK_TIMEOUT_MS`). See `claimAimlapiTopupState`.
+ */
+export function claimAimlapiTopupStateAsync(
+  intent: AimlapiTopupIntent,
+  options: { abandonExisting?: boolean } = {},
+): Promise<AimlapiCheckoutState> {
+  return withStateLockAsync(() => claimTopupStateOperation(intent, options))
+}
+
+function claimTopupStateOperation(
+  intent: AimlapiTopupIntent,
+  options: { abandonExisting?: boolean },
+): AimlapiCheckoutState {
+  const existing = readAimlapiTopupStateUnlocked()
+  if (existing && matchesIntent(existing, intent)) {
+    return toCheckoutState(existing)
+  }
+  if (existing && existing.settled === true && existing.apiKey?.trim()) {
+    // abandonExisting confirms giving up an UNPAID checkout (the amount-edit
+    // "do NOT pay it" gate) — never an already paid + exchanged credential
+    // just waiting on its profile write. Refuse unconditionally, so a rare
+    // race (a peer settled this exact payment id while the caller was
+    // confirming abandonment of what it still saw as unpaid) can't silently
+    // discard a paid credential; the caller must go through the normal
+    // settled-receipt recovery path instead.
+    const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
+    throw new Error(
+      `An earlier AI/ML API top-up of $${priorUsd} already succeeded and is waiting to ` +
+        `be saved. Re-run that same top-up to finish saving it before starting a ` +
+        `different one.`,
+    )
+  }
+  if (
+    !options.abandonExisting &&
+    existing &&
+    (Boolean(existing.resumeSessionToken?.trim()) ||
+      existing.settled === true ||
+      Boolean(existing.apiKey?.trim()))
+  ) {
+    const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
+    throw new Error(
+      `An earlier AI/ML API top-up of $${priorUsd} hasn't finished and may already be ` +
+        `paid. Re-run that same top-up to complete it (or cancel it) before starting a ` +
+        `different one.`,
+    )
+  }
+  const claimed: AimlapiCheckoutState = {
+    paymentSessionId: randomUUID(),
+    resumeSessionToken: '',
+    // A settled credential is already refused above regardless of
+    // abandonExisting, so anything reaching here is (at worst) a minted but
+    // not-yet-paid existing-account key — still worth keeping, matching
+    // resetAimlapiCheckoutSession's retain-key pattern. Deliberately
+    // excludes `settled`/`exchange`: those describe the OLD payment
+    // intent's outcome, not this new one's.
+    ...(options.abandonExisting && existing?.apiKey?.trim()
+      ? { apiKey: existing.apiKey, apiKeyId: existing.apiKeyId, model: existing.model }
+      : {}),
+  }
+  writeAimlapiTopupStateUnlocked({ ...intent, ...claimed })
+  return claimed
 }
 
 function resetCheckoutSessionOperation(
@@ -877,6 +899,12 @@ export function loadAimlapiSignInKey(
   return entry ? { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId } : null
 }
 
+// First-writer-wins, like saveAimlapiTopupState's key election: two concurrent
+// sign-ins for the same email can each mint their own key before either save
+// lands (the read-then-mint check above this call is not atomic with it).
+// Keeping whichever key was recorded first — instead of last-writer-wins —
+// means every caller converges on the SAME credential instead of the loser
+// silently overwriting the winner's cached key with its own orphaned one.
 export function saveAimlapiSignInKey(
   email: string,
   apiKey: string,
@@ -887,7 +915,7 @@ export function saveAimlapiSignInKey(
   const target = signInKeyPath()
   withStateLock(() => {
     const store = readSignInKeyStoreUnlocked()
-    store[normalizedEmail] = { apiKey, apiKeyId }
+    if (!store[normalizedEmail]) store[normalizedEmail] = { apiKey, apiKeyId }
     writeJsonAtomic(target, store)
   }, target)
 }

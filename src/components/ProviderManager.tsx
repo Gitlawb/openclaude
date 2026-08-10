@@ -58,7 +58,7 @@ import {
   validateAimlapiApiKey,
   AimlapiApiError,
   AIMLAPI_MESSAGES,
-  claimAimlapiTopupState,
+  claimAimlapiTopupStateAsync,
   clearAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
   resetAimlapiCheckoutSessionAsync,
@@ -1032,7 +1032,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // NOTE: the opened-checkout tracking (aimlapiOpenedCheckoutRef /
     // aimlapiAbandonAckRef) is deliberately NOT cleared here — callers are a
     // fresh flow entry or a completed/terminal outcome, and a confirmed
-    // abandonment (startAimlapiTopup, via claimAimlapiTopupState's
+    // abandonment (startAimlapiTopup, via claimAimlapiTopupStateAsync's
     // abandonExisting) still needs the opened-checkout record until it takes
     // over the slot itself.
     const intent = aimlapiPersistedIntentRef.current
@@ -3186,7 +3186,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })()
   }
 
-  function startAimlapiTopup(autoTopUp = aimlapiAutoTopUp): void {
+  async function startAimlapiTopup(autoTopUp = aimlapiAutoTopUp): Promise<void> {
     const amountUsd = aimlapiTopupAmountUsd.trim()
     if (!amountUsd) {
       setErrorMessage(AIMLAPI_MESSAGES.amountRequired)
@@ -3261,7 +3261,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // never leak into a later, unrelated claim in the same mount.
     const forceAbandonExisting = aimlapiForceAbandonExistingRef.current
     aimlapiForceAbandonExistingRef.current = false
-    let checkoutState: ReturnType<typeof claimAimlapiTopupState>
+    let checkoutState: Awaited<ReturnType<typeof claimAimlapiTopupStateAsync>>
     try {
       // The abandon-ack gate above already made the user explicitly confirm
       // giving up the retained checkout when one conflicts with this intent
@@ -3270,7 +3270,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       // "switch account" case: an on-disk record from an earlier process that
       // this mount's refs were never populated for, so the checks above can't
       // see it, but the user already agreed to abandon whatever's there.
-      checkoutState = claimAimlapiTopupState(intent, {
+      // Async: the sync lock's Atomics.wait retry would otherwise freeze Ink
+      // rendering, Esc, and SIGINT for up to LOCK_TIMEOUT_MS on contention.
+      checkoutState = await claimAimlapiTopupStateAsync(intent, {
         abandonExisting:
           abandoningOpenedCheckout || abandoningPersistedIntent || forceAbandonExisting,
       })

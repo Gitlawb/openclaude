@@ -15,7 +15,7 @@ import {
   validateAimlapiApiKey as validateAimlapiApiKeyImpl,
 } from '../integrations/aimlapi/index.js'
 import {
-  claimAimlapiTopupState as claimAimlapiTopupStateImpl,
+  claimAimlapiTopupStateAsync as claimAimlapiTopupStateAsyncImpl,
   clearAimlapiTopupStateAsync as clearAimlapiTopupStateAsyncImpl,
   recordAimlapiCheckoutSession as recordAimlapiCheckoutSessionImpl,
   resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
@@ -59,8 +59,9 @@ export const completeAimlapiCodeSignIn: typeof completeAimlapiCodeSignInImpl = (
 export const validateAimlapiApiKey: typeof validateAimlapiApiKeyImpl = (...args) =>
   validateAimlapiApiKeyImpl(...args)
 
-export const claimAimlapiTopupState: typeof claimAimlapiTopupStateImpl = (...args) =>
-  claimAimlapiTopupStateImpl(...args)
+export const claimAimlapiTopupStateAsync: typeof claimAimlapiTopupStateAsyncImpl = (
+  ...args
+) => claimAimlapiTopupStateAsyncImpl(...args)
 
 export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl = (
   ...args
