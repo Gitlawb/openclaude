@@ -98,9 +98,18 @@ describe('parseSshFlags', () => {
     expect(last.extraCliArgs).toEqual([])
     expect(last.remaining).toEqual(['ssh', 'host', '--model'])
 
+    // Commander treats `--` as a valid required value, so the pre-parser does
+    // too; the remaining argv loses the option and its value.
     const beforeEoo = parseSshFlags(['ssh', 'host', '--permission-mode', '--', 'x'])
-    expect(beforeEoo.permissionMode).toBeUndefined()
-    expect(beforeEoo.remaining).toEqual(['ssh', 'host', '--permission-mode', '--', 'x'])
+    expect(beforeEoo.permissionMode).toBe('--')
+    expect(beforeEoo.remaining).toEqual(['ssh', 'host', 'x'])
+  })
+
+  it('consumes -- as the value of a preceding required SSH option', () => {
+    const r = parseSshFlags(['ssh', 'host', '--model', '--', '--yolo'])
+    expect(r.extraCliArgs).toEqual(['--model', '--'])
+    expect(r.dangerouslySkipPermissions).toBe(true)
+    expect(r.remaining).toEqual(['ssh', 'host'])
   })
 
   it('forwards bare --resume and consumes only a non-option value', () => {

@@ -21,108 +21,125 @@ export interface SshFlagParse {
  * Recognized options are parsed in a single left-to-right arity-aware pass.
  * Value-taking flags consume the next token unconditionally — matching
  * commander's required-argument behavior — so a value that looks like a flag
- * (e.g. `--model --print` or `--permission-mode --local`) is never left in the
- * remaining argv to be misinterpreted by later guards. Every occurrence of a
- * recognized option, including equals forms, is consumed.
+ * (e.g. `--model --print` or `--permission-mode --local`) or even the `--`
+ * delimiter itself (e.g. `--model --`) is never left in the remaining argv to
+ * be misinterpreted by later guards. Every occurrence of a recognized option,
+ * including equals forms, is consumed.
  *
- * If a value-taking flag has no available value (it is the last pre-`--` token,
- * or the equals form has no `=` delimiter), the option token is left in
- * `remaining` so commander can surface the missing-required-argument error.
- *
- * Tokens at/after `--` are positional and are never parsed as flags.
+ * A bare `--` that is not consumed as a value terminates option parsing: every
+ * token at/after it is kept as positional input and is never parsed as a flag.
  */
 export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
-  // Honor the `--` end-of-options marker: tokens at/after it are positional and
-  // must not be parsed as flags (so `ssh host -- --yolo` / `ssh host -- --local`
-  // stay positional and cannot escalate). This is unambiguous here because the
-  // `ssh` subcommand registers no variadic options that could consume `--` as a
-  // value — unlike the shared dangerous-skip helper used against the main
-  // command, which deliberately does NOT split on `--`.
-  const all = [...rawCliArgs]
-  const eoo = all.indexOf('--')
-  const trailing = eoo === -1 ? [] : all.splice(eoo)
-  const args = all
-
+  const args = [...rawCliArgs]
   let local = false
   let permissionMode: string | undefined
   let dangerouslySkipPermissions = false
   const extraCliArgs: string[] = []
   const remaining: string[] = []
+  const trailing: string[] = []
 
-  for (let i = 0; i < args.length; i++) {
+  let i = 0
+  while (i < args.length) {
     const arg = args[i]!
+
+    // End-of-options marker: stop parsing, but only if it is not the value of
+    // a preceding required option. Optional-value options never consume `--`.
+    if (arg === '--') {
+      trailing.push(...args.slice(i))
+      break
+    }
 
     if (arg === '--local') {
       local = true
+      i++
       continue
     }
 
     if (arg === '-c' || arg === '--continue') {
       extraCliArgs.push('--continue')
+      i++
       continue
     }
 
     if (arg === '--permission-mode') {
-      if (i + 1 < args.length) {
-        permissionMode = args[++i]
-        continue
+      const next = args[i + 1]
+      if (next !== undefined) {
+        permissionMode = next
+        i += 2
+      } else {
+        remaining.push(arg)
+        i++
       }
-      remaining.push(arg)
       continue
     }
     if (arg.startsWith('--permission-mode=')) {
       permissionMode = arg.slice('--permission-mode='.length)
+      i++
+      continue
+    }
+
+    if (arg === '--model') {
+      const next = args[i + 1]
+      if (next !== undefined) {
+        extraCliArgs.push('--model', next)
+        i += 2
+      } else {
+        remaining.push(arg)
+        i++
+      }
+      continue
+    }
+    if (arg.startsWith('--model=')) {
+      extraCliArgs.push('--model', arg.slice('--model='.length))
+      i++
+      continue
+    }
+
+    if (arg === '--fallback-model') {
+      const next = args[i + 1]
+      if (next !== undefined) {
+        extraCliArgs.push('--fallback-model', next)
+        i += 2
+      } else {
+        remaining.push(arg)
+        i++
+      }
+      continue
+    }
+    if (arg.startsWith('--fallback-model=')) {
+      extraCliArgs.push('--fallback-model', arg.slice('--fallback-model='.length))
+      i++
       continue
     }
 
     if (arg === '--resume') {
       // Commander declares `--resume [value]`: a bare flag opens the resume
-      // picker, and a value is used only when it is a non-option token.
+      // picker, and a value is used only when it is a non-option, non-`--`
+      // token.
       const next = args[i + 1]
-      if (next !== undefined && !next.startsWith('-')) {
-        extraCliArgs.push('--resume', args[++i])
+      if (next !== undefined && next !== '--' && !next.startsWith('-')) {
+        extraCliArgs.push('--resume', next)
+        i += 2
       } else {
         extraCliArgs.push('--resume')
+        i++
       }
       continue
     }
     if (arg.startsWith('--resume=')) {
       // Equals form explicitly provides a value, including flag-like values.
       extraCliArgs.push('--resume', arg.slice('--resume='.length))
-      continue
-    }
-
-    if (arg === '--model') {
-      if (i + 1 < args.length) {
-        extraCliArgs.push('--model', args[++i])
-        continue
-      }
-      remaining.push(arg)
-      continue
-    }
-    if (arg.startsWith('--model=')) {
-      extraCliArgs.push('--model', arg.slice('--model='.length))
-      continue
-    }
-
-    if (arg === '--fallback-model') {
-      if (i + 1 < args.length) {
-        extraCliArgs.push('--fallback-model', args[++i])
-        continue
-      }
-      remaining.push(arg)
-      continue
-    }
-    if (arg.startsWith('--fallback-model=')) {
-      extraCliArgs.push('--fallback-model', arg.slice('--fallback-model='.length))
+      i++
       continue
     }
 
     remaining.push(arg)
+    i++
   }
 
   // Every value-taking flag has now consumed its value, so any remaining
-  // dangerous-skip token is a genuine standalone bypass flag.
+  // dangerous-skip token is a genuine standalone bypass flag. Tokens after `--`
+  // are positional and must not be considered.
   if (hasDangerousSkipFlag(remaining)) {
     dangerouslySkipPermissions = true
     const stripped = stripDangerousSkipFlags(remaining)

@@ -1,20 +1,21 @@
 /**
- * Detects the boolean `-p, --print` flag in raw argv, including the forms
- * commander accepts for a boolean option: `-p`, `--print`, `--print=prompt`,
- * and attached short-option values like `-pprompt`.
+ * Detects the boolean `-p, --print` flag in raw argv using the root command's
+ * actual boolean spelling: exactly `-p` or `--print`.
  *
- * The scan is option-arity-aware: tokens consumed as values by preceding
- * value-taking options (e.g. `--system-prompt --print=custom`) are skipped,
- * matching commander’s behavior. Required-value options consume the next token
- * unconditionally; optional-value options consume the next token only when it
- * does not start with `-`. Variadic options consume consecutive non-flag values.
+ * The scan is option-arity-aware so tokens consumed as values by preceding
+ * value-taking options are not mistaken for the print flag. Required-value and
+ * variadic options consume the next token unconditionally (including flag-like
+ * values and the `--` delimiter), matching Commander's behavior. Optional-value
+ * options consume the next token only when it is not a flag and not `--`.
  *
- * Stops at `--` so positional values after the end-of-options marker are not
- * mistaken for flags.
+ * This intentionally mirrors Commander's consumption rules closely enough for
+ * the pre-commander startup routing decisions (direct-connect headless rewrite,
+ * SSH headless rejection, and the SIGINT handler) without re-implementing the
+ * full program parser.
  */
 
-// Options registered on the main command that take a required value. The next
-// token is always their value, even if it looks like a flag.
+// Options registered on the root command that take a required value. The next
+// token is always their value, even if it looks like a flag or is `--`.
 const REQUIRED_VALUE_OPTIONS = new Set([
   '--debug-file',
   '--heartbeat',
@@ -53,7 +54,9 @@ const REQUIRED_VALUE_OPTIONS = new Set([
   '--input-format',
 ])
 
-// Variadic options consume one or more following non-flag values.
+// Variadic options consume their first value unconditionally, then keep
+// consuming consecutive non-flag values. The first value may therefore be a
+// flag or `--`, matching Commander's behavior.
 const VARIADIC_OPTIONS = new Set([
   '--add-dir',
   '--mcp-config',
@@ -69,68 +72,60 @@ const VARIADIC_OPTIONS = new Set([
 ])
 
 // Options that take an optional value. They consume the next token only when
-// it does not start with `-`, so a following flag remains available.
+// it does not start with `-` and is not `--`, so a following flag remains
+// available for its own parsing.
 const OPTIONAL_VALUE_OPTIONS = new Set(['--debug', '-d', '--resume', '-r', '--from-pr'])
 
 function optionName(arg: string): string {
-  // `--system-prompt=--print=custom` -> `--system-prompt`; the value is in the
-  // same token, so no following token needs to be skipped.
   const eq = arg.indexOf('=')
   return eq === -1 ? arg : arg.slice(0, eq)
 }
 
 function isPrintFlag(arg: string): boolean {
-  return (
-    arg === '-p' ||
-    arg === '--print' ||
-    arg.startsWith('--print=') ||
-    (arg.startsWith('-p') && arg.length > 2)
-  )
+  // The root command registers `-p, --print` as a boolean. Only the exact
+  // spellings are valid; `--print=prompt` and `-pprompt` are rejected by the
+  // root command parser.
+  return arg === '-p' || arg === '--print'
 }
 
 export function hasPrintFlag(argv: readonly string[]): boolean {
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0
+  while (i < argv.length) {
     const arg = argv[i]!
     if (arg === '--') break
 
     const name = optionName(arg)
 
     if (REQUIRED_VALUE_OPTIONS.has(name)) {
-      // If the value is inline (`--model=foo`), do not advance past a following
-      // flag. If the next token is `--`, option arity cannot be satisfied here
-      // and the scan terminates.
-      if (arg.includes('=')) {
-        continue
-      }
-      if (argv[i + 1] === '--') {
-        break
-      }
-      i++
+      // Inline value (`--model=foo`) stays in this token. Otherwise the next
+      // token is consumed as the value, even if it is `--` or another flag.
+      i += arg.includes('=') ? 1 : 2
       continue
     }
 
     if (VARIADIC_OPTIONS.has(name)) {
       if (arg.includes('=')) {
-        continue
-      }
-      if (argv[i + 1] === '--') {
-        break
-      }
-      while (i + 1 < argv.length && !argv[i + 1]!.startsWith('-') && argv[i + 1] !== '--') {
         i++
+      } else {
+        // First variadic value is consumed unconditionally (flag or `--` is
+        // allowed); after that, only non-flag values are consumed.
+        i += 2
+        while (
+          i < argv.length &&
+          !argv[i]!.startsWith('-') &&
+          argv[i] !== '--'
+        ) {
+          i++
+        }
       }
       continue
     }
 
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
-      if (arg.includes('=')) {
-        continue
-      }
-      if (argv[i + 1] === '--') {
-        break
-      }
       const next = argv[i + 1]
-      if (next !== undefined && !next.startsWith('-')) {
+      if (next !== undefined && next !== '--' && !next.startsWith('-')) {
+        i += 2
+      } else {
         i++
       }
       continue
@@ -139,6 +134,8 @@ export function hasPrintFlag(argv: readonly string[]): boolean {
     if (isPrintFlag(arg)) {
       return true
     }
+
+    i++
   }
   return false
 }
