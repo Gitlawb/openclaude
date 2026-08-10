@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs'
+import { closeSync, fstatSync, openSync, readSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -3672,26 +3672,44 @@ function readTranscriptContentForOmissionRebuild(
     const size = fstatSync(fd).size
     if (size === 0) return ''
     if (size <= OMISSION_REBUILD_TAIL_BYTES) {
-      closeSync(fd)
-      fd = undefined
-      return readFileSync(fullPath, 'utf8')
+      // Reuse the open fd — a second open via readFileSync can race with
+      // concurrent writers and can fail on Windows while this handle is live.
+      const buffer = Buffer.allocUnsafe(size)
+      let offset = 0
+      while (offset < size) {
+        const bytesRead = readSync(fd, buffer, offset, size - offset, offset)
+        if (bytesRead === 0) {
+          break
+        }
+        offset += bytesRead
+      }
+      return buffer.toString('utf8', 0, offset)
     }
     const readSize = Math.min(OMISSION_REBUILD_TAIL_BYTES, size)
     const start = size - readSize
     const buf = Buffer.allocUnsafe(readSize)
     const bytesRead = readSync(fd, buf, 0, readSize, start)
     let content = buf.toString('utf8', 0, bytesRead)
-    // Tail window may start mid-line — drop the incomplete first fragment.
-    const nl = content.indexOf('\n')
-    if (nl < 0) {
-      logForDebugging(
-        'Bounded remote egress omission rebuild: no complete line in tail ' +
-          `window (${size} bytes)`,
-        { level: 'warn' },
-      )
-      return ''
+    // Only drop a leading fragment when the window starts mid-line. If the
+    // first byte is already a line boundary (start===0 or previous byte is
+    // \n), slicing at the first newline would discard a complete JSONL record.
+    const previousByte = Buffer.alloc(1)
+    const startsAtLineBoundary =
+      start === 0 ||
+      (readSync(fd, previousByte, 0, 1, start - 1) === 1 &&
+        previousByte[0] === 0x0a)
+    if (!startsAtLineBoundary) {
+      const nl = content.indexOf('\n')
+      if (nl < 0) {
+        logForDebugging(
+          'Bounded remote egress omission rebuild: no complete line in tail ' +
+            `window (${size} bytes)`,
+          { level: 'warn' },
+        )
+        return ''
+      }
+      content = content.slice(nl + 1)
     }
-    content = content.slice(nl + 1)
     logForDebugging(
       'Bounded remote egress omission rebuild from last ' +
         `${readSize} bytes of ${size}-byte session file`,

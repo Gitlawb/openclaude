@@ -404,6 +404,49 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  test('bounded tail rebuild keeps the first complete JSONL line when the window starts on a line boundary', async () => {
+    process.env.USER_TYPE = 'external'
+    const dir = await mkdtemp(
+      join(tmpdir(), 'openclaude-egress-rebuild-boundary-'),
+    )
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(23)
+    const listingUuid = id(24)
+    try {
+      const listingLine =
+        JSON.stringify(
+          listing(listingUuid, userUuid, 'skill_listing', 'BOUNDARY-LEAK'),
+        ) + '\n'
+      const listingBytes = Buffer.byteLength(listingLine)
+      // Force the OMISSION_REBUILD_TAIL_BYTES window to begin exactly at the
+      // first byte of listingLine (previous byte is \n). Slicing at the first
+      // newline would discard this complete omission record.
+      const fillerExtra = 64
+      const prefix = Buffer.concat([
+        Buffer.alloc(fillerExtra - 1, 0x78),
+        Buffer.from('\n'),
+      ])
+      const body = Buffer.concat([
+        Buffer.from(listingLine),
+        Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES - listingBytes, 0x78),
+      ])
+      await writeFile(path, Buffer.concat([prefix, body]))
+      resetProjectForTesting()
+      setSessionFileForTesting(path)
+      rebuildRemoteEgressOmittedParentsForTesting()
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(listingUuid)).toBe(true)
+      expect(map.get(listingUuid)).toBe(userUuid)
+      const projected = projectTranscriptParentForExternalEgress(
+        { parentUuid: listingUuid },
+        map,
+      )
+      expect(projected.parentUuid).toBe(userUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('appendEntry remote egress gate', () => {
