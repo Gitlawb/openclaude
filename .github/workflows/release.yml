@@ -189,11 +189,55 @@ jobs:
 
           package_version="$(jq -r .version package.json)"
           manifest_version="$(jq -r '.["."]' .release-please-manifest.json)"
-          if [[ ! "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] \
-            || [ "$package_version" != "$manifest_version" ]; then
+          base_package_version="$(git show "${RELEASE_BASE_REF}:package.json" | jq -r .version)"
+          base_manifest_version="$(git show "${RELEASE_BASE_REF}:.release-please-manifest.json" | jq -r '.["."]')"
+          if [ "$package_version" != "$manifest_version" ] \
+            || [ "$base_package_version" != "$base_manifest_version" ]; then
             echo "package and Release Please manifest versions do not match" >&2
             exit 1
           fi
+
+          BASE_VERSION="$base_package_version" NEXT_VERSION="$package_version" node -e '
+            const identifier = "(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+            const pattern = new RegExp(
+              `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)` +
+              `(?:-(${identifier}(?:\\.${identifier})*))?` +
+              `(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+            )
+            const parse = value => {
+              const match = value.match(pattern)
+              if (!match) throw new Error(`invalid SemVer: ${value}`)
+              return {
+                core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])],
+                prerelease: match[4]?.split(".") ?? null,
+              }
+            }
+            const compare = (left, right) => {
+              for (let index = 0; index < 3; index++) {
+                if (left.core[index] !== right.core[index])
+                  return left.core[index] < right.core[index] ? -1 : 1
+              }
+              if (left.prerelease === null || right.prerelease === null)
+                return left.prerelease === right.prerelease ? 0 : left.prerelease === null ? 1 : -1
+              const length = Math.max(left.prerelease.length, right.prerelease.length)
+              for (let index = 0; index < length; index++) {
+                const a = left.prerelease[index]
+                const b = right.prerelease[index]
+                if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1
+                if (a === b) continue
+                const aNumeric = /^\\d+$/.test(a)
+                const bNumeric = /^\\d+$/.test(b)
+                if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
+                if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
+                return a < b ? -1 : 1
+              }
+              return 0
+            }
+            const base = parse(process.env.BASE_VERSION)
+            const next = parse(process.env.NEXT_VERSION)
+            if (compare(next, base) <= 0)
+              throw new Error(`release version must advance: ${process.env.BASE_VERSION} -> ${process.env.NEXT_VERSION}`)
+          '
 
           # The bot owns this file. Rebuild it from the trusted base so a
           # collaborator push cannot smuggle executable TypeScript into it.
