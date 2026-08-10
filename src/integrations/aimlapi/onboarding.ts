@@ -8,14 +8,25 @@
 import { randomUUID } from 'node:crypto'
 
 import { logForDebugging } from '../../utils/debug.js'
-import { AimlapiClient, type BalanceResult } from './client.js'
+import { AimlapiApiError, AimlapiClient, type BalanceResult } from './client.js'
 import { resolveEndpoints } from './config.js'
 import {
   acquireAimlapiSignInKeyLeaseAsync,
+  clearAimlapiSignInKeyAsync,
+  refreshAimlapiSignInKeyLeaseAsync,
   releaseAimlapiSignInKeyLeaseAsync,
   saveAimlapiSignInKeyAsync,
 } from './topupState.js'
 import { abortError, isAmbiguousTransportApiError, sleep } from './transport.js'
+
+// A 401/403 from getBalance for a CACHED (not freshly minted) key is a
+// definite rejection: the key was revoked or deleted server-side, not
+// merely unreachable. Distinct from isAmbiguousTransportApiError's set
+// (network/timeout/rate-limit/5xx), which says nothing about the key's
+// validity and must not trigger cache invalidation or a replacement mint.
+function isDefiniteCredentialRejection(error: unknown): boolean {
+  return error instanceof AimlapiApiError && (error.status === 401 || error.status === 403)
+}
 
 function clientForInferenceBaseUrl(inferenceBaseUrl?: string): AimlapiClient {
   const endpoints = resolveEndpoints()
@@ -52,6 +63,11 @@ async function mintOrAdoptSignInKey(
     if (lease.status === 'acquired') {
       try {
         const created = await client.createKey(accessToken, 'OpenClaude CLI', signal)
+        // Best-effort: give the cache-write phase its own fresh stale window
+        // (see refreshAimlapiSignInKeyLeaseAsync) instead of sharing the
+        // mint's budget. A failed refresh is non-fatal — the save below still
+        // runs, just without that extra margin.
+        await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(() => {})
         try {
           await saveAimlapiSignInKeyAsync(email, created.key, created.id)
         } catch {
@@ -165,6 +181,40 @@ export async function completeAimlapiCodeSignIn(
     // When the caller supplied the key it already holds it, so an abort can
     // propagate as usual.
     if (signal?.aborted && !mintedKey) throw error
+    // A cached (not freshly minted) key the server now definitively rejects
+    // is revoked or deleted, not merely unreachable. The cache is only ever
+    // cleared on a successful profile save, so returning that dead key here
+    // would have the caller re-cache it (first-writer-wins) and loop forever
+    // on every future sign-in with no way out short of deleting local state.
+    // Invalidate it and mint a replacement instead. This still preserves the
+    // duplicate-mint protection for every OTHER (ambiguous) failure below,
+    // which must not touch the cache or mint a second key alongside a
+    // possibly-still-valid one.
+    if (!mintedKey && isDefiniteCredentialRejection(error)) {
+      await clearAimlapiSignInKeyAsync(email, apiKeyId).catch(() => {})
+      const minted = await mintOrAdoptSignInKey(client, email, auth.token, signal)
+      apiKey = minted.apiKey
+      apiKeyId = minted.apiKeyId
+      mintedKey = true
+      try {
+        const balance = await client.getBalance(apiKey, signal)
+        return {
+          sessionToken: auth.token,
+          apiKey,
+          apiKeyId,
+          balanceStatus: 'confirmed',
+          lowBalance: balance.lowBalance,
+        }
+      } catch (retryError) {
+        return {
+          sessionToken: auth.token,
+          apiKey,
+          apiKeyId,
+          balanceStatus: 'unknown',
+          balanceError: retryError instanceof Error ? retryError.message : String(retryError),
+        }
+      }
+    }
     return {
       sessionToken: auth.token,
       apiKey,

@@ -309,6 +309,85 @@ test('an ambiguous key-mint failure holds the lease instead of releasing it for 
   expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
 })
 
+test('a competing claim cannot orphan a key mint already in flight for a different intent', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  let releaseKeyMintPost: (() => void) | undefined
+  const keyMintPostHeld = new Promise<void>(resolve => {
+    releaseKeyMintPost = resolve
+  })
+
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      // Hold the non-idempotent POST open — the record has already been
+      // claimed and its key-mint lease acquired at this point, but no
+      // resumeSessionToken/settled/apiKey exists yet, so it still "looks"
+      // blank to a naive in-progress check.
+      await keyMintPostHeld
+      return Response.json({ key: 'minted-key', id: 'minted-id' })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    // Fail right after the retained-key check — full payment settlement is
+    // not what's under test here.
+    if (url.endsWith('/pay')) throw new Error('ambiguous payment response')
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const run = runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  })
+
+  // Give the run a moment to claim the receipt, acquire the key-mint lease,
+  // and reach the held-open POST before the competing claim below races it.
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const persisted = JSON.parse(readFileSync(statePath, 'utf8')) as { amountUsdMinor: number }
+  expect(persisted.amountUsdMinor).toBe(2500)
+
+  // A different amount is a different intent/payment id. The record still
+  // has no resumeSessionToken/settled/apiKey, but its key-mint lease is live
+  // — replacing it here would let the in-flight mint's eventual CAS save
+  // find no matching record, orphaning the credential it is about to mint.
+  expect(() =>
+    claimAimlapiTopupState({
+      email: 'user@example.com',
+      amountUsdMinor: 5000,
+      autoTopUp: false,
+      partnerId: 'part_test',
+      partnerName: 'Gitlawb',
+      appBaseUrl: 'https://app.example.test',
+      inferenceBaseUrl: 'https://api.example.test/v1',
+      payBaseUrl: 'https://pay.example.test',
+      verificationBaseUrl: 'https://front.example.test',
+    }),
+  ).toThrow(/minting or exchanging/i)
+
+  releaseKeyMintPost?.()
+  await expect(run).rejects.toThrow('ambiguous payment response')
+
+  // The original (never-replaced) record recovered the minted key.
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as {
+    apiKey?: string
+    amountUsdMinor: number
+  }
+  expect(saved.apiKey).toBe('minted-key')
+  expect(saved.amountUsdMinor).toBe(2500)
+}, 10_000)
+
 test('a successful exchange persists the settled receipt before returning it', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
   temporaryDirectories.push(configDirectory)
@@ -1242,7 +1321,7 @@ test('aborting during polling stops requests and preserves the retained session'
   const sessions: string[] = []
 
   await expect(
-    pollUntilPaid(client, 'session', controller.signal, value => sessions.push(value)),
+    pollUntilPaid(client, 'session', controller.signal, value => { sessions.push(value) }),
   ).rejects.toThrow()
   // Aborted before the next poll: exactly one GET, and the session is not cleared.
   expect(getCount).toBe(1)
@@ -1279,6 +1358,59 @@ test('terminal API errors observed while polling clear retained checkout state',
     }),
   ).rejects.toThrow('410')
   expect(sessions).toEqual(['session', ''])
+})
+
+test('a terminal poll error awaits onSession before rejecting, not racing ahead of receipt cleanup', async () => {
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      return sessionJson({ sessionToken: 'session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/v2/billing/topup')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: {
+          id: 'sess_test',
+          partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+          partnerName: null,
+          userId: null,
+          amountUsdMinor: null,
+          issuedKeyId: null,
+          returnUrl: null,
+          sessionToken: 'session',
+          status: 'pending_payment',
+        },
+      })
+    }
+    return new Response('gone', { status: 410 })
+  }) as unknown as typeof fetch
+
+  let cleanupSettled = false
+  await expect(
+    topUpAimlapiByApiKey({
+      apiKey: 'key_test',
+      paymentSessionId: 'payment-id',
+      amountUsd: '25',
+      noOpen: true,
+      onSession: async session => {
+        if (!session) {
+          // Simulate a contended receipt-cleanup lock, like
+          // resetAimlapiCheckoutSessionAsync/clearAimlapiTopupStateAsync in
+          // the real GUI caller.
+          await new Promise(resolve => setTimeout(resolve, 30))
+          cleanupSettled = true
+        }
+      },
+    }),
+  ).rejects.toThrow('410')
+
+  // If the poll surfaced the terminal error without awaiting onSession('')
+  // first, this promise would already have rejected before the 30ms cleanup
+  // had a chance to finish — a caller retrying right after rejection would
+  // then still observe the stale, not-yet-cleared receipt.
+  expect(cleanupSettled).toBe(true)
 })
 
 test('polling retries a transient transport failure', async () => {
@@ -1321,7 +1453,7 @@ test('polling retains and retries the same session after a rate limit', async ()
   const sessions: string[] = []
 
   await expect(
-    pollUntilPaid(client, 'session', undefined, value => sessions.push(value)),
+    pollUntilPaid(client, 'session', undefined, value => { sessions.push(value) }),
   ).resolves.toEqual(expect.objectContaining({ status: 'paid' }))
   expect(attempts).toBe(2)
   expect(sessions).toEqual([])

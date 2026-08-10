@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,7 @@ import {
   completeAimlapiCodeSignIn,
   validateAimlapiApiKey,
 } from './onboarding.js'
+import { loadAimlapiSignInKey, saveAimlapiSignInKey } from './topupState.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -216,6 +217,52 @@ test('completeAimlapiCodeSignIn reuses a supplied key instead of minting a new o
   expect(calls.some(call => call.endsWith('/v1/keys'))).toBe(false)
 })
 
+test('a revoked cached key is invalidated and replaced with one freshly minted key', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  // Seed the on-disk cache the way a real caller (ProviderManager's
+  // loadAimlapiSignInKey) would, so this proves the entry is actually
+  // invalidated on disk, not just bypassed in memory.
+  saveAimlapiSignInKey('user@example.com', 'revoked-key', 'revoked-id')
+
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      return response({ key: 'replacement-key', id: 'replacement-id' })
+    }
+    if (url.endsWith('/billing/balance')) {
+      // The cached key was revoked/deleted server-side — a definite
+      // rejection, not a transient/ambiguous failure.
+      return response({ error: 'invalid api key' }, 401)
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const result = await completeAimlapiCodeSignIn(
+    'user@example.com',
+    '123456',
+    undefined,
+    'https://api.example.test/v1',
+    { apiKey: 'revoked-key', apiKeyId: 'revoked-id' },
+  )
+
+  // Recovered with exactly one replacement key, not the dead one.
+  expect(keyMints).toBe(1)
+  expect(result.apiKey).toBe('replacement-key')
+  expect(result.apiKeyId).toBe('replacement-id')
+  expect(result.balanceStatus).toBe('unknown')
+
+  // The cache reflects the replacement, not the revoked key — a future
+  // sign-in adopts it instead of looping on the dead credential forever.
+  expect(loadAimlapiSignInKey('user@example.com')).toEqual({
+    apiKey: 'replacement-key',
+    apiKeyId: 'replacement-id',
+  })
+})
+
 test('two concurrent sign-ins for the same email never both mint a key', async () => {
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
@@ -251,3 +298,41 @@ test('two concurrent sign-ins for the same email never both mint a key', async (
   expect(resultB.apiKey).toBe('minted-key-1')
   expect(resultB.apiKeyId).toBe('minted-id-1')
 }, 10_000)
+
+test('a slow createKey refreshes the sign-in lease before the cache save lands', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      // Simulate createKey having taken nearly the full 60s request timeout:
+      // by the time it resolves, the lease is already right up against the
+      // 75s stale threshold, with the cache write still to come.
+      const store = JSON.parse(readFileSync(leasePath, 'utf8'))
+      store['user@example.com'].at = Date.now() - 74_000
+      writeFileSync(leasePath, JSON.stringify(store))
+      return response({ key: 'minted-key', id: 'minted-id' })
+    }
+    if (url.endsWith('/billing/balance')) {
+      return response({ balance: 100, lowBalance: false, lowBalanceThreshold: 20 })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await completeAimlapiCodeSignIn(
+    'user@example.com',
+    '123456',
+    undefined,
+    'https://api.example.test/v1',
+  )
+
+  // If mintOrAdoptSignInKey refreshed the lease right after createKey
+  // succeeded, its timestamp is recent — not the artificially aged one this
+  // test seeded — proof the refresh actually fires as part of the real mint
+  // path, closing the gap the isolated topupState lease test covers.
+  const store = JSON.parse(readFileSync(leasePath, 'utf8')) as Record<string, { at: number }>
+  expect(store['user@example.com'].at).toBeGreaterThan(Date.now() - 5_000)
+})

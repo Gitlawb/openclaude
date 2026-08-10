@@ -21,7 +21,7 @@ import {
   resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
   saveAimlapiTopupStateAsync as saveAimlapiTopupStateAsyncImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
-  saveAimlapiSignInKey as saveAimlapiSignInKeyImpl,
+  saveAimlapiSignInKeyAsync as saveAimlapiSignInKeyAsyncImpl,
   clearAimlapiSignInKey as clearAimlapiSignInKeyImpl,
 } from '../integrations/aimlapi/topupState.js'
 import type {
@@ -81,8 +81,8 @@ export const saveAimlapiTopupStateAsync: typeof saveAimlapiTopupStateAsyncImpl =
 export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =>
   loadAimlapiSignInKeyImpl(...args)
 
-export const saveAimlapiSignInKey: typeof saveAimlapiSignInKeyImpl = (...args) =>
-  saveAimlapiSignInKeyImpl(...args)
+export const saveAimlapiSignInKeyAsync: typeof saveAimlapiSignInKeyAsyncImpl = (...args) =>
+  saveAimlapiSignInKeyAsyncImpl(...args)
 
 export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = (...args) =>
   clearAimlapiSignInKeyImpl(...args)

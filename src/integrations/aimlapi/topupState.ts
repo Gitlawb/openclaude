@@ -334,6 +334,33 @@ function matchesIntent(
   )
 }
 
+// Same freshness rule as acquire{Exchange,KeyMint}LeaseOperation: an owner
+// with no timestamp, or a future-dated one, cannot describe a live holder on
+// this machine, so it counts as stale (not live) here too.
+function isLeaseLive(
+  owner: string | undefined,
+  heldAt: number | undefined,
+  staleMs: number,
+): boolean {
+  if (typeof owner !== 'string' || !owner) return false
+  const now = Date.now()
+  const ageMs = typeof heldAt === 'number' && heldAt <= now ? now - heldAt : Number.POSITIVE_INFINITY
+  return ageMs < staleMs
+}
+
+// A live exchange or key-mint lease means a non-idempotent POST (/exchange or
+// /v1/keys) may be in flight for THIS record right now. Replacing the record
+// out from under that lease — even for a different, unrelated intent — would
+// let the in-flight request's eventual CAS save find no matching record to
+// land in, orphaning a newly minted/exchanged credential with no receipt to
+// recover it. See claimTopupStateOperation.
+function hasLiveMintOrExchangeLease(state: AimlapiPersistedTopup): boolean {
+  return (
+    isLeaseLive(state.exchangeLeaseOwner, state.exchangeLeaseAt, EXCHANGE_LEASE_STALE_MS) ||
+    isLeaseLive(state.keyMintLeaseOwner, state.keyMintLeaseAt, KEY_MINT_LEASE_STALE_MS)
+  )
+}
+
 function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   if (typeof value !== 'object' || value === null) return false
   const state = value as Record<string, unknown>
@@ -668,6 +695,23 @@ function claimTopupStateOperation(
     throw new Error(
       `An earlier AI/ML API top-up of $${priorUsd} already succeeded and is waiting to ` +
         `be saved. Re-run that same top-up to finish saving it before starting a ` +
+        `different one.`,
+    )
+  }
+  if (existing && hasLiveMintOrExchangeLease(existing)) {
+    // A record with no resumeSessionToken/settled/apiKey yet still isn't safe
+    // to replace while a lease on it is live: mintExistingAccountKeyWithLease
+    // and exchangeKeyWithLease claim the receipt BEFORE sending their
+    // non-idempotent POST, so a blank-looking record can still have a request
+    // in flight whose eventual CAS save expects this exact record to still be
+    // here. Refuse unconditionally (even under abandonExisting) — the request
+    // already sent cannot be recalled, so the only safe move is to wait for
+    // the lease to settle or go stale, never to overwrite it out from under
+    // that in-flight request.
+    const priorUsd = (existing.amountUsdMinor / 100).toFixed(2)
+    throw new Error(
+      `An earlier AI/ML API top-up of $${priorUsd} is minting or exchanging a key right ` +
+        `now. Re-run that same top-up in a moment once it finishes before starting a ` +
         `different one.`,
     )
   }
@@ -1091,19 +1135,37 @@ export function saveAimlapiSignInKeyAsync(
 // Delete only this email's entry, and only when it still holds the key this flow
 // cached, so a stale completion cannot remove a newer key another concurrent
 // flow cached for the same account.
-export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
+function clearSignInKeyOperation(normalizedEmail: string, apiKeyId: string): void {
   const target = signInKeyPath()
+  const store = readSignInKeyStoreUnlocked()
+  if (store[normalizedEmail]?.apiKeyId !== apiKeyId) return
+  delete store[normalizedEmail]
+  if (Object.keys(store).length === 0) {
+    rmSync(target, { force: true })
+  } else {
+    writeJsonAtomic(target, store)
+  }
+}
+
+export function clearAimlapiSignInKey(email: string, apiKeyId: string): void {
   const normalizedEmail = normalizeEmail(email)
-  withStateLock(() => {
-    const store = readSignInKeyStoreUnlocked()
-    if (store[normalizedEmail]?.apiKeyId !== apiKeyId) return
-    delete store[normalizedEmail]
-    if (Object.keys(store).length === 0) {
-      rmSync(target, { force: true })
-    } else {
-      writeJsonAtomic(target, store)
-    }
-  }, target)
+  withStateLock(
+    () => clearSignInKeyOperation(normalizedEmail, apiKeyId),
+    signInKeyPath(),
+  )
+}
+
+/**
+ * Non-blocking counterpart for the interactive (Ink) flow: it awaits between
+ * lock retries so a contended lock never freezes timers, the UI, or SIGINT
+ * while it waits. See `clearAimlapiSignInKey`.
+ */
+export function clearAimlapiSignInKeyAsync(email: string, apiKeyId: string): Promise<void> {
+  const normalizedEmail = normalizeEmail(email)
+  return withStateLockAsync(
+    () => clearSignInKeyOperation(normalizedEmail, apiKeyId),
+    signInKeyPath(),
+  )
 }
 
 // --- Sign-in key mint lease --------------------------------------------------
@@ -1209,6 +1271,32 @@ export function acquireAimlapiSignInKeyLeaseAsync(
   owner: string,
 ): Promise<AimlapiSignInKeyLease> {
   return withStateLockAsync(() => acquireSignInKeyLeaseOperation(email, owner), signInKeyPath())
+}
+
+/**
+ * Touch the sign-in key-mint lease's timestamp between createKey succeeding
+ * and the cache write landing. createKey alone can take up to the client's
+ * request timeout (60s), and the cache write can then wait up to the async
+ * lock's own timeout (15s) — back to back those add up to exactly
+ * `SIGN_IN_KEY_LEASE_STALE_MS` (75s) with no margin for scheduling or
+ * filesystem overhead, so a legitimately still-working holder could have its
+ * lease reclaimed by a peer moments before its result is cached. Refreshing
+ * here gives the cache-write phase its own full window instead of sharing the
+ * mint's budget. Returns false once the lease is no longer ours (reclaimed,
+ * cleared, or superseded by a cached key).
+ */
+export function refreshAimlapiSignInKeyLeaseAsync(
+  email: string,
+  owner: string,
+): Promise<boolean> {
+  return withStateLockAsync(() => {
+    const normalizedEmail = normalizeEmail(email)
+    const store = readSignInLeaseStoreUnlocked()
+    if (store[normalizedEmail]?.owner !== owner) return false
+    store[normalizedEmail] = { owner, at: Date.now() }
+    writeSignInLeaseStore(store)
+    return true
+  }, signInKeyPath())
 }
 
 /**

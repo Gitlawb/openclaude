@@ -983,7 +983,7 @@ async function pollUntilExchangeSettled(
   client: AimlapiClient,
   sessionToken: string,
   signal?: AbortSignal,
-  onSession?: (sessionToken: string) => void,
+  onSession?: (sessionToken: string) => string | void | Promise<string | void>,
   refreshLease?: () => Promise<boolean>,
 ): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
@@ -1011,7 +1011,7 @@ async function pollUntilExchangeSettled(
         session.status === 'expired' ||
         session.status === 'failed'
       ) {
-        onSession?.('')
+        await onSession?.('')
         throw new Error(
           `Key provisioning ${session.status}. Rotate the key from the AI/ML API dashboard.`,
         )
@@ -1023,7 +1023,7 @@ async function pollUntilExchangeSettled(
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
-      if (isTerminalSessionApiError(error)) onSession?.('')
+      if (isTerminalSessionApiError(error)) await onSession?.('')
       throw error
     }
     await sleep(POLL_INTERVAL_MS, signal)
@@ -1035,7 +1035,7 @@ async function pollUntilByKeyToppedUp(
   client: AimlapiClient,
   sessionToken: string,
   signal?: AbortSignal,
-  onSession?: (sessionToken: string) => void,
+  onSession?: (sessionToken: string) => string | void | Promise<string | void>,
 ): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
@@ -1049,7 +1049,7 @@ async function pollUntilByKeyToppedUp(
         case 'cancelled':
         case 'expired':
         case 'failed':
-          onSession?.('')
+          await onSession?.('')
           throw new Error(`Top-up ${session.status}. Re-run the top-up to try again.`)
         default:
           // pending_* / exchanging -> keep waiting for the balance to settle.
@@ -1061,7 +1061,7 @@ async function pollUntilByKeyToppedUp(
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
-      if (isTerminalSessionApiError(error)) onSession?.('')
+      if (isTerminalSessionApiError(error)) await onSession?.('')
       throw error
     }
   }
@@ -1072,7 +1072,7 @@ export async function pollUntilPaid(
   client: AimlapiClient,
   sessionToken: string,
   signal?: AbortSignal,
-  onSession?: (sessionToken: string) => void,
+  onSession?: (sessionToken: string) => string | void | Promise<string | void>,
 ): Promise<PartnerCheckoutSession> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   while (Date.now() < deadline) {
@@ -1088,7 +1088,7 @@ export async function pollUntilPaid(
         case 'cancelled':
         case 'expired':
         case 'failed':
-          onSession?.('')
+          await onSession?.('')
           throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
         default:
           await sleep(POLL_INTERVAL_MS, signal)
@@ -1099,7 +1099,7 @@ export async function pollUntilPaid(
         await sleep(POLL_INTERVAL_MS, signal)
         continue
       }
-      if (isTerminalSessionApiError(error)) onSession?.('')
+      if (isTerminalSessionApiError(error)) await onSession?.('')
       throw error
     }
   }

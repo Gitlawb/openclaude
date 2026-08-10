@@ -64,7 +64,7 @@ import {
   resetAimlapiCheckoutSessionAsync,
   saveAimlapiTopupStateAsync,
   loadAimlapiSignInKey,
-  saveAimlapiSignInKey,
+  saveAimlapiSignInKeyAsync,
   clearAimlapiSignInKey,
   type AimlapiTopupIntent,
   type AimlapiTopupStatus,
@@ -3066,7 +3066,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // payment intent, so retries that should resume stay on the amount screen.
     // Require the same explicit confirmation an amount edit does before
     // dropping a chargeable one.
-    if (hasChargeableAimlapiCheckout() && !aimlapiAbandonAckRef.current) {
+    const hadChargeableCheckout = hasChargeableAimlapiCheckout()
+    if (hadChargeableCheckout && !aimlapiAbandonAckRef.current) {
       aimlapiAbandonAckRef.current = true
       setErrorMessage(
         'A checkout from a previous email is still pending — if a browser tab for it is open, do NOT pay it. Press Enter again to abandon it and continue with this email.',
@@ -3075,6 +3076,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
     aimlapiAbandonAckRef.current = false
     resetAimlapiOnboardingIdentity()
+    if (hadChargeableCheckout) {
+      // The user just confirmed abandoning it (reaching here on the second
+      // Enter, past the gate above). resetAimlapiOnboardingIdentity's clear
+      // is un-awaited and best-effort, so a contended/failed lock must not
+      // leave the abandoned receipt still enforced — make the confirmation
+      // authoritative at claimAimlapiTopupStateAsync itself instead, the same
+      // one-shot signal the "switch account" flow uses for its own on-disk,
+      // this-mount-invisible conflicts.
+      aimlapiForceAbandonExistingRef.current = true
+    }
     aimlapiAbortRef.current?.abort()
     const controller = new AbortController()
     aimlapiAbortRef.current = controller
@@ -3150,9 +3161,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiIssuedKey(result.apiKey)
         setAimlapiIssuedKeyId(result.apiKeyId)
         // Recovery aid so an abort/restart reuses this key; best-effort — a lock,
-        // permission, or disk failure must not lose the key retained above.
+        // permission, or disk failure must not lose the key retained above. Async
+        // so a contended lock yields to the event loop instead of freezing Ink
+        // rendering, timers, Esc, and SIGINT via the sync lock's Atomics.wait.
         try {
-          saveAimlapiSignInKey(aimlapiTopupEmail, result.apiKey, result.apiKeyId)
+          await saveAimlapiSignInKeyAsync(aimlapiTopupEmail, result.apiKey, result.apiKeyId)
         } catch {
           // Retained in component state above; the cache is only a recovery aid.
         }
@@ -3366,14 +3379,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             // Mirrors the CLI's persistSession: a terminal checkout invalidates
             // the payment session but not an already-minted existing-account
             // key, so try to retain it (with a fresh payment session) before
-            // falling back to a full clear. Fire-and-forget on the async lock —
-            // this runs off an async onSession callback, so awaiting it here
-            // would still be non-blocking, but the caller doesn't need this
-            // cleanup to land before continuing.
+            // falling back to a full clear. Awaited (not fire-and-forget) so
+            // the poll loop this onSession callback resolves for only reaches
+            // the amount screen once the durable receipt is actually reset or
+            // cleared — otherwise an immediate retry can still observe the
+            // stale resume token and reject the "already abandoned" checkout.
+            // Async on the lock either way, so this never blocks Ink.
             const stale = aimlapiPersistedIntentRef.current
             if (stale) {
               aimlapiPersistedIntentRef.current = null
-              void resetAimlapiCheckoutSessionAsync(stale)
+              await resetAimlapiCheckoutSessionAsync(stale)
                 .then(reset => (reset ? undefined : clearAimlapiTopupStateAsync(stale)))
                 .catch(() => {})
             }

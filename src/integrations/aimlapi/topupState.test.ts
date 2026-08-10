@@ -14,7 +14,9 @@ import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   acquireAimlapiExchangeLeaseAsync,
   acquireAimlapiKeyMintLeaseAsync,
+  acquireAimlapiSignInKeyLeaseAsync,
   refreshAimlapiExchangeLeaseAsync,
+  refreshAimlapiSignInKeyLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
   releaseAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
@@ -363,6 +365,42 @@ test('refreshing a lease this process no longer owns reports false and touches n
   if (stillHeld.status === 'held') expect(stillHeld.owner).toBe('owner-a')
 })
 
+test('refreshing the sign-in key-mint lease keeps a slow createKey-plus-cache-save from going stale', async () => {
+  const directory = useTemporaryConfig()
+  const acquired = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
+  expect(acquired.status).toBe('acquired')
+
+  // Simulate createKey having taken nearly the full 60s request timeout: the
+  // lease's timestamp is right up against SIGN_IN_KEY_LEASE_STALE_MS (75s),
+  // with no margin left for the cache write that still has to happen.
+  const leasePath = join(directory, 'aimlapi-signin-lease.json')
+  const staleStore = JSON.parse(readFileSync(leasePath, 'utf8'))
+  staleStore['user@example.com'].at = Date.now() - 74_000
+  writeFileSync(leasePath, JSON.stringify(staleStore))
+
+  // mintOrAdoptSignInKey now refreshes right after createKey succeeds,
+  // before the cache write, instead of letting the aged timestamp stand.
+  expect(await refreshAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')).toBe(true)
+
+  // A peer arriving right after must back off — the lease is live again, not
+  // stale — instead of reclaiming it and minting a second key.
+  const peerAttempt = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-b')
+  expect(peerAttempt.status).toBe('held')
+  if (peerAttempt.status === 'held') {
+    expect(peerAttempt.owner).toBe('owner-a')
+    expect(peerAttempt.ageMs).toBeLessThan(1_000)
+  }
+})
+
+test('refreshing a sign-in key-mint lease this process no longer owns reports false and touches nothing', async () => {
+  useTemporaryConfig()
+  await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
+  expect(await refreshAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-b')).toBe(false)
+  const stillHeld = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-c')
+  expect(stillHeld.status).toBe('held')
+  if (stillHeld.status === 'held') expect(stillHeld.owner).toBe('owner-a')
+})
+
 test('claiming a different intent refuses to clobber an opened (possibly paid) checkout', () => {
   useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -453,6 +491,32 @@ test('claiming a different intent refuses to clobber a settled-but-unpersisted k
     claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }, { abandonExisting: true }),
   ).toThrow(/already succeeded/i)
   expect(loadAimlapiTopupState(intent)?.apiKey).toBe('exchanged-key')
+})
+
+test('claiming a different intent refuses to clobber a live key-mint lease, even blank otherwise', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+  // Simulate createKey in flight: the lease is acquired, but no receipt
+  // (resumeSessionToken/settled/apiKey) exists yet — exactly the window
+  // between claiming the receipt and the POST /v1/keys response landing.
+  const lease = await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')
+  expect(lease.status).toBe('acquired')
+
+  // Not even abandonExisting may override this: the in-flight request already
+  // sent cannot be recalled, so overwriting the record would strand its
+  // eventual result with no receipt to recover it.
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    /minting or exchanging/i,
+  )
+  expect(() =>
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }, { abandonExisting: true }),
+  ).toThrow(/minting or exchanging/i)
+
+  // The original claim (and its lease) is still intact for the in-flight
+  // mint's eventual CAS save to land in.
+  expect(loadAimlapiTopupState(intent)).not.toBeNull()
+  expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toBeNull()
 })
 
 test('claiming a different intent replaces a never-advanced claim', () => {
