@@ -21,6 +21,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
+      pr: ${{ steps.release.outputs.pr }}
     steps:
       - name: Run release-please
         id: release
@@ -28,23 +29,31 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  release-pr-sync:
+    name: Synchronize Release Please PR
+    needs: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
       # A rerun after a failed sync has no `pr` output because Release Please
       # does not update an unchanged pending PR. Recover that PR explicitly;
       # this job owns its draft/ready state while synchronization is pending.
       - name: Resolve Release Please PR for web synchronization
         id: release-pr
-        if: ${{ steps.release.outputs.release_created != 'true' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
+          RELEASE_PR_JSON: ${{ needs.release-please.outputs.pr }}
+          RELEASE_REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
 
           release_pr="$RELEASE_PR_JSON"
           if [ -z "$release_pr" ] || [ "$release_pr" = "null" ]; then
-            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number,headRefName)"
+            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number)"
             candidate_count="$(jq length <<<"$candidates")"
             if [ "$candidate_count" -eq 0 ]; then
               echo "found=false" >> "$GITHUB_OUTPUT"
@@ -59,15 +68,37 @@ jobs:
           fi
 
           number="$(jq -r '.number // empty' <<<"$release_pr")"
-          branch="$(jq -r '.headBranchName // .headRefName // empty' <<<"$release_pr")"
-          if [ -z "$number" ] || [ -z "$branch" ]; then
-            echo "release PR JSON is missing its number or head branch name" >&2
+          if [ -z "$number" ]; then
+            echo "release PR JSON is missing its number" >&2
+            exit 1
+          fi
+
+          release_pr="$(gh pr view "$number" --json number,state,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
+          state="$(jq -r .state <<<"$release_pr")"
+          author="$(jq -r .author.login <<<"$release_pr")"
+          base="$(jq -r .baseRefName <<<"$release_pr")"
+          branch="$(jq -r .headRefName <<<"$release_pr")"
+          head_sha="$(jq -r .headRefOid <<<"$release_pr")"
+          head_owner="$(jq -r .headRepositoryOwner.login <<<"$release_pr")"
+          cross_repo="$(jq -r .isCrossRepository <<<"$release_pr")"
+          expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
+
+          if [ "$state" != "OPEN" ] \
+            || { [ "$author" != "app/github-actions" ] && [ "$author" != "github-actions[bot]" ]; } \
+            || [ "$base" != "$RELEASE_BASE_BRANCH" ] \
+            || [[ "$branch" != "$expected_prefix"* ]] \
+            || [ -z "$head_sha" ] \
+            || [ "$head_owner" != "$RELEASE_REPO_OWNER" ] \
+            || [ "$cross_repo" != "false" ]; then
+            echo "pending PR #$number does not match the expected same-repository Release Please identity" >&2
+            jq . <<<"$release_pr" >&2
             exit 1
           fi
 
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Keep the release PR as a draft until web synchronization passes
         if: ${{ steps.release-pr.outputs.found == 'true' }}
@@ -86,7 +117,7 @@ jobs:
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ steps.release-pr.outputs.branch }}
+          ref: ${{ steps.release-pr.outputs.head_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -184,9 +215,26 @@ jobs:
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
+          RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${RELEASE_PR_BRANCH}"
+          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid)"
+          if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
+            || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
+            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
+            || [ "$(jq -r .headRefOid <<<"$current")" != "$RELEASE_PR_HEAD_SHA" ]; then
+            echo "release PR changed or closed during validation; refusing to push" >&2
+            jq . <<<"$current" >&2
+            exit 1
+          fi
+
+          git push \
+            --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:${RELEASE_PR_BRANCH}"
 
       - name: Mark synchronized release PR ready for review
         if: ${{ steps.release-pr.outputs.found == 'true' }}
@@ -194,7 +242,41 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-        run: gh pr ready "$RELEASE_PR_NUMBER"
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+          RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          local_sha="$(git rev-parse HEAD)"
+          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
+
+          if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
+            || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
+            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
+            || [ "$(jq -r .headRefOid <<<"$current")" != "$local_sha" ]; then
+            echo "release PR no longer points at the validated commit" >&2
+            jq . <<<"$current" >&2
+            if [ "$(jq -r .state <<<"$current")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$current")" = "false" ]; then
+              gh pr ready "$RELEASE_PR_NUMBER" --undo || true
+            fi
+            exit 1
+          fi
+
+          if [ "$(jq -r .isDraft <<<"$current")" = "true" ]; then
+            gh pr ready "$RELEASE_PR_NUMBER"
+          fi
+
+          final="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
+          if [ "$(jq -r .state <<<"$final")" != "OPEN" ] \
+            || [ "$(jq -r .isDraft <<<"$final")" != "false" ] \
+            || [ "$(jq -r .baseRefName <<<"$final")" != "$RELEASE_BASE_BRANCH" ] \
+            || [ "$(jq -r .headRefName <<<"$final")" != "$RELEASE_PR_BRANCH" ] \
+            || [ "$(jq -r .headRefOid <<<"$final")" != "$local_sha" ]; then
+            echo "release PR changed while it was being marked ready" >&2
+            jq . <<<"$final" >&2
+            if [ "$(jq -r .state <<<"$final")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$final")" = "false" ]; then
+              gh pr ready "$RELEASE_PR_NUMBER" --undo || true
+            fi
+            exit 1
+          fi
 
   # Zero-warning install gate: pack the release tag and install it globally in
   # a sandbox (cold + upgrade scenarios) on the supported Node floor (22 →
