@@ -372,6 +372,7 @@ jobs:
           fi
 
       - name: Push synchronized web release entry
+        id: push-state
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -379,21 +380,38 @@ jobs:
           RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
           RELEASE_PR_HEAD_SHA: ${{ needs.release-pr-resolve.outputs.head_sha }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          VALIDATED_TREE_SHA: ${{ needs.release-pr-validate.outputs.tree_sha }}
         run: |
           current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,baseRefName,headRefName,headRefOid)"
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
-            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
-            || [ "$(jq -r .headRefOid <<<"$current")" != "$RELEASE_PR_HEAD_SHA" ]; then
-            echo "release PR changed or closed during validation; refusing to push" >&2
+            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ]; then
+            echo "release PR changed or closed during validation" >&2
             jq . <<<"$current" >&2
             exit 1
           fi
 
-          git push \
-            --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "HEAD:${RELEASE_PR_BRANCH}"
+          current_sha="$(jq -r .headRefOid <<<"$current")"
+          if [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
+            git push \
+              --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
+              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "HEAD:${RELEASE_PR_BRANCH}"
+            validated_head_sha="$(git rev-parse HEAD)"
+          else
+            # A failed-job rerun may start after the prior attempt pushed but
+            # failed during readiness. Accept only the exact validated tree.
+            git fetch --no-tags origin "$current_sha"
+            current_tree_sha="$(git rev-parse "${current_sha}^{tree}")"
+            if [ "$current_tree_sha" != "$VALIDATED_TREE_SHA" ]; then
+              echo "release PR head changed to an unvalidated tree" >&2
+              jq . <<<"$current" >&2
+              exit 1
+            fi
+            validated_head_sha="$current_sha"
+          fi
+
+          echo "head_sha=$validated_head_sha" >> "$GITHUB_OUTPUT"
 
       - name: Mark synchronized release PR ready for review
         env:
@@ -402,14 +420,14 @@ jobs:
           RELEASE_PR_NUMBER: ${{ needs.release-pr-resolve.outputs.number }}
           RELEASE_PR_BRANCH: ${{ needs.release-pr-resolve.outputs.branch }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          VALIDATED_HEAD_SHA: ${{ steps.push-state.outputs.head_sha }}
         run: |
-          local_sha="$(git rev-parse HEAD)"
           current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
 
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
-            || [ "$(jq -r .headRefOid <<<"$current")" != "$local_sha" ]; then
+            || [ "$(jq -r .headRefOid <<<"$current")" != "$VALIDATED_HEAD_SHA" ]; then
             echo "release PR no longer points at the validated commit" >&2
             jq . <<<"$current" >&2
             if [ "$(jq -r .state <<<"$current")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$current")" = "false" ]; then
@@ -427,7 +445,7 @@ jobs:
             || [ "$(jq -r .isDraft <<<"$final")" != "false" ] \
             || [ "$(jq -r .baseRefName <<<"$final")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$final")" != "$RELEASE_PR_BRANCH" ] \
-            || [ "$(jq -r .headRefOid <<<"$final")" != "$local_sha" ]; then
+            || [ "$(jq -r .headRefOid <<<"$final")" != "$VALIDATED_HEAD_SHA" ]; then
             echo "release PR changed while it was being marked ready" >&2
             jq . <<<"$final" >&2
             if [ "$(jq -r .state <<<"$final")" = "OPEN" ] && [ "$(jq -r .isDraft <<<"$final")" = "false" ]; then
