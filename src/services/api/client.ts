@@ -45,13 +45,9 @@ import {
   getNearaiBaseUrlOverride,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
-  getUsableRouteConfigEnvValue,
-  getUsableRouteModelEnvValue,
   getXaiBaseUrlOverride,
   getXiaomiMimoBaseUrlOverride,
   resolveEnvOnlyProviderRouteId,
-  resolveRouteIdFromBaseUrl,
-  routeSupportsCustomHeaders,
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
 import {
@@ -380,12 +376,12 @@ function applyAimlapiEnvOnlyDefaults(): void {
 
 function applyApismartEnvOnlyDefaults(): void {
   const baseUrlOverride =
-    getUsableRouteConfigEnvValue(process.env.OPENAI_BASE_URL) ||
-    getUsableRouteConfigEnvValue(process.env.OPENAI_API_BASE) ||
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim() ||
     undefined
   const modelOverride =
-    getUsableRouteModelEnvValue(process.env.APISMART_MODEL) ||
-    getUsableRouteModelEnvValue(process.env.OPENAI_MODEL) ||
+    process.env.APISMART_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
     undefined
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -493,17 +489,7 @@ export async function getAnthropicClient({
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
-  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
-  const outboundRouteId =
-    resolveRouteIdFromBaseUrl(
-      providerOverride?.baseURL ??
-        process.env.OPENAI_BASE_URL ??
-        process.env.OPENAI_API_BASE,
-    ) ?? envOnlyProviderRouteId
-  const customHeaders =
-    outboundRouteId && !routeSupportsCustomHeaders(outboundRouteId)
-      ? {}
-      : getCustomHeaders()
+  const customHeaders = getCustomHeaders()
   const defaultHeaders: { [key: string]: string } = {
     'x-app': 'cli',
     'User-Agent': getUserAgent(),
@@ -530,6 +516,7 @@ export async function getAnthropicClient({
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
   }
 
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
   const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
     model,
     envOnlyProviderRouteId,

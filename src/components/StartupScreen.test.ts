@@ -45,9 +45,6 @@ const ENV_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
-  'APISMART_API_KEY',
-  'APISMART_MODEL',
-  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'GEMINI_MODEL',
   'MISTRAL_MODEL',
   'ANTHROPIC_MODEL',
@@ -55,14 +52,6 @@ const ENV_KEYS = [
   'NVIDIA_NIM',
   'MINIMAX_API_KEY',
   'XAI_API_KEY',
-  'MIMO_API_KEY',
-  'VENICE_API_KEY',
-  'NEARAI_API_KEY',
-  'FIREWORKS_API_KEY',
-  'LONGCAT_API_KEY',
-  'CLINE_API_KEY',
-  'CLINE_API_MODEL',
-  'AIMLAPI_API_KEY',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
@@ -369,28 +358,6 @@ describe('detectProvider — rawModel fallback when URL is generic', () => {
 // --- Explicit env flags win over URL heuristics ---
 
 describe('detectProvider — explicit dedicated-provider env flags', () => {
-  test('credential-only ApiSmart setup uses route defaults before client initialization', () => {
-    process.env.APISMART_API_KEY = 'apismart-test-key'
-    process.env.APISMART_MODEL = 'KIMI_K3'
-
-    expect(detectProvider()).toEqual({
-      name: 'ApiSmart',
-      model: 'KIMI_K3',
-      baseUrl: 'https://gw.apismart.ai/v1',
-      isLocal: false,
-    })
-  })
-
-  test('labels the resolved ApiSmart route when another dedicated key is ambient', () => {
-    process.env.APISMART_API_KEY = 'apismart-test-key'
-    process.env.MINIMAX_API_KEY = 'ambient-minimax-key'
-
-    expect(detectProvider()).toMatchObject({
-      name: 'ApiSmart',
-      baseUrl: 'https://gw.apismart.ai/v1',
-    })
-  })
-
   test('NVIDIA_NIM=1 overrides aggregator URL', () => {
     setupOpenAIMode('https://openrouter.ai/api/v1', 'some-nim-model')
     process.env.NVIDIA_NIM = '1'

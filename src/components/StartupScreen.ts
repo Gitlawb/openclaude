@@ -9,7 +9,6 @@ import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/prov
 import {
   getRouteLabel,
   isMiniMaxBaseUrl,
-  resolveEnvOnlyProviderRouteId,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
@@ -81,11 +80,7 @@ const LOGO_CLAUDE = [
 export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
-  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
-  const useOpenAI =
-    process.env.CLAUDE_CODE_USE_OPENAI === '1' ||
-    process.env.CLAUDE_CODE_USE_OPENAI === 'true' ||
-    envOnlyProviderRouteId === 'apismart'
+  const useOpenAI = process.env.CLAUDE_CODE_USE_OPENAI === '1' || process.env.CLAUDE_CODE_USE_OPENAI === 'true'
   const useMistral = process.env.CLAUDE_CODE_USE_MISTRAL === '1' || process.env.CLAUDE_CODE_USE_MISTRAL === 'true'
 
   if (useGemini) {
@@ -108,21 +103,17 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   }
 
   if (useOpenAI) {
+    const rawModel = modelOverride || process.env.OPENAI_MODEL || 'gpt-4o'
     const resolvedRequest = resolveProviderRequest({
-      model: modelOverride,
+      model: rawModel,
       baseUrl: process.env.OPENAI_BASE_URL,
-      fallbackModel:
-        envOnlyProviderRouteId === 'apismart' ? undefined : 'gpt-4o',
-      processEnv: process.env,
     })
-    const rawModel = resolvedRequest.requestedModel
     const baseUrl = resolvedRequest.baseUrl
     const isLocal = isLocalProviderUrl(baseUrl)
     const routeId = resolveRouteIdFromBaseUrl(baseUrl)
     let name = 'OpenAI'
     // Explicit dedicated-provider env flags win.
     if (process.env.NVIDIA_NIM) name = 'NVIDIA NIM'
-    else if (routeId === 'apismart') name = getRouteLabel(routeId) ?? name
     else if (process.env.MINIMAX_API_KEY) name = 'MiniMax'
     else if (
       resolvedRequest.transport === 'codex_responses' ||

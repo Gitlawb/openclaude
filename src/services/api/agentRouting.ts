@@ -2,11 +2,6 @@ import type { SettingsJson } from '../../utils/settings/types.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
-import {
-  getRouteCredentialEnvVars,
-  getRouteDescriptor,
-  resolveRouteIdFromBaseUrl,
-} from '../../integrations/routeMetadata.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -49,7 +44,6 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
-  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'NVIDIA_NIM',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BASE_URL',
@@ -63,8 +57,6 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
-  'APISMART_API_KEY',
-  'APISMART_MODEL',
 ] as const
 
 /**
@@ -370,15 +362,4 @@ export function applyAgentProviderOverrideToEnv(
   env.OPENAI_MODEL = providerOverride.model
   env.OPENAI_BASE_URL = providerOverride.baseURL
   env.OPENAI_API_KEY = providerOverride.apiKey
-
-  const routeId = resolveRouteIdFromBaseUrl(providerOverride.baseURL)
-  if (routeId) {
-    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = routeId
-    const descriptor = getRouteDescriptor(routeId)
-    if (descriptor?.setup.dedicatedCredentialsOnly) {
-      for (const credentialEnvVar of getRouteCredentialEnvVars(routeId)) {
-        env[credentialEnvVar] = providerOverride.apiKey
-      }
-    }
-  }
 }

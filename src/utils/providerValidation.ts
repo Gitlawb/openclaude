@@ -15,8 +15,6 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
-  hasConfiguredApismartProviderIntent,
-  hasUsableRouteCredentialEnvValue,
   isApismartBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
@@ -32,6 +30,7 @@ import {
   resolveProviderRequest,
   shouldUseCodexTransport,
 } from '../services/api/providerConfig.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { getGlobalClaudeFile } from './env.js'
 import { isBareMode } from './envUtils.js'
 import {
@@ -127,10 +126,26 @@ function hasNonEmptyEnvValue(
   return typeof env[envVar] === 'string' && env[envVar]!.trim() !== ''
 }
 
+function hasUsableCredentialEnvValue(
+  env: NodeJS.ProcessEnv,
+  envVar: string,
+): boolean {
+  const value = env[envVar]
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+    return hasUsableOpenAICredential(value)
+  }
+
+  return value.trim() !== ''
+}
+
 function hasOpenAICredential(env: NodeJS.ProcessEnv): boolean {
   return (
-    hasUsableRouteCredentialEnvValue('OPENAI_API_KEYS', env.OPENAI_API_KEYS) ||
-    hasUsableRouteCredentialEnvValue('OPENAI_API_KEY', env.OPENAI_API_KEY)
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEYS') ||
+    hasUsableCredentialEnvValue(env, 'OPENAI_API_KEY')
   )
 }
 
@@ -241,37 +256,6 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
-  const activeRouteId = resolveActiveRouteIdFromEnv(env)
-  if (
-    activeRouteId === 'openai' &&
-    !hasOpenAICredential(env) &&
-    hasConfiguredApismartProviderIntent(env)
-  ) {
-    return validationTargets.find(
-      target => target.descriptor.id === 'apismart',
-    )
-  }
-  if (activeRouteId) {
-    const activeRouteTarget = validationTargets.find(
-      target => target.descriptor.id === activeRouteId,
-    )
-    const activeRouting = activeRouteTarget
-      ? getValidationRouting(activeRouteTarget)
-      : undefined
-    if (
-      activeRouteTarget &&
-      !(useOpenAI && activeRouting?.skipWhenUseOpenAI)
-    ) {
-      return activeRouteTarget
-    }
-  }
-
-  if (hasConfiguredApismartProviderIntent(env)) {
-    return validationTargets.find(
-      target => target.descriptor.id === 'apismart',
-    )
-  }
-
   if (!useOpenAI) {
     return undefined
   }
@@ -280,7 +264,6 @@ function getRuntimeValidationTarget(
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
     fallbackModel: getRouteDefaultModel('openai'),
-    processEnv: env,
   })
 
   const baseUrlMatchedTarget = validationTargets.find(target => {
@@ -377,9 +360,7 @@ function getCredentialEnvValidationError(
   }
 
   if (
-    credentialEnvVars.some(envVar =>
-      hasUsableRouteCredentialEnvValue(envVar, env[envVar]),
-    )
+    credentialEnvVars.some(envVar => hasUsableCredentialEnvValue(env, envVar))
   ) {
     return null
   }
@@ -554,7 +535,6 @@ export async function getProviderValidationError(
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
     fallbackModel: getRouteDefaultModel('openai'),
-    processEnv: env,
   })
   const genericRouteValidation = getGenericRouteCredentialValidationError(
     env,

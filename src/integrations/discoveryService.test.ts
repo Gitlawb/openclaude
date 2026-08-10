@@ -110,33 +110,6 @@ afterEach(() => {
 })
 
 describe('discoverModelsForRoute', () => {
-  test('drops caller headers when the route disables custom headers', async () => {
-    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
-    let capturedHeaders: Headers | undefined
-
-    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = new Headers(init?.headers)
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({ data: [{ id: 'KIMI_K3' }] }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
-    }) as unknown as typeof globalThis.fetch)
-
-    const result = await discoverModelsForRoute('apismart', {
-      forceRefresh: true,
-      apiKey: 'apismart-test-key',
-      headers: { 'X-Proxy-Secret': 'stale-secret' },
-    })
-
-    expect(result?.source).toBe('network')
-    expect(capturedHeaders?.get('x-proxy-secret')).toBeNull()
-    expect(capturedHeaders?.get('authorization')).toBe(
-      'Bearer apismart-test-key',
-    )
-  })
-
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 

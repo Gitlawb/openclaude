@@ -340,19 +340,6 @@ test('resolveProviderRequest uses APISMART_MODEL when APISMART_API_KEY is presen
   expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
 })
 
-test('resolveProviderRequest keeps ApiSmart intent with the generic OpenAI compatibility flag', () => {
-  const request = resolveProviderRequest({
-    processEnv: {
-      CLAUDE_CODE_USE_OPENAI: '1',
-      APISMART_API_KEY: 'apismart-key',
-      APISMART_MODEL: 'KIMI_K3',
-    },
-  })
-
-  expect(request.requestedModel).toBe('KIMI_K3')
-  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
-})
-
 test('resolveProviderRequest falls back to OPENAI_MODEL for ApiSmart when APISMART_MODEL is unset', () => {
   const request = resolveProviderRequest({
     processEnv: {
@@ -377,52 +364,6 @@ test('resolveProviderRequest treats blank APISMART_MODEL as unset for ApiSmart',
   expect(request.requestedModel).toBe('QWEN_3_7_MAX')
   expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
 })
-
-test.each(['undefined', 'null', ' NULL '])(
-  'resolveProviderRequest treats APISMART_MODEL=%s as unset',
-  placeholder => {
-    const request = resolveProviderRequest({
-      processEnv: {
-        APISMART_API_KEY: 'apismart-key',
-        APISMART_MODEL: placeholder,
-      },
-    })
-
-    expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
-    expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
-  },
-)
-
-test.each(['undefined', 'null', ' NULL '])(
-  'resolveProviderRequest treats ApiSmart OPENAI_MODEL fallback %s as unset',
-  placeholder => {
-    const request = resolveProviderRequest({
-      processEnv: {
-        APISMART_API_KEY: 'apismart-key',
-        OPENAI_MODEL: placeholder,
-      },
-    })
-
-    expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
-    expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
-  },
-)
-
-test.each(['null', ' NULL ', 'undefined'])(
-  'resolveProviderRequest treats OPENAI_BASE_URL=%s as unset for ApiSmart',
-  placeholder => {
-    const request = resolveProviderRequest({
-      processEnv: {
-        APISMART_API_KEY: 'apismart-key',
-        APISMART_MODEL: 'KIMI_K3',
-        OPENAI_BASE_URL: placeholder,
-      },
-    })
-
-    expect(request.requestedModel).toBe('KIMI_K3')
-    expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
-  },
-)
 
 test('resolveProviderRequest uses the ApiSmart route default when no model env is set', () => {
   const request = resolveProviderRequest({
@@ -488,19 +429,6 @@ test('resolveProviderRequest ignores ApiSmart model when explicit OPENAI_BASE_UR
 
   expect(request.requestedModel).toBe('gpt-4o')
   expect(request.baseUrl).toBe('https://api.openai.com/v1')
-})
-
-test('resolveProviderRequest ignores an ambient ApiSmart key for an explicit native provider', () => {
-  const request = resolveProviderRequest({
-    processEnv: {
-      APISMART_API_KEY: 'apismart-key',
-      APISMART_MODEL: 'KIMI_K3',
-      CLAUDE_CODE_USE_BEDROCK: '1',
-    },
-  })
-
-  expect(request.requestedModel).toBe('codexplan')
-  expect(request.baseUrl).toBe('https://chatgpt.com/backend-api/codex')
 })
 
 test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {

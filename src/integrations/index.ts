@@ -142,7 +142,6 @@ export {
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveActiveRouteIdFromEnv,
-  resolveProfileCapabilityRouteId,
   resolveRouteIdFromBaseUrl,
   routeSupportsApiFormatSelection,
   routeSupportsAuthHeaders,

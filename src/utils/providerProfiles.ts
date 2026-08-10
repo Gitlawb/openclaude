@@ -45,7 +45,6 @@ import {
   routeSupportsApiFormatSelection,
   routeSupportsAuthHeaders,
   routeSupportsCustomHeaders,
-  resolveProfileCapabilityRouteId,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
   type ResolvedProfileRoute,
@@ -55,11 +54,10 @@ import {
   getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
+  isApismartBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
-  hasUsableRouteCredentialEnvValue,
-  profileTargetsRoute,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
   resolveEnvOnlyProviderRouteId,
@@ -155,7 +153,8 @@ function isClinePassProfile(profile: ProviderProfile): boolean {
 }
 
 function isApismartProfile(profile: ProviderProfile): boolean {
-  return profileTargetsRoute(profile.provider, profile.baseUrl, 'apismart')
+  const baseUrl = profile.baseUrl?.trim()
+  return !baseUrl || isApismartBaseUrl(baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -220,6 +219,36 @@ function sanitizeAuthScheme(value: string | undefined): ProviderProfile['authSch
 
 function normalizeBaseUrl(value: string): string {
   return trimValue(value).replace(/\/+$/, '')
+}
+
+function resolveProfileCapabilityRouteId(
+  provider: string,
+  baseUrl?: string,
+): string {
+  const providerRouteId = resolveProfileRoute(provider).routeId
+  if (providerRouteId === 'custom-anthropic') {
+    return providerRouteId
+  }
+
+  const routeIdFromBaseUrl = resolveRouteIdFromBaseUrl(baseUrl)
+  if (routeIdFromBaseUrl) {
+    return routeIdFromBaseUrl
+  }
+
+  // Cloudflare and LongCat profiles retargeted away from their dedicated
+  // endpoints run generically at runtime. Mirror that boundary here so
+  // capability-driven surfaces are not stripped based on stale route ids.
+  if (
+    (providerRouteId === 'cloudflare' || providerRouteId === 'longcat') &&
+    baseUrl &&
+    !(providerRouteId === 'cloudflare'
+      ? isCloudflareBaseUrl(baseUrl)
+      : isLongcatBaseUrl(baseUrl))
+  ) {
+    return 'custom'
+  }
+
+  return providerRouteId
 }
 
 function normalizeProfileModelLookupKey(model: string | undefined): string {
@@ -302,7 +331,6 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
   const provider = trimValue(profile.provider)
   const baseUrl = normalizeBaseUrl(profile.baseUrl)
   const model = trimValue(profile.model)
-  const apiKey = trimOrUndefined(profile.apiKey)
   const apiFormat = parseOpenAICompatibleApiFormat(profile.apiFormat)
   const azureStyle = profile.azureStyle === true
   const authHeader = sanitizeAuthHeader(profile.authHeader)
@@ -316,13 +344,6 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     : undefined
 
   if (!id || !name || !baseUrl || !model || !provider) {
-    return null
-  }
-  if (
-    apiKey &&
-    profileTargetsRoute(provider, baseUrl, 'apismart') &&
-    !hasUsableRouteCredentialEnvValue('APISMART_API_KEY', apiKey)
-  ) {
     return null
   }
 
@@ -340,7 +361,7 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     provider,
     baseUrl,
     model,
-    apiKey,
+    apiKey: trimOrUndefined(profile.apiKey),
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
@@ -975,14 +996,8 @@ export function applyProviderProfileToProcessEnv(
 
     const withholdRetargetedApismartCredential =
       route.routeId === 'apismart' && !isApismartProfile(profile)
-    const profileApiKey =
-      isApismartProfile(profile) &&
-      profile.apiKey &&
-      !hasUsableRouteCredentialEnvValue('APISMART_API_KEY', profile.apiKey)
-        ? undefined
-        : profile.apiKey
-    if (profileApiKey && !withholdRetargetedApismartCredential) {
-      openAIProfileEnv.OPENAI_API_KEY = profileApiKey
+    if (profile.apiKey && !withholdRetargetedApismartCredential) {
+      openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
@@ -1016,7 +1031,7 @@ export function applyProviderProfileToProcessEnv(
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
       if (isApismartProfile(profile)) {
-        openAIProfileEnv.APISMART_API_KEY = profileApiKey
+        openAIProfileEnv.APISMART_API_KEY = profile.apiKey
       }
       if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
@@ -1575,23 +1590,6 @@ function buildStartupProfileFromActiveProfile(
         })),
       }
     case 'openai': {
-      // A concrete endpoint owns persistence just as it owns live credential
-      // routing. Handle dedicated ApiSmart endpoints before provider-label
-      // special cases (Atlas, NVIDIA, MiniMax, etc.), otherwise a retargeted
-      // profile works live but persists the wrong provider's credential.
-      if (isApismartProfile(activeProfile)) {
-        const env =
-          buildApismartProfileEnv({
-            model: getPrimaryModel(activeProfile.model),
-            baseUrl: activeProfile.baseUrl,
-            apiKey: activeProfile.apiKey,
-            processEnv: process.env,
-          }) ?? null
-        return env
-          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
-          : null
-      }
-
       if (route.gatewayId === 'nvidia-nim') {
         const env =
           buildNvidiaNimProfileEnv({
@@ -1647,6 +1645,19 @@ function buildStartupProfileFromActiveProfile(
       if (route.routeId === 'atlas-cloud') {
         const env =
           buildAtlasCloudProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
+      if (route.routeId === 'apismart' && isApismartProfile(activeProfile)) {
+        const env =
+          buildApismartProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
@@ -1743,8 +1754,6 @@ export function setActiveProviderProfile(
   if (startupProfile) {
     const file = createProfileFile(startupProfile.profile, startupProfile.env)
     saveProfileFile(file, options)
-  } else {
-    deleteProfileFile(options)
   }
 
   return activeProfile

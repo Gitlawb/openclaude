@@ -10,8 +10,6 @@ import {
   resolveOutOfProcessTeammateProviderFromCliArgs,
   shouldEnforceModelAllowlist,
 } from './agentRouting.js'
-import { resolveRouteCredentialValue } from '../../integrations/routeMetadata.js'
-import { resolveProviderRequest } from './providerConfig.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import * as agentModelModule from '../../utils/model/agent.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
@@ -732,34 +730,6 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
-  })
-
-  test('replaces parent ApiSmart model and credential for an ApiSmart agent override', () => {
-    const env: Record<string, string | undefined> = {
-      CLAUDE_CODE_USE_OPENAI: '1',
-      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
-      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
-      OPENAI_MODEL: 'KIMI_K3',
-      OPENAI_API_KEY: 'parent-secret',
-      APISMART_API_KEY: 'parent-secret',
-      APISMART_MODEL: 'KIMI_K3',
-    }
-
-    applyAgentProviderOverrideToEnv(
-      {
-        model: 'GLM_5.2',
-        baseURL: 'https://gw.apismart.ai/v1',
-        apiKey: 'child-secret',
-      },
-      env,
-    )
-
-    expect(resolveProviderRequest({ processEnv: env }).requestedModel).toBe('GLM_5.2')
-    expect(
-      resolveRouteCredentialValue({ routeId: 'apismart', processEnv: env }),
-    ).toBe('child-secret')
-    expect(env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
-    expect(env.APISMART_MODEL).toBeUndefined()
   })
 })
 

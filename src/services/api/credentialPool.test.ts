@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { CredentialPool, firstUsableCredential, hasInvalidCredentialPlaceholder, hasUsableOpenAICredential, parseCredentialList } from './credentialPool.js'
+import { CredentialPool, firstUsableCredential, hasInvalidCredentialPlaceholder, parseCredentialList } from './credentialPool.js'
 
 test('parseCredentialList trims comma-separated keys', () => {
   expect(parseCredentialList(' key-a, key-b ,,key-c ')).toEqual([
