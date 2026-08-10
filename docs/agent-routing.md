@@ -29,7 +29,7 @@ OpenClaude can route different agents to different models through
 settings-based routing. This is useful for cost optimization or splitting work
 by model strength.
 
-Add to `~/.openclaude.json`:
+Add to `~/.openclaude/settings.json`:
 
 ```json
 {
@@ -89,7 +89,7 @@ no credential duplication:
 
 **Built-in agents are routable by their type name.** Useful keys:
 `verification` (the read-only auditor that runs before completion), `Explore`,
-and `Plan`. For example, `"agentRouting": { "verification": "mini" }` runs the
+`Plan`, and `code-reviewer`. For example, `"agentRouting": { "verification": "mini" }` runs the
 verifier on `gpt-5-mini` while your main session stays on its model. Absent
 any entry, the verifier inherits the main-loop model.
 

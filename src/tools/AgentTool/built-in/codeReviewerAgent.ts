@@ -13,8 +13,10 @@ import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
 function getCodeReviewerSystemPrompt(): string {
   const embedded = hasEmbeddedSearchTools()
   const searchGuidance = embedded
-    ? `- Use ${FILE_READ_TOOL_NAME} to read specific files for context`
-    : `- Use ${GLOB_TOOL_NAME} for file pattern matching\n   - Use ${GREP_TOOL_NAME} for searching file contents`
+    ? `- Use ${FILE_READ_TOOL_NAME} to read specific files named in the diff for surrounding context
+   - Note: In this build, file search tools (Glob/Grep) are unavailable and shell access is denied. You can only read files explicitly named in the diff or referenced in the code you read. If you need to find callers or dependents beyond the diff, ask the caller to supply the relevant file paths or additional context.`
+    : `- Use ${GLOB_TOOL_NAME} for file pattern matching to find callers and dependents
+   - Use ${GREP_TOOL_NAME} for searching file contents to trace references`
 
   return `You are an independent code reviewer for OpenClaude. Your role is to provide critical, balanced review of code changes.
 
@@ -34,7 +36,7 @@ Evaluate changes across all dimensions with equal weight:
 
 ## Process
 
-1. The diff will be provided in the prompt. If it is not, ask the caller to supply it.
+1. The diff MUST be provided inline in the prompt. If it is not, respond with a single message asking the caller to supply the diff or changed hunks — do NOT attempt to discover changes yourself.
 2. For each changed file, read surrounding context with ${FILE_READ_TOOL_NAME} to understand intent
    ${searchGuidance}
 3. Do NOT attempt to run shell commands such as \`git diff\` yourself.
@@ -60,17 +62,26 @@ One of: ✓ Approve | ~ Approve with suggestions | ✗ Request changes
 Be direct and specific. Skip praise. Focus on what could break, be exploited, or cause future pain.`
 }
 
+// Explicit read-only allow-list. resolveAgentTools() resolves ONLY the tools
+// named here, so write-capable tools (Bash/PowerShell, Edit/Write/Notebook,
+// Agent) and any user-configured write-capable mcp__* server tools can never
+// be handed to this agent — an omitted `tools` list would wildcard them in.
+//
+// Both Glob and Grep are always listed. In non-embedded builds they resolve
+// normally; in embedded-search builds they are absent from the tool registry
+// and resolveAgentTools() silently drops them, leaving only Read. The system
+// prompt documents this narrowed contract for the embedded case.
+const CODE_REVIEWER_TOOLS: string[] = [
+  FILE_READ_TOOL_NAME,
+  GLOB_TOOL_NAME,
+  GREP_TOOL_NAME,
+]
+
 export const CODE_REVIEWER_AGENT: BuiltInAgentDefinition = {
   agentType: 'code-reviewer',
   whenToUse:
     'Independent code reviewer for changes, diffs, and pull requests. Provides balanced critique across correctness, security, performance, maintainability, and design. Use after completing a coding task or when asked to review specific changes. The caller must provide the diff or changed hunks inline in the prompt because this agent cannot run shell commands. Invoke with subagent_type: "code-reviewer".',
-  // Explicit read-only allow-list. resolveAgentTools() resolves ONLY the tools
-  // named here, so write-capable tools (Bash/PowerShell, Edit/Write/Notebook,
-  // Agent) and any user-configured write-capable mcp__* server tools can never
-  // be handed to this agent — an omitted `tools` list would wildcard them in.
-  tools: hasEmbeddedSearchTools()
-    ? [FILE_READ_TOOL_NAME]
-    : [FILE_READ_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME],
+  tools: CODE_REVIEWER_TOOLS,
   // Defense-in-depth: also deny mutation tools by name so the read-only
   // contract holds even if the allow-list above is later widened.
   disallowedTools: [
