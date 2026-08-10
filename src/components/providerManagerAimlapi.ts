@@ -17,9 +17,9 @@ import {
 import {
   claimAimlapiTopupStateAsync as claimAimlapiTopupStateAsyncImpl,
   clearAimlapiTopupStateAsync as clearAimlapiTopupStateAsyncImpl,
-  recordAimlapiCheckoutSession as recordAimlapiCheckoutSessionImpl,
+  recordAimlapiCheckoutSessionAsync as recordAimlapiCheckoutSessionAsyncImpl,
   resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
-  saveAimlapiTopupState as saveAimlapiTopupStateImpl,
+  saveAimlapiTopupStateAsync as saveAimlapiTopupStateAsyncImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKey as saveAimlapiSignInKeyImpl,
   clearAimlapiSignInKey as clearAimlapiSignInKeyImpl,
@@ -67,16 +67,16 @@ export const clearAimlapiTopupStateAsync: typeof clearAimlapiTopupStateAsyncImpl
   ...args
 ) => clearAimlapiTopupStateAsyncImpl(...args)
 
-export const recordAimlapiCheckoutSession: typeof recordAimlapiCheckoutSessionImpl = (
+export const recordAimlapiCheckoutSessionAsync: typeof recordAimlapiCheckoutSessionAsyncImpl = (
   ...args
-) => recordAimlapiCheckoutSessionImpl(...args)
+) => recordAimlapiCheckoutSessionAsyncImpl(...args)
 
 export const resetAimlapiCheckoutSessionAsync: typeof resetAimlapiCheckoutSessionAsyncImpl = (
   ...args
 ) => resetAimlapiCheckoutSessionAsyncImpl(...args)
 
-export const saveAimlapiTopupState: typeof saveAimlapiTopupStateImpl = (...args) =>
-  saveAimlapiTopupStateImpl(...args)
+export const saveAimlapiTopupStateAsync: typeof saveAimlapiTopupStateAsyncImpl = (...args) =>
+  saveAimlapiTopupStateAsyncImpl(...args)
 
 export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =>
   loadAimlapiSignInKeyImpl(...args)

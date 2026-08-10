@@ -60,9 +60,9 @@ import {
   AIMLAPI_MESSAGES,
   claimAimlapiTopupStateAsync,
   clearAimlapiTopupStateAsync,
-  recordAimlapiCheckoutSession,
+  recordAimlapiCheckoutSessionAsync,
   resetAimlapiCheckoutSessionAsync,
-  saveAimlapiTopupState,
+  saveAimlapiTopupStateAsync,
   loadAimlapiSignInKey,
   saveAimlapiSignInKey,
   clearAimlapiSignInKey,
@@ -3040,6 +3040,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
   }
 
+  // A checkout that is already chargeable (a resume token recorded, a key
+  // minted, or a browser tab opened) must not be silently abandoned by
+  // navigating elsewhere in the guided flow — e.g. an accidental Esc-back
+  // through the email/amount screens to an earlier choice screen and
+  // resubmitting. A never-advanced claim (nothing paid or minted yet) is
+  // safe to drop without confirmation.
+  function hasChargeableAimlapiCheckout(): boolean {
+    return Boolean(
+      aimlapiPersistedIntentRef.current &&
+        (aimlapiResumeSessionToken.trim() ||
+          aimlapiIssuedKey.trim() ||
+          aimlapiOpenedCheckoutRef.current),
+    )
+  }
+
   function startAimlapiEmailOnboarding(email: string): void {
     const trimmedEmail = email.trim()
     if (!isValidAimlapiEmail(trimmedEmail)) {
@@ -3049,18 +3064,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // Submitting the email starts a fresh account-bound flow. Retaining a
     // checkout from an earlier email/key path could poll or exchange the wrong
     // payment intent, so retries that should resume stay on the amount screen.
-    // A checkout that is already chargeable (a resume token recorded, a key
-    // minted, or a browser tab opened) must not be silently abandoned this way
-    // though — e.g. an accidental Esc-back-and-resubmit of the SAME email —
-    // so require the same explicit confirmation an amount edit does. A
-    // never-advanced claim (nothing paid or minted yet) is safe to drop.
-    const hasChargeableCheckout = Boolean(
-      aimlapiPersistedIntentRef.current &&
-        (aimlapiResumeSessionToken.trim() ||
-          aimlapiIssuedKey.trim() ||
-          aimlapiOpenedCheckoutRef.current),
-    )
-    if (hasChargeableCheckout && !aimlapiAbandonAckRef.current) {
+    // Require the same explicit confirmation an amount edit does before
+    // dropping a chargeable one.
+    if (hasChargeableAimlapiCheckout() && !aimlapiAbandonAckRef.current) {
       aimlapiAbandonAckRef.current = true
       setErrorMessage(
         'A checkout from a previous email is still pending — if a browser tab for it is open, do NOT pay it. Press Enter again to abandon it and continue with this email.',
@@ -3326,7 +3332,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         checkoutState.apiKeyId = aimlapiIssuedKeyId
       }
       try {
-        saveAimlapiTopupState({ ...intent, ...checkoutState })
+        await saveAimlapiTopupStateAsync({ ...intent, ...checkoutState })
       } catch {
         // Retained in memory; persistence is only a resume aid.
       }
@@ -3355,14 +3361,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           setAimlapiTopupStatus(status)
           if (detail?.trim()) setAimlapiTopupDetail(detail)
         }
-        const reportSession = (sessionToken: string): string | undefined => {
+        const reportSession = async (sessionToken: string): Promise<string | undefined> => {
           if (!sessionToken) {
             // Mirrors the CLI's persistSession: a terminal checkout invalidates
             // the payment session but not an already-minted existing-account
             // key, so try to retain it (with a fresh payment session) before
             // falling back to a full clear. Fire-and-forget on the async lock —
-            // this runs off a synchronous onSession callback, so it must never
-            // risk freezing the UI on lock contention.
+            // this runs off an async onSession callback, so awaiting it here
+            // would still be non-blocking, but the caller doesn't need this
+            // cleanup to land before continuing.
             const stale = aimlapiPersistedIntentRef.current
             if (stale) {
               aimlapiPersistedIntentRef.current = null
@@ -3375,8 +3382,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           }
           // Atomic election: a peer that already opened a payable checkout for
           // this payment id wins; adopt its token so concurrent runs never leave
-          // two chargeable checkouts.
-          const recorded = recordAimlapiCheckoutSession({
+          // two chargeable checkouts. Async so lock contention on this CAS never
+          // freezes Ink while a payment session is being created.
+          const recorded = await recordAimlapiCheckoutSessionAsync({
             ...intent,
             ...checkoutState,
             resumeSessionToken: sessionToken,
@@ -3432,7 +3440,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         checkoutState.model = provisioned.model
         checkoutState.settled = true
         try {
-          saveAimlapiTopupState({ ...intent, ...checkoutState })
+          // An ambient env key (aimlapiExistingUsesEnv) is `provisioned.apiKey`
+          // verbatim here — never persist it: it's already available from the
+          // environment on any resume, and the eventual profile write for it is
+          // deliberately keyless (persistExistingAimlapi's preserveEnv), so
+          // writing it to the receipt would be pure exposure surface with no
+          // recovery benefit. A by-key resume without a locally-stored key still
+          // completes correctly (just via the normal, idempotent session
+          // resolution instead of the local settled-shortcut above).
+          await saveAimlapiTopupStateAsync({
+            ...intent,
+            ...checkoutState,
+            ...(aimlapiExistingUsesEnv ? { apiKey: undefined, apiKeyId: undefined } : {}),
+          })
         } catch {
           // Best effort: the payment already cleared, so a receipt-write failure
           // (lock contention, full/read-only disk) must not divert the flow into
@@ -3560,6 +3580,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ]}
           onChange={(value: string) => {
             setErrorMessage(undefined)
+            // Either choice below abandons whatever onboarding identity is
+            // currently held (resetAimlapiOnboardingIdentity). Esc can reach
+            // this screen after a checkout was already opened further along
+            // (email -> amount -> Esc, Esc), so that must not happen silently.
+            if (hasChargeableAimlapiCheckout() && !aimlapiAbandonAckRef.current) {
+              aimlapiAbandonAckRef.current = true
+              setErrorMessage(
+                'A checkout from this account is still pending — if a browser tab for it is open, do NOT pay it. Press Enter again to abandon it and continue.',
+              )
+              return
+            }
+            aimlapiAbandonAckRef.current = false
             if (value === 'manual') {
               resetAimlapiOnboardingIdentity()
               setCursorOffset(draft.apiKey.length)

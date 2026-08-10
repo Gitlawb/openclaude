@@ -38,13 +38,14 @@ import {
 import { promptHidden, promptText } from './prompt.js'
 import {
   acquireAimlapiExchangeLeaseAsync,
+  acquireAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
   clearAimlapiTopupState,
-  loadAimlapiTopupState,
   recordAimlapiCheckoutSession,
   recordAimlapiSettledKeyAsync,
   refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
+  releaseAimlapiKeyMintLeaseAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiTopupState,
   type AimlapiTopupIntent,
@@ -100,8 +101,12 @@ export type AimlapiProvisionOptions = Omit<AimlapiTopupOptions, 'email' | 'code'
    * tests with no persisted state, which exchange directly.
    */
   intent?: AimlapiTopupIntent
-  /** Persist the session token; returns the elected token when a peer won. */
-  onSession?: (sessionToken: string) => string | void
+  /**
+   * Persist the session token; returns (or resolves to) the elected token
+   * when a peer won. Async so the interactive flow's CAS write never blocks
+   * Ink's event loop on lock contention.
+   */
+  onSession?: (sessionToken: string) => string | void | Promise<string | void>
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
@@ -110,8 +115,12 @@ export type AimlapiByKeyTopupOptions = Omit<AimlapiTopupOptions, 'email' | 'code
   inferenceBaseUrl?: string
   paymentSessionId: string
   resumeSessionToken?: string
-  /** Persist the session token; returns the elected token when a peer won. */
-  onSession?: (sessionToken: string) => string | void
+  /**
+   * Persist the session token; returns (or resolves to) the elected token
+   * when a peer won. Async so the interactive flow's CAS write never blocks
+   * Ink's event loop on lock contention.
+   */
+  onSession?: (sessionToken: string) => string | void | Promise<string | void>
   onStatus?: (status: AimlapiTopupStatus, detail?: string) => void
 }
 
@@ -119,6 +128,10 @@ type TopupPhase = 'pay' | 'poll' | 'exchange' | 'wait-exchange'
 
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS = 20 * 60 * 1000
+// Unlike the payment/exchange waits, a key-mint lease holder never sits in a
+// long poll before its single POST — a few retry cycles is enough headroom
+// for a slow network or a couple of lease hand-offs.
+const KEY_MINT_POLL_TIMEOUT_MS = 2 * 60 * 1000
 
 // Test seam. The unit tests drive the flow against a stub transport and a
 // capturing profile writer by swapping these in, rather than a process-global
@@ -338,41 +351,15 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       // Do not mint a key when the retained checkout was a paid sign-up that must
       // still be exchanged (see `mustExchange` below): the exchange yields the key.
       if (!apiKey && checkoutState.exchange !== true) {
-        // Re-check right before minting: a concurrent run for this exact
-        // intent (e.g. the same top-up started twice) may have already
-        // minted and recorded a key in the window since this process
-        // claimed. Adopt it instead of minting a second, orphaned credential.
-        const retained = loadAimlapiTopupState(intent)
-        if (retained?.apiKey?.trim()) {
-          apiKey = retained.apiKey.trim()
-          apiKeyId = retained.apiKeyId?.trim() ?? ''
-        } else {
-          const created = await client.createKey(sessionToken, 'OpenClaude CLI', options.signal)
-          apiKey = created.key
-          apiKeyId = created.id
-          // Retain the issued key with the intent so a retry after an interrupted
-          // checkout reuses it instead of minting another. Best-effort: the key is
-          // already held in `apiKey`/`checkoutState` and drives the rest of this
-          // run, so a state-write failure must not throw away the minted key.
-          checkoutState.apiKey = apiKey
-          checkoutState.apiKeyId = apiKeyId
-          try {
-            saveAimlapiTopupState({ ...intent, ...checkoutState })
-          } catch {
-            // Retained in memory for this run; persistence is only a resume aid.
-          }
-          // saveAimlapiTopupState elects the FIRST recorded key (keeps an
-          // already-stored one over ours), so a peer that recorded one first
-          // wins the race despite losing the check above. Adopt whatever
-          // ended up authoritative instead of trusting our own local mint
-          // blindly — otherwise this run provisions against an orphaned key
-          // nobody else's receipt points to.
-          const elected = loadAimlapiTopupState(intent)
-          if (elected?.apiKey?.trim()) {
-            apiKey = elected.apiKey.trim()
-            apiKeyId = elected.apiKeyId?.trim() ?? ''
-          }
-        }
+        const minted = await mintExistingAccountKeyWithLease(
+          client,
+          intent,
+          checkoutState.paymentSessionId,
+          sessionToken,
+          options.signal,
+        )
+        apiKey = minted.apiKey
+        apiKeyId = minted.apiKeyId
         checkoutState.apiKey = apiKey
         checkoutState.apiKeyId = apiKeyId
       }
@@ -650,7 +637,7 @@ async function resolveTopupSession(
     partnerName: string
     verificationBaseUrl: string
     signal?: AbortSignal
-    onSession?: (sessionToken: string) => string | void
+    onSession?: (sessionToken: string) => string | void | Promise<string | void>
     byKey?: boolean
   },
 ): Promise<{ sessionToken: string; phase: TopupPhase }> {
@@ -667,7 +654,7 @@ async function resolveTopupSession(
     // Atomic election happens as the session is recorded: if a peer already
     // opened a payable checkout for this payment id, adopt its token and resume
     // that session instead of leaving this freshly created one chargeable too.
-    const elected = options.onSession?.(session.sessionToken)
+    const elected = await options.onSession?.(session.sessionToken)
     if (elected && elected !== session.sessionToken) {
       return resolveTopupSession(client, { ...options, resumeSessionToken: elected })
     }
@@ -677,7 +664,7 @@ async function resolveTopupSession(
   try {
     session = await client.getSession(resume, options.signal)
   } catch (error) {
-    if (isTerminalSessionApiError(error)) options.onSession?.('')
+    if (isTerminalSessionApiError(error)) await options.onSession?.('')
     throw error
   }
   let phase: TopupPhase
@@ -701,13 +688,102 @@ async function resolveTopupSession(
       phase = 'exchange'
       break
     default:
-      options.onSession?.('')
+      await options.onSession?.('')
       throw new Error(`Payment ${session.status}. Re-run the top-up to try again.`)
   }
   // Re-notify the resumed token so the caller keeps its in-memory + on-disk copy
   // in sync (idempotent: the election keeps the already-recorded token).
-  options.onSession?.(resume)
+  await options.onSession?.(resume)
   return { sessionToken: resume, phase }
+}
+
+/**
+ * Mint the existing-account key for a checkout under a cross-process lease so
+ * racing same-intent processes never call POST /v1/keys twice — the server
+ * mints a fresh credential on every call with no idempotency of its own, so a
+ * second call doesn't fail, it just mints (and orphans) a second valid key.
+ * The lease winner mints; a peer that finds a live lease backs off and
+ * re-attempts, resuming from the winner's recorded key or minting itself once
+ * the lease frees (the winner failed, or crashed and it went stale); a peer
+ * that finds a recorded key resumes from it. Falls back to a direct mint when
+ * no intent is supplied (unit tests with no persisted state).
+ */
+async function mintExistingAccountKeyWithLease(
+  client: AimlapiClient,
+  intent: AimlapiTopupIntent | undefined,
+  paymentSessionId: string,
+  sessionToken: string,
+  signal?: AbortSignal,
+): Promise<{ apiKey: string; apiKeyId: string }> {
+  const expected = intent ? { ...intent, paymentSessionId } : undefined
+  // One lease owner per operation (not per process): see exchangeKeyWithLease.
+  const owner = randomUUID()
+
+  const doMint = async (): Promise<{ apiKey: string; apiKeyId: string }> => {
+    const created = await client.createKey(sessionToken, 'OpenClaude CLI', signal)
+    return { apiKey: created.key.trim(), apiKeyId: created.id.trim() }
+  }
+
+  if (!expected) return doMint()
+
+  const deadline = Date.now() + KEY_MINT_POLL_TIMEOUT_MS
+  for (;;) {
+    if (signal?.aborted) throw abortError(signal)
+    const lease = await acquireAimlapiKeyMintLeaseAsync(expected, owner)
+    if (lease.status === 'gone') {
+      throw new Error(
+        'This top-up was already completed or cancelled elsewhere. Re-run to try again.',
+      )
+    }
+    if (lease.status === 'minted') {
+      // A peer already minted and recorded a key — resume from its receipt.
+      return {
+        apiKey: lease.state.apiKey?.trim() ?? '',
+        apiKeyId: lease.state.apiKeyId?.trim() ?? '',
+      }
+    }
+    if (lease.status === 'acquired') {
+      // We are the sole minter for this checkout, either from the start or by
+      // taking over from a peer that failed (or crashed) and freed the lease.
+      let minted: { apiKey: string; apiKeyId: string }
+      try {
+        minted = await doMint()
+      } catch (error) {
+        // Release so a retry proceeds promptly instead of waiting out the
+        // stale window. Best-effort: if the release itself fails the lease
+        // still expires on its own, only more slowly.
+        await releaseAimlapiKeyMintLeaseAsync(expected, owner).catch(
+          (releaseError: unknown) => {
+            logForDebugging(
+              `Failed to release the AI/ML API key-mint lease: ${String(releaseError)}`,
+              { level: 'warn' },
+            )
+          },
+        )
+        throw error
+      }
+      // Persist under the same CAS before returning it, so a crash right
+      // after minting still recovers the key on the next run instead of
+      // stranding a valid, unused credential.
+      try {
+        saveAimlapiTopupState({
+          ...expected,
+          resumeSessionToken: '',
+          apiKey: minted.apiKey,
+          apiKeyId: minted.apiKeyId,
+        })
+      } catch {
+        // Retained in memory for this run; persistence is only a resume aid.
+      }
+      return minted
+    }
+    // held: a live peer is minting; back off and re-attempt rather than
+    // minting in parallel and orphaning a credential.
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for a concurrent key mint. Retry to resume.')
+    }
+    await sleep(POLL_INTERVAL_MS, signal)
+  }
 }
 
 /**

@@ -64,6 +64,15 @@ export type AimlapiPersistedTopup = AimlapiTopupIntent & {
    */
   exchangeLeaseOwner?: string
   exchangeLeaseAt?: number
+  /**
+   * Key-mint lease. Minting an existing-account key (POST /v1/keys) is not
+   * idempotent either — the server mints a fresh credential on every call, with
+   * nothing to detect a duplicate — so exactly one process may mint per intent.
+   * Same acquire/reclaim shape as the exchange lease; see
+   * `KEY_MINT_LEASE_STALE_MS`.
+   */
+  keyMintLeaseOwner?: string
+  keyMintLeaseAt?: number
 }
 
 export type AimlapiCheckoutState = Pick<
@@ -94,6 +103,10 @@ const LOCK_STALE_MS = 8_000
 // belonged to a crashed holder and is reclaimable. Generous: the exchange is a
 // single remote POST, but a slow network must not orphan the one-shot session.
 const EXCHANGE_LEASE_STALE_MS = 75_000
+// Same reasoning as EXCHANGE_LEASE_STALE_MS: minting a key is also a single
+// remote POST with no long poll before it, so the same generous window covers
+// a slow network without letting a crashed holder pin the slot for long.
+const KEY_MINT_LEASE_STALE_MS = 75_000
 /** Owner-only file/dir modes; these records hold API credentials. */
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
@@ -460,36 +473,48 @@ export function loadAimlapiTopupState(
  * loser's own mint/session becomes an orphaned, unreferenced duplicate.
  */
 export function saveAimlapiTopupState(state: AimlapiPersistedTopup): void {
-  withStateLock(() => {
-    const current = matchingStateOrNull(state)
-    if (!current) return
-    // apiKey/apiKeyId travel as a pair: once a key is elected, its id (which
-    // may itself legitimately be an empty "not applicable" sentinel) must come
-    // from the SAME winner, never mixed with a losing caller's id.
-    const existingApiKeyWins = Boolean(current.apiKey?.trim())
-    writeAimlapiTopupStateUnlocked({
-      ...state,
-      resumeSessionToken: current.resumeSessionToken?.trim() || state.resumeSessionToken,
-      // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
-      // top-up path), NOT a value to persist: the reader rejects empty strings, so
-      // a serialized "" would make the whole receipt unreadable and lose an
-      // otherwise-recoverable checkout. Coerce it to absent instead. Never fall
-      // back to current.apiKeyId here: current.apiKey is already known falsy in
-      // this branch, so that id (if somehow present) belongs to no key of ours,
-      // and pairing it with a genuinely new state.apiKey would tag it with the
-      // wrong id.
-      apiKey: existingApiKeyWins ? current.apiKey : state.apiKey?.trim() || undefined,
-      apiKeyId: existingApiKeyWins
-        ? current.apiKeyId
-        : state.apiKey?.trim()
-          ? state.apiKeyId?.trim() || undefined
-          : undefined,
-      model: state.model ?? current.model,
-      settled: state.settled ?? current.settled,
-      exchange: state.exchange ?? current.exchange,
-      exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
-      exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
-    })
+  withStateLock(() => saveTopupStateOperation(state))
+}
+
+/**
+ * Non-blocking counterpart for the interactive flow, which must never risk
+ * freezing Ink's render loop, Esc, or SIGINT on lock contention (the sync
+ * lock's `Atomics.wait` retry blocks the whole event loop for up to
+ * `LOCK_TIMEOUT_MS`). See `saveAimlapiTopupState`.
+ */
+export function saveAimlapiTopupStateAsync(state: AimlapiPersistedTopup): Promise<void> {
+  return withStateLockAsync(() => saveTopupStateOperation(state))
+}
+
+function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
+  const current = matchingStateOrNull(state)
+  if (!current) return
+  // apiKey/apiKeyId travel as a pair: once a key is elected, its id (which
+  // may itself legitimately be an empty "not applicable" sentinel) must come
+  // from the SAME winner, never mixed with a losing caller's id.
+  const existingApiKeyWins = Boolean(current.apiKey?.trim())
+  writeAimlapiTopupStateUnlocked({
+    ...state,
+    resumeSessionToken: current.resumeSessionToken?.trim() || state.resumeSessionToken,
+    // An empty key id/key is a "not applicable" sentinel (e.g. the existing-key
+    // top-up path), NOT a value to persist: the reader rejects empty strings, so
+    // a serialized "" would make the whole receipt unreadable and lose an
+    // otherwise-recoverable checkout. Coerce it to absent instead. Never fall
+    // back to current.apiKeyId here: current.apiKey is already known falsy in
+    // this branch, so that id (if somehow present) belongs to no key of ours,
+    // and pairing it with a genuinely new state.apiKey would tag it with the
+    // wrong id.
+    apiKey: existingApiKeyWins ? current.apiKey : state.apiKey?.trim() || undefined,
+    apiKeyId: existingApiKeyWins
+      ? current.apiKeyId
+      : state.apiKey?.trim()
+        ? state.apiKeyId?.trim() || undefined
+        : undefined,
+    model: state.model ?? current.model,
+    settled: state.settled ?? current.settled,
+    exchange: state.exchange ?? current.exchange,
+    exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
+    exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
   })
 }
 
@@ -539,27 +564,41 @@ export function recordAimlapiSettledKeyAsync(
 export function recordAimlapiCheckoutSession(
   state: AimlapiPersistedTopup,
 ): AimlapiCheckoutState | null {
-  return withStateLock(() => {
-    const current = matchingStateOrNull(state)
-    if (!current) return null
-    // A peer already recorded a session for this payment id: keep theirs so the
-    // loser adopts the winning token instead of overwriting it.
-    if (current.resumeSessionToken?.trim()) {
-      return toCheckoutState(current)
-    }
-    const recorded: AimlapiPersistedTopup = {
-      ...state,
-      apiKey: state.apiKey ?? current.apiKey,
-      apiKeyId: state.apiKeyId ?? current.apiKeyId,
-      model: state.model ?? current.model,
-      settled: state.settled ?? current.settled,
-      exchange: state.exchange ?? current.exchange,
-      exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
-      exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
-    }
-    writeAimlapiTopupStateUnlocked(recorded)
-    return toCheckoutState(recorded)
-  })
+  return withStateLock(() => recordCheckoutSessionOperation(state))
+}
+
+/**
+ * Non-blocking counterpart for the interactive flow, which must never risk
+ * freezing Ink's render loop, Esc, or SIGINT on lock contention (the sync
+ * lock's `Atomics.wait` retry blocks the whole event loop for up to
+ * `LOCK_TIMEOUT_MS`). See `recordAimlapiCheckoutSession`.
+ */
+export function recordAimlapiCheckoutSessionAsync(
+  state: AimlapiPersistedTopup,
+): Promise<AimlapiCheckoutState | null> {
+  return withStateLockAsync(() => recordCheckoutSessionOperation(state))
+}
+
+function recordCheckoutSessionOperation(state: AimlapiPersistedTopup): AimlapiCheckoutState | null {
+  const current = matchingStateOrNull(state)
+  if (!current) return null
+  // A peer already recorded a session for this payment id: keep theirs so the
+  // loser adopts the winning token instead of overwriting it.
+  if (current.resumeSessionToken?.trim()) {
+    return toCheckoutState(current)
+  }
+  const recorded: AimlapiPersistedTopup = {
+    ...state,
+    apiKey: state.apiKey ?? current.apiKey,
+    apiKeyId: state.apiKeyId ?? current.apiKeyId,
+    model: state.model ?? current.model,
+    settled: state.settled ?? current.settled,
+    exchange: state.exchange ?? current.exchange,
+    exchangeLeaseOwner: state.exchangeLeaseOwner ?? current.exchangeLeaseOwner,
+    exchangeLeaseAt: state.exchangeLeaseAt ?? current.exchangeLeaseAt,
+  }
+  writeAimlapiTopupStateUnlocked(recorded)
+  return toCheckoutState(recorded)
 }
 
 /**
@@ -645,8 +684,13 @@ function claimTopupStateOperation(
     // not-yet-paid existing-account key — still worth keeping, matching
     // resetAimlapiCheckoutSession's retain-key pattern. Deliberately
     // excludes `settled`/`exchange`: those describe the OLD payment
-    // intent's outcome, not this new one's.
-    ...(options.abandonExisting && existing?.apiKey?.trim()
+    // intent's outcome, not this new one's. `email` doubles as the account/
+    // key identity (a `key:<hash>` id for the by-key flow), so it must match
+    // too — abandonExisting also covers "switch account", where the retained
+    // key belongs to a DIFFERENT identity and carrying it into the new claim
+    // would let a later resume pay account A but save A's key into B's
+    // receipt.
+    ...(options.abandonExisting && existing?.apiKey?.trim() && existing.email === intent.email
       ? { apiKey: existing.apiKey, apiKeyId: existing.apiKeyId, model: existing.model }
       : {}),
   }
@@ -840,6 +884,87 @@ export function refreshAimlapiExchangeLeaseAsync(
   owner: string,
 ): Promise<boolean> {
   return withStateLockAsync(() => refreshExchangeLeaseOperation(expected, owner))
+}
+
+/**
+ * Outcome of a key-mint lease acquisition (see `keyMintLeaseOwner`):
+ * - `acquired`: the caller holds the lease and is the sole process cleared to
+ *   POST /v1/keys.
+ * - `minted`: a peer already minted and recorded a key — resume from it.
+ * - `held`: a live peer holds a fresh lease and is minting — wait for its
+ *   result rather than minting in parallel.
+ * - `gone`: the checkout for this intent + payment id was cleared/reset meanwhile.
+ */
+export type AimlapiKeyMintLease =
+  | { status: 'acquired'; state: AimlapiCheckoutState }
+  | { status: 'minted'; state: AimlapiCheckoutState }
+  | { status: 'held'; owner: string; ageMs: number }
+  | { status: 'gone' }
+
+function acquireKeyMintLeaseOperation(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): AimlapiKeyMintLease {
+  const current = matchingStateOrNull(expected)
+  if (!current) return { status: 'gone' }
+  // A peer already minted a key for this intent.
+  if (current.apiKey?.trim()) {
+    return { status: 'minted', state: toCheckoutState(current) }
+  }
+  const now = Date.now()
+  const leaseOwner = current.keyMintLeaseOwner
+  const heldAt = current.keyMintLeaseAt
+  // See acquireExchangeLeaseOperation: a future-dated lease cannot describe a
+  // live holder on this machine, so treat it as stale and reclaimable too.
+  const ageMs =
+    typeof heldAt === 'number' && heldAt <= now ? now - heldAt : Number.POSITIVE_INFINITY
+  if (
+    typeof leaseOwner === 'string' &&
+    leaseOwner !== owner &&
+    ageMs < KEY_MINT_LEASE_STALE_MS
+  ) {
+    return { status: 'held', owner: leaseOwner, ageMs }
+  }
+  writeAimlapiTopupStateUnlocked({
+    ...current,
+    keyMintLeaseOwner: owner,
+    keyMintLeaseAt: now,
+  })
+  return { status: 'acquired', state: toCheckoutState(current) }
+}
+
+/**
+ * Elect a single process to mint the existing-account key for a checkout,
+ * serializing racing same-intent processes onto one POST /v1/keys instead of
+ * each minting (and orphaning) their own credential. See `AimlapiKeyMintLease`.
+ * Async so it never blocks the Ink event loop.
+ */
+export function acquireAimlapiKeyMintLeaseAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): Promise<AimlapiKeyMintLease> {
+  return withStateLockAsync(() => acquireKeyMintLeaseOperation(expected, owner))
+}
+
+/**
+ * Release the key-mint lease after a failed (or unknown-outcome) mint attempt
+ * so a retry proceeds promptly instead of waiting out the stale window.
+ * Best-effort and ownership-aware. Never called on success — the recorded key
+ * supersedes the lease there.
+ */
+export function releaseAimlapiKeyMintLeaseAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  owner: string,
+): Promise<void> {
+  return withStateLockAsync(() => {
+    const current = matchingStateOrNull(expected)
+    if (!current || current.keyMintLeaseOwner !== owner || current.apiKey?.trim()) return
+    writeAimlapiTopupStateUnlocked({
+      ...current,
+      keyMintLeaseOwner: undefined,
+      keyMintLeaseAt: undefined,
+    })
+  })
 }
 
 // --- Sign-in key cache ------------------------------------------------------

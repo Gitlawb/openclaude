@@ -13,8 +13,10 @@ import { join } from 'node:path'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
   acquireAimlapiExchangeLeaseAsync,
+  acquireAimlapiKeyMintLeaseAsync,
   refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
+  releaseAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
   claimAimlapiTopupStateAsync,
   clearAimlapiTopupState,
@@ -150,6 +152,69 @@ test('a failed exchange releases the lease so a retry can proceed', async () => 
   await releaseAimlapiExchangeLeaseAsync(expected, 'owner-a')
   // ...and the next acquirer may proceed instead of waiting out the stale window.
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
+})
+
+test('the key-mint lease elects one minter and lets peers resume the recorded key', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // The first process holds the lease and is the sole cleared minter.
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  // A concurrent peer finds a fresh foreign lease and must back off (not mint
+  // its own key) — this is what stops two processes both calling POST
+  // /v1/keys and orphaning one of the two resulting credentials.
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('held')
+
+  // Once the holder records the minted key, a peer resumes from it.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    apiKey: 'minted-key',
+    apiKeyId: 'minted-id',
+  })
+  const resumed = await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')
+  expect(resumed.status).toBe('minted')
+  expect(resumed.status === 'minted' && resumed.state.apiKey).toBe('minted-key')
+
+  // A cleared/reset slot reports 'gone' so a stray process never mints for it.
+  clearAimlapiTopupState(expected)
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('gone')
+})
+
+test('a failed key mint releases the lease so a retry can proceed', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('held')
+  // The holder's mint failed, so it releases the lease...
+  await releaseAimlapiKeyMintLeaseAsync(expected, 'owner-a')
+  // ...and the next acquirer may proceed instead of waiting out the stale window.
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('acquired')
+})
+
+test('releasing the key-mint lease is scoped to the owner and never drops a minted key', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')
+  // A stale/foreign release must not touch owner-a's lease.
+  await releaseAimlapiKeyMintLeaseAsync(expected, 'owner-b')
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')).status).toBe('held')
+
+  // Once minted, "releasing" (e.g. a late/duplicate cleanup call) must not
+  // drop the recorded key.
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    apiKey: 'minted-key',
+    apiKeyId: 'minted-id',
+  })
+  await releaseAimlapiKeyMintLeaseAsync(expected, 'owner-a')
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('minted-key')
 })
 
 test('releasing the exchange lease is scoped to the owner and never drops a settled receipt', async () => {

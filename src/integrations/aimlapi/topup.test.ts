@@ -223,6 +223,53 @@ test('sign-in adopts a peer-recorded key instead of minting a second one', async
   expect(saved.apiKeyId).toBe('peer-id')
 })
 
+test('two concurrent sign-ins for the same intent never both mint a key', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      // Hold the POST open long enough for the concurrent run to reach its
+      // own lease acquire attempt and observe this one still in flight
+      // (status 'held'), instead of racing it to a second POST.
+      await new Promise(resolve => setTimeout(resolve, 200))
+      return Response.json({ key: `minted-key-${keyMints}`, id: `minted-id-${keyMints}` })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    // Both runs fail the same way right after the key-mint step — full
+    // payment settlement is not what's under test here.
+    if (url.endsWith('/pay')) throw new Error('ambiguous payment response')
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const runOnce = () =>
+    runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true })
+
+  const [resultA, resultB] = await Promise.allSettled([runOnce(), runOnce()])
+  expect(resultA.status).toBe('rejected')
+  expect(resultB.status).toBe('rejected')
+
+  // The core guarantee: exactly one POST /v1/keys happened, not two — the
+  // loser's lease-acquire attempt found the winner's lease held and adopted
+  // its recorded key instead of minting (and orphaning) its own.
+  expect(keyMints).toBe(1)
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as { apiKey: string }
+  expect(saved.apiKey).toBe('minted-key-1')
+}, 10_000)
+
 test('a successful exchange persists the settled receipt before returning it', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
   temporaryDirectories.push(configDirectory)
