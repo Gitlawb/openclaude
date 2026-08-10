@@ -17,7 +17,7 @@ import {
   getRemoteEgressOmittedParentsForTesting,
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
-  MAX_TRANSCRIPT_READ_BYTES,
+  OMISSION_REBUILD_TAIL_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
   recordExternalEgressOmission,
@@ -369,7 +369,7 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
     }
   })
 
-  test('bounded tail rebuild recovers recent omissions when over MAX_TRANSCRIPT_READ_BYTES', async () => {
+  test('bounded tail rebuild recovers recent omissions when over OMISSION_REBUILD_TAIL_BYTES', async () => {
     process.env.USER_TYPE = 'external'
     const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-rebuild-tail-'))
     const path = join(dir, 'session.jsonl')
@@ -377,7 +377,7 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
     const listingUuid = id(22)
     try {
       // Prefix larger than the rebuild budget so the oversized path runs.
-      await writeFile(path, Buffer.alloc(MAX_TRANSCRIPT_READ_BYTES + 1, 0x78))
+      await writeFile(path, Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 1, 0x78))
       await appendFile(
         path,
         '\n' +

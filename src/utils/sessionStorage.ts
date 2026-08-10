@@ -553,6 +553,11 @@ export function getTranscriptPathForSession(sessionId: string): string {
 // read the raw transcript must bail out above this threshold to avoid OOM.
 export const MAX_TRANSCRIPT_READ_BYTES = 50 * 1024 * 1024
 
+// Omission-map rebuild only needs recent withheld ancestry for post-resume
+// reparenting — not the full 50 MiB product-transcript budget. Keep this
+// tail small so oversized sessions avoid a large synchronous startup read.
+export const OMISSION_REBUILD_TAIL_BYTES = 2 * 1024 * 1024
+
 // In-memory map of agentId → subdirectory for grouping related subagent
 // transcripts (e.g. workflow runs write to subagents/workflows/<runId>/).
 // Populated before the agent runs; consulted by getAgentTranscriptPath.
@@ -1271,7 +1276,7 @@ class Project {
    * so the first post-resume remote append whose parentUuid pointed at a
    * withheld entry can reparent instead of dangling on CCR / session-ingress.
    *
-   * Reads the full file when under MAX_TRANSCRIPT_READ_BYTES. For larger
+   * Reads the full file when under OMISSION_REBUILD_TAIL_BYTES. For larger
    * sessions (can reach GBs), performs a bounded tail read of that same
    * budget so recent omission ancestry is still available for post-resume
    * reparenting — never abandons the map as empty solely due to size.
@@ -3654,7 +3659,7 @@ function ingestRemoteEgressOmissionsFromTranscriptContent(
 
 /**
  * Load transcript text for omission-map rebuild. Full file when under
- * MAX_TRANSCRIPT_READ_BYTES; otherwise a bounded tail of that budget
+ * OMISSION_REBUILD_TAIL_BYTES; otherwise a bounded tail of that budget
  * (skipping a leading partial line) so huge sessions still recover recent
  * withheld ancestry without OOM.
  */
@@ -3666,12 +3671,12 @@ function readTranscriptContentForOmissionRebuild(
     fd = openSync(fullPath, 'r')
     const size = fstatSync(fd).size
     if (size === 0) return ''
-    if (size <= MAX_TRANSCRIPT_READ_BYTES) {
+    if (size <= OMISSION_REBUILD_TAIL_BYTES) {
       closeSync(fd)
       fd = undefined
       return readFileSync(fullPath, 'utf8')
     }
-    const readSize = MAX_TRANSCRIPT_READ_BYTES
+    const readSize = Math.min(OMISSION_REBUILD_TAIL_BYTES, size)
     const start = size - readSize
     const buf = Buffer.allocUnsafe(readSize)
     const bytesRead = readSync(fd, buf, 0, readSize, start)
