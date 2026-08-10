@@ -35,39 +35,44 @@ jobs:
         run: |
           set -euo pipefail
 
-          candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number)"
+          candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 10 --json number,headRefName,author)"
           candidate_count="$(jq length <<<"$candidates")"
           if [ "$candidate_count" -eq 0 ]; then
             exit 0
           fi
-          if [ "$candidate_count" -ne 1 ]; then
-            echo "expected at most one pending Release Please PR for $RELEASE_BASE_BRANCH, found $candidate_count" >&2
-            exit 1
-          fi
 
-          number="$(jq -r '.[0].number' <<<"$candidates")"
-          release_pr="$(gh pr view "$number" --json state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
           expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
+          drafted=0
+          while IFS= read -r number; do
+            [ -n "$number" ] || continue
+            release_pr="$(gh pr view "$number" --json state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
 
-          if [ "$(jq -r .state <<<"$release_pr")" != "OPEN" ] \
-            || { [ "$(jq -r .author.login <<<"$release_pr")" != "app/github-actions" ] \
-              && [ "$(jq -r .author.login <<<"$release_pr")" != "github-actions[bot]" ]; } \
-            || [ "$(jq -r .baseRefName <<<"$release_pr")" != "$RELEASE_BASE_BRANCH" ] \
-            || [[ "$(jq -r .headRefName <<<"$release_pr")" != "$expected_prefix"* ]] \
-            || [ -z "$(jq -r .headRefOid <<<"$release_pr")" ] \
-            || [ "$(jq -r .headRepositoryOwner.login <<<"$release_pr")" != "$RELEASE_REPO_OWNER" ] \
-            || [ "$(jq -r .isCrossRepository <<<"$release_pr")" != "false" ]; then
-            echo "pending PR #$number does not match the expected same-repository Release Please identity" >&2
-            jq . <<<"$release_pr" >&2
-            exit 1
-          fi
+            if [ "$(jq -r .state <<<"$release_pr")" != "OPEN" ] \
+              || { [ "$(jq -r .author.login <<<"$release_pr")" != "app/github-actions" ] \
+                && [ "$(jq -r .author.login <<<"$release_pr")" != "github-actions[bot]" ]; } \
+              || [ "$(jq -r .baseRefName <<<"$release_pr")" != "$RELEASE_BASE_BRANCH" ] \
+              || [[ "$(jq -r .headRefName <<<"$release_pr")" != "$expected_prefix"* ]] \
+              || [ -z "$(jq -r .headRefOid <<<"$release_pr")" ] \
+              || [ "$(jq -r .headRepositoryOwner.login <<<"$release_pr")" != "$RELEASE_REPO_OWNER" ] \
+              || [ "$(jq -r .isCrossRepository <<<"$release_pr")" != "false" ]; then
+              echo "ignoring non-bot or mismatched autorelease: pending PR #$number" >&2
+              jq . <<<"$release_pr" >&2
+              continue
+            fi
 
-          if [ "$(jq -r .isDraft <<<"$release_pr")" = "false" ]; then
-            gh pr ready "$number" --undo
-          fi
+            if [ "$(jq -r .isDraft <<<"$release_pr")" = "false" ]; then
+              gh pr ready "$number" --undo
+            fi
 
-          if [ "$(gh pr view "$number" --json isDraft --jq .isDraft)" != "true" ]; then
-            echo "failed to keep pending Release Please PR #$number in draft state" >&2
+            if [ "$(gh pr view "$number" --json isDraft --jq .isDraft)" != "true" ]; then
+              echo "failed to keep pending Release Please PR #$number in draft state" >&2
+              exit 1
+            fi
+            drafted=$((drafted + 1))
+          done < <(jq -r '.[].number' <<<"$candidates")
+
+          if [ "$drafted" -gt 1 ]; then
+            echo "expected at most one pending Release Please bot PR for $RELEASE_BASE_BRANCH, drafted $drafted" >&2
             exit 1
           fi
 
@@ -77,23 +82,28 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Web sync for the pending Release Please PR runs in its own job so a sync
-  # failure cannot skip npm/docker publish after Release Please already created
-  # a release/tag on this push.
-  sync-web-release:
-    name: Sync web release entry
+  # Validate the pending Release Please web entry with read-only credentials.
+  # A separate write job applies only the validated releases.ts artifact so
+  # PR-head scripts never run with contents/pull-requests write access.
+  # Sync failure must not block npm/docker after a release/tag is created.
+  validate-web-release:
+    name: Validate web release entry
     needs: release-please
     if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: sync-web-release-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
-      contents: write # Push the synced releases.ts commit to the bot release PR branch.
-      pull-requests: write # Keep the bot release PR draft until sync lands, then mark ready.
+      contents: read # Check out the bot PR head and run sync/validation only.
+      pull-requests: read # Resolve the pending bot release PR identity.
+    outputs:
+      found: ${{ steps.release-pr.outputs.found }}
+      number: ${{ steps.release-pr.outputs.number }}
+      branch: ${{ steps.release-pr.outputs.branch }}
+      head_sha: ${{ steps.release-pr.outputs.head_sha }}
+      needs_commit: ${{ steps.sync-web.outputs.needs_commit }}
     steps:
-      # Resolve the pending bot PR (from the action output, or by label on
-      # reruns where Release Please leaves an unchanged PR untouched). Keep it
-      # draft, sync releases.ts from the trusted merge base, validate the sync
-      # locally, push, then mark ready. Do not wait for ordinary PR checks:
-      # GITHUB_TOKEN pushes do not start them.
       - name: Resolve pending Release Please PR
         id: release-pr
         env:
@@ -105,56 +115,94 @@ jobs:
         run: |
           set -euo pipefail
 
-          release_pr="$RELEASE_PR_JSON"
-          if [ -z "$release_pr" ] || [ "$release_pr" = "null" ]; then
-            candidates="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 2 --json number)"
-            candidate_count="$(jq length <<<"$candidates")"
-            if [ "$candidate_count" -eq 0 ]; then
+          expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
+
+          matches_bot_identity() {
+            local release_pr="$1"
+            local state author base branch head_sha head_owner cross_repo
+            state="$(jq -r .state <<<"$release_pr")"
+            author="$(jq -r .author.login <<<"$release_pr")"
+            base="$(jq -r .baseRefName <<<"$release_pr")"
+            branch="$(jq -r .headRefName <<<"$release_pr")"
+            head_sha="$(jq -r .headRefOid <<<"$release_pr")"
+            head_owner="$(jq -r .headRepositoryOwner.login <<<"$release_pr")"
+            cross_repo="$(jq -r .isCrossRepository <<<"$release_pr")"
+            [ "$state" = "OPEN" ] \
+              && { [ "$author" = "app/github-actions" ] || [ "$author" = "github-actions[bot]" ]; } \
+              && [ "$base" = "$RELEASE_BASE_BRANCH" ] \
+              && [[ "$branch" == "$expected_prefix"* ]] \
+              && [ -n "$head_sha" ] \
+              && [ "$head_owner" = "$RELEASE_REPO_OWNER" ] \
+              && [ "$cross_repo" = "false" ]
+          }
+
+          discover_bot_prs() {
+            # Discover by bot branch prefix, not only the label, so a stripped
+            # label cannot leave a ready bot PR unvalidated. Ignore mislabeled
+            # non-bot PRs instead of failing the release pipeline.
+            gh pr list \
+              --state open \
+              --base "$RELEASE_BASE_BRANCH" \
+              --limit 50 \
+              --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository \
+              | jq -c \
+                --arg prefix "$expected_prefix" \
+                --arg owner "$RELEASE_REPO_OWNER" \
+                --arg base "$RELEASE_BASE_BRANCH" '
+                  [
+                    .[]
+                    | select(
+                        .state == "OPEN"
+                        and (.author.login == "app/github-actions" or .author.login == "github-actions[bot]")
+                        and .baseRefName == $base
+                        and (.headRefName | startswith($prefix))
+                        and (.headRefOid | length) > 0
+                        and .headRepositoryOwner.login == $owner
+                        and .isCrossRepository == false
+                      )
+                  ]
+                '
+          }
+
+          release_pr=""
+          if [ -n "${RELEASE_PR_JSON:-}" ] && [ "$RELEASE_PR_JSON" != "null" ]; then
+            number="$(jq -r '.number // empty' <<<"$RELEASE_PR_JSON")"
+            if [ -n "$number" ]; then
+              candidate="$(gh pr view "$number" --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
+              if matches_bot_identity "$candidate"; then
+                release_pr="$candidate"
+              else
+                echo "release-please pr output #$number is not an open same-repo bot release PR; falling back to discovery" >&2
+                jq . <<<"$candidate" >&2
+              fi
+            fi
+          fi
+
+          if [ -z "$release_pr" ]; then
+            matches="$(discover_bot_prs)"
+            match_count="$(jq length <<<"$matches")"
+            if [ "$match_count" -eq 0 ]; then
+              # If something carries the pending label but is not a bot release
+              # PR, ignore it and stay green only when no bot release PR exists.
+              labeled="$(gh pr list --state open --base "$RELEASE_BASE_BRANCH" --label 'autorelease: pending' --limit 10 --json number,headRefName,author)"
+              if [ "$(jq length <<<"$labeled")" -gt 0 ]; then
+                echo "ignoring non-bot autorelease: pending PR(s); no matching Release Please bot PR found" >&2
+                jq . <<<"$labeled" >&2
+              fi
               echo "found=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ "$candidate_count" -ne 1 ]; then
-              echo "expected exactly one pending Release Please PR for $RELEASE_BASE_BRANCH, found $candidate_count" >&2
+            if [ "$match_count" -ne 1 ]; then
+              echo "expected exactly one pending Release Please bot PR for $RELEASE_BASE_BRANCH, found $match_count" >&2
+              jq . <<<"$matches" >&2
               exit 1
             fi
-            release_pr="$(jq -c '.[0]' <<<"$candidates")"
+            release_pr="$(jq -c '.[0]' <<<"$matches")"
           fi
 
-          number="$(jq -r '.number // empty' <<<"$release_pr")"
-          if [ -z "$number" ]; then
-            echo "release PR JSON is missing its number" >&2
-            exit 1
-          fi
-
-          release_pr="$(gh pr view "$number" --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository)"
-          state="$(jq -r .state <<<"$release_pr")"
-          author="$(jq -r .author.login <<<"$release_pr")"
-          base="$(jq -r .baseRefName <<<"$release_pr")"
+          number="$(jq -r .number <<<"$release_pr")"
           branch="$(jq -r .headRefName <<<"$release_pr")"
           head_sha="$(jq -r .headRefOid <<<"$release_pr")"
-          head_owner="$(jq -r .headRepositoryOwner.login <<<"$release_pr")"
-          cross_repo="$(jq -r .isCrossRepository <<<"$release_pr")"
-          expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
-
-          if [ "$state" != "OPEN" ] \
-            || { [ "$author" != "app/github-actions" ] && [ "$author" != "github-actions[bot]" ]; } \
-            || [ "$base" != "$RELEASE_BASE_BRANCH" ] \
-            || [[ "$branch" != "$expected_prefix"* ]] \
-            || [ -z "$head_sha" ] \
-            || [ "$head_owner" != "$RELEASE_REPO_OWNER" ] \
-            || [ "$cross_repo" != "false" ]; then
-            echo "pending PR #$number does not match the expected same-repository Release Please identity" >&2
-            jq . <<<"$release_pr" >&2
-            exit 1
-          fi
-
-          if [ "$(jq -r .isDraft <<<"$release_pr")" = "false" ]; then
-            gh pr ready "$number" --undo
-          fi
-          if [ "$(gh pr view "$number" --json isDraft --jq .isDraft)" != "true" ]; then
-            echo "failed to keep pending Release Please PR #$number in draft state" >&2
-            exit 1
-          fi
 
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
@@ -184,6 +232,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          git fetch --no-tags origin "$RELEASE_BASE_BRANCH"
           base_sha="$(git merge-base "origin/$RELEASE_BASE_BRANCH" HEAD)"
           if [ -z "$base_sha" ]; then
             echo "could not resolve the release PR merge base" >&2
@@ -197,48 +246,127 @@ jobs:
           bun install --frozen-lockfile
           bun run sync:web-release -- --base-ref "$base_sha"
           bun test ./scripts/sync-web-release-entry.test.ts
+          # GITHUB_TOKEN pushes do not start ordinary PR checks, so run the
+          # repo's standard gates against the synchronized tree before ready.
+          bun run typecheck
+          bun run typecheck:type-tests
+          bun run security:pr-scan -- --base "origin/$RELEASE_BASE_BRANCH" --head HEAD
+          git diff --check "origin/$RELEASE_BASE_BRANCH"...HEAD
           bun install --cwd web --frozen-lockfile
           bun run web:typecheck
           bun run web:build
 
+          needs_commit=false
           if ! git diff --quiet -- web/src/data/releases.ts; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add web/src/data/releases.ts
-            git commit -m "chore(web): sync releases.ts from release-please changelog"
-          else
-            echo "releases.ts already up to date"
+            needs_commit=true
           fi
+          echo "needs_commit=$needs_commit" >> "$GITHUB_OUTPUT"
 
+          mkdir -p .release-sync-artifact
+          cp web/src/data/releases.ts .release-sync-artifact/releases.ts
+          {
+            echo "number=${{ steps.release-pr.outputs.number }}"
+            echo "branch=${{ steps.release-pr.outputs.branch }}"
+            echo "head_sha=${{ steps.release-pr.outputs.head_sha }}"
+            echo "base_sha=$base_sha"
+            echo "needs_commit=$needs_commit"
+            sha256sum web/src/data/releases.ts | awk '{print "releases_sha256="$1}'
+          } > .release-sync-artifact/metadata.env
+
+          # Validation must not leave a dirty tree for the artifact handoff.
+          git checkout -- web/src/data/releases.ts
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "sync validation left uncommitted tracked changes" >&2
             git status --short
             exit 1
           fi
 
-      - name: Push synchronized web release entry
-        id: push-sync
+      - name: Upload validated releases.ts artifact
         if: ${{ steps.release-pr.outputs.found == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-release-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release-sync-artifact/
+          if-no-files-found: error
+          retention-days: 1
+
+  push-web-release:
+    name: Push web release entry
+    needs: validate-web-release
+    if: ${{ github.repository == 'Gitlawb/openclaude' && needs.validate-web-release.outputs.found == 'true' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: sync-web-release-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: write # Push only the validated releases.ts commit to the bot branch.
+      pull-requests: write # Keep the bot PR draft until push lands, then mark ready.
+    steps:
+      - name: Check out Release Please PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.validate-web-release.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download validated releases.ts artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: web-release-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release-sync-artifact
+
+      - name: Apply validated releases.ts and push
+        id: push-sync
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
-          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-          RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
+          RELEASE_PR_BRANCH: ${{ needs.validate-web-release.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ needs.validate-web-release.outputs.number }}
+          RELEASE_PR_HEAD_SHA: ${{ needs.validate-web-release.outputs.head_sha }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
+          # shellcheck disable=SC1091
+          source .release-sync-artifact/metadata.env
+          if [ "${number}" != "$RELEASE_PR_NUMBER" ] \
+            || [ "${branch}" != "$RELEASE_PR_BRANCH" ] \
+            || [ "${head_sha}" != "$RELEASE_PR_HEAD_SHA" ]; then
+            echo "validated artifact metadata does not match the resolved release PR" >&2
+            cat .release-sync-artifact/metadata.env >&2
+            exit 1
+          fi
+
+          expected_sha256="$releases_sha256"
+          actual_sha256="$(sha256sum .release-sync-artifact/releases.ts | awk '{print $1}')"
+          if [ "$actual_sha256" != "$expected_sha256" ]; then
+            echo "validated releases.ts digest mismatch" >&2
+            exit 1
+          fi
+
+          # Apply only the validated file — do not execute PR-head scripts here.
+          cp .release-sync-artifact/releases.ts web/src/data/releases.ts
+          applied_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
+          if [ "$applied_sha256" != "$expected_sha256" ]; then
+            echo "failed to apply validated releases.ts" >&2
+            exit 1
+          fi
+
+          current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid,author,headRepositoryOwner,isCrossRepository)"
+          expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
           if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
+            || { [ "$(jq -r .author.login <<<"$current")" != "app/github-actions" ] \
+              && [ "$(jq -r .author.login <<<"$current")" != "github-actions[bot]" ]; } \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
-            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ]; then
+            || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
+            || [[ "$(jq -r .headRefName <<<"$current")" != "$expected_prefix"* ]] \
+            || [ "$(jq -r .headRepositoryOwner.login <<<"$current")" != "${GITHUB_REPOSITORY_OWNER}" ] \
+            || [ "$(jq -r .isCrossRepository <<<"$current")" != "false" ]; then
             echo "release PR changed or closed during sync" >&2
             jq . <<<"$current" >&2
             exit 1
           fi
 
-          # Stay draft until the synced commit is on the remote head.
           if [ "$(jq -r .isDraft <<<"$current")" != "true" ]; then
             gh pr ready "$RELEASE_PR_NUMBER" --undo
             if [ "$(gh pr view "$RELEASE_PR_NUMBER" --json isDraft --jq .isDraft)" != "true" ]; then
@@ -247,35 +375,75 @@ jobs:
             fi
           fi
 
+          if [ "$needs_commit" = "true" ]; then
+            if git diff --quiet -- web/src/data/releases.ts; then
+              echo "artifact required a commit but working tree already matches" >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/src/data/releases.ts
+            git commit -m "chore(web): sync releases.ts from release-please changelog"
+          else
+            if ! git diff --quiet -- web/src/data/releases.ts; then
+              echo "artifact claimed no commit but working tree differs" >&2
+              exit 1
+            fi
+            echo "releases.ts already up to date"
+          fi
+
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "push preparation left uncommitted tracked changes" >&2
+            git status --short
+            exit 1
+          fi
+
           current_sha="$(jq -r .headRefOid <<<"$current")"
           local_sha="$(git rev-parse HEAD)"
           if [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
             auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-            GIT_CONFIG_COUNT=1 \
+            if ! GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
               GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
               git push \
               --force-with-lease="refs/heads/${RELEASE_PR_BRANCH}:${RELEASE_PR_HEAD_SHA}" \
               "https://github.com/${GITHUB_REPOSITORY}.git" \
-              "HEAD:${RELEASE_PR_BRANCH}"
+              "HEAD:${RELEASE_PR_BRANCH}"; then
+              # A concurrent sync may have already pushed the same content.
+              remote_sha="$(gh pr view "$RELEASE_PR_NUMBER" --json headRefOid --jq .headRefOid)"
+              if [ "$remote_sha" = "$local_sha" ]; then
+                echo "release PR already points at the synchronized commit after lease race"
+              else
+                echo "release PR head moved during push to an unexpected commit" >&2
+                echo "remote=$remote_sha local=$local_sha" >&2
+                exit 1
+              fi
+            fi
           elif [ "$current_sha" = "$local_sha" ]; then
-            # A rerun after a successful push can skip the lease push.
             echo "release PR already points at the synchronized commit"
           else
-            echo "release PR head changed to an unvalidated commit" >&2
-            jq . <<<"$current" >&2
-            exit 1
+            # Another sync may have landed an equivalent releases.ts commit.
+            remote_file_sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/web/src/data/releases.ts?ref=${current_sha}" --jq .sha)"
+            local_git_sha="$(git rev-parse "HEAD:web/src/data/releases.ts")"
+            if [ "$remote_file_sha" = "$local_git_sha" ]; then
+              echo "release PR head already has the validated releases.ts blob"
+              local_sha="$current_sha"
+            else
+              echo "release PR head changed to an unvalidated commit" >&2
+              jq . <<<"$current" >&2
+              exit 1
+            fi
           fi
 
-          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$local_sha" >> "$GITHUB_OUTPUT"
 
       - name: Mark synchronized release PR ready for review
-        if: ${{ steps.release-pr.outputs.found == 'true' && steps.push-sync.outcome == 'success' }}
+        if: ${{ steps.push-sync.outcome == 'success' }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
-          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
+          RELEASE_PR_NUMBER: ${{ needs.validate-web-release.outputs.number }}
+          RELEASE_PR_BRANCH: ${{ needs.validate-web-release.outputs.branch }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
           VALIDATED_HEAD_SHA: ${{ steps.push-sync.outputs.head_sha }}
         run: |

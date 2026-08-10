@@ -140,16 +140,24 @@ AI-assisted and vibe-coded contributions are welcome, but please review your own
 
 ### Release web synchronization
 
-Release automation regenerates `web/src/data/releases.ts` from the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync runs in a separate workflow job from Release Please so a sync failure cannot block npm or Docker publishing for an already-created release. Automation picks the first five changelog bullets for a new entry; remove the generated-entry marker before hand-curating. To recover the entry on an explicit release/web PR, fetch its current base and run:
+Release automation regenerates `web/src/data/releases.ts` on the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync validates in a read-only job and pushes from a separate write-only job so a sync failure cannot block npm or Docker publishing for an already-created release, and so PR-head scripts never run with write credentials. Automation owns the top generated entry (marked in `releases.ts`); do not hand-edit that file on the bot release branch. To recover the entry on an explicit release/web PR, check out that PR, restore the trusted merge-base copy, then sync and validate:
 
 ```bash
-bun run sync:web-release -- --base-ref <base-ref>
+base_ref="$(git merge-base origin/main HEAD)"
+git show "${base_ref}:web/src/data/releases.ts" > web/src/data/releases.ts
+bun install --frozen-lockfile
+bun run sync:web-release -- --base-ref "$base_ref"
 bun test ./scripts/sync-web-release-entry.test.ts
+bun run typecheck
+bun run typecheck:type-tests
+bun run security:pr-scan -- --base origin/main --head HEAD
+git diff --check origin/main...HEAD
+bun install --cwd web --frozen-lockfile
 bun run web:typecheck
 bun run web:build
 ```
 
-Commit the generated file and confirm those checks leave tracked files unchanged.
+`bun run sync:web-release` writes `web/src/data/releases.ts` from the pending changelog section and manifest version. Commit the generated file and confirm those checks leave tracked files unchanged.
 
 Before submitting, run multiple rounds of review on generated code:
 
