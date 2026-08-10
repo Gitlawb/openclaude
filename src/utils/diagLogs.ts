@@ -12,6 +12,34 @@ type DiagnosticLogEntry = {
 }
 
 /**
+ * Append already-sanitized diagnostic records to an explicit file.
+ *
+ * This is the shared filesystem boundary for opt-in diagnostic streams. Callers
+ * must rebuild records from an allowlist before using it; arbitrary runtime
+ * objects, messages, prompts, and file paths are not safe inputs.
+ */
+export function appendDiagnosticsNoPII(
+  logFile: string,
+  entries: readonly Record<string, unknown>[],
+): void {
+  if (entries.length === 0) return
+
+  const fs = getFsImplementation()
+  const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
+  try {
+    fs.appendFileSync(logFile, lines)
+  } catch {
+    // Match the existing diagnostic logger's best-effort contract.
+    try {
+      fs.mkdirSync(dirname(logFile))
+      fs.appendFileSync(logFile, lines)
+    } catch {
+      // Diagnostics must never change application behavior.
+    }
+  }
+}
+
+/**
  * Logs diagnostic information to a logfile. This information is sent
  * via the environment manager to session-ingress to monitor issues from
  * within the container.
@@ -41,19 +69,7 @@ export function logForDiagnosticsNoPII(
     data: data ?? {},
   }
 
-  const fs = getFsImplementation()
-  const line = jsonStringify(entry) + '\n'
-  try {
-    fs.appendFileSync(logFile, line)
-  } catch {
-    // If append fails, try creating the directory first
-    try {
-      fs.mkdirSync(dirname(logFile))
-      fs.appendFileSync(logFile, line)
-    } catch {
-      // Silently fail if logging is not possible
-    }
-  }
+  appendDiagnosticsNoPII(logFile, [entry])
 }
 
 function getDiagnosticLogFile(): string | undefined {

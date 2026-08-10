@@ -12,6 +12,16 @@ import {
   createThinkTagFilter,
   stripThinkTags,
 } from './thinkTagSanitizer.js'
+import {
+  createReaderCanceller,
+  createStreamAbortError,
+  readWithIdleTimeout,
+  throwIfStreamAborted,
+} from './openaiShim/streamControl.js'
+import {
+  flushInterruptionTrace,
+  traceInterruptionEvent,
+} from '../../utils/interruptionTrace.js'
 
 export interface AnthropicUsage {
   input_tokens: number
@@ -79,42 +89,6 @@ type ResponsesTool = {
 type CodexSseEvent = {
   event: string
   data: Record<string, any>
-}
-
-function createStreamAbortError(): DOMException {
-  return new DOMException('Aborted', 'AbortError')
-}
-
-function throwIfStreamAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createStreamAbortError()
-  }
-}
-
-function createReaderCanceller(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal,
-): {
-    cancel: (error?: unknown) => void
-    cleanup: () => void
-  } {
-  let cancelled = false
-  const cancel = (error: unknown = createStreamAbortError()) => {
-    if (cancelled) return
-    cancelled = true
-    void reader.cancel(error).catch(() => {})
-  }
-  const onAbort = () => cancel(createStreamAbortError())
-
-  signal?.addEventListener('abort', onAbort, { once: true })
-  if (signal?.aborted) {
-    onAbort()
-  }
-
-  return {
-    cancel,
-    cleanup: () => signal?.removeEventListener('abort', onAbort),
-  }
 }
 
 function makeUsage(usage?: Record<string, unknown>): AnthropicUsage {
@@ -708,71 +682,63 @@ export async function performCodexRequest(options: {
   return response
 }
 
-async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGenerator<CodexSseEvent> {
+export type CodexStreamReadOptions = {
+  /** Internal deterministic-test seam; production keeps the 120-second owner. */
+  idleTimeoutMs?: number
+}
+
+async function* readSseEvents(
+  response: Response,
+  signal?: AbortSignal,
+  options: CodexStreamReadOptions = {},
+): AsyncGenerator<CodexSseEvent> {
   const reader = response.body?.getReader()
   if (!reader) return
   const readerCanceller = createReaderCanceller(reader, signal)
 
   const decoder = new TextDecoder()
   let buffer = ''
-  const STREAM_IDLE_TIMEOUT_MS = 120_000 // 2 minutes without data
+  const streamIdleTimeoutMs = options.idleTimeoutMs ?? 120_000
   let lastDataTime = Date.now()
+  let lastParsedFrameTime = lastDataTime
   let streamComplete = false
+  let rawByteCount = 0
+  let parsedFrameCount = 0
+  let ignoredFrameCount = 0
+
+  traceInterruptionEvent('codex_stream.read_started', {
+    subsystem: 'codex_stream',
+    transport: 'codex_responses',
+  })
 
   /**
    * Read from the stream with an idle timeout. Respects the caller's
    * AbortSignal — clears the idle timer on abort so the AbortError
    * surfaces cleanly instead of a spurious idle timeout.
    */
-  async function readWithTimeout(): Promise<Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>> {
-    return new Promise((resolve, reject) => {
-      let settled = false
-      let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+  async function readWithTimeout() {
+    return readWithIdleTimeout(reader!, streamIdleTimeoutMs, {
+      signal,
+      cancelReader: readerCanceller.cancel,
+      createTimeoutError: () => {
         const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
-        cancelAndReject(new Error(
-          `Codex SSE stream idle for ${elapsed}s (limit: ${STREAM_IDLE_TIMEOUT_MS / 1000}s). Connection likely dropped.`,
-        ))
-      }, STREAM_IDLE_TIMEOUT_MS)
-
-      const cleanup = () => {
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId)
-          timeoutId = undefined
-        }
-        signal?.removeEventListener('abort', onAbort)
-      }
-      const finishResolve = (
-        value: Bun.ReadableStreamDefaultReadResult<Uint8Array<ArrayBuffer>>,
-      ) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        if (value.value) lastDataTime = Date.now()
-        resolve(value)
-      }
-      const finishReject = (error: unknown) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      }
-      const cancelAndReject = (error: unknown) => {
-        readerCanceller.cancel(error)
-        finishReject(error)
-      }
-      const onAbort = () => cancelAndReject(createStreamAbortError())
-
-      signal?.addEventListener('abort', onAbort, { once: true })
-      if (signal?.aborted) {
-        onAbort()
-        return
-      }
-
-      // reader is guarded non-null above; hoisted function escapes TS narrowing.
-      reader!.read().then(
-        result => finishResolve(result),
-        err => finishReject(err),
-      )
+        return new Error(
+          `Codex SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
+        )
+      },
+      onTimeout: () => {
+        const now = Date.now()
+        traceInterruptionEvent('codex_stream.idle_timeout', {
+          subsystem: 'codex_stream',
+          transport: 'codex_responses',
+          sinceLastRawByteMs: now - lastDataTime,
+          sinceLastParsedFrameMs: now - lastParsedFrameTime,
+          rawByteCount,
+          parsedFrameCount,
+          ignoredFrameCount,
+        })
+        flushInterruptionTrace('codex_stream_idle_timeout')
+      },
     })
   }
 
@@ -781,10 +747,28 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
       const { done, value } = await readWithTimeout()
       if (done) {
         streamComplete = true
+        traceInterruptionEvent('codex_stream.eof', {
+          subsystem: 'codex_stream',
+          transport: 'codex_responses',
+          rawByteCount,
+          parsedFrameCount,
+          ignoredFrameCount,
+        })
         break
       }
 
       throwIfStreamAborted(signal)
+      if (value) {
+        lastDataTime = Date.now()
+        rawByteCount += value.byteLength
+        if (rawByteCount === value.byteLength) {
+          traceInterruptionEvent('codex_stream.first_raw_byte', {
+            subsystem: 'codex_stream',
+            transport: 'codex_responses',
+            rawByteCount,
+          })
+        }
+      }
       buffer += decoder.decode(value, { stream: true })
       const chunks = buffer.split('\n\n')
       buffer = chunks.pop() ?? ''
@@ -799,27 +783,69 @@ async function* readSseEvents(response: Response, signal?: AbortSignal): AsyncGe
 
         const eventLine = lines.find(line => line.startsWith('event: '))
         const dataLines = lines.filter(line => line.startsWith('data: '))
-        if (!eventLine || dataLines.length === 0) continue
+        if (!eventLine || dataLines.length === 0) {
+          ignoredFrameCount++
+          continue
+        }
 
         const event = eventLine.slice(7).trim()
         const rawData = dataLines.map(line => line.slice(6)).join('\n')
-        if (rawData === '[DONE]') continue
+        if (rawData === '[DONE]') {
+          ignoredFrameCount++
+          continue
+        }
 
         let data: Record<string, any>
         try {
           const parsed = JSON.parse(rawData)
-          if (!parsed || typeof parsed !== 'object') continue
+          if (!parsed || typeof parsed !== 'object') {
+            ignoredFrameCount++
+            continue
+          }
           data = parsed as Record<string, any>
         } catch {
+          ignoredFrameCount++
           continue
         }
 
         throwIfStreamAborted(signal)
+        parsedFrameCount++
+        lastParsedFrameTime = Date.now()
+        if (parsedFrameCount === 1) {
+          traceInterruptionEvent('codex_stream.first_parsed_frame', {
+            subsystem: 'codex_stream',
+            transport: 'codex_responses',
+            rawByteCount,
+            parsedFrameCount,
+            ignoredFrameCount,
+          })
+        }
         yield { event, data }
       }
     }
+  } catch (error) {
+    traceInterruptionEvent('codex_stream.error', {
+      subsystem: 'codex_stream',
+      transport: 'codex_responses',
+      outcome: signal?.aborted ? 'root_aborted' : 'external_error',
+      reason: signal?.reason,
+      error,
+      rawByteCount,
+      parsedFrameCount,
+      ignoredFrameCount,
+    })
+    flushInterruptionTrace('codex_stream_error')
+    throw error
   } finally {
     if (!streamComplete || signal?.aborted) {
+      traceInterruptionEvent('codex_stream.cancelled', {
+        subsystem: 'codex_stream',
+        transport: 'codex_responses',
+        reason: signal?.reason,
+        rawByteCount,
+        parsedFrameCount,
+        ignoredFrameCount,
+      })
       readerCanceller.cancel(createStreamAbortError())
     }
     readerCanceller.cleanup()
@@ -886,6 +912,7 @@ export async function* codexStreamToAnthropic(
   response: Response,
   model: string,
   signal?: AbortSignal,
+  readOptions: CodexStreamReadOptions = {},
 ): AsyncGenerator<AnthropicStreamEvent> {
   const messageId = makeMessageId()
   const toolBlocksByItemId = new Map<
@@ -898,6 +925,7 @@ export async function* codexStreamToAnthropic(
   let sawToolUse = false
   let finalResponse: Record<string, any> | undefined
   let streamComplete = false
+  let ignoredParsedFrameCount = 0
   const cancelResponseBody = () => {
     void response.body?.cancel(createStreamAbortError()).catch(() => {})
   }
@@ -953,7 +981,7 @@ export async function* codexStreamToAnthropic(
       },
     }
 
-    for await (const event of readSseEvents(response, signal)) {
+    for await (const event of readSseEvents(response, signal, readOptions)) {
       throwIfStreamAborted(signal)
       const payload = event.data
 
@@ -1122,6 +1150,15 @@ export async function* codexStreamToAnthropic(
           payload?.error?.message ?? 'Codex response failed'
         throw APIError.generate(500, undefined, msg, new Headers())
       }
+
+      ignoredParsedFrameCount++
+      if (ignoredParsedFrameCount === 1) {
+        traceInterruptionEvent('codex_stream.first_parsed_frame_ignored', {
+          subsystem: 'codex_stream',
+          transport: 'codex_responses',
+          ignoredFrameCount: ignoredParsedFrameCount,
+        })
+      }
     }
 
     throwIfStreamAborted(signal)
@@ -1154,6 +1191,17 @@ export async function* codexStreamToAnthropic(
     yield { type: 'message_stop' }
     streamComplete = true
   } finally {
+    traceInterruptionEvent('codex_stream.converter_closed', {
+      subsystem: 'codex_stream',
+      transport: 'codex_responses',
+      outcome: streamComplete
+        ? 'complete'
+        : signal?.aborted
+          ? 'root_aborted'
+          : 'incomplete',
+      reason: signal?.reason,
+      ignoredFrameCount: ignoredParsedFrameCount,
+    })
     if (!streamComplete || signal?.aborted) {
       cancelResponseBody()
     }

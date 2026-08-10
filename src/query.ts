@@ -56,6 +56,10 @@ import {
   shouldCreateUserInterruptionMessage,
 } from './utils/abortReasons.js'
 import {
+  flushInterruptionTrace,
+  traceInterruptionEvent,
+} from './utils/interruptionTrace.js'
+import {
   createAssistantMessage,
   createUserMessage,
   createUserInterruptionMessage,
@@ -185,6 +189,25 @@ async function cleanupComputerUseAtTerminal(
   }
 }
 
+function traceAbortMessageSelection(
+  abortReason: unknown,
+  phase: 'streaming' | 'tools' | 'post-tools',
+): void {
+  const createsUserInterruption = shouldCreateUserInterruptionMessage(abortReason)
+  const createsSystemWarning = getQueryAbortSystemMessage(abortReason) !== null
+  traceInterruptionEvent('query.abort_classified', {
+    subsystem: 'query',
+    phase,
+    reason: abortReason,
+    outcome: createsUserInterruption
+      ? 'user_interruption'
+      : createsSystemWarning
+        ? 'system_warning'
+        : 'silent',
+  })
+  flushInterruptionTrace('query_abort_classified')
+}
+
 async function* emitAbortedStreaming(
   signal: AbortSignal,
   toolUseContext: ToolUseContext,
@@ -194,6 +217,7 @@ async function* emitAbortedStreaming(
 > {
   await cleanupComputerUseAtTerminal(toolUseContext)
   const abortReason = signal.reason
+  traceAbortMessageSelection(abortReason, 'streaming')
   const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
   if (abortSystemMessage) {
     yield createSystemMessage(abortSystemMessage, 'warning')
@@ -211,6 +235,7 @@ function* emitAbortedToolsAfterCleanup(
   hasSharedTurnBudget: boolean,
 ): Generator<Message, Extract<Terminal, { reason: 'aborted_tools' }>> {
   const abortReason = signal.reason
+  traceAbortMessageSelection(abortReason, 'tools')
   const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
   if (abortSystemMessage) {
     yield createSystemMessage(abortSystemMessage, 'warning')
@@ -793,6 +818,16 @@ async function* queryLoop(
     state.messages,
     state.toolUseContext,
   )
+
+  const activeGoal = state.toolUseContext.getAppState().goal
+  if (activeGoal?.status === 'active') {
+    traceInterruptionEvent('goal.main_turn_started', {
+      subsystem: 'goal',
+      phase: 'main_query',
+      querySource,
+      attemptId: activeGoal.id,
+    })
+  }
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -2007,6 +2042,7 @@ async function* queryLoop(
     // Without this, tool_use blocks would lack matching tool_result blocks.
     if (toolUseContext.abortController.signal.aborted) {
       const abortReason = toolUseContext.abortController.signal.reason
+      traceAbortMessageSelection(abortReason, 'post-tools')
       if (streamingToolExecutor) {
         // Consume remaining results - executor generates synthetic tool_results for
         // aborted tools since it checks the abort signal in executeTool()

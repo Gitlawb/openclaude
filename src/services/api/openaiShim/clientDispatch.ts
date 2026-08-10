@@ -1,5 +1,10 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
+import {
+  registerInterruptionController,
+  requestAbort,
+  traceInterruptionEvent,
+} from '../../../utils/interruptionTrace.js'
 import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
   isLikelyOllamaEndpoint,
@@ -90,6 +95,16 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   ) {
     this.makeGenerator = makeGenerator
     this.parentSignal = parentSignal
+    registerInterruptionController(this.controller, {
+      subsystem: 'openai_shim_dispatch',
+      controllerRole: 'stream-controller',
+    })
+    if (parentSignal) {
+      traceInterruptionEvent('stream.parent_attached', {
+        subsystem: 'openai_shim_dispatch',
+        controllerRole: 'stream-controller',
+      })
+    }
 
     if (cancelBeforeIteration) {
       let cleaned = false
@@ -129,6 +144,10 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
 
     const combined = createCombinedAbortSignal(this.parentSignal, {
       signalB: this.controller.signal,
+      trace: {
+        subsystem: 'openai_shim_dispatch',
+        controllerRole: 'stream-combined',
+      },
     })
     this.cleanupCombinedSignal = combined.cleanup
     this.generator = this.makeGenerator(combined.signal)
@@ -143,7 +162,11 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
       completed = true
     } finally {
       if (!completed && !this.controller.signal.aborted) {
-        this.controller.abort()
+        requestAbort(this.controller, undefined, {
+          source: 'iterator_closed',
+          subsystem: 'openai_shim_dispatch',
+          controllerRole: 'stream-controller',
+        })
       }
       this.cleanupCombinedSignal?.()
       this.cleanupCombinedSignal = undefined

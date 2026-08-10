@@ -5,6 +5,7 @@ import type { ToolUseContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { logForDiagnosticsNoPII } from '../../utils/diagLogs.js'
+import { traceInterruptionEvent } from '../../utils/interruptionTrace.js'
 import { createSystemMessage, createUserMessage } from '../../utils/messages.js'
 import { evaluateGoal as evaluateGoalDefault } from './evaluator.js'
 import { buildGoalContinuationInstruction } from './instructions.js'
@@ -173,6 +174,12 @@ export async function* evaluateGoalAfterTurn({
     return []
   }
 
+  traceInterruptionEvent('goal.evaluation_started', {
+    subsystem: 'goal',
+    phase: 'evaluator',
+    querySource,
+    attemptId: goal.id,
+  })
   const decision = await evaluateGoal({
     goal,
     messages: getRecentGoalEvaluationMessages(
@@ -182,6 +189,14 @@ export async function* evaluateGoalAfterTurn({
     signal: toolUseContext.abortController.signal,
     isNonInteractiveSession:
       toolUseContext.options.isNonInteractiveSession ?? false,
+  })
+  traceInterruptionEvent('goal.evaluation_completed', {
+    subsystem: 'goal',
+    phase: 'evaluator',
+    querySource,
+    attemptId: goal.id,
+    outcome: decision.decision,
+    reason: toolUseContext.abortController.signal.reason,
   })
 
   if (toolUseContext.abortController.signal.aborted) return []

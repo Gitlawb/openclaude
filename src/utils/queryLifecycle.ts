@@ -67,6 +67,7 @@ export type QueryGuardTimeoutInfo = {
   elapsedMs: number
   context: QueryLifecycleContext
   activeOperations: QueryActiveOperationSnapshot
+  causalEventId?: string
 }
 
 export function getQueryTerminalReason(

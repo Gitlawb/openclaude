@@ -1,5 +1,6 @@
 import type { SystemPrompt } from '../../utils/systemPromptType.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { traceInterruptionEvent } from '../../utils/interruptionTrace.js'
 import { queryHaiku } from '../api/claude.js'
 import type { GoalEvaluatorDecision, GoalState } from './types.js'
 
@@ -267,7 +268,13 @@ export async function evaluateGoal({
         'Goal evaluator returned malformed JSON; pausing automatic goal continuation.',
       nextInstruction: null,
     }
-  } catch {
+  } catch (error) {
+    traceInterruptionEvent('goal.evaluation_failed', {
+      subsystem: 'goal',
+      phase: 'evaluator',
+      error,
+      reason: signal.reason,
+    })
     return {
       complete: false,
       confidence: 0,

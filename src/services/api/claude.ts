@@ -175,6 +175,10 @@ import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt
 import { COMPACT_MAX_OUTPUT_TOKENS, getContextWindowForModel, getMaxThinkingTokensForModel } from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
+import {
+  flushInterruptionTrace,
+  traceInterruptionEvent,
+} from 'src/utils/interruptionTrace.js'
 import { type EffortValue, modelSupportsEffort } from 'src/utils/effort.js'
 import type { QueryLifecycleOperationTracker } from 'src/utils/queryLifecycle.js'
 import {
@@ -2123,6 +2127,12 @@ async function* queryModel(
         { level: 'warn' },
       )
       logForDiagnosticsNoPII('warn', 'cli_streaming_idle_warning')
+      traceInterruptionEvent('claude_stream.idle_warning', {
+        subsystem: 'claude_stream',
+        transport: 'anthropic_messages',
+        model: options.model,
+        sinceLastYieldMs: warnMs,
+      })
     }
 
     function closeStreamIterator(
@@ -2158,6 +2168,13 @@ async function* queryModel(
         { level: 'error' },
       )
       logForDiagnosticsNoPII('error', 'cli_streaming_idle_timeout')
+      traceInterruptionEvent('claude_stream.idle_timeout', {
+        subsystem: 'claude_stream',
+        transport: 'anthropic_messages',
+        model: options.model,
+        sinceLastYieldMs: STREAM_IDLE_TIMEOUT_MS,
+      })
+      flushInterruptionTrace('claude_stream_idle_timeout')
       logEvent('tengu_streaming_idle_timeout', {
         model:
           options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -2200,6 +2217,12 @@ async function* queryModel(
         }
         const onAbort = () => {
           const abortError = new APIUserAbortError()
+          traceInterruptionEvent('claude_stream.parent_abort', {
+            subsystem: 'claude_stream',
+            transport: 'anthropic_messages',
+            model: options.model,
+            reason: signal.reason,
+          })
           closeStreamIterator(iterator, abortError)
           settleReject(abortError)
         }
@@ -2630,6 +2653,13 @@ async function* queryModel(
           streamWatchdogFiredAt !== null
             ? Math.round(performance.now() - streamWatchdogFiredAt)
             : -1
+        traceInterruptionEvent('claude_stream.loop_settled', {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          outcome: 'clean',
+          sinceLastYieldMs: exitDelayMs,
+        })
         logForDiagnosticsNoPII(
           'info',
           'cli_stream_loop_exited_after_watchdog_clean',
@@ -2719,6 +2749,14 @@ async function* queryModel(
     } catch (streamingError) {
       // Clear the idle timeout watchdog on error path too
       clearStreamIdleTimers()
+      traceInterruptionEvent('claude_stream.error', {
+        subsystem: 'claude_stream',
+        transport: 'anthropic_messages',
+        model: options.model,
+        outcome: signal.aborted ? 'root_aborted' : 'external_error',
+        reason: signal.reason,
+        error: streamingError,
+      })
 
       // Instrumentation: if the watchdog had already fired and the for-await
       // threw (rather than exiting cleanly), record that the loop DID exit and
@@ -2727,6 +2765,14 @@ async function* queryModel(
         const exitDelayMs = Math.round(
           performance.now() - streamWatchdogFiredAt,
         )
+        traceInterruptionEvent('claude_stream.loop_settled', {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          outcome: 'error',
+          error: streamingError,
+          sinceLastYieldMs: exitDelayMs,
+        })
         logForDiagnosticsNoPII(
           'info',
           'cli_stream_loop_exited_after_watchdog_error',
@@ -2862,6 +2908,12 @@ async function* queryModel(
       // Instrumentation: proves executeNonStreamingRequest was entered (vs. the
       // fallback event firing but the call itself hanging at dispatch).
       logForDiagnosticsNoPII('info', 'cli_nonstreaming_fallback_started')
+      traceInterruptionEvent('claude_stream.fallback_started', {
+        subsystem: 'claude_stream',
+        transport: 'anthropic_messages',
+        model: options.model,
+        trigger: streamIdleAborted ? 'watchdog' : 'other',
+      })
       logEvent('tengu_nonstreaming_fallback_started', {
         request_id: (streamRequestId ??
           'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,

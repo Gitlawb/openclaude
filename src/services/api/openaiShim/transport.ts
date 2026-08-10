@@ -10,6 +10,16 @@ import {
 } from '../../../utils/providerSecrets.js'
 import { redactUrlForDisplay } from '../../../utils/redaction.js'
 import {
+  getInterruptionSignalAbortEventId,
+  getInterruptionSignalId,
+  isInterruptionTraceEnabled,
+  registerInterruptionController,
+  registerInterruptionSignal,
+  requestAbort,
+  traceCombinedSignal,
+  traceInterruptionEvent,
+} from '../../../utils/interruptionTrace.js'
+import {
   buildOpenAICompatibilityErrorMessage,
   classifyOpenAINetworkFailure,
   markOpenAIRequestNonReplayable,
@@ -81,7 +91,10 @@ function combineRequestSignals(
     }
   }
 
-  if (typeof AbortSignal.any === 'function') {
+  if (
+    typeof AbortSignal.any === 'function' &&
+    !isInterruptionTraceEnabled()
+  ) {
     return {
       signal: AbortSignal.any([callerSignal, deadlineSignal]),
       cleanupAfterHeaders: () => {},
@@ -90,13 +103,42 @@ function combineRequestSignals(
   }
 
   const combined = new AbortController()
+  const callerId = registerInterruptionSignal(callerSignal, {
+    subsystem: 'openai_shim_transport',
+    controllerRole: 'request-caller',
+  })
+  const deadlineId = registerInterruptionSignal(deadlineSignal, {
+    subsystem: 'openai_shim_transport',
+    controllerRole: 'headers-deadline',
+  })
+  const parentControllerIds = [callerId, deadlineId].filter(
+    (id): id is string => id !== undefined,
+  )
+  traceCombinedSignal(combined, [callerSignal, deadlineSignal], {
+    subsystem: 'openai_shim_transport',
+    controllerRole: 'request-combined',
+  })
   const abortFromCaller = () => {
     deadlineSignal.removeEventListener('abort', abortFromDeadline)
-    combined.abort(callerSignal.reason)
+    requestAbort(combined, callerSignal.reason, {
+      source: 'request_caller',
+      subsystem: 'openai_shim_transport',
+      controllerRole: 'request-combined',
+      parentControllerIds,
+      winningParentControllerId: getInterruptionSignalId(callerSignal),
+      causalEventId: getInterruptionSignalAbortEventId(callerSignal),
+    })
   }
   const abortFromDeadline = () => {
     callerSignal.removeEventListener('abort', abortFromCaller)
-    combined.abort(deadlineSignal.reason)
+    requestAbort(combined, deadlineSignal.reason, {
+      source: 'headers_deadline',
+      subsystem: 'openai_shim_transport',
+      controllerRole: 'request-combined',
+      parentControllerIds,
+      winningParentControllerId: getInterruptionSignalId(deadlineSignal),
+      causalEventId: getInterruptionSignalAbortEventId(deadlineSignal),
+    })
   }
   const cleanupAfterHeaders = () => {
     deadlineSignal.removeEventListener('abort', abortFromDeadline)
@@ -104,6 +146,10 @@ function combineRequestSignals(
   const cleanup = () => {
     callerSignal.removeEventListener('abort', abortFromCaller)
     cleanupAfterHeaders()
+    traceInterruptionEvent('combined_signal.cleanup', {
+      subsystem: 'openai_shim_transport',
+      controllerRole: 'request-combined',
+    })
   }
 
   callerSignal.addEventListener('abort', abortFromCaller, { once: true })
@@ -187,6 +233,10 @@ export async function fetchWithHeadersDeadline(
   const redactedUrl = redactUrlForDiagnostics(url)
   const fetchWithAttemptDeadline: ProxyRetryFetcher = async (input, attemptInit) => {
     const deadlineController = new AbortController()
+    registerInterruptionController(deadlineController, {
+      subsystem: 'openai_shim_transport',
+      controllerRole: 'headers-deadline',
+    })
     const timeoutReason = new ResponseHeadersTimeoutError(
       options.timeoutMs,
       redactedUrl,
@@ -198,7 +248,12 @@ export async function fetchWithHeadersDeadline(
       cleanupAfterBody,
     } = combineRequestSignals(options.callerSignal, deadlineController.signal)
     const timer = setTimeout(
-      () => deadlineController.abort(timeoutReason),
+      () =>
+        requestAbort(deadlineController, timeoutReason, {
+          source: 'headers_deadline_timer',
+          subsystem: 'openai_shim_transport',
+          controllerRole: 'headers-deadline',
+        }),
       options.timeoutMs,
     )
     timer.unref?.()

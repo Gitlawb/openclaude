@@ -33,15 +33,18 @@ import {
   hasCommandsInQueue,
 } from '../utils/messageQueueManager.js'
 import { emitTaskTerminatedSdk } from '../utils/sdkEventQueue.js'
+import { traceInterruptionEvent } from '../utils/interruptionTrace.js'
 
 /** Time window in ms during which a second press kills all background agents. */
 const KILL_AGENTS_CONFIRM_WINDOW_MS = 3000
+
+export type CancelRequestSource = 'cancel_keybinding' | 'ctrl_c'
 
 type CancelRequestHandlerProps = {
   setToolUseConfirmQueue: (
     f: (toolUseConfirmQueue: ToolUseConfirm[]) => ToolUseConfirm[],
   ) => void
-  onCancel: () => void
+  onCancel: (source: CancelRequestSource, causalEventId?: string) => void
   onAgentsKilled: () => void
   isMessageSelectorVisible: boolean
   screen: Screen
@@ -84,10 +87,12 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const lastKillAgentsPressRef = useRef<number>(0)
   const viewSelectionMode = useAppState(s => s.viewSelectionMode)
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback((
+    source: CancelRequestSource,
+    causalEventId?: string,
+  ) => {
     const cancelProps = {
-      source:
-        'escape' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      source: source as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       streamMode:
         streamMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     }
@@ -97,7 +102,7 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     if (abortSignal !== undefined && !abortSignal.aborted) {
       logEvent('tengu_cancel', cancelProps)
       setToolUseConfirmQueue(() => [])
-      onCancel()
+      onCancel(source, causalEventId)
       return
     }
 
@@ -112,7 +117,7 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     // Fallback: nothing to cancel or pop (shouldn't reach here if isActive is correct)
     logEvent('tengu_cancel', cancelProps)
     setToolUseConfirmQueue(() => [])
-    onCancel()
+    onCancel(source, causalEventId)
   }, [
     abortSignal,
     popCommandFromQueue,
@@ -161,7 +166,18 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     isContextActive &&
     (canCancelRunningTask || hasQueuedCommands || isViewingTeammate)
 
-  useKeybinding('chat:cancel', handleCancel, {
+  const handleCancelKeybinding = useCallback(
+    () => {
+      const causalEventId = traceInterruptionEvent('input.cancel_keybinding', {
+        source: 'cancel_keybinding',
+        subsystem: 'cancel_request',
+      })
+      handleCancel('cancel_keybinding', causalEventId)
+    },
+    [handleCancel],
+  )
+
+  useKeybinding('chat:cancel', handleCancelKeybinding, {
     context: 'Chat',
     isActive: isEscapeActive,
   })
@@ -198,12 +214,17 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   // main prompt stays a deliberate gesture (chat:killAgents), not a
   // side-effect of cancelling a turn.
   const handleInterrupt = useCallback(() => {
+    const causalEventId = traceInterruptionEvent('input.ctrl_c', {
+      source: 'ctrl_c',
+      subsystem: 'cancel_request',
+      phase: isViewingTeammate ? 'teammate_view' : 'main_view',
+    })
     if (isViewingTeammate) {
       killAllAgentsAndNotify()
       exitTeammateView(setAppState)
     }
     if (canCancelRunningTask || hasQueuedCommands) {
-      handleCancel()
+      handleCancel('ctrl_c', causalEventId)
     }
   }, [
     isViewingTeammate,

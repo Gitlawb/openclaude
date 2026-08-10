@@ -64,6 +64,7 @@ export async function readWithIdleTimeout(
     signal?: AbortSignal
     cancelReader?: (error?: unknown) => void
     onTimeout?: () => void
+    createTimeoutError?: () => unknown
   } = {},
 ): Promise<StreamReadResult> {
   const signal = options.signal
@@ -111,7 +112,7 @@ export async function readWithIdleTimeout(
     }
 
     timeoutId = setTimeout(() => {
-      const error = new StreamIdleTimeoutError(timeoutMs)
+      const error = options.createTimeoutError?.() ?? new StreamIdleTimeoutError(timeoutMs)
       try {
         options.onTimeout?.()
       } catch {
