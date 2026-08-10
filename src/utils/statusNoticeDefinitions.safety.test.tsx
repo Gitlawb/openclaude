@@ -178,22 +178,24 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     expect(notice).not.toContain('--yolo')
   })
 
-  test('bypassPermissions notice claims every consent check is bypassed', async () => {
+  test('bypassPermissions notice describes bypassed checks with remaining guardrails', async () => {
     const notice = await renderNoticePlainText(
       'dangerously-skip-permissions-no-sandbox',
       buildContext({ permissionMode: 'bypassPermissions' }),
     )
-    expect(notice).toContain('Every tool consent check is bypassed')
+    expect(notice).toContain('Most tool consent checks are bypassed')
+    expect(notice).toContain('safety-check guardrails still apply')
+    expect(notice).not.toContain('All tool consent checks are bypassed')
   })
 
-  test('fullAccess notice describes relaxed checks, not bypassed checks', async () => {
+  test('fullAccess notice describes the stronger bypass', async () => {
     const notice = await renderNoticePlainText(
       'dangerously-skip-permissions-no-sandbox',
       buildContext({ permissionMode: 'fullAccess' }),
     )
-    expect(notice).toContain('Tool consent checks are relaxed')
-    expect(notice).toContain('Hard-deny rules and user prompts still apply')
-    expect(notice).not.toContain('Every tool consent check is bypassed')
+    expect(notice).toContain('All tool consent checks are bypassed')
+    expect(notice).toContain('safety-check guardrails')
+    expect(notice).not.toContain('Most tool consent checks are bypassed')
   })
 
   test('does not fire in default mode without the flag', () => {

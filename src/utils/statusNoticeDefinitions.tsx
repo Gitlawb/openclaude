@@ -284,10 +284,16 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
       </WarningNoticeRow>;
   }
 };
-// `--dangerously-skip-permissions` (a.k.a. bypassPermissions) auto-approves
-// every tool call. `fullAccess` is similarly privileged but still honors hard-
-// deny rules and user-interaction prompts (see hasPermissionsToUseTool). On
-// first-party builds an employee-only sandbox check (Docker/Bubblewrap + no
+// `--dangerously-skip-permissions` (a.k.a. bypassPermissions) and `fullAccess`
+// suppress the normal per-tool consent prompt, but they differ in what
+// guardrails remain:
+//
+// - bypassPermissions still honors deny rules, user-interaction prompts,
+//   content-specific ask rules, and safety-check guardrails (e.g. .git/,
+//   .claude/, shell configs).
+// - fullAccess skips those safety-check prompts too and is the stronger bypass.
+//
+// On first-party builds an employee-only sandbox check (Docker/Bubblewrap + no
 // internet) gates these modes; external users skip the check entirely
 // (setup.ts), so they are effectively "run any command with no review". Warn
 // loudly. Commander resolves `--dangerously-skip-permissions` (and its `--yolo`
@@ -302,15 +308,15 @@ const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   isActive: ctx => isDangerousPermissionMode(ctx.permissionMode),
   render: ctx => {
     const mode = ctx.permissionMode;
-    const isBypass = mode === 'bypassPermissions';
+    const isFullAccess = mode === 'fullAccess';
     return <WarningNoticeRow>
         <Text color="warning">
           <Text bold>{mode}</Text> mode is active.
         </Text>
         <Text dimColor>
-          {isBypass
-            ? 'Every tool consent check is bypassed. Only use inside a sandbox with no internet access. Restart without the bypass flag/mode to re-enable prompts.'
-            : 'Tool consent checks are relaxed. Hard-deny rules and user prompts still apply, but the model can run tools without per-call approval. Only use inside a sandbox with no internet access.'}
+          {isFullAccess
+            ? 'All tool consent checks are bypassed, including safety-check guardrails. Only use inside a sandbox with no internet access. Restart without the bypass flag/mode to re-enable prompts.'
+            : 'Most tool consent checks are bypassed. Deny rules, user-interaction prompts, content-specific ask rules, and safety-check guardrails still apply. Only use inside a sandbox with no internet access.'}
         </Text>
       </WarningNoticeRow>
   },
