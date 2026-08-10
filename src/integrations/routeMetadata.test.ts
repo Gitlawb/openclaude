@@ -6,6 +6,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isApismartBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
@@ -324,6 +325,12 @@ test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1/chat/completions')).toBe(
     'apismart',
   )
+})
+
+test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
+  expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
+  expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
+  expect(isApismartBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(false)
 })
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {

@@ -409,7 +409,12 @@ export function isApismartBaseUrl(value: string | undefined): boolean {
   }
 
   try {
-    return new URL(trimmed).hostname.toLowerCase() === 'gw.apismart.ai'
+    const parsed = new URL(trimmed)
+    return (
+      parsed.protocol === 'https:' &&
+      !parsed.port &&
+      parsed.hostname.toLowerCase() === 'gw.apismart.ai'
+    )
   } catch {
     return false
   }

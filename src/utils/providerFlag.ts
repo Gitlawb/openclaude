@@ -27,6 +27,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { isApismartBaseUrl } from '../integrations/routeMetadata.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
@@ -598,7 +599,10 @@ export function applyProviderFlag(
       // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
       // and clear any stale generic key so another provider's credential is
       // never forwarded to ApiSmart.
-      if (process.env.APISMART_API_KEY) {
+      if (
+        process.env.APISMART_API_KEY &&
+        isApismartBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY

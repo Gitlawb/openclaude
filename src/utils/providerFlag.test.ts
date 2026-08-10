@@ -41,6 +41,7 @@ const ENV_KEYS = [
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
+  'APISMART_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -91,6 +92,7 @@ const RESET_KEYS = [
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
+  'APISMART_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -981,6 +983,16 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
     expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
     expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
+  })
+
+  test('does not forward the dedicated key to a preserved custom base URL', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.OPENAI_BASE_URL = 'https://llm-proxy.internal.example/v1'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llm-proxy.internal.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   test('uses APISMART_MODEL from env when --model is not provided', () => {
