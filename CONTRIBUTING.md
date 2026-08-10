@@ -140,7 +140,7 @@ AI-assisted and vibe-coded contributions are welcome, but please review your own
 
 ### Release web synchronization
 
-Release automation regenerates `web/src/data/releases.ts` from the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Automation picks the first five changelog bullets for a new entry; remove the generated-entry marker before hand-curating. To recover the entry on an explicit release/web PR, fetch its current base and run:
+Release automation regenerates `web/src/data/releases.ts` from the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync runs in a separate workflow job from Release Please so a sync failure cannot block npm or Docker publishing for an already-created release. Automation picks the first five changelog bullets for a new entry; remove the generated-entry marker before hand-curating. To recover the entry on an explicit release/web PR, fetch its current base and run:
 
 ```bash
 bun run sync:web-release -- --base-ref <base-ref>

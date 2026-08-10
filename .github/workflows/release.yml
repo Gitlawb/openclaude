@@ -15,12 +15,13 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Create release commits/tags and push the synced releases.ts commit.
-      pull-requests: write # Keep the bot release PR draft until sync lands, then mark ready.
+      contents: write # Create release commits/tags.
+      pull-requests: write # Keep the bot release PR draft before Release Please updates it.
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
+      release_pr: ${{ steps.release.outputs.pr }}
     steps:
       # Release Please's draft option applies only on PR creation. Draft any
       # existing pending bot PR before it updates the branch so an unvalidated
@@ -76,6 +77,18 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Web sync for the pending Release Please PR runs in its own job so a sync
+  # failure cannot skip npm/docker publish after Release Please already created
+  # a release/tag on this push.
+  sync-web-release:
+    name: Sync web release entry
+    needs: release-please
+    if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Push the synced releases.ts commit to the bot release PR branch.
+      pull-requests: write # Keep the bot release PR draft until sync lands, then mark ready.
+    steps:
       # Resolve the pending bot PR (from the action output, or by label on
       # reruns where Release Please leaves an unchanged PR untouched). Keep it
       # draft, sync releases.ts from the trusted merge base, validate the sync
@@ -87,7 +100,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
-          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
+          RELEASE_PR_JSON: ${{ needs.release-please.outputs.release_pr }}
           RELEASE_REPO_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
