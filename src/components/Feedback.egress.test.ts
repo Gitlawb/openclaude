@@ -9,8 +9,18 @@ import {
 } from '../test/sharedMutationLock.js'
 
 type AxiosModule = typeof import('axios')
+type ProvidersModule = typeof import('../utils/model/providers.js')
+type AuthModule = typeof import('../utils/auth.js')
+type HttpModule = typeof import('../utils/http.js')
+type PrivacyModule = typeof import('../utils/privacyLevel.js')
+type SessionStorageModule = typeof import('../utils/sessionStorage.js')
 
 let originalAxiosModule: AxiosModule | undefined
+let originalProvidersModule: ProvidersModule | undefined
+let originalAuthModule: AuthModule | undefined
+let originalHttpModule: HttpModule | undefined
+let originalPrivacyModule: PrivacyModule | undefined
+let originalSessionStorageModule: SessionStorageModule | undefined
 let originalUserType: string | undefined
 let hadMacro = false
 let originalMacro: unknown
@@ -44,22 +54,22 @@ beforeAll(async () => {
     VERSION: 'test-version',
   }
 
-  const realProviders = await import('../utils/model/providers.js')
+  originalProvidersModule = await import('../utils/model/providers.js')
   mock.module('../utils/model/providers.js', () => ({
-    ...realProviders,
+    ...originalProvidersModule!,
     getAPIProvider: () => 'firstParty',
     isFirstPartyAnthropicBaseUrl: () => true,
   }))
 
-  const realAuth = await import('../utils/auth.js')
+  originalAuthModule = await import('../utils/auth.js')
   mock.module('../utils/auth.js', () => ({
-    ...realAuth,
+    ...originalAuthModule!,
     checkAndRefreshOAuthTokenIfNeeded: async () => {},
   }))
 
-  const realHttp = await import('../utils/http.js')
+  originalHttpModule = await import('../utils/http.js')
   mock.module('../utils/http.js', () => ({
-    ...realHttp,
+    ...originalHttpModule!,
     getAuthHeaders: () => ({
       headers: { Authorization: 'Bearer test' },
       error: undefined,
@@ -67,14 +77,15 @@ beforeAll(async () => {
     getUserAgent: () => 'test-agent',
   }))
 
-  const realPrivacy = await import('../utils/privacyLevel.js')
+  originalPrivacyModule = await import('../utils/privacyLevel.js')
   mock.module('../utils/privacyLevel.js', () => ({
-    ...realPrivacy,
+    ...originalPrivacyModule!,
     isEssentialTrafficOnly: () => false,
   }))
 
   tempDir = await mkdtemp(join(tmpdir(), 'openclaude-feedback-egress-'))
   const transcriptPath = join(tempDir, 'session.jsonl')
+  // f001 user → f002 listing (omitted) → f003 user (parent=f002, must reparent to f001)
   await writeFile(
     transcriptPath,
     `${JSON.stringify({
@@ -94,12 +105,18 @@ beforeAll(async () => {
         skillCount: 1,
         isInitial: true,
       },
+    })}\n${JSON.stringify({
+      type: 'user',
+      uuid: '00000000-0000-4000-8000-00000000f003',
+      parentUuid: '00000000-0000-4000-8000-00000000f002',
+      timestamp: '2026-08-07T00:00:01.000Z',
+      message: { role: 'user', content: 'after listing turn' },
     })}\n`,
   )
 
-  const realSession = await import('../utils/sessionStorage.js')
+  originalSessionStorageModule = await import('../utils/sessionStorage.js')
   mock.module('../utils/sessionStorage.js', () => ({
-    ...realSession,
+    ...originalSessionStorageModule!,
     getTranscriptPath: () => transcriptPath,
     loadAllSubagentTranscriptsFromDisk: async () => ({
       'agent-leak': [
@@ -144,8 +161,25 @@ afterAll(async () => {
     } else {
       ;(globalThis as { MACRO?: unknown }).MACRO = originalMacro
     }
+    // mock.module is process-global in Bun — restore every module mocked in
+    // beforeAll, not only axios (otherwise later suites inherit leaks).
     if (originalAxiosModule) {
       mock.module('axios', () => originalAxiosModule!)
+    }
+    if (originalProvidersModule) {
+      mock.module('../utils/model/providers.js', () => originalProvidersModule!)
+    }
+    if (originalAuthModule) {
+      mock.module('../utils/auth.js', () => originalAuthModule!)
+    }
+    if (originalHttpModule) {
+      mock.module('../utils/http.js', () => originalHttpModule!)
+    }
+    if (originalPrivacyModule) {
+      mock.module('../utils/privacyLevel.js', () => originalPrivacyModule!)
+    }
+    if (originalSessionStorageModule) {
+      mock.module('../utils/sessionStorage.js', () => originalSessionStorageModule!)
     }
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true })
@@ -190,7 +224,33 @@ test('Feedback upload strips listing payloads from the posted content body', asy
   const content = postedBodies[0]?.content ?? ''
   expect(content).toContain('plain turn')
   expect(content).toContain('feedback main turn')
+  expect(content).toContain('after listing turn')
   expect(content).toContain('subagent turn')
   expect(content).not.toContain('leak-me-please')
   expect(content).not.toContain('leak-agent-listing')
+
+  // Posted report embeds filtered rawTranscriptJsonl — survivor f003 must
+  // reparent from omitted f002 onto retained ancestor f001.
+  const parsed = JSON.parse(content) as { rawTranscriptJsonl?: string }
+  expect(parsed.rawTranscriptJsonl).toBeDefined()
+  const lines = (parsed.rawTranscriptJsonl ?? '')
+    .split('\n')
+    .filter(l => l.length > 0)
+    .map(
+      line =>
+        JSON.parse(line) as {
+          uuid?: string
+          parentUuid?: string | null
+        },
+    )
+  const afterListing = lines.find(
+    e => e.uuid === '00000000-0000-4000-8000-00000000f003',
+  )
+  expect(afterListing).toBeDefined()
+  expect(afterListing?.parentUuid).toBe(
+    '00000000-0000-4000-8000-00000000f001',
+  )
+  expect(
+    lines.some(e => e.uuid === '00000000-0000-4000-8000-00000000f002'),
+  ).toBe(false)
 })

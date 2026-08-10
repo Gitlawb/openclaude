@@ -836,6 +836,19 @@ export function setSessionFileForTesting(path: string): void {
   getProject().sessionFile = path
 }
 
+/** @internal Rebuild remote egress omission map from sessionFile (tests). */
+export function rebuildRemoteEgressOmittedParentsForTesting(): void {
+  getProject().rebuildRemoteEgressOmittedParentsFromLocalTranscript()
+}
+
+/** @internal Snapshot remote egress omission map (tests). */
+export function getRemoteEgressOmittedParentsForTesting(): Map<
+  UUID,
+  UUID | null
+> {
+  return getProject()._getRemoteEgressOmittedParentsForTesting()
+}
+
 type InternalEventWriter = (
   eventType: string,
   payload: Record<string, unknown>,
@@ -1235,15 +1248,56 @@ class Project {
   }
 
   /**
+   * True when a remote/CCR sink is registered so persistToRemote can deliver.
+   * Used to avoid unbounded growth of remoteEgressOmittedParents when no
+   * remote path will consume the map (hydrate-before-sink still uses rebuild).
+   */
+  private hasActiveRemoteEgressSink(): boolean {
+    return (
+      this.internalEventWriter !== null ||
+      (!!this.remoteIngressUrl &&
+        isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE))
+    )
+  }
+
+  /** @internal Expose omission map size/contents for egress regression tests. */
+  _getRemoteEgressOmittedParentsForTesting(): Map<UUID, UUID | null> {
+    return this.remoteEgressOmittedParents
+  }
+
+  /**
    * After --resume / --continue, remoteEgressOmittedParents starts empty
    * (resetSessionFile clears it). Rebuild from the adopted local transcript
    * so the first post-resume remote append whose parentUuid pointed at a
    * withheld entry can reparent instead of dangling on CCR / session-ingress.
+   *
+   * Size-guarded before readFileSync so a huge transcript cannot OOM the
+   * resume path. Skip rebuild (leave map empty) when over the shared
+   * MAX_TRANSCRIPT_READ_BYTES budget used by Feedback / share uploads.
    */
   rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
     this.remoteEgressOmittedParents.clear()
     const path = this.sessionFile
     if (!path) return
+    try {
+      const fd = openSync(path, 'r')
+      let size: number
+      try {
+        size = fstatSync(fd).size
+      } finally {
+        closeSync(fd)
+      }
+      if (size > MAX_TRANSCRIPT_READ_BYTES) {
+        logForDebugging(
+          'Skipping remote egress omission rebuild: session file too large ' +
+            `(${size} bytes)`,
+          { level: 'warn' },
+        )
+        return
+      }
+    } catch {
+      return
+    }
     let content: string
     try {
       content = readFileSync(path, 'utf8')
@@ -1254,12 +1308,15 @@ class Project {
       if (!line.trim()) continue
       let parsed: unknown
       try {
-        parsed = JSON.parse(line)
+        parsed = jsonParse(line)
       } catch {
         continue
       }
       if (!isTranscriptMessage(parsed as Entry)) continue
       const entry = parsed as TranscriptMessage
+      // Always apply current external egress policy. hook_additional_context is
+      // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+      // allows local persistence — local save ≠ upload consent.
       if (!isSafeForExternalEgress(entry)) {
         recordExternalEgressOmission(
           this.remoteEgressOmittedParents,
@@ -1953,7 +2010,10 @@ class Project {
                   this.remoteEgressOmittedParents,
                 )
                 await this.persistToRemote(sessionId, remoteEntry)
-              } else {
+              } else if (this.hasActiveRemoteEgressSink()) {
+                // Only grow the map when a remote sink can consume reparents.
+                // Resume rebuild (adoptResumedSessionFile) still hydrates from
+                // disk before the sink is registered.
                 recordExternalEgressOmission(
                   this.remoteEgressOmittedParents,
                   entry.uuid,
@@ -5493,6 +5553,11 @@ export function isLoggableMessage(m: Message): boolean {
  * Privacy gate for remote ingress / CCR / public sharing paths.
  * Listing catalogs (and other unsafe attachments) must not cross this
  * boundary — including the ant fast path below.
+ *
+ * Local transcript persistence (`isLoggableMessage`) may keep
+ * hook_additional_context when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT is
+ * set. That flag must NOT widen this gate for external users: local save ≠
+ * consent to upload to CCR / share / feedback.
  */
 export function isSafeForExternalEgress(entry: {
   type?: string
@@ -5503,7 +5568,14 @@ export function isSafeForExternalEgress(entry: {
     return false
   }
   if (getUserType() === 'ant') {
+    // Ant keeps non-listing attachments (incl. hook_additional_context) on
+    // remote for internal tooling. Progress stays out of the chain.
     return entry.type !== 'progress'
+  }
+  // External: never allow hook_additional_context even when the local-save
+  // env flag is on.
+  if (attachmentTypeOf(entry) === 'hook_additional_context') {
+    return false
   }
   if (entry.type === 'progress') return false
   if (entry.type !== 'attachment') return true
@@ -5512,14 +5584,31 @@ export function isSafeForExternalEgress(entry: {
   }
   const t = (entry.attachment as { type?: unknown }).type
   if (typeof t !== 'string') return false
-  if (
-    t === 'hook_additional_context' &&
-    isEnvTruthy(process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT)
-  ) {
-    return true
-  }
   // Other attachment types remain blocked on egress for external users.
   return false
+}
+
+/**
+ * Size-guarded read of a session JSONL file, then project through
+ * filterJsonlForExternalEgress. Shared by Feedback and transcript share so
+ * both paths stay byte-policy aligned (and cannot drift on the size cap).
+ */
+export async function readFilteredTranscriptJsonlForExternalEgress(
+  transcriptPath: string,
+): Promise<string | null> {
+  try {
+    const { size } = await stat(transcriptPath)
+    if (size > MAX_TRANSCRIPT_READ_BYTES) {
+      logForDebugging(
+        `Skipping raw transcript read: file too large (${size} bytes)`,
+        { level: 'warn' },
+      )
+      return null
+    }
+    return filterJsonlForExternalEgress(await readFile(transcriptPath, 'utf-8'))
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -5629,7 +5718,7 @@ export function filterJsonlForExternalEgress(jsonl: string): string {
           },
           omittedParents,
         )
-        kept.push(JSON.stringify(projected))
+        kept.push(jsonStringify(projected))
       } else {
         kept.push(line)
       }

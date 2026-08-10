@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { readFile, stat } from 'fs/promises';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { getLastAPIRequest } from 'src/bootstrap/state.js';
@@ -14,7 +13,6 @@ import { startsWithApiErrorPrefix } from '../services/api/errors.js';
 import type { Message } from '../types/message.js';
 import { checkAndRefreshOAuthTokenIfNeeded } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
-import { logForDebugging } from '../utils/debug.js';
 import { env } from '../utils/env.js';
 import { type GitRepoState, getGitState, getIsGit } from '../utils/git.js';
 import { getAuthHeaders, getUserAgent } from '../utils/http.js';
@@ -25,7 +23,7 @@ import {
 } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
-import { extractTeammateTranscriptsFromTasks, filterJsonlForExternalEgress, filterMessagesForExternalEgress, filterSubagentTranscriptsForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
+import { extractTeammateTranscriptsFromTasks, filterMessagesForExternalEgress, filterSubagentTranscriptsForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, readFilteredTranscriptJsonlForExternalEgress } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
 import { asSystemPrompt } from '../utils/systemPromptType.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -154,17 +152,7 @@ function getSanitizedErrorLogs(): Array<{
 }
 async function loadRawTranscriptJsonl(): Promise<string | null> {
   try {
-    const transcriptPath = getTranscriptPath();
-    const {
-      size
-    } = await stat(transcriptPath);
-    if (size > MAX_TRANSCRIPT_READ_BYTES) {
-      logForDebugging(`Skipping raw transcript read: file too large (${size} bytes)`, {
-        level: 'warn'
-      });
-      return null;
-    }
-    return filterJsonlForExternalEgress(await readFile(transcriptPath, 'utf-8'));
+    return await readFilteredTranscriptJsonlForExternalEgress(getTranscriptPath());
   } catch {
     return null;
   }

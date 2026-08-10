@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { readFile, stat } from 'fs/promises'
 import type { Message } from '../../types/message.js'
 import { checkAndRefreshOAuthTokenIfNeeded } from '../../utils/auth.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -9,12 +8,11 @@ import { isFirstPartyAnthropicProvider } from '../../utils/model/providers.js'
 import { normalizeMessagesForAPI } from '../../utils/messages.js'
 import {
   extractAgentIdsFromMessages,
-  filterJsonlForExternalEgress,
   filterMessagesForExternalEgress,
   filterSubagentTranscriptsForExternalEgress,
   getTranscriptPath,
   loadSubagentTranscripts,
-  MAX_TRANSCRIPT_READ_BYTES,
+  readFilteredTranscriptJsonlForExternalEgress,
 } from '../../utils/sessionStorage.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../../utils/redaction.js'
@@ -54,17 +52,11 @@ export async function submitTranscriptShare(
     // Read raw JSONL transcript (with size guard to prevent OOM)
     let rawTranscriptJsonl: string | undefined
     try {
-      const transcriptPath = getTranscriptPath()
-      const { size } = await stat(transcriptPath)
-      if (size <= MAX_TRANSCRIPT_READ_BYTES) {
-        rawTranscriptJsonl = filterJsonlForExternalEgress(
-          await readFile(transcriptPath, 'utf-8'),
-        )
-      } else {
-        logForDebugging(
-          `Skipping raw transcript read: file too large (${size} bytes)`,
-          { level: 'warn' },
-        )
+      const filtered = await readFilteredTranscriptJsonlForExternalEgress(
+        getTranscriptPath(),
+      )
+      if (filtered !== null) {
+        rawTranscriptJsonl = filtered
       }
     } catch {
       // File may not exist
