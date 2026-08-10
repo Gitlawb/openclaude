@@ -314,6 +314,20 @@ test('resolveProviderRequest uses ClinePass model when no explicit base URL is s
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
 
+test('resolveProviderRequest honors an explicit ClinePass endpoint over an ambient ApiSmart key', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+      OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
 test('resolveProviderRequest uses APISMART_MODEL when APISMART_API_KEY is present', () => {
   const request = resolveProviderRequest({
     processEnv: {

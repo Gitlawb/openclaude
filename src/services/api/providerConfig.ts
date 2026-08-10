@@ -974,9 +974,14 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
   const hasConcreteNonClinePassBaseUrl =
     Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
+  const hasConcreteClinePassBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) && isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
   const effectiveClinePassMode =
     isClinePassMode &&
-    !isApismartMode &&
+    // With no endpoint identity, ApiSmart wins the ambiguous dedicated-key
+    // case. An explicit ClinePass endpoint is authoritative, however: an
+    // ambient ApiSmart key must not suppress CLINE_API_MODEL for that route.
+    (!isApismartMode || hasConcreteClinePassBaseUrl) &&
     !isGithubMode &&
     !hasConcreteNonClinePassBaseUrl
   const clinePassDefaultModel = effectiveClinePassMode
