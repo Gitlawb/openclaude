@@ -15,6 +15,7 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  isApismartBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -271,17 +272,16 @@ function getRuntimeValidationTarget(
       return false
     }
 
-    // The Cloudflare Workers AI route is path-scoped, not just host-scoped:
-    // `api.cloudflare.com` also serves the REST management API. A host-only
-    // match on a non-Workers path (e.g. `.../client/v4/user/tokens/verify`)
-    // would pick the Cloudflare validation target and demand its Workers-AI
-    // auth instead of falling back to generic OpenAI validation. Mirror the
-    // runtime route resolver's boundary here.
+    // Some routes have stricter endpoint boundaries than a host match. Keep
+    // validation aligned with the runtime resolver so a custom endpoint on a
+    // shared host is not forced through a dedicated-credential contract.
     if (
       ((target.descriptor.id === 'cloudflare' &&
         !isCloudflareBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'longcat' &&
-          !isLongcatBaseUrl(request.baseUrl)))
+          !isLongcatBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'apismart' &&
+          !isApismartBaseUrl(request.baseUrl)))
     ) {
       return false
     }

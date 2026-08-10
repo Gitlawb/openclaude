@@ -23,6 +23,8 @@ import {
   getVendor,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
@@ -226,6 +228,17 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
     shouldReplaceStaleKnownBaseUrl(provider)
   ) {
     process.env.OPENAI_BASE_URL = normalizedBaseUrl
+  }
+}
+
+function clearUnsupportedOpenAIShimSettings(routeId: string): void {
+  if (!routeSupportsApiFormatSelection(routeId)) {
+    delete process.env.OPENAI_API_FORMAT
+  }
+  if (!routeSupportsAuthHeaders(routeId)) {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
   }
 }
 
@@ -586,6 +599,10 @@ export function applyProviderFlag(
 
     case 'apismart':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // Keep provider-flag selection on the same descriptor-declared wire
+      // contract as env-only setup and saved profiles. ApiSmart does not
+      // support alternate API formats or custom auth headers.
+      clearUnsupportedOpenAIShimSettings('apismart')
       applyOpenAIBaseUrlDefault(
         provider,
         defaultBaseUrl ?? 'https://gw.apismart.ai/v1',

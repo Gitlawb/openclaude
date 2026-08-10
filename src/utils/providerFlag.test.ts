@@ -995,6 +995,21 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
+  test('clears unsupported OpenAI shim settings from a previous route', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-value'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+  })
+
   test('uses APISMART_MODEL from env when --model is not provided', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.APISMART_MODEL = 'KIMI_K3'
