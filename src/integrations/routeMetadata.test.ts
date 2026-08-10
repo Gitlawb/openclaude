@@ -331,6 +331,8 @@ test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
   expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
   expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
   expect(isApismartBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(false)
+  expect(resolveRouteIdFromBaseUrl('http://gw.apismart.ai/v1')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(null)
 })
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
@@ -500,6 +502,26 @@ test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ApiSmart bas
       OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
     }),
   ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv does not retain ApiSmart identity for a retargeted profile', () => {
+  const baseUrl = 'https://proxy.example/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: baseUrl },
+      { activeProfileProvider: 'apismart', activeProfileBaseUrl: baseUrl },
+    ),
+  ).toBe('custom')
+})
+
+test('resolveActiveRouteIdFromEnv honors an explicit competing route over an ambient ApiSmart key', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+    }),
+  ).toBe('aimlapi')
 })
 
 test('resolveActiveRouteIdFromEnv prefers dedicated AI/ML API key over ambient OpenAI keys', () => {

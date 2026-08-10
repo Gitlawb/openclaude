@@ -594,7 +594,10 @@ export function applyProviderFlag(
         process.env.APISMART_MODEL?.trim() ||
         defaultModel ||
         'DEEPSEEK_V4_FLASH'
-      if (model) process.env.OPENAI_MODEL = model
+      if (model) {
+        process.env.OPENAI_MODEL = model
+        process.env.APISMART_MODEL = model
+      }
       // DedicatedCredentialsOnly: only APISMART_API_KEY authenticates this
       // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
       // and clear any stale generic key so another provider's credential is

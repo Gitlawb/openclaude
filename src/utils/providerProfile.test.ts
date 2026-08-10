@@ -291,6 +291,15 @@ test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
   assert.equal(env?.OPENAI_MODEL, 'KIMI_K3')
 })
 
+test('buildApismartProfileEnv refuses to copy the dedicated credential to a custom endpoint', () => {
+  const env = buildApismartProfileEnv({
+    apiKey: 'apismart-secret-key',
+    baseUrl: 'https://proxy.example/v1',
+  })
+
+  assert.equal(env, null)
+})
+
 test('openai launch carries APISMART_API_KEY only when the route resolves to apismart', async () => {
   const offRoute = await buildLaunchEnv({
     profile: 'openai',

@@ -25,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isApismartBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -112,6 +113,7 @@ const PROFILE_ENV_KEYS = [
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
+  'APISMART_MODEL',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
   'LONGCAT_API_KEY',
@@ -655,12 +657,15 @@ export function buildApismartProfileEnv(options: {
     OPENAI_API_KEY: key,
     APISMART_API_KEY: key,
   }
+  const configuredBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
+  if (configuredBaseUrl && !isApismartBaseUrl(configuredBaseUrl)) {
+    return null
+  }
 
   return {
-    OPENAI_BASE_URL:
-      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
-      defaultBaseUrl,
+    OPENAI_BASE_URL: configuredBaseUrl || defaultBaseUrl,
     OPENAI_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model, secretSource),

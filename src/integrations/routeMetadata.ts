@@ -609,6 +609,30 @@ function hasConflictingOpenAIBaseUrlForRoute(
   )
 }
 
+function hasExplicitOpenAIBaseUrlForRoute(
+  processEnv: NodeJS.ProcessEnv,
+  isRouteBaseUrl: (value: string | undefined) => boolean,
+): boolean {
+  if (hasNonEmptyEnvValue(processEnv.OPENAI_BASE_URL)) {
+    return isRouteBaseUrl(processEnv.OPENAI_BASE_URL)
+  }
+
+  return (
+    hasNonEmptyEnvValue(processEnv.OPENAI_API_BASE) &&
+    isRouteBaseUrl(processEnv.OPENAI_API_BASE)
+  )
+}
+
+function hasCompetingApismartCredential(
+  processEnv: NodeJS.ProcessEnv,
+  isRouteBaseUrl: (value: string | undefined) => boolean,
+): boolean {
+  return (
+    hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasExplicitOpenAIBaseUrlForRoute(processEnv, isRouteBaseUrl)
+  )
+}
+
 function isAimlapiBaseUrl(baseUrl?: string): boolean {
   return normalizeHost(baseUrl) === 'api.aimlapi.com'
 }
@@ -645,7 +669,7 @@ export function hasAimlapiEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasUsableOpenAICredential(processEnv.AIMLAPI_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isAimlapiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isAimlapiBaseUrl) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
@@ -657,7 +681,7 @@ export function hasXaiEnvOnlyProviderIntent(
   return (
     hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isXaiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -679,7 +703,7 @@ export function hasMiniMaxEnvOnlyProviderIntent(
       (!hasAnyUsableOpenAICredential(processEnv) &&
         !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
         !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-        !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+        !hasCompetingApismartCredential(processEnv, isMiniMaxBaseUrl) &&
         hasNoExplicitNonOpenAICompatibleProvider(processEnv)))
   )
 }
@@ -693,7 +717,7 @@ export function hasVeniceEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isVeniceBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -709,7 +733,7 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isXiaomiMimoBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXiaomiMimoBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -727,7 +751,7 @@ export function hasNearaiEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isNearaiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -750,7 +774,7 @@ export function hasFireworksEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isFireworksBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isFireworksBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -769,7 +793,7 @@ export function hasLongcatEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isLongcatBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLongcatBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -785,7 +809,7 @@ export function hasClinePassEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasNonEmptyEnvValue(processEnv.APISMART_API_KEY) &&
+    !hasCompetingApismartCredential(processEnv, isClinePassBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isClinePassBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -1046,7 +1070,8 @@ export function resolveRouteIdFromBaseUrl(
         // unrelated Cloudflare API URL would inherit Workers-AI routing.
         if (
           (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
-          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl))
+          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
+          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1082,6 +1107,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'longcat') {
     return isLongcatBaseUrl(baseUrl)
+  }
+  if (routeId === 'apismart') {
+    return isApismartBaseUrl(baseUrl)
   }
   return true
 }

@@ -152,8 +152,7 @@ function isClinePassProfile(profile: ProviderProfile): boolean {
 }
 
 function isApismartProfile(profile: ProviderProfile): boolean {
-  const { route } = resolveProfileCompatibility(profile.provider)
-  return route.routeId === 'apismart' || isApismartBaseUrl(profile.baseUrl)
+  return isApismartBaseUrl(profile.baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -991,7 +990,9 @@ export function applyProviderProfileToProcessEnv(
       }
     }
 
-    if (profile.apiKey) {
+    const withholdRetargetedApismartCredential =
+      route.routeId === 'apismart' && !isApismartProfile(profile)
+    if (profile.apiKey && !withholdRetargetedApismartCredential) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
@@ -1354,11 +1355,14 @@ function buildOpenAICompatibleStartupEnv(
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
+  const withholdRetargetedApismartCredential =
+    resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
+    !isApismartProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
-  if (activeProfile.apiKey) {
+  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1432,7 +1436,7 @@ function buildOpenAICompatibleStartupEnv(
   if (isAimlapiProfile) {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
   }
-  if (activeProfile.apiKey) {
+  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
@@ -1647,7 +1651,7 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
-      if (route.routeId === 'apismart') {
+      if (route.routeId === 'apismart' && isApismartProfile(activeProfile)) {
         const env =
           buildApismartProfileEnv({
             model: getPrimaryModel(activeProfile.model),
@@ -1694,6 +1698,9 @@ function triggerStartupDiscoveryRefreshForProfile(
 ): void {
   const route = resolveProfileRoute(profile.provider)
   if (route.routeId === 'unknown-fallback') {
+    return
+  }
+  if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
     return
   }
 

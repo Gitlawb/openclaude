@@ -1004,6 +1004,16 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_MODEL).toBe('KIMI_K3')
   })
 
+  test('makes an explicit --model override APISMART_MODEL', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyProviderFlag('apismart', ['--model', 'GLM_5.2'])
+
+    expect(process.env.OPENAI_MODEL).toBe('GLM_5.2')
+    expect(process.env.APISMART_MODEL).toBe('GLM_5.2')
+  })
+
   test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
     process.env.OPENAI_API_KEY = 'existing-openai-key'
     process.env.APISMART_API_KEY = 'apismart-secret-key'
