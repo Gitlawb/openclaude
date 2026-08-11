@@ -2505,6 +2505,12 @@ test('ProviderManager drops a retained checkout when the onboarding email change
 
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    // The shared cursorOffset state was last set for the amount field (its
+    // default "25" is 2 chars), and going back here doesn't reset it — so the
+    // cursor sits mid-string, not at the end of the retained "first@example.com".
+    // Move to end-of-line first so the backspaces below clear the whole field
+    // regardless of where the stale cursor was left.
+    mounted.stdin.write('\x1b[F')
     mounted.stdin.write('\x7f'.repeat(firstEmail.length))
     mounted.stdin.write('second@example.com')
     await Bun.sleep(25)
@@ -2688,6 +2694,12 @@ test('ProviderManager carries a confirmed email-switch abandonment into the atom
 
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    // The shared cursorOffset state was last set for the amount field (its
+    // default "25" is 2 chars), and going back here doesn't reset it — so the
+    // cursor sits mid-string, not at the end of the retained "first@example.com".
+    // Move to end-of-line first so the backspaces below clear the whole field
+    // regardless of where the stale cursor was left.
+    mounted.stdin.write('\x1b[F')
     mounted.stdin.write('\x7f'.repeat(firstEmail.length))
     mounted.stdin.write('second@example.com')
     await Bun.sleep(25)
@@ -2795,6 +2807,12 @@ test('ProviderManager does not carry a stale force-abandon confirmation into an 
     // onboarding then fails, so the flag is never consumed by a claim.
     mounted.stdin.write('\x1b')
     await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    // The shared cursorOffset state was last set for the amount field (its
+    // default "25" is 2 chars), and going back here doesn't reset it — so the
+    // cursor sits mid-string, not at the end of the retained "first@example.com".
+    // Move to end-of-line first so the backspaces below clear the whole field
+    // regardless of where the stale cursor was left.
+    mounted.stdin.write('\x1b[F')
     mounted.stdin.write('\x7f'.repeat(firstEmail.length))
     mounted.stdin.write('second@example.com')
     await Bun.sleep(25)
