@@ -114,6 +114,14 @@ export interface ModelCatalogEntry {
   label?: string
   default?: boolean
   hidden?: boolean
+  /**
+   * ISO-8601 instant after which the entry is dropped from catalog
+   * resolution (model picker, gateway catalogs, runtime limits). For
+   * time-boxed launches — e.g. a free window the gateway delists
+   * server-side — so the picker never offers a model the gateway will
+   * reject. An unparseable date fails open (the entry stays visible).
+   */
+  availableUntil?: string
   modelDescriptorId?: string
   capabilities?: CapabilityFlags
   reasoning?: ReasoningControlMetadata

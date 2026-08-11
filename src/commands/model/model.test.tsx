@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, setSystemTime, test } from 'bun:test'
 import React from 'react'
 
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
@@ -1429,34 +1429,42 @@ test('/model applies auto provider surface for single-model static descriptor pr
     getActiveProviderProfile: () => activeProfile,
   })
 
-  const rendered = await renderModelCommandWithCapturedPicker(
-    'descriptor-picker-auto-provider-static-mode',
-  )
+  // Pin the clock inside the Ling Tiny availability window (its catalog
+  // entry expires via availableUntil on 2026-08-13T10:00Z) so this expected
+  // list stays deterministic after that date passes in real time.
+  setSystemTime(new Date('2026-08-12T00:00:00Z'))
   try {
-    expect(
-      (rendered.getCapturedProps().optionsOverride as ModelOption[]).map(
-        option => option.value,
-      ),
-    ).toEqual([
-      'auto',
-      'mimo-v2.5-pro',
-      'mimo-v2.5',
-      'mimo-v2-flash',
-      'google/gemini-3.1-flash-lite',
-      'minimax/minimax-m3',
-      'qwen/qwen3.7-max',
-      'z-ai/glm-5.2',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'nvidia/nemotron-3-ultra-550b-a55b',
-      'inclusionai/ling-3.0-flash',
-      'inclusionai/ling-3.0-tiny:free',
-      'mindai/macaron-v1-tall',
-      'mindai/macaron-v1-venti',
-      'tencent/hy3',
-    ])
+    const rendered = await renderModelCommandWithCapturedPicker(
+      'descriptor-picker-auto-provider-static-mode',
+    )
+    try {
+      expect(
+        (rendered.getCapturedProps().optionsOverride as ModelOption[]).map(
+          option => option.value,
+        ),
+      ).toEqual([
+        'auto',
+        'mimo-v2.5-pro',
+        'mimo-v2.5',
+        'mimo-v2-flash',
+        'google/gemini-3.1-flash-lite',
+        'minimax/minimax-m3',
+        'qwen/qwen3.7-max',
+        'z-ai/glm-5.2',
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'nvidia/nemotron-3-ultra-550b-a55b',
+        'inclusionai/ling-3.0-flash',
+        'inclusionai/ling-3.0-tiny:free',
+        'mindai/macaron-v1-tall',
+        'mindai/macaron-v1-venti',
+        'tencent/hy3',
+      ])
+    } finally {
+      rendered.instance.unmount()
+      rendered.stdout.end()
+    }
   } finally {
-    rendered.instance.unmount()
-    rendered.stdout.end()
+    setSystemTime()
   }
 })
 

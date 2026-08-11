@@ -163,17 +163,30 @@ export function getCatalogForVendor(vendorId: string): import('./descriptors.js'
   return _vendors.get(vendorId)?.catalog
 }
 
-export function getCatalogEntriesForRoute(routeId: string): ModelCatalogEntry[] {
+/**
+ * True when a catalog entry should currently be exposed: not `hidden`, and
+ * not past its `availableUntil` expiry. An unparseable `availableUntil`
+ * fails open so a typo can't silently drop a model.
+ */
+function catalogEntryAvailable(entry: ModelCatalogEntry, now: Date): boolean {
+  if (entry.hidden) return false
+  if (entry.availableUntil !== undefined) {
+    const cutoff = Date.parse(entry.availableUntil)
+    if (Number.isFinite(cutoff) && now.getTime() >= cutoff) return false
+  }
+  return true
+}
+
+export function getCatalogEntriesForRoute(
+  routeId: string,
+  now: Date = new Date(),
+): ModelCatalogEntry[] {
   ensureLoaded()
   const gateway = _gateways.get(routeId)
-  if (gateway?.catalog?.models) {
-    return gateway.catalog.models
-  }
-  const vendor = _vendors.get(routeId)
-  if (vendor?.catalog?.models) {
-    return vendor.catalog.models
-  }
-  return []
+  const models =
+    gateway?.catalog?.models ?? _vendors.get(routeId)?.catalog?.models
+  if (!models) return []
+  return models.filter(entry => catalogEntryAvailable(entry, now))
 }
 
 export function getModelsForBrand(brandId: string): ModelDescriptor[] {

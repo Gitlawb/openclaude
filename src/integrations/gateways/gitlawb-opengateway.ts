@@ -167,6 +167,11 @@ export default defineGateway({
         label: 'Ling 3.0 Tiny Free (via Opengateway)',
         modelDescriptorId: 'inclusionai/ling-3.0-tiny:free',
         notes: 'Free through August 13, 2026 (rate limited)',
+        // Mirrors the gateway's server-side window (LING_TINY_FREE_END_ISO
+        // in opengateway/src/pricing.ts) so the picker drops the entry at
+        // the same instant the gateway starts rejecting the id. Keep the
+        // two dates in sync if the window moves.
+        availableUntil: '2026-08-13T10:00:00Z',
       },
       // Macaron — served by the gateway via direct Novita (not on
       // OpenRouter). Paid since 2026-08-10.
