@@ -35,9 +35,11 @@ function clientForInferenceBaseUrl(inferenceBaseUrl?: string): AimlapiClient {
 }
 
 const SIGN_IN_KEY_LEASE_POLL_INTERVAL_MS = 3000
-// A single POST /v1/keys with no long poll before it; a few retry cycles
-// covers a slow network or a couple of lease hand-offs.
-const SIGN_IN_KEY_LEASE_POLL_TIMEOUT_MS = 2 * 60 * 1000
+// A losing process's own patience while a peer holds the lease. Kept at
+// least as long as SIGN_IN_KEY_LEASE_STALE_MS's worst case, so a loser never
+// gives up on (and reports an error for) a winner that is still legitimately
+// within its own generous stale window.
+const SIGN_IN_KEY_LEASE_POLL_TIMEOUT_MS = 160_000
 
 /**
  * Mint the sign-in key for this email under a cross-process lease so racing
@@ -65,9 +67,31 @@ async function mintOrAdoptSignInKey(
         const created = await client.createKey(accessToken, 'OpenClaude CLI', signal)
         // Best-effort: give the cache-write phase its own fresh stale window
         // (see refreshAimlapiSignInKeyLeaseAsync) instead of sharing the
-        // mint's budget. A failed refresh is non-fatal — the save below still
-        // runs, just without that extra margin.
-        await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(() => {})
+        // mint's budget — SIGN_IN_KEY_LEASE_STALE_MS already carries generous
+        // margin over this refresh's own worst-case lock wait, so losing
+        // ownership here should be exceedingly rare. A failed refresh call,
+        // or one that reports ownership already lost, is still non-fatal: the
+        // key was already minted, and the save below is safe to attempt
+        // regardless (saveAimlapiSignInKeyAsync is first-writer-wins, so a
+        // losing write here is a harmless no-op) — but log the lost-ownership
+        // case, since it signals the stale window was cut closer than
+        // expected and a peer may now also be minting concurrently.
+        const refreshed = await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(
+          (refreshError: unknown): false => {
+            logForDebugging(
+              `Failed to refresh the AI/ML API sign-in key-mint lease: ${String(refreshError)}`,
+              { level: 'warn' },
+            )
+            return false
+          },
+        )
+        if (!refreshed) {
+          logForDebugging(
+            'AI/ML API sign-in key-mint lease ownership was lost before the cache write; ' +
+              'a concurrent mint may be in flight.',
+            { level: 'warn' },
+          )
+        }
         try {
           await saveAimlapiSignInKeyAsync(email, created.key, created.id)
         } catch {

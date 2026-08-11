@@ -22,7 +22,7 @@ import {
   saveAimlapiTopupStateAsync as saveAimlapiTopupStateAsyncImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKeyAsync as saveAimlapiSignInKeyAsyncImpl,
-  clearAimlapiSignInKey as clearAimlapiSignInKeyImpl,
+  clearAimlapiSignInKeyAsync as clearAimlapiSignInKeyAsyncImpl,
 } from '../integrations/aimlapi/topupState.js'
 import type {
   AimlapiPersistedTopup,
@@ -84,5 +84,5 @@ export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =
 export const saveAimlapiSignInKeyAsync: typeof saveAimlapiSignInKeyAsyncImpl = (...args) =>
   saveAimlapiSignInKeyAsyncImpl(...args)
 
-export const clearAimlapiSignInKey: typeof clearAimlapiSignInKeyImpl = (...args) =>
-  clearAimlapiSignInKeyImpl(...args)
+export const clearAimlapiSignInKeyAsync: typeof clearAimlapiSignInKeyAsyncImpl = (...args) =>
+  clearAimlapiSignInKeyAsyncImpl(...args)

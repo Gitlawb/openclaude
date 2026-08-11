@@ -1180,16 +1180,19 @@ export function clearAimlapiSignInKeyAsync(email: string, apiKeyId: string): Pro
 // minting its own. Locked on the key-cache file's path (not a lease-only
 // file) so acquiring the lease and saveAimlapiSignInKey's write are mutually
 // exclusive, keeping the "check cache" read inside acquire consistent with
-// the eventual write. Same acquire/reclaim shape (and no refresh function,
-// unlike the exchange lease) as the checkout-time key-mint lease; see
-// `KEY_MINT_LEASE_STALE_MS`. No refresh is needed here either: a live holder
-// never sits in a long poll before its single POST — it acquires the lease,
-// then immediately calls createKey, which client.request hard-caps at
-// REQUEST_TIMEOUT_MS (60s) regardless of the caller's own signal — so the
-// stale window only needs to clear that one bounded request (plus the
-// following cache-save's own lock wait) with headroom, not cover an
-// open-ended wait.
-const SIGN_IN_KEY_LEASE_STALE_MS = 75_000
+// the eventual write. Same acquire/reclaim shape as the checkout-time
+// key-mint lease; see `KEY_MINT_LEASE_STALE_MS`.
+//
+// Unlike that lease, the holder's critical path here isn't just the single
+// POST: mintOrAdoptSignInKey also refreshes the lease and then writes the
+// cache before it's done, and each of those steps can itself wait out a lock.
+// The full worst case is createKey's request timeout (60s) + the refresh's
+// own async-lock wait (up to LOCK_TIMEOUT_ASYNC_MS, 15s) + the cache save's
+// own async-lock wait (another 15s) — 90s back to back, with zero room left
+// for scheduling or filesystem overhead if this were sized to exactly that.
+// Generous margin on top keeps a legitimately still-working holder from
+// losing the lease to a peer moments before its result is cached.
+const SIGN_IN_KEY_LEASE_STALE_MS = 150_000
 
 function signInLeasePath(): string {
   return join(getClaudeConfigHomeDir(), 'aimlapi-signin-lease.json')

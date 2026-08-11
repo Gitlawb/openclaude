@@ -16,6 +16,7 @@ import {
 } from '../utils/codexCredentials.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
+import { logForDebugging } from '../utils/debug.js'
 import {
   parseProfileCustomHeadersInput,
   serializeProfileCustomHeaders,
@@ -65,7 +66,7 @@ import {
   saveAimlapiTopupStateAsync,
   loadAimlapiSignInKey,
   saveAimlapiSignInKeyAsync,
-  clearAimlapiSignInKey,
+  clearAimlapiSignInKeyAsync,
   type AimlapiTopupIntent,
   type AimlapiTopupStatus,
 } from './providerManagerAimlapi.js'
@@ -2934,7 +2935,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         deferNavigation: true,
         onSaved: () => {
           resetAimlapiCheckoutIntent()
-          clearAimlapiSignInKey(aimlapiTopupEmail, aimlapiIssuedKeyId)
+          // onSaved runs synchronously from persistDraft, so this can only be
+          // fire-and-forget (best-effort) here, not awaited — but it must
+          // still be the async, lock-yielding variant: the sync one's
+          // Atomics.wait retry would otherwise freeze Ink rendering, timers,
+          // Esc, and SIGINT right at completion on a contended cache lock.
+          void clearAimlapiSignInKeyAsync(aimlapiTopupEmail, aimlapiIssuedKeyId).catch(() => {})
           setAimlapiDoneKind(aimlapiTopupPaidRef.current ? 'topup' : 'ready')
           setErrorMessage(undefined)
           setScreen('aimlapi-done')
@@ -3037,7 +3043,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       deferNavigation: true,
       onSaved: () => {
         resetAimlapiCheckoutIntent()
-        clearAimlapiSignInKey(aimlapiTopupEmail, signInKeyId)
+        // Fire-and-forget: see the matching comment in persistExistingAimlapi.
+        void clearAimlapiSignInKeyAsync(aimlapiTopupEmail, signInKeyId).catch(() => {})
         setAimlapiDoneKind(doneKind)
         setErrorMessage(undefined)
         setScreen('aimlapi-done')
@@ -3392,10 +3399,24 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             // Async on the lock either way, so this never blocks Ink.
             const stale = aimlapiPersistedIntentRef.current
             if (stale) {
-              aimlapiPersistedIntentRef.current = null
-              await resetAimlapiCheckoutSessionAsync(stale)
-                .then(reset => (reset ? undefined : clearAimlapiTopupStateAsync(stale)))
-                .catch(() => {})
+              try {
+                const reset = await resetAimlapiCheckoutSessionAsync(stale)
+                if (!reset) await clearAimlapiTopupStateAsync(stale)
+                // Only drop ownership once the durable transition actually
+                // committed. On failure, keep the ref instead of discarding it
+                // and silently reporting success — the on-disk receipt is
+                // still the stale one, so the next claim must go through the
+                // normal chargeable-checkout confirmation gate against it
+                // (this ref is what that gate compares against) rather than
+                // being rejected by the CAS with no ownership left to retry
+                // cleanup, or worse, silently proceeding as if abandoned.
+                aimlapiPersistedIntentRef.current = null
+              } catch (cleanupError) {
+                logForDebugging(
+                  `Failed to reset/clear the AI/ML API checkout receipt: ${String(cleanupError)}`,
+                  { level: 'warn' },
+                )
+              }
             }
             setAimlapiResumeSessionToken('')
             return undefined
@@ -3604,7 +3625,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             // currently held (resetAimlapiOnboardingIdentity). Esc can reach
             // this screen after a checkout was already opened further along
             // (email -> amount -> Esc, Esc), so that must not happen silently.
-            if (hasChargeableAimlapiCheckout() && !aimlapiAbandonAckRef.current) {
+            const hadChargeableCheckout = hasChargeableAimlapiCheckout()
+            if (hadChargeableCheckout && !aimlapiAbandonAckRef.current) {
               aimlapiAbandonAckRef.current = true
               setErrorMessage(
                 'A checkout from this account is still pending — if a browser tab for it is open, do NOT pay it. Press Enter again to abandon it and continue.',
@@ -3629,6 +3651,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             }
 
             resetAimlapiOnboardingIdentity()
+            if (hadChargeableCheckout) {
+              // The user just confirmed abandoning it (reaching here on the
+              // second Enter, past the gate above). resetAimlapiOnboardingIdentity's
+              // clear is un-awaited and best-effort, so a contended/failed lock
+              // must not leave the abandoned receipt still enforced — make the
+              // confirmation authoritative at claimAimlapiTopupStateAsync itself
+              // instead, the same one-shot signal the email-switch and "switch
+              // account" flows use for this exact transition.
+              aimlapiForceAbandonExistingRef.current = true
+            }
             const envEmail = process.env.AIMLAPI_EMAIL?.trim() ?? ''
             setCursorOffset(envEmail.length)
             setAimlapiTopupEmail(envEmail)

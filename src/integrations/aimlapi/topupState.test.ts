@@ -370,12 +370,12 @@ test('refreshing the sign-in key-mint lease keeps a slow createKey-plus-cache-sa
   const acquired = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
   expect(acquired.status).toBe('acquired')
 
-  // Simulate createKey having taken nearly the full 60s request timeout: the
-  // lease's timestamp is right up against SIGN_IN_KEY_LEASE_STALE_MS (75s),
-  // with no margin left for the cache write that still has to happen.
+  // Simulate the lease's timestamp already sitting right up against
+  // SIGN_IN_KEY_LEASE_STALE_MS (150s), with no margin left for the cache
+  // write that still has to happen.
   const leasePath = join(directory, 'aimlapi-signin-lease.json')
   const staleStore = JSON.parse(readFileSync(leasePath, 'utf8'))
-  staleStore['user@example.com'].at = Date.now() - 74_000
+  staleStore['user@example.com'].at = Date.now() - 149_000
   writeFileSync(leasePath, JSON.stringify(staleStore))
 
   // mintOrAdoptSignInKey now refreshes right after createKey succeeds,
@@ -399,6 +399,26 @@ test('refreshing a sign-in key-mint lease this process no longer owns reports fa
   const stillHeld = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-c')
   expect(stillHeld.status).toBe('held')
   if (stillHeld.status === 'held') expect(stillHeld.owner).toBe('owner-a')
+})
+
+test('the sign-in key-mint lease deadline alone covers createKey + refresh-lock-wait + save-lock-wait with margin, even without a refresh landing', async () => {
+  const directory = useTemporaryConfig()
+  await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
+
+  // The true worst case this lease must survive with NO refresh at all:
+  // createKey's request timeout (60s) + the refresh call's own async-lock
+  // wait (up to LOCK_TIMEOUT_ASYNC_MS, 15s) + the cache save's own
+  // async-lock wait (another 15s) = 90s back to back. A peer must still see
+  // this as held, not stale, this far in — the deadline itself (not a
+  // refresh landing in time) is what has to carry this margin.
+  const leasePath = join(directory, 'aimlapi-signin-lease.json')
+  const store = JSON.parse(readFileSync(leasePath, 'utf8'))
+  store['user@example.com'].at = Date.now() - 90_000
+  writeFileSync(leasePath, JSON.stringify(store))
+
+  const peerAttempt = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-b')
+  expect(peerAttempt.status).toBe('held')
+  if (peerAttempt.status === 'held') expect(peerAttempt.owner).toBe('owner-a')
 })
 
 test('claiming a different intent refuses to clobber an opened (possibly paid) checkout', () => {
