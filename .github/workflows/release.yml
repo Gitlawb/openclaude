@@ -246,8 +246,19 @@ jobs:
           bun install --frozen-lockfile
           bun run sync:web-release -- --base-ref "$base_sha"
           bun test ./scripts/sync-web-release-entry.test.ts
+
+          needs_commit=false
+          if ! git diff --quiet -- web/src/data/releases.ts; then
+            needs_commit=true
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add web/src/data/releases.ts
+            git commit -m "chore(web): sync releases.ts from release-please changelog"
+          fi
+          echo "needs_commit=$needs_commit" >> "$GITHUB_OUTPUT"
+
           # GITHUB_TOKEN pushes do not start ordinary PR checks, so run the
-          # repo's standard gates against the synchronized tree before ready.
+          # repo's standard gates against the synchronized commit before ready.
           bun run typecheck
           bun run typecheck:type-tests
           bun run security:pr-scan -- --base "origin/$RELEASE_BASE_BRANCH" --head HEAD
@@ -255,12 +266,6 @@ jobs:
           bun install --cwd web --frozen-lockfile
           bun run web:typecheck
           bun run web:build
-
-          needs_commit=false
-          if ! git diff --quiet -- web/src/data/releases.ts; then
-            needs_commit=true
-          fi
-          echo "needs_commit=$needs_commit" >> "$GITHUB_OUTPUT"
 
           mkdir -p .release-sync-artifact
           cp web/src/data/releases.ts .release-sync-artifact/releases.ts
@@ -273,8 +278,6 @@ jobs:
             sha256sum web/src/data/releases.ts | awk '{print "releases_sha256="$1}'
           } > .release-sync-artifact/metadata.env
 
-          # Validation must not leave a dirty tree for the artifact handoff.
-          git checkout -- web/src/data/releases.ts
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "sync validation left uncommitted tracked changes" >&2
             git status --short
