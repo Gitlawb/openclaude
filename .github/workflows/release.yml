@@ -309,12 +309,14 @@ jobs:
 
           # Run trusted main scripts against the pending bot PR's release inputs.
           # Do not execute package.json/scripts from the bot PR head.
-          git fetch --no-tags origin "$RELEASE_PR_HEAD_SHA"
+          git fetch --no-tags origin "$RELEASE_BASE_BRANCH" "$RELEASE_PR_HEAD_SHA"
           git show "${RELEASE_PR_HEAD_SHA}:CHANGELOG.md" > CHANGELOG.md
           git show "${RELEASE_PR_HEAD_SHA}:.release-please-manifest.json" > .release-please-manifest.json
 
           bun install --frozen-lockfile
           bun run sync:web-release -- --base-ref HEAD
+          # Restore overlaid inputs so the cleanliness gate only sees releases.ts.
+          git checkout -- CHANGELOG.md .release-please-manifest.json
           bun test ./scripts/sync-web-release-entry.test.ts
 
           needs_commit=false
