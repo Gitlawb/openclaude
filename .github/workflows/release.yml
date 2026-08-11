@@ -176,7 +176,6 @@ jobs:
       number: ${{ steps.release-pr.outputs.number }}
       branch: ${{ steps.release-pr.outputs.branch }}
       head_sha: ${{ steps.release-pr.outputs.head_sha }}
-      needs_commit: ${{ steps.sync-web.outputs.needs_commit }}
     steps:
       - name: Resolve pending Release Please PR
         id: release-pr
@@ -310,8 +309,82 @@ jobs:
           # Run trusted main scripts against the pending bot PR's release inputs.
           # Do not execute package.json/scripts from the bot PR head.
           git fetch --no-tags origin "$RELEASE_BASE_BRANCH" "$RELEASE_PR_HEAD_SHA"
+          expected_release_files="$(printf '%s\n' \
+            .release-please-manifest.json \
+            CHANGELOG.md \
+            package.json \
+            | sort)"
+          actual_release_files="$(git diff --name-only "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" | sort)"
+          if [ "$actual_release_files" != "$expected_release_files" ]; then
+            echo "Release Please PR changed files outside its release-input contract" >&2
+            diff -u <(printf '%s\n' "$expected_release_files") <(printf '%s\n' "$actual_release_files") || true
+            exit 1
+          fi
+
+          mkdir -p .release-sync-input
+          git show "${RELEASE_PR_HEAD_SHA}:package.json" > .release-sync-input/package.json
           git show "${RELEASE_PR_HEAD_SHA}:CHANGELOG.md" > CHANGELOG.md
           git show "${RELEASE_PR_HEAD_SHA}:.release-please-manifest.json" > .release-please-manifest.json
+
+          if ! diff -u \
+            <(jq -S 'del(.version)' package.json) \
+            <(jq -S 'del(.version)' .release-sync-input/package.json); then
+            echo "Release Please PR changes package.json fields other than version" >&2
+            exit 1
+          fi
+          if ! diff -u \
+            <(jq -S 'del(.["."])' <(git show HEAD:.release-please-manifest.json)) \
+            <(jq -S 'del(.["."])' .release-please-manifest.json); then
+            echo "Release Please PR changes manifest fields other than the root version" >&2
+            exit 1
+          fi
+
+          package_version="$(jq -r .version .release-sync-input/package.json)"
+          manifest_version="$(jq -r '.["."]' .release-please-manifest.json)"
+          base_package_version="$(jq -r .version package.json)"
+          base_manifest_version="$(git show HEAD:.release-please-manifest.json | jq -r '.["."]')"
+          if [ "$package_version" != "$manifest_version" ] \
+            || [ "$base_package_version" != "$base_manifest_version" ]; then
+            echo "package and Release Please manifest versions do not match" >&2
+            exit 1
+          fi
+          BASE_VERSION="$base_package_version" NEXT_VERSION="$package_version" node -e '
+            const identifier = "(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+            const pattern = new RegExp(
+              `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)` +
+              `(?:-(${identifier}(?:\\.${identifier})*))?` +
+              `(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+            )
+            const parse = value => {
+              const match = value.match(pattern)
+              if (!match) throw new Error(`invalid SemVer: ${value}`)
+              return { core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])], prerelease: match[4]?.split(".") ?? null }
+            }
+            const compare = (left, right) => {
+              for (let index = 0; index < 3; index++) {
+                if (left.core[index] !== right.core[index]) return left.core[index] < right.core[index] ? -1 : 1
+              }
+              if (left.prerelease === null || right.prerelease === null)
+                return left.prerelease === right.prerelease ? 0 : left.prerelease === null ? 1 : -1
+              const length = Math.max(left.prerelease.length, right.prerelease.length)
+              for (let index = 0; index < length; index++) {
+                const a = left.prerelease[index]
+                const b = right.prerelease[index]
+                if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1
+                if (a === b) continue
+                const aNumeric = /^\\d+$/.test(a)
+                const bNumeric = /^\\d+$/.test(b)
+                if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
+                if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
+                return a < b ? -1 : 1
+              }
+              return 0
+            }
+            const base = parse(process.env.BASE_VERSION)
+            const next = parse(process.env.NEXT_VERSION)
+            if (compare(next, base) <= 0)
+              throw new Error(`release version must advance: ${process.env.BASE_VERSION} -> ${process.env.NEXT_VERSION}`)
+          '
 
           bun install --frozen-lockfile
           bun run sync:web-release -- --base-ref HEAD
@@ -319,15 +392,12 @@ jobs:
           git checkout -- CHANGELOG.md .release-please-manifest.json
           bun test ./scripts/sync-web-release-entry.test.ts
 
-          needs_commit=false
           if ! git diff --quiet -- web/src/data/releases.ts; then
-            needs_commit=true
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/src/data/releases.ts
             git commit -m "chore(web): sync releases.ts from release-please changelog"
           fi
-          echo "needs_commit=$needs_commit" >> "$GITHUB_OUTPUT"
 
           # GITHUB_TOKEN pushes do not start ordinary PR checks, so run the
           # repo's standard gates against the synchronized commit before ready.
@@ -345,7 +415,6 @@ jobs:
             echo "number=${{ steps.release-pr.outputs.number }}"
             echo "branch=${{ steps.release-pr.outputs.branch }}"
             echo "head_sha=${{ steps.release-pr.outputs.head_sha }}"
-            echo "needs_commit=$needs_commit"
             sha256sum web/src/data/releases.ts | awk '{print "releases_sha256="$1}'
           } > .release-sync-artifact/metadata.env
 
@@ -454,21 +523,13 @@ jobs:
             fi
           fi
 
-          if [ "$needs_commit" = "true" ]; then
-            if git diff --quiet -- web/src/data/releases.ts; then
-              echo "artifact required a commit but working tree already matches" >&2
-              exit 1
-            fi
+          if ! git diff --quiet -- web/src/data/releases.ts; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/src/data/releases.ts
             git commit -m "chore(web): sync releases.ts from release-please changelog"
           else
-            if ! git diff --quiet -- web/src/data/releases.ts; then
-              echo "artifact claimed no commit but working tree differs" >&2
-              exit 1
-            fi
-            echo "releases.ts already up to date"
+            echo "release PR already has the validated releases.ts artifact"
           fi
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
