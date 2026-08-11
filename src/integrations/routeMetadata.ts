@@ -6,6 +6,7 @@ import type {
 } from './descriptors.js'
 import {
   ensureIntegrationsLoaded,
+  filterAvailableCatalogEntries,
   getAllAnthropicProxies,
   getAllGateways,
   getAllVendors,
@@ -159,7 +160,11 @@ export function getRouteDefaultModel(
     return descriptor.defaultModel
   }
 
-  const catalogModels = descriptor.catalog?.models ?? []
+  // Same availability filter as the picker/route resolution — the fallback
+  // default must never be a hidden or expired entry.
+  const catalogModels = filterAvailableCatalogEntries(
+    descriptor.catalog?.models ?? [],
+  )
   const defaultEntry =
     catalogModels.find(model => model.default) ?? catalogModels[0]
 

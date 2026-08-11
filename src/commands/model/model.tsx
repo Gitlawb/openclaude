@@ -13,6 +13,7 @@ import {
   parseDurationString,
 } from '../../integrations/discoveryCache.js'
 import type { ModelCatalogConfig } from '../../integrations/descriptors.js'
+import { filterAvailableCatalogEntries } from '../../integrations/index.js'
 import {
   discoverModelsForRoute,
   getDiscoveryCacheKey,
@@ -457,7 +458,11 @@ async function loadDescriptorDiscoveryContext(
     routeId,
     settingsMode: getProviderProfileModelPickerMode(),
   })
-  const staticEntries = catalog.models ?? []
+  // Availability-filter the static entries (hidden / availableUntil) — this
+  // path reads the descriptor's catalog directly, so it must apply the same
+  // filter as getCatalogEntriesForRoute or an expired time-boxed entry
+  // (e.g. a closed free window) stays selectable in the picker.
+  const staticEntries = filterAvailableCatalogEntries(catalog.models ?? [])
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(
     catalog.discovery && catalog.allowManualRefresh && !trafficRestricted,
@@ -499,9 +504,11 @@ async function loadDescriptorDiscoveryContext(
     staticEntryCount: staticEntries.length,
     stale,
   }) && !trafficRestricted
-  const mergedEntries = mergeRouteCatalogEntries(
-    staticEntries,
-    cached?.models ?? [],
+  // Re-filter after the merge: discovery results can carry their own
+  // hidden/availableUntil markers (mapModel), and filtering the merged list
+  // keeps the guarantee regardless of which side an entry came from.
+  const mergedEntries = filterAvailableCatalogEntries(
+    mergeRouteCatalogEntries(staticEntries, cached?.models ?? []),
   )
 
   let discoveryState: ModelPickerDiscoveryState | undefined

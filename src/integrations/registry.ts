@@ -177,6 +177,19 @@ function catalogEntryAvailable(entry: ModelCatalogEntry, now: Date): boolean {
   return true
 }
 
+/**
+ * Drop `hidden` and expired (`availableUntil`) entries. Every surface that
+ * turns catalog entries into something selectable — route resolution here,
+ * the /model picker's static path, and static+discovery merges — must pass
+ * through this filter, or an expired entry resurfaces on that surface.
+ */
+export function filterAvailableCatalogEntries(
+  entries: ModelCatalogEntry[],
+  now: Date = new Date(),
+): ModelCatalogEntry[] {
+  return entries.filter(entry => catalogEntryAvailable(entry, now))
+}
+
 export function getCatalogEntriesForRoute(
   routeId: string,
   now: Date = new Date(),
@@ -186,7 +199,7 @@ export function getCatalogEntriesForRoute(
   const models =
     gateway?.catalog?.models ?? _vendors.get(routeId)?.catalog?.models
   if (!models) return []
-  return models.filter(entry => catalogEntryAvailable(entry, now))
+  return filterAvailableCatalogEntries(models, now)
 }
 
 export function getModelsForBrand(brandId: string): ModelDescriptor[] {
