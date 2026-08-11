@@ -54,11 +54,13 @@ function restoreAllEnv(): void {
 describe('code-reviewer built-in agent', () => {
   let agent: BuiltInAgentDefinition
   let dir: string
+  let lockAcquired = false
   let previousOverride: ReturnType<typeof getClaudeConfigHomeDirOverrideForTesting>
   let previousSettingSources: ReturnType<typeof getAllowedSettingSources>
 
   beforeAll(async () => {
     await acquireSharedMutationLock('codeReviewerAgent.test.ts')
+    lockAcquired = true
     
     originalEnv = {
       HOME: process.env.HOME,
@@ -106,7 +108,9 @@ describe('code-reviewer built-in agent', () => {
         await rm(dir, { recursive: true, force: true })
       }
     } finally {
-      releaseSharedMutationLock()
+      if (lockAcquired) {
+        releaseSharedMutationLock()
+      }
     }
   })
 
