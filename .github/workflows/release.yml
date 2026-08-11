@@ -359,9 +359,14 @@ jobs:
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: web-release-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          # Keep the artifact addressable when only the failed push job is
+          # retried: run_attempt changes on a retry, while this validated head
+          # remains the push job's immutable input.
+          name: web-release-sync-${{ github.run_id }}-${{ steps.release-pr.outputs.head_sha }}
           path: .release-sync-artifact/
           if-no-files-found: error
+          # A full validation rerun for the same head replaces its prior artifact.
+          overwrite: true
           retention-days: 1
 
   push-web-release:
@@ -386,7 +391,7 @@ jobs:
       - name: Download validated releases.ts artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: web-release-sync-${{ github.run_id }}-${{ github.run_attempt }}
+          name: web-release-sync-${{ github.run_id }}-${{ needs.validate-web-release.outputs.head_sha }}
           path: .release-sync-artifact
 
       - name: Apply validated releases.ts and push
