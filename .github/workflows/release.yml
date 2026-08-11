@@ -341,6 +341,7 @@ jobs:
           git show "${RELEASE_PR_HEAD_SHA}:package.json" > .release-sync-input/package.json
           git show "${RELEASE_PR_HEAD_SHA}:CHANGELOG.md" > CHANGELOG.md
           git show "${RELEASE_PR_HEAD_SHA}:.release-please-manifest.json" > .release-please-manifest.json
+          git show "${RELEASE_PR_HEAD_SHA}:web/src/data/releases.ts" > .release-sync-input/releases.ts
 
           if ! diff -u \
             <(jq -S 'del(.version)' package.json) \
@@ -403,6 +404,16 @@ jobs:
           '
 
           bun install --frozen-lockfile
+          if ! git diff --quiet "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" -- web/src/data/releases.ts; then
+            if ! bun -e '
+              import { hasGeneratedTopEntry } from "./scripts/sync-web-release-entry"
+              const releases = await Bun.file(".release-sync-input/releases.ts").text()
+              if (!hasGeneratedTopEntry(releases)) process.exit(1)
+            '; then
+              echo "Release Please PR has an unmarked releases.ts edit; refusing to overwrite it" >&2
+              exit 1
+            fi
+          fi
           bun run sync:web-release -- --base-ref HEAD
           # Restore overlaid inputs so the cleanliness gate only sees releases.ts.
           git checkout -- CHANGELOG.md .release-please-manifest.json
