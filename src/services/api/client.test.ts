@@ -69,7 +69,6 @@ const originalEnv = {
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
-  APISMART_MODEL: process.env.APISMART_MODEL,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -124,7 +123,6 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
-  delete process.env.APISMART_MODEL
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
   process.env.ANTHROPIC_API_KEY = 'must-not-forward'
@@ -167,7 +165,6 @@ beforeEach(async () => {
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
-  delete process.env.APISMART_MODEL
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -218,7 +215,6 @@ afterEach(() => {
     restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
-    restoreEnv('APISMART_MODEL', originalEnv.APISMART_MODEL)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
