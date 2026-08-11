@@ -19,7 +19,6 @@ const TEST_ENV_KEYS = [
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
   'APISMART_API_KEY',
-  'APISMART_MODEL',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_AZURE_STYLE',
@@ -276,19 +275,14 @@ describe('loadEnvFile', () => {
     })
   })
 
-  it('loads documented ApiSmart env-only provider setup values', () => {
-    const filePath = writeTempEnvFile([
-      'APISMART_API_KEY=apismart-key',
-      'APISMART_MODEL=KIMI_K3',
-    ].join('\n'))
+  it('loads the ApiSmart credential for standard OpenAI-compatible configuration', () => {
+    const filePath = writeTempEnvFile('APISMART_API_KEY=apismart-key')
 
     const loaded = loadEnvFile(filePath)
 
     expect(process.env.APISMART_API_KEY).toBe('apismart-key')
-    expect(process.env.APISMART_MODEL).toBe('KIMI_K3')
     expect(loaded).toEqual({
       APISMART_API_KEY: 'apismart-key',
-      APISMART_MODEL: 'KIMI_K3',
     })
   })
 

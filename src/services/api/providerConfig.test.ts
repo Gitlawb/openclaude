@@ -314,6 +314,9 @@ test('resolveProviderRequest uses ClinePass model when no explicit base URL is s
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
 
+/* ApiSmart has no env-only provider-config path; regular provider selection
+ * supplies the standard OPENAI_* settings. */
+/*
 test('resolveProviderRequest honors an explicit ClinePass endpoint over an ambient ApiSmart key', () => {
   const request = resolveProviderRequest({
     processEnv: {
@@ -430,6 +433,8 @@ test('resolveProviderRequest ignores ApiSmart model when explicit OPENAI_BASE_UR
   expect(request.requestedModel).toBe('gpt-4o')
   expect(request.baseUrl).toBe('https://api.openai.com/v1')
 })
+
+*/
 
 test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
   const sol = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv: {} })

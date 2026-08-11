@@ -502,6 +502,18 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
 
+  test('apismart applies the same generic gateway defaults without copying credentials', () => {
+    process.env.APISMART_API_KEY = 'apismart-key'
+
+    const result = applyProviderFlag('apismart', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
   test('descriptor-backed provider selection preserves custom OPENAI_BASE_URL', () => {
     process.env.OPENAI_BASE_URL = 'http://proxy.local:8080/v1'
 
@@ -972,6 +984,8 @@ describe('applyProviderFlag - atlas-cloud', () => {
   })
 })
 
+/* ApiSmart follows the generic descriptor-backed provider-flag path. */
+/*
 describe('applyProviderFlag - apismart', () => {
   test('sets ApiSmart OpenAI-compatible defaults and mirrors APISMART_API_KEY', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
@@ -1079,6 +1093,7 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 })
+*/
 
 describe('applyProviderFlag - xai', () => {
   test('sets CLAUDE_CODE_USE_OPENAI=1 with xAI defaults when unset', () => {

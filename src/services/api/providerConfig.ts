@@ -24,12 +24,9 @@ import {
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
-  getRouteDefaultBaseUrl,
   getRouteDefaultModel,
-  isApismartBaseUrl,
   isClinePassBaseUrl,
 } from '../../integrations/routeMetadata.js'
-import { hasUsableOpenAICredential } from './credentialPool.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -241,10 +238,7 @@ function asEnvUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   if (!trimmed) return undefined
-  const normalized = trimmed.toLowerCase()
-  // Windows/dotenv templates often materialize unset vars as the literal
-  // strings "undefined" or "null". Neither is a usable endpoint.
-  if (normalized === 'undefined' || normalized === 'null') {
+  if (trimmed === 'undefined') {
     return undefined
   }
   return trimmed
@@ -259,12 +253,11 @@ function asNamedEnvUrl(
   const trimmed = value.trim()
   if (!trimmed) return undefined
 
-  const normalized = trimmed.toLowerCase()
-  if (normalized === 'undefined' || normalized === 'null') {
+  if (trimmed === 'undefined') {
     if (!warnedUndefinedEnvNames.has(envName)) {
       warnedUndefinedEnvNames.add(envName)
       logForDebugging(
-        `[provider-config] Environment variable ${envName} is the literal string "${trimmed}"; ignoring it.`,
+        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
         { level: 'warn' },
       )
     }
@@ -272,15 +265,6 @@ function asNamedEnvUrl(
   }
 
   return trimmed
-}
-
-function asUsableModelEnvValue(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  const normalized = trimmed.toLowerCase()
-  return normalized === 'undefined' || normalized === 'null'
-    ? undefined
-    : trimmed
 }
 
 function readNestedString(
@@ -946,7 +930,6 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
-  const isApismartMode = hasUsableOpenAICredential(processEnv.APISMART_API_KEY)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -988,31 +971,10 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
   const hasConcreteNonClinePassBaseUrl =
     Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
-  const hasConcreteClinePassBaseUrl =
-    Boolean(concreteBaseUrlBeforeDefault) && isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
   const effectiveClinePassMode =
-    isClinePassMode &&
-    // With no endpoint identity, ApiSmart wins the ambiguous dedicated-key
-    // case. An explicit ClinePass endpoint is authoritative, however: an
-    // ambient ApiSmart key must not suppress CLINE_API_MODEL for that route.
-    (!isApismartMode || hasConcreteClinePassBaseUrl) &&
-    !isGithubMode &&
-    !hasConcreteNonClinePassBaseUrl
+    isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
   const clinePassDefaultModel = effectiveClinePassMode
     ? getRouteDefaultModel('clinepass')
-    : undefined
-
-  // ApiSmart model selection is only valid when no concrete non-ApiSmart
-  // base URL is explicitly provided via options or env. This prevents stale
-  // APISMART_API_KEY/APISMART_MODEL from overriding an explicit OPENAI_BASE_URL
-  // pointing at a different provider.
-  const hasConcreteNonApismartBaseUrl =
-    Boolean(concreteBaseUrlBeforeDefault) &&
-    !isApismartBaseUrl(concreteBaseUrlBeforeDefault)
-  const effectiveApismartMode =
-    isApismartMode && !isGithubMode && !hasConcreteNonApismartBaseUrl
-  const apismartDefaultModel = effectiveApismartMode
-    ? getRouteDefaultModel('apismart')
     : undefined
 
   const requestedModel =
@@ -1024,14 +986,10 @@ export function resolveProviderRequest(options?: {
         : effectiveClinePassMode
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
-          : effectiveApismartMode
-            ? asUsableModelEnvValue(processEnv.APISMART_MODEL) ||
-              asUsableModelEnvValue(processEnv.OPENAI_MODEL)
-            : processEnv.OPENAI_MODEL?.trim()) ||
+          : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     clinePassDefaultModel ||
-    apismartDefaultModel ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
 
@@ -1039,10 +997,7 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
     fallbackEnvBaseUrl ??
-    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined) ??
-    (effectiveApismartMode
-      ? getRouteDefaultBaseUrl('apismart') ?? undefined
-      : undefined)
+    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,

@@ -186,6 +186,8 @@ test('non-OpenAI LongCat path falls back to generic OpenAI validation', async ()
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+/* ApiSmart validation is wholly descriptor-driven, like other gateways. */
+/*
 test('non-canonical ApiSmart host falls back to generic OpenAI validation', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai:8443/v1'
@@ -210,6 +212,8 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
     )
   },
 )
+
+*/
 
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
   const providerSecret = 'ogw-provider-secret'

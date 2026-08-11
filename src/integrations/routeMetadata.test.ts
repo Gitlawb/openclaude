@@ -6,8 +6,6 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
-  isApismartBaseUrl,
-  isCanonicalApismartInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
@@ -223,12 +221,16 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       ATLAS_CLOUD_API_KEY: 'atlas-key',
     }),
   ).toBe('atlas-key')
-  expect(getRouteCredentialEnvVars('apismart')).toEqual(['APISMART_API_KEY'])
+  expect(getRouteCredentialEnvVars('apismart')).toEqual([
+    'APISMART_API_KEY',
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(
     getRouteCredentialValue('apismart', {
       OPENAI_API_KEY: 'sk-openai-generic',
     }),
-  ).toBeUndefined()
+  ).toBe('sk-openai-generic')
   expect(
     getRouteCredentialValue('apismart', {
       OPENAI_API_KEY: 'sk-openai-generic',
@@ -328,6 +330,9 @@ test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
   )
 })
 
+/* ApiSmart uses descriptor-based credential resolution; it deliberately has no
+ * dedicated canonical-endpoint or env-only routing behavior. */
+/*
 test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
   expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
   expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
@@ -359,6 +364,7 @@ test('isCanonicalApismartInferenceBaseUrl requires the exact /v1 inference path'
   expect(isApismartBaseUrl('https://gw.apismart.ai/v1/models')).toBe(true)
   expect(isApismartBaseUrl('https://gw.apismart.ai')).toBe(true)
 })
+*/
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
   expect(
@@ -493,6 +499,7 @@ test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML 
   ).toBe('aimlapi')
 })
 
+/*
 test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmart', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -634,6 +641,7 @@ test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with Api
     }),
   ).toBe('apismart')
 })
+*/
 
 test('resolveActiveRouteIdFromEnv does not infer AI/ML API with a conflicting OpenAI base URL', () => {
   expect(

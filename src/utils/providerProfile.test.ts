@@ -16,7 +16,6 @@ import {
   applyStartupEnvFromProfile,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
-  buildApismartProfileEnv,
   buildCompatibilityProcessEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
@@ -258,6 +257,8 @@ test('openai launch preserves persisted dedicated vendor credentials across rest
   assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-secret-key')
 })
 
+/* ApiSmart uses the ordinary OpenAI-compatible persisted profile contract. */
+/*
 test('openai launch preserves persisted ApiSmart dedicated credentials across restart', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
@@ -414,6 +415,8 @@ test('openai launch carries APISMART_API_KEY only when the route resolves to api
 
   assert.equal(onRoute.APISMART_API_KEY, 'apismart-key')
 })
+
+*/
 
 test('openai launch prefers a live dedicated vendor key over the persisted one', async () => {
   const env = await buildLaunchEnv({

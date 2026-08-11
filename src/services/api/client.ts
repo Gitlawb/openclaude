@@ -55,7 +55,6 @@ import {
   shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
-import { hasUsableOpenAICredential } from './credentialPool.js'
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
@@ -375,46 +374,6 @@ function applyAimlapiEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER_VALUE
 }
 
-function applyApismartEnvOnlyDefaults(): void {
-  const baseUrlOverride =
-    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
-    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
-    undefined
-  const modelOverride =
-    usableProviderConfigEnvValue(process.env.APISMART_MODEL) ||
-    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) ||
-    undefined
-  const apiKey = process.env.APISMART_API_KEY
-
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL =
-    baseUrlOverride ?? getRouteDefaultBaseUrl('apismart')
-  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('apismart')
-  // Mirror only a usable dedicated key. Template placeholders must not become
-  // OPENAI_API_KEY side effects for later routes in this process.
-  if (hasUsableOpenAICredential(apiKey)) {
-    process.env.OPENAI_API_KEY = apiKey
-  } else {
-    delete process.env.OPENAI_API_KEY
-  }
-  delete process.env.OPENAI_API_FORMAT
-  delete process.env.OPENAI_AZURE_STYLE
-  delete process.env.OPENAI_AUTH_HEADER
-  delete process.env.OPENAI_AUTH_SCHEME
-  delete process.env.OPENAI_AUTH_HEADER_VALUE
-}
-
-function usableProviderConfigEnvValue(
-  value: string | undefined,
-): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  const normalized = trimmed.toLowerCase()
-  return normalized === 'undefined' || normalized === 'null'
-    ? undefined
-    : trimmed
-}
-
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -552,8 +511,6 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
   const useAimlapiEnvOnlyProvider =
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
-  const useApismartEnvOnlyProvider =
-    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -574,9 +531,6 @@ export async function getAnthropicClient({
   }
   if (useAimlapiEnvOnlyProvider) {
     applyAimlapiEnvOnlyDefaults()
-  }
-  if (useApismartEnvOnlyProvider) {
-    applyApismartEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
@@ -682,7 +636,6 @@ export async function getAnthropicClient({
     useNearaiEnvOnlyProvider ||
     useFireworksEnvOnlyProvider ||
     useAimlapiEnvOnlyProvider ||
-    useApismartEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

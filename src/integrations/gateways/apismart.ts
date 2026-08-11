@@ -178,7 +178,6 @@ export default defineGateway({
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['APISMART_API_KEY'],
-    dedicatedCredentialsOnly: true,
   },
   startup: {
     probeReadiness: 'openai-compatible-models',
@@ -197,7 +196,7 @@ export default defineGateway({
     description: 'ApiSmart unified OpenAI-compatible gateway',
     vendorId: 'openai',
     apiKeyEnvVars: ['APISMART_API_KEY'],
-    modelEnvVars: ['APISMART_MODEL', 'OPENAI_MODEL'],
+    modelEnvVars: ['OPENAI_MODEL'],
   },
   validation: {
     kind: 'credential-env',
@@ -205,9 +204,9 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['gw.apismart.ai'],
     },
-    credentialEnvVars: ['APISMART_API_KEY'],
+    credentialEnvVars: ['APISMART_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'ApiSmart auth is required. Set APISMART_API_KEY.',
+      'Set APISMART_API_KEY or OPENAI_API_KEYS / OPENAI_API_KEY for the ApiSmart provider.',
   },
   catalog: {
     // /v1/models exists and requires a Bearer key; curated LLM ids stay visible

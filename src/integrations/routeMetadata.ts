@@ -224,8 +224,7 @@ function hasUsableEnvCredentialValue(
   if (
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
-    envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar.endsWith('_API_KEY')
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -398,63 +397,6 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
 
   try {
     return new URL(trimmed).hostname.toLowerCase() === 'api.cline.bot'
-  } catch {
-    return false
-  }
-}
-
-/**
- * Host-scoped ApiSmart route match. Used for env-only conflict detection and
- * base-URL route identity (including `/v1/chat/completions` path suffixes that
- * still target the ApiSmart host). Credential forwarding and ambient-key
- * withholding use {@link isCanonicalApismartInferenceBaseUrl} instead — same
- * split AIMLAPI uses between host match and canonical inference URL.
- */
-export function isApismartBaseUrl(value: string | undefined): boolean {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return false
-  }
-
-  try {
-    const parsed = new URL(trimmed)
-    return (
-      parsed.protocol === 'https:' &&
-      !parsed.port &&
-      parsed.hostname.toLowerCase() === 'gw.apismart.ai'
-    )
-  } catch {
-    return false
-  }
-}
-
-/**
- * Exact documented ApiSmart inference endpoint (`https://gw.apismart.ai/v1`).
- * Path suffixes (`/v1/models`), alternate versions (`/v2`), and host-only URLs
- * are not canonical — forwarding dedicated credentials there would send the
- * key to the wrong request/discovery path.
- */
-const APISMART_CANONICAL_INFERENCE_BASE_URL = 'https://gw.apismart.ai/v1'
-
-export function isCanonicalApismartInferenceBaseUrl(
-  value: string | undefined,
-): boolean {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return false
-  }
-
-  try {
-    const canonical = new URL(APISMART_CANONICAL_INFERENCE_BASE_URL)
-    const candidate = new URL(trimmed)
-    const normalizePath = (pathname: string): string =>
-      pathname.replace(/\/+$/, '') || '/'
-    return (
-      candidate.protocol === 'https:' &&
-      !candidate.port &&
-      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
-      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
-    )
   } catch {
     return false
   }
@@ -649,30 +591,6 @@ function hasConflictingOpenAIBaseUrlForRoute(
   )
 }
 
-function hasExplicitOpenAIBaseUrlForRoute(
-  processEnv: NodeJS.ProcessEnv,
-  isRouteBaseUrl: (value: string | undefined) => boolean,
-): boolean {
-  if (hasNonEmptyEnvValue(processEnv.OPENAI_BASE_URL)) {
-    return isRouteBaseUrl(processEnv.OPENAI_BASE_URL)
-  }
-
-  return (
-    hasNonEmptyEnvValue(processEnv.OPENAI_API_BASE) &&
-    isRouteBaseUrl(processEnv.OPENAI_API_BASE)
-  )
-}
-
-function hasCompetingApismartCredential(
-  processEnv: NodeJS.ProcessEnv,
-  isRouteBaseUrl: (value: string | undefined) => boolean,
-): boolean {
-  return (
-    hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
-    !hasExplicitOpenAIBaseUrlForRoute(processEnv, isRouteBaseUrl)
-  )
-}
-
 function isAimlapiBaseUrl(baseUrl?: string): boolean {
   return normalizeHost(baseUrl) === 'api.aimlapi.com'
 }
@@ -709,7 +627,6 @@ export function hasAimlapiEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasUsableOpenAICredential(processEnv.AIMLAPI_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isAimlapiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isAimlapiBaseUrl) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
@@ -721,7 +638,6 @@ export function hasXaiEnvOnlyProviderIntent(
   return (
     hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isXaiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -743,7 +659,6 @@ export function hasMiniMaxEnvOnlyProviderIntent(
       (!hasAnyUsableOpenAICredential(processEnv) &&
         !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
         !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-        !hasCompetingApismartCredential(processEnv, isMiniMaxBaseUrl) &&
         hasNoExplicitNonOpenAICompatibleProvider(processEnv)))
   )
 }
@@ -757,7 +672,6 @@ export function hasVeniceEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.XAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isVeniceBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isVeniceBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -773,7 +687,6 @@ export function hasXiaomiMimoEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.MINIMAX_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.VENICE_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isXiaomiMimoBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isXiaomiMimoBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -791,7 +704,6 @@ export function hasNearaiEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isNearaiBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isNearaiBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -814,7 +726,6 @@ export function hasFireworksEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.LONGCAT_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isFireworksBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isFireworksBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -833,7 +744,6 @@ export function hasLongcatEnvOnlyProviderIntent(
     !hasNonEmptyEnvValue(processEnv.NEARAI_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.FIREWORKS_API_KEY) &&
     !hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isLongcatBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLongcatBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
   )
@@ -849,23 +759,8 @@ export function hasClinePassEnvOnlyProviderIntent(
 ): boolean {
   return (
     hasNonEmptyEnvValue(processEnv.CLINE_API_KEY) &&
-    !hasCompetingApismartCredential(processEnv, isClinePassBaseUrl) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isClinePassBaseUrl) &&
     hasNoExplicitNonOpenAICompatibleProvider(processEnv)
-  )
-}
-
-export function hasApismartEnvOnlyProviderIntent(
-  processEnv: NodeJS.ProcessEnv = process.env,
-): boolean {
-  // Match AIMLAPI: ApiSmart is an OpenAI-compatible dedicated-key route, so a
-  // lingering CLAUDE_CODE_USE_OPENAI=1 from a prior OpenAI session must not
-  // suppress env-only ApiSmart identity. Only true non-OpenAI providers
-  // (Gemini/GitHub/Bedrock/...) block this intent.
-  return (
-    hasUsableOpenAICredential(processEnv.APISMART_API_KEY) &&
-    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApismartBaseUrl) &&
-    hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
 
@@ -881,7 +776,6 @@ export function resolveEnvOnlyProviderRouteId(
   | 'fireworks'
   | 'longcat'
   | 'clinepass'
-  | 'apismart'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -924,10 +818,6 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasClinePassEnvOnlyProviderIntent(processEnv)) {
     return 'clinepass'
-  }
-
-  if (hasApismartEnvOnlyProviderIntent(processEnv)) {
-    return 'apismart'
   }
 
   return null
@@ -1114,8 +1004,7 @@ export function resolveRouteIdFromBaseUrl(
         // unrelated Cloudflare API URL would inherit Workers-AI routing.
         if (
           (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
-          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
-          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl))
+          (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1151,9 +1040,6 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'longcat') {
     return isLongcatBaseUrl(baseUrl)
-  }
-  if (routeId === 'apismart') {
-    return isApismartBaseUrl(baseUrl)
   }
   return true
 }

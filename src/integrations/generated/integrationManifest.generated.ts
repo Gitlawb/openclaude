@@ -101,7 +101,6 @@ export const PROVIDER_PRESET_MANIFEST = [
       "APISMART_API_KEY"
     ],
     "modelEnvVars": [
-      "APISMART_MODEL",
       "OPENAI_MODEL"
     ]
   },
