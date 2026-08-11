@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.28.0](https://github.com/Gitlawb/openclaude/compare/v0.27.0...v0.28.0) (2026-08-11)
+
+
+### Features
+
+* **cli:** add --yolo alias for --dangerously-skip-permissions ([#2097](https://github.com/Gitlawb/openclaude/issues/2097)) ([95eeb0b](https://github.com/Gitlawb/openclaude/commit/95eeb0bde38c4ba0e274877ee905c566ffe4e9cd))
+* **codex:** move codexplan default to GPT-5.6 Sol ([#2051](https://github.com/Gitlawb/openclaude/issues/2051)) ([9540946](https://github.com/Gitlawb/openclaude/commit/95409464f3685f49e14060ec314997c3a0428901))
+* **integrations:** add ApiSmart OpenAI-compatible gateway provider ([#2109](https://github.com/Gitlawb/openclaude/issues/2109)) ([ff91642](https://github.com/Gitlawb/openclaude/commit/ff91642364a7a751a99f4e999ad45600358717dd))
+* **opengateway:** add Ling 3.0 Tiny :free — Day-0 launch, free until August 13 ([#2112](https://github.com/Gitlawb/openclaude/issues/2112)) ([7b03ad1](https://github.com/Gitlawb/openclaude/commit/7b03ad19a4672e5915959ed17f9e7ce3cbecf737))
+* **opengateway:** free retirement — paid Ling id, dual Nemotron, Macaron Venti ([#2108](https://github.com/Gitlawb/openclaude/issues/2108)) ([54b9cd8](https://github.com/Gitlawb/openclaude/commit/54b9cd8389f070868f6d0be124d18898a99309c3))
+
+
+### Bug Fixes
+
+* **bash:** convert BRE interval braces when previewing sed edits ([#1955](https://github.com/Gitlawb/openclaude/issues/1955)) ([eb1de5b](https://github.com/Gitlawb/openclaude/commit/eb1de5b5767a3038336980bb50defcefe5659b4f))
+* **cost:** guard model-cost lookup against prototype-member model ids ([#2064](https://github.com/Gitlawb/openclaude/issues/2064)) ([c327805](https://github.com/Gitlawb/openclaude/commit/c327805e1d00b5e689b7d0265c4b51a5d2370373))
+* **input:** preserve text in DEL-coalesced chunks ([#2091](https://github.com/Gitlawb/openclaude/issues/2091)) ([1bf8076](https://github.com/Gitlawb/openclaude/commit/1bf8076d48252e3c41bf5ed584d69016954f2cf0))
+* **mcp:** serialize OAuth and XAA refresh across processes ([#2093](https://github.com/Gitlawb/openclaude/issues/2093)) ([6465a51](https://github.com/Gitlawb/openclaude/commit/6465a516f2ae566305d4298e7fba208a02134f5f))
+* **model-picker:** eliminate O(n²) catalog rebuild lag in /model ([#2078](https://github.com/Gitlawb/openclaude/issues/2078)) ([248424f](https://github.com/Gitlawb/openclaude/commit/248424ffe3d8da981ebbfd31c347eb197f88d262))
+* **query:** use monotonic watchdog deadlines ([#2110](https://github.com/Gitlawb/openclaude/issues/2110)) ([16e332e](https://github.com/Gitlawb/openclaude/commit/16e332e10825bb0c4391bb82de745c8fea8d622c))
+* **release:** synchronize web changelog entries ([#2088](https://github.com/Gitlawb/openclaude/issues/2088)) ([7743cf2](https://github.com/Gitlawb/openclaude/commit/7743cf280ed13b97b4bb2da1b0afde8d0757651a))
+* **repl:** make local interactive max-turns configurable ([#2086](https://github.com/Gitlawb/openclaude/issues/2086)) ([b0cbfe1](https://github.com/Gitlawb/openclaude/commit/b0cbfe11000eef4d85b96fc3173afbb8b0930c81))
+* **repomap:** resolve file language by real extension, own-property only ([#2100](https://github.com/Gitlawb/openclaude/issues/2100)) ([41d2f3b](https://github.com/Gitlawb/openclaude/commit/41d2f3b831c7c6b426c21fd466526d784ba547ff))
+* **session:** make transcript replacements crash-safe ([#2094](https://github.com/Gitlawb/openclaude/issues/2094)) ([d834904](https://github.com/Gitlawb/openclaude/commit/d834904e5a3fc295484e78bcf564ca01adf3b1b8))
+* **web:** add v0.27.0 changelog entry and clarify release-data ownership ([#2075](https://github.com/Gitlawb/openclaude/issues/2075)) ([63fda83](https://github.com/Gitlawb/openclaude/commit/63fda83d5578ddcc251eefa0c6800a85913895b5))
+
+
+### Performance Improvements
+
+* **cli:** enable Node module compile cache ([#2092](https://github.com/Gitlawb/openclaude/issues/2092)) ([d427a4b](https://github.com/Gitlawb/openclaude/commit/d427a4b2bb7b84564c5d2232de13942bc75fe9d2))
+
 ## [0.27.0](https://github.com/Gitlawb/openclaude/compare/v0.26.0...v0.27.0) (2026-07-30)
 
 
