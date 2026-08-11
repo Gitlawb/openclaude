@@ -727,6 +727,11 @@ test('an unreadable receipt fails closed instead of being claimed over as empty'
   // The permission failure must not have let a claim overwrite the original
   // receipt: the pending resume token is still there afterward.
   expect(readFileSync(statePath, 'utf8')).toBe(original)
+  // withStateLock's `finally` must still have released the lock on the
+  // throw path — otherwise every later call blocks for the full
+  // LOCK_TIMEOUT_MS and then fails with a lock-timeout error that hides the
+  // real (unreadable-receipt) cause.
+  expect(existsSync(`${statePath}.lock`)).toBe(false)
 })
 
 test('a malformed-JSON receipt fails closed instead of being claimed over as empty', () => {
@@ -744,6 +749,12 @@ test('a malformed-JSON receipt fails closed instead of being claimed over as emp
     /is not valid JSON/,
   )
   expect(readFileSync(statePath, 'utf8')).toBe('{ this is not valid json')
+  // The lock must not be stranded by the throw — a second attempt fails the
+  // same (fail-closed) way instead of timing out on a leaked lock.
+  expect(existsSync(`${statePath}.lock`)).toBe(false)
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 7500 })).toThrow(
+    /is not valid JSON/,
+  )
 })
 
 test('a receipt that fails schema validation fails closed instead of being claimed over as empty', () => {
@@ -764,6 +775,12 @@ test('a receipt that fails schema validation fails closed instead of being claim
     /does not match the expected format/,
   )
   expect(JSON.parse(readFileSync(statePath, 'utf8')).amountUsdMinor).toBe('not-a-number')
+  // The lock must not be stranded by the throw — a second attempt fails the
+  // same (fail-closed) way instead of timing out on a leaked lock.
+  expect(existsSync(`${statePath}.lock`)).toBe(false)
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 7500 })).toThrow(
+    /does not match the expected format/,
+  )
 })
 
 test('reconcileSettledAimlapiTopupStateAsync clears a stale settled receipt for the same credential', async () => {
@@ -780,7 +797,7 @@ test('reconcileSettledAimlapiTopupStateAsync clears a stale settled receipt for 
   const statePath = join(directory, 'aimlapi-topup.json')
   expect(existsSync(statePath)).toBe(true)
 
-  await reconcileSettledAimlapiTopupStateAsync('existing-key')
+  await reconcileSettledAimlapiTopupStateAsync('existing-key', false)
 
   expect(existsSync(statePath)).toBe(false)
 })
@@ -797,7 +814,45 @@ test('reconcileSettledAimlapiTopupStateAsync leaves a receipt for a DIFFERENT cr
     settled: true,
   })
 
-  await reconcileSettledAimlapiTopupStateAsync('some-other-key')
+  await reconcileSettledAimlapiTopupStateAsync('some-other-key', false)
+
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
+})
+
+test('reconcileSettledAimlapiTopupStateAsync clears a stale settled env-credential receipt (no stored apiKey) when usesEnv is set', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  // Mirrors the aimlapiExistingUsesEnv save branch: settled, but apiKey is
+  // deliberately never persisted for an ambient env credential.
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+    settled: true,
+  })
+  const statePath = join(directory, 'aimlapi-topup.json')
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBeUndefined()
+
+  await reconcileSettledAimlapiTopupStateAsync('ambient-env-key', true)
+
+  expect(existsSync(statePath)).toBe(false)
+})
+
+test('reconcileSettledAimlapiTopupStateAsync with usesEnv must not clear a receipt that DOES have a stored key', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+    settled: true,
+  })
+
+  // An unrelated env-credential reuse must not sweep away a real by-key
+  // receipt just because it happens to be the only one on disk.
+  await reconcileSettledAimlapiTopupStateAsync('ambient-env-key', true)
 
   expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
 })
@@ -814,7 +869,7 @@ test('reconcileSettledAimlapiTopupStateAsync leaves an unsettled (still in-progr
     // Not settled: a checkout may still be open/chargeable for this record.
   })
 
-  await reconcileSettledAimlapiTopupStateAsync('existing-key')
+  await reconcileSettledAimlapiTopupStateAsync('existing-key', false)
 
   expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
 })

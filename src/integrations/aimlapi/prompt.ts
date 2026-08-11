@@ -10,7 +10,7 @@ function assertInteractive(): void {
   if (!process.stdin.isTTY) {
     throw new Error(
       'No interactive terminal available. Provide --email (or AIMLAPI_EMAIL) and, for an ' +
-        'existing account, the sign-in code via --code-stdin or AIMLAPI_CODE.',
+        'existing account, the sign-in code via --code-stdin.',
     )
   }
 }

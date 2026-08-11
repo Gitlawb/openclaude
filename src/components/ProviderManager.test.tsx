@@ -647,17 +647,15 @@ function mockProviderManagerDependencies(
       }),
     reconcileSettledAimlapiTopupStateAsync:
       options?.reconcileSettledAimlapiTopupStateAsync ??
-      (async (apiKey: string) => {
-        // Mirror the real semantics: only a settled receipt for this EXACT
-        // credential is reconciled (cleared); anything else is left alone.
-        const trimmed = apiKey.trim()
-        if (!trimmed) return
-        if (
-          !persistedAimlapiTopup?.settled ||
-          persistedAimlapiTopup.apiKey !== trimmed
-        ) {
-          return
-        }
+      (async (apiKey: string, usesEnv: boolean) => {
+        // Mirror the real semantics: an env-sourced credential's settled
+        // receipt never stores apiKey, so it matches on absence instead of
+        // by value; anything else that doesn't match is left alone.
+        if (!persistedAimlapiTopup?.settled) return
+        const matches = usesEnv
+          ? !persistedAimlapiTopup.apiKey
+          : Boolean(apiKey.trim()) && persistedAimlapiTopup.apiKey === apiKey.trim()
+        if (!matches) return
         persistedAimlapiTopup = undefined
       }),
     loadAimlapiSignInKey: options?.loadAimlapiSignInKey ?? (() => null),
@@ -1489,7 +1487,7 @@ test('ProviderManager reconciles a stale settled receipt for this credential whe
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') && frame.includes('Default model'),
     )
-    expect(reconcileSettledAimlapiTopupStateAsync).toHaveBeenCalledWith('saved-key')
+    expect(reconcileSettledAimlapiTopupStateAsync).toHaveBeenCalledWith('saved-key', false)
   } finally {
     await mounted.dispose()
   }

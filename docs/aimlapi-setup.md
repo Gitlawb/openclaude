@@ -39,7 +39,7 @@ Run the guided account top-up flow from the CLI:
 openclaude aimlapi topup --email you@example.com --amount 25
 ```
 
-- Pass `--email` (or set `AIMLAPI_EMAIL`). Existing accounts also need the emailed 6-digit code: interactive terminals prompt for it (hidden, not echoed); for noninteractive use, pipe it in with `--code-stdin` (reads one line from stdin) or set `AIMLAPI_CODE`. Avoid the deprecated `--code <value>` flag — a plain argument is visible to other local users via shell history and the process list.
+- Pass `--email` (or set `AIMLAPI_EMAIL`). Existing accounts also need the emailed 6-digit code: interactive terminals prompt for it (hidden, not echoed); for scripts, pipe it in with `--code-stdin` (reads one line from stdin) — this is the recommended noninteractive path, since the value never touches argv or shell history. `AIMLAPI_CODE` also works, but only set it through a mechanism that itself avoids shell history (a CI secret, a sourced env file, `systemd`'s `Environment=`) — typing `AIMLAPI_CODE=123456 openclaude ...` directly at an interactive prompt still records it there. Avoid the deprecated `--code <value>` flag entirely — a plain argument is always visible to other local users via shell history and the process list.
 - `--amount`: top-up amount in USD (min 20, max 10000; defaults to 25).
 - Checkout always uses card payment; there is no separate payment-method step.
 - `--auto-top-up`: enroll the account in automatic top-up at checkout. Off by default here, unlike the interactive flow above, where it's pre-selected on.

@@ -506,13 +506,28 @@ function toCheckoutState(state: AimlapiPersistedTopup): AimlapiCheckoutState {
  * and no new payment is being made here to record. Safe no-op otherwise —
  * mismatched, unpaid, or in-progress state is left untouched for its actual
  * owner to resolve.
+ *
+ * An env-sourced credential's settled receipt never stores `apiKey` in the
+ * first place (see saveTopupStateOperation's aimlapiExistingUsesEnv branch —
+ * the ambient secret is deliberately never written to disk), so comparing it
+ * by value can never match and would leave that receipt stranded forever.
+ * `usesEnv` switches matching to "settled with no stored key", which an
+ * absent apiKey on a settled record can only mean, since a by-key top-up
+ * with a real key always stores one.
  */
-export function reconcileSettledAimlapiTopupStateAsync(apiKey: string): Promise<void> {
+export function reconcileSettledAimlapiTopupStateAsync(
+  apiKey: string,
+  usesEnv: boolean,
+): Promise<void> {
   const trimmedApiKey = apiKey.trim()
-  if (!trimmedApiKey) return Promise.resolve()
+  if (!usesEnv && !trimmedApiKey) return Promise.resolve()
   return withStateLockAsync(() => {
     const current = readAimlapiTopupStateUnlocked()
-    if (!current?.settled || current.apiKey?.trim() !== trimmedApiKey) return
+    if (!current?.settled) return
+    const matches = usesEnv
+      ? !current.apiKey?.trim()
+      : current.apiKey?.trim() === trimmedApiKey
+    if (!matches) return
     rmSync(statePath(), { force: true })
   })
 }

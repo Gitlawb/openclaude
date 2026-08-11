@@ -58,12 +58,13 @@ export function registerAimlapiCommand(
       '--code <code>',
       'Deprecated: 6-digit code for an existing account, as a plain argument. This ' +
         'exposes it to shell history and the process list (`ps`, /proc/<pid>/cmdline) on ' +
-        'the local machine. Prefer --code-stdin, AIMLAPI_CODE, or the interactive prompt.',
+        'the local machine. Prefer --code-stdin for scripts, or the interactive prompt.',
     )
     .option(
       '--code-stdin',
       'Read the 6-digit code for an existing account from stdin (one line) instead of ' +
-        '--code, for noninteractive use without exposing it via argv',
+        '--code — the recommended noninteractive mechanism, since it never touches argv ' +
+        'or shell history',
     )
     .option(
       '--amount <usd>',
@@ -80,7 +81,7 @@ export function registerAimlapiCommand(
       if (opts.code) {
         process.stderr.write(
           'Warning: --code exposes the sign-in code via shell history and the process ' +
-            'list. Use --code-stdin, AIMLAPI_CODE, or omit it to be prompted instead.\n',
+            'list. Use --code-stdin for scripts, or omit it to be prompted instead.\n',
         )
       }
       const code = opts.codeStdin ? await readOneLineFromStdin() : opts.code

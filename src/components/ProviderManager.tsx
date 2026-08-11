@@ -3030,7 +3030,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           // differently-amounted top-up. Nothing new is being paid for here —
           // the balance just confirmed above already reflects it — so clearing
           // that leftover marker is safe and unblocks a future top-up.
-          void reconcileSettledAimlapiTopupStateAsync(apiKey).catch(() => {})
+          void reconcileSettledAimlapiTopupStateAsync(apiKey, aimlapiExistingUsesEnv).catch(
+            () => {},
+          )
           setCursorOffset(draft.model.length)
           setScreen('preset-model')
         }
