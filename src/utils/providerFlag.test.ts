@@ -40,8 +40,6 @@ const ENV_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
-  'APISMART_API_KEY',
-  'APISMART_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -91,8 +89,6 @@ const RESET_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
-  'APISMART_API_KEY',
-  'APISMART_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -983,117 +979,6 @@ describe('applyProviderFlag - atlas-cloud', () => {
     expect(process.env.OPENAI_MODEL).toBe('zai-org/glm-5')
   })
 })
-
-/* ApiSmart follows the generic descriptor-backed provider-flag path. */
-/*
-describe('applyProviderFlag - apismart', () => {
-  test('sets ApiSmart OpenAI-compatible defaults and mirrors APISMART_API_KEY', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-
-    const result = applyProviderFlag('apismart', [])
-
-    expect(result.error).toBeUndefined()
-    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
-    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
-    expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
-  })
-
-  test('does not forward the dedicated key to a preserved custom base URL', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-    process.env.OPENAI_BASE_URL = 'https://llm-proxy.internal.example/v1'
-
-    applyProviderFlag('apismart', [])
-
-    expect(process.env.OPENAI_BASE_URL).toBe('https://llm-proxy.internal.example/v1')
-    expect(process.env.OPENAI_API_KEY).toBeUndefined()
-  })
-
-  test.each(['null', 'undefined', ' NULL ', ' Undefined '])(
-    'treats placeholder OPENAI_BASE_URL %s as unset and applies ApiSmart defaults',
-    sentinel => {
-      process.env.APISMART_API_KEY = 'apismart-secret-key'
-      process.env.OPENAI_BASE_URL = sentinel
-
-      applyProviderFlag('apismart', [])
-
-      expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
-      expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
-    },
-  )
-
-  test('clears unsupported OpenAI shim settings from a previous route', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-    process.env.OPENAI_API_FORMAT = 'responses'
-    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
-    process.env.OPENAI_AUTH_SCHEME = 'raw'
-    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-value'
-
-    applyProviderFlag('apismart', [])
-
-    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
-    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
-    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
-    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
-  })
-
-  test('uses APISMART_MODEL from env when --model is not provided', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-    process.env.APISMART_MODEL = 'KIMI_K3'
-
-    applyProviderFlag('apismart', [])
-
-    expect(process.env.OPENAI_MODEL).toBe('KIMI_K3')
-  })
-
-  test('makes an explicit --model override APISMART_MODEL', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-    process.env.APISMART_MODEL = 'KIMI_K3'
-
-    applyProviderFlag('apismart', ['--model', 'GLM_5.2'])
-
-    expect(process.env.OPENAI_MODEL).toBe('GLM_5.2')
-    expect(process.env.APISMART_MODEL).toBe('GLM_5.2')
-  })
-
-  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
-    process.env.OPENAI_API_KEY = 'existing-openai-key'
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-
-    applyProviderFlag('apismart', [])
-
-    expect(process.env.OPENAI_API_KEY).toBe('apismart-secret-key')
-  })
-
-  test('clears a stale OPENAI_API_KEY when no ApiSmart key is set', () => {
-    process.env.OPENAI_API_KEY = 'existing-openai-key'
-
-    applyProviderFlag('apismart', [])
-
-    expect(process.env.OPENAI_API_KEY).toBeUndefined()
-  })
-
-  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
-    'does not mirror placeholder ApiSmart credential %s',
-    placeholder => {
-      process.env.APISMART_API_KEY = placeholder
-
-      applyProviderFlag('apismart', [])
-
-      expect(process.env.OPENAI_API_KEY).toBeUndefined()
-    },
-  )
-
-  test('clears a copied ApiSmart key from OPENAI_API_KEY when switching to another provider', () => {
-    process.env.APISMART_API_KEY = 'apismart-secret-key'
-    process.env.OPENAI_API_KEY = 'apismart-secret-key'
-
-    applyProviderFlag('openai', [])
-
-    expect(process.env.OPENAI_API_KEY).toBeUndefined()
-  })
-})
-*/
 
 describe('applyProviderFlag - xai', () => {
   test('sets CLAUDE_CODE_USE_OPENAI=1 with xAI defaults when unset', () => {

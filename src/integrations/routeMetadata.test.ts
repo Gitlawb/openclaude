@@ -330,42 +330,6 @@ test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
   )
 })
 
-/* ApiSmart uses descriptor-based credential resolution; it deliberately has no
- * dedicated canonical-endpoint or env-only routing behavior. */
-/*
-test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
-  expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
-  expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
-  expect(isApismartBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(false)
-  expect(resolveRouteIdFromBaseUrl('http://gw.apismart.ai/v1')).toBe(null)
-  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(null)
-})
-
-test('isCanonicalApismartInferenceBaseUrl requires the exact /v1 inference path', () => {
-  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1')).toBe(
-    true,
-  )
-  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/')).toBe(
-    true,
-  )
-  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai')).toBe(
-    false,
-  )
-  expect(
-    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/models'),
-  ).toBe(false)
-  expect(
-    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/staging/v1'),
-  ).toBe(false)
-  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v2')).toBe(
-    false,
-  )
-  // Host-scoped route match still accepts path suffixes for identity.
-  expect(isApismartBaseUrl('https://gw.apismart.ai/v1/models')).toBe(true)
-  expect(isApismartBaseUrl('https://gw.apismart.ai')).toBe(true)
-})
-*/
-
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
   expect(
     resolveRouteCredentialValue({
