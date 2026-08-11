@@ -13,11 +13,63 @@ const LEGACY_GENERATED_ENTRY_MARKER =
 
 const GENERATED_ENTRY_MARKERS = [GENERATED_ENTRY_MARKER, LEGACY_GENERATED_ENTRY_MARKER] as const
 
+const SEMVER_IDENTIFIER = '(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+const SEMVER_PATTERN = new RegExp(
+  `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)`
+  + `(?:-(${SEMVER_IDENTIFIER}(?:\\.${SEMVER_IDENTIFIER})*))?`
+  + `(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+)
+
 export type ReleaseEntry = {
   version: string
   date: string
   theme: string
   highlights: string[]
+}
+
+type ParsedSemVer = {
+  core: [bigint, bigint, bigint]
+  prerelease: string[] | null
+}
+
+function parseSemVer(version: string): ParsedSemVer {
+  const match = version.match(SEMVER_PATTERN)
+  if (!match) throw new Error(`invalid SemVer: ${version}`)
+  return {
+    core: [BigInt(match[1]!), BigInt(match[2]!), BigInt(match[3]!)],
+    prerelease: match[4]?.split('.') ?? null,
+  }
+}
+
+export function compareSemVer(leftVersion: string, rightVersion: string): number {
+  const left = parseSemVer(leftVersion)
+  const right = parseSemVer(rightVersion)
+  for (let index = 0; index < left.core.length; index++) {
+    if (left.core[index] !== right.core[index])
+      return left.core[index]! < right.core[index]! ? -1 : 1
+  }
+  if (left.prerelease === null || right.prerelease === null)
+    return left.prerelease === right.prerelease ? 0 : left.prerelease === null ? 1 : -1
+
+  const length = Math.max(left.prerelease.length, right.prerelease.length)
+  for (let index = 0; index < length; index++) {
+    const a = left.prerelease[index]
+    const b = right.prerelease[index]
+    if (a === undefined || b === undefined)
+      return a === b ? 0 : a === undefined ? -1 : 1
+    if (a === b) continue
+    const aNumeric = /^\d+$/.test(a)
+    const bNumeric = /^\d+$/.test(b)
+    if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
+    return a < b ? -1 : 1
+  }
+  return 0
+}
+
+export function assertVersionAdvances(baseVersion: string, nextVersion: string): void {
+  if (compareSemVer(nextVersion, baseVersion) <= 0)
+    throw new Error(`release version must advance: ${baseVersion} -> ${nextVersion}`)
 }
 
 export function sanitizeChangelogBullet(line: string): string {

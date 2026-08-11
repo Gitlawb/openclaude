@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  assertVersionAdvances,
+  compareSemVer,
   deriveTheme,
   formatReleaseEntry,
   GENERATED_ENTRY_MARKER,
@@ -34,6 +36,31 @@ const SAMPLE_RELEASES_TS = `export const releases: Release[] = [
   },
 ]
 `
+
+describe('release version ordering', () => {
+  test('orders numeric prerelease identifiers numerically', () => {
+    expect(compareSemVer('1.0.0-rc.10', '1.0.0-rc.2')).toBeGreaterThan(0)
+    expect(compareSemVer('1.0.0-rc.2', '1.0.0-rc.10')).toBeLessThan(0)
+  })
+
+  test('implements SemVer prerelease precedence', () => {
+    expect(compareSemVer('1.0.0-alpha.1', '1.0.0-alpha.beta')).toBeLessThan(0)
+    expect(compareSemVer('1.0.0-alpha.beta', '1.0.0-beta')).toBeLessThan(0)
+    expect(compareSemVer('1.0.0-beta.11', '1.0.0-rc.1')).toBeLessThan(0)
+    expect(compareSemVer('1.0.0', '1.0.0-rc.1')).toBeGreaterThan(0)
+    expect(compareSemVer('1.0.0+build.2', '1.0.0+build.1')).toBe(0)
+  })
+
+  test('accepts only a valid advancing release version', () => {
+    expect(() => assertVersionAdvances('1.0.0-rc.2', '1.0.0-rc.10')).not.toThrow()
+    expect(() => assertVersionAdvances('1.0.0', '1.0.0')).toThrow(
+      'release version must advance: 1.0.0 -> 1.0.0',
+    )
+    expect(() => assertVersionAdvances('1.0.0', 'not-semver')).toThrow(
+      'invalid SemVer: not-semver',
+    )
+  })
+})
 
 describe('syncWebReleaseEntry', () => {
   test('inserts a bounded, sanitized draft entry from the requested changelog section', () => {

@@ -91,7 +91,7 @@ jobs:
     if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
+      pull-requests: write # Re-draft the bot release PR after Release Please updates it.
     steps:
       # release-please can leave an existing PR non-draft after updating it.
       - name: Keep Release Please PR draft after updates
@@ -311,7 +311,9 @@ jobs:
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
           RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
+          RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
         run: |
           set -euo pipefail
 
@@ -365,45 +367,11 @@ jobs:
             echo "package and Release Please manifest versions do not match" >&2
             exit 1
           fi
-          BASE_VERSION="$base_package_version" NEXT_VERSION="$package_version" node -e '
-            const identifier = "(?:0|[1-9]\\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-            const pattern = new RegExp(
-              `^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)` +
-              `(?:-(${identifier}(?:\\.${identifier})*))?` +
-              `(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
-            )
-            const parse = value => {
-              const match = value.match(pattern)
-              if (!match) throw new Error(`invalid SemVer: ${value}`)
-              return { core: [BigInt(match[1]), BigInt(match[2]), BigInt(match[3])], prerelease: match[4]?.split(".") ?? null }
-            }
-            const compare = (left, right) => {
-              for (let index = 0; index < 3; index++) {
-                if (left.core[index] !== right.core[index]) return left.core[index] < right.core[index] ? -1 : 1
-              }
-              if (left.prerelease === null || right.prerelease === null)
-                return left.prerelease === right.prerelease ? 0 : left.prerelease === null ? 1 : -1
-              const length = Math.max(left.prerelease.length, right.prerelease.length)
-              for (let index = 0; index < length; index++) {
-                const a = left.prerelease[index]
-                const b = right.prerelease[index]
-                if (a === undefined || b === undefined) return a === b ? 0 : a === undefined ? -1 : 1
-                if (a === b) continue
-                const aNumeric = /^\\d+$/.test(a)
-                const bNumeric = /^\\d+$/.test(b)
-                if (aNumeric && bNumeric) return BigInt(a) < BigInt(b) ? -1 : 1
-                if (aNumeric !== bNumeric) return aNumeric ? -1 : 1
-                return a < b ? -1 : 1
-              }
-              return 0
-            }
-            const base = parse(process.env.BASE_VERSION)
-            const next = parse(process.env.NEXT_VERSION)
-            if (compare(next, base) <= 0)
-              throw new Error(`release version must advance: ${process.env.BASE_VERSION} -> ${process.env.NEXT_VERSION}`)
-          '
-
           bun install --frozen-lockfile
+          BASE_VERSION="$base_package_version" NEXT_VERSION="$package_version" bun -e '
+            import { assertVersionAdvances } from "./scripts/sync-web-release-entry"
+            assertVersionAdvances(process.env.BASE_VERSION!, process.env.NEXT_VERSION!)
+          '
           if ! git diff --quiet "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" -- web/src/data/releases.ts; then
             if ! bun -e '
               import { hasGeneratedTopEntry } from "./scripts/sync-web-release-entry"
@@ -438,12 +406,14 @@ jobs:
 
           mkdir -p .release-sync-artifact
           cp web/src/data/releases.ts .release-sync-artifact/releases.ts
-          {
-            echo "number=${{ steps.release-pr.outputs.number }}"
-            echo "branch=${{ steps.release-pr.outputs.branch }}"
-            echo "head_sha=${{ steps.release-pr.outputs.head_sha }}"
-            sha256sum web/src/data/releases.ts | awk '{print "releases_sha256="$1}'
-          } > .release-sync-artifact/metadata.env
+          releases_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
+          jq -n \
+            --arg number "$RELEASE_PR_NUMBER" \
+            --arg branch "$RELEASE_PR_BRANCH" \
+            --arg head_sha "$RELEASE_PR_HEAD_SHA" \
+            --arg releases_sha256 "$releases_sha256" \
+            '{ number: $number, branch: $branch, head_sha: $head_sha, releases_sha256: $releases_sha256 }' \
+            > .release-sync-artifact/metadata.json
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "sync validation left uncommitted tracked changes" >&2
@@ -502,13 +472,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          # shellcheck disable=SC1091
-          source .release-sync-artifact/metadata.env
+          metadata_path=.release-sync-artifact/metadata.json
+          if ! jq -e '
+            type == "object"
+            and (.number | type == "string" and length > 0)
+            and (.branch | type == "string" and length > 0)
+            and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+            and (.releases_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+          ' "$metadata_path" >/dev/null; then
+            echo "validated artifact metadata is malformed" >&2
+            exit 1
+          fi
+          number="$(jq -r .number "$metadata_path")"
+          branch="$(jq -r .branch "$metadata_path")"
+          head_sha="$(jq -r .head_sha "$metadata_path")"
+          releases_sha256="$(jq -r .releases_sha256 "$metadata_path")"
           if [ "${number}" != "$RELEASE_PR_NUMBER" ] \
             || [ "${branch}" != "$RELEASE_PR_BRANCH" ] \
             || [ "${head_sha}" != "$RELEASE_PR_HEAD_SHA" ]; then
             echo "validated artifact metadata does not match the resolved release PR" >&2
-            cat .release-sync-artifact/metadata.env >&2
+            jq . "$metadata_path" >&2
             exit 1
           fi
 
@@ -516,14 +499,6 @@ jobs:
           actual_sha256="$(sha256sum .release-sync-artifact/releases.ts | awk '{print $1}')"
           if [ "$actual_sha256" != "$expected_sha256" ]; then
             echo "validated releases.ts digest mismatch" >&2
-            exit 1
-          fi
-
-          # Apply only the validated file — do not execute PR-head scripts here.
-          cp .release-sync-artifact/releases.ts web/src/data/releases.ts
-          applied_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
-          if [ "$applied_sha256" != "$expected_sha256" ]; then
-            echo "failed to apply validated releases.ts" >&2
             exit 1
           fi
 
@@ -569,15 +544,27 @@ jobs:
             already_synchronized=true
           fi
 
-          if [ "$already_synchronized" = "false" ] && ! git diff --quiet -- web/src/data/releases.ts; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add web/src/data/releases.ts
-            git commit -m "chore(web): sync releases.ts from release-please changelog"
-          elif [ "$already_synchronized" = "true" ]; then
+          if [ "$already_synchronized" = "true" ]; then
+            # The captured validation head is stale after a concurrent push.
+            # Adopt the exact verified remote commit before checking cleanliness.
+            git switch --detach "$current_sha"
             echo "release PR already has the validated releases.ts artifact"
           else
-            echo "release PR already has the validated releases.ts artifact"
+            # Apply only the validated file — do not execute PR-head scripts here.
+            cp .release-sync-artifact/releases.ts web/src/data/releases.ts
+            applied_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
+            if [ "$applied_sha256" != "$expected_sha256" ]; then
+              echo "failed to apply validated releases.ts" >&2
+              exit 1
+            fi
+            if ! git diff --quiet -- web/src/data/releases.ts; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add web/src/data/releases.ts
+              git commit -m "chore(web): sync releases.ts from release-please changelog"
+            else
+              echo "release PR already has the validated releases.ts artifact"
+            fi
           fi
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
