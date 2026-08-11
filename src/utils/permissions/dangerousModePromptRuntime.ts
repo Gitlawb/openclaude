@@ -2,6 +2,7 @@ import {
   hasSkipDangerousModePermissionPrompt,
   hasSkipFullAccessModePermissionPrompt,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { PermissionMode } from './PermissionMode.js'
 import {
@@ -31,6 +32,12 @@ export function getStartupDangerousPermissionPromptState({
 
 export function persistDangerousModeAcceptance(
   mode: DangerousPermissionMode,
-): void {
-  updateSettingsForSource('userSettings', getDangerousModeAcceptanceUpdate(mode))
+): string | null {
+  const result = updateSettingsForSource(
+    'userSettings',
+    getDangerousModeAcceptanceUpdate(mode),
+  )
+  return wasSettingsUpdateCommitted(result)
+    ? null
+    : result.error?.message ?? 'Could not save dangerous mode acceptance'
 }

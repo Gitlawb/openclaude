@@ -3,6 +3,7 @@ import React from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
+import { Text } from '../ink.js';
 import { Dialog } from './design-system/Dialog.js';
 import { MCPServerDialogCopy } from './MCPServerDialogCopy.js';
 type Props = {
@@ -10,11 +11,12 @@ type Props = {
   onDone(): void;
 };
 export function MCPServerApprovalDialog(t0) {
-  const $ = _c(13);
+  const $ = _c(14);
   const {
     serverName,
     onDone
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1;
   if ($[0] !== onDone || $[1] !== serverName) {
     t1 = function onChange(value) {
@@ -33,6 +35,8 @@ export function MCPServerApprovalDialog(t0) {
             }));
             if (wasSettingsUpdateCommitted(result)) {
               onDone();
+            } else {
+              setSaveError(`Could not save MCP server preference: ${result.error?.message ?? "settings were not written"}`);
             }
             break bb2;
           }
@@ -43,6 +47,8 @@ export function MCPServerApprovalDialog(t0) {
             }));
             if (wasSettingsUpdateCommitted(result_0)) {
               onDone();
+            } else {
+              setSaveError(`Could not save MCP server preference: ${result_0.error?.message ?? "settings were not written"}`);
             }
           }
       }
@@ -95,14 +101,15 @@ export function MCPServerApprovalDialog(t0) {
     t6 = $[8];
   }
   let t7;
-  if ($[9] !== t2 || $[10] !== t3 || $[11] !== t6) {
-    t7 = <Dialog title={t2} color="warning" onCancel={t3}>{t4}{t6}</Dialog>;
-    $[9] = t2;
-    $[10] = t3;
-    $[11] = t6;
-    $[12] = t7;
+  if ($[9] !== saveError || $[10] !== t2 || $[11] !== t3 || $[12] !== t6) {
+    t7 = <Dialog title={t2} color="warning" onCancel={t3}>{t4}{saveError ? <Text color="error">{saveError}</Text> : null}{t6}</Dialog>;
+    $[9] = saveError;
+    $[10] = t2;
+    $[11] = t3;
+    $[12] = t6;
+    $[13] = t7;
   } else {
-    t7 = $[12];
+    t7 = $[13];
   }
   return t7;
 }

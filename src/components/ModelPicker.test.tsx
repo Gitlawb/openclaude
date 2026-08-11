@@ -380,6 +380,7 @@ test('keeps the active model when selecting a different model cannot be persiste
       <Text>Current model: {model}</Text>
       <ModelPicker
         initial="claude-haiku-4-5"
+        skipSettingsWrite
         onSelect={selectedModel => {
           setAppState(previous => ({
             ...previous,
@@ -449,7 +450,7 @@ test('keeps the active model when selecting a different model cannot be persiste
   }
 })
 
-test('does not advance in-memory effort when persistence fails', async () => {
+test('keeps the picker open when the parent rejects the atomic model and effort write', async () => {
   useSettings({ effortLevel: 'low' })
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
@@ -461,7 +462,9 @@ test('does not advance in-memory effort when persistence fails', async () => {
     `./ModelPicker.js?write-failure-${Date.now()}`
   )
   const { stdin, stdout, getOutput } = makeStdio()
-  const onSelect = mock(() => {})
+  const onSelect = mock(() =>
+    'Could not save model and effort preference: settings were not written'
+  )
   let observedEffort = getDefaultAppState().effortValue
 
   const instance = await render(
@@ -498,12 +501,23 @@ test('does not advance in-memory effort when persistence fails', async () => {
     stdin.write('\u001b[C')
     await waitForCondition(() => getOutput().length > outputBeforeToggle)
     stdin.write('\r')
-    await waitForCondition(() => onSelect.mock.calls.length === 1)
+    await waitForCondition(() =>
+      stripAnsi(getOutput()).includes(
+        'Could not save model and effort preference: settings were not written',
+      ),
+    )
 
-    expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
-    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
-      effortLevel: 'high',
-    })
+    expect(updateSettingsForTest).not.toHaveBeenCalled()
+    expect(onSelect).toHaveBeenCalledWith(
+      'claude-opus-4-6',
+      'high',
+      undefined,
+      expect.objectContaining({
+        settingsPatch: { effortLevel: 'high' },
+        effortValue: 'high',
+        wroteEffort: true,
+      }),
+    )
     expect(observedEffort).toBeUndefined()
   } finally {
     instance.unmount()
@@ -512,7 +526,7 @@ test('does not advance in-memory effort when persistence fails', async () => {
   }
 })
 
-test('advances in-memory effort when bytes landed before a release error', async () => {
+test('passes effort persistence to the parent for one coordinated transaction', async () => {
   useSettings({ effortLevel: 'low' })
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
@@ -563,11 +577,17 @@ test('advances in-memory effort when bytes landed before a release error', async
     stdin.write('\r')
     await waitForCondition(() => onSelect.mock.calls.length === 1)
 
-    expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
-    expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
-      effortLevel: 'high',
-    })
-    expect(observedEffort).toBe('high')
+    expect(updateSettingsForTest).not.toHaveBeenCalled()
+    expect(onSelect).toHaveBeenCalledWith(
+      'claude-opus-4-6',
+      'high',
+      undefined,
+      expect.objectContaining({
+        settingsPatch: { effortLevel: 'high' },
+        effortValue: 'high',
+      }),
+    )
+    expect(observedEffort).toBeUndefined()
   } finally {
     instance.unmount()
     stdin.end()

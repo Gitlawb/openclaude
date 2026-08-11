@@ -1,9 +1,16 @@
-import { saveGlobalConfig, type GlobalConfig } from './config.js'
+import {
+  saveGlobalConfig,
+  type GlobalConfig,
+} from './config.js'
 import { logForDebugging } from './debug.js'
 import {
   updateSettingsForSource,
   wasSettingsUpdateCommitted,
 } from './settings/settings.js'
+import {
+  commitSettingsTransition,
+  rollbackModelSettingsTransition,
+} from './settings/modelTransition.js'
 
 export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -48,7 +55,7 @@ export const STARTUP_PROVIDER_OVERRIDE_ENV_KEYS = [
   'LONGCAT_API_KEY',
 ] as const
 
-type GlobalConfigWithEnv = {
+export type GlobalConfigWithEnv = {
   env?: Record<string, string>
 }
 
@@ -59,6 +66,7 @@ type SettingsEnvPatch = Partial<
 const DELETE_SETTINGS_ENV_VALUE = undefined as unknown as string
 
 export function clearStartupProviderOverrides(options?: {
+  model?: string | null
   updateUserSettings?: typeof updateSettingsForSource
   saveConfig?: (
     updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv,
@@ -78,11 +86,21 @@ export function clearStartupProviderOverrides(options?: {
     ]),
   ) as SettingsEnvPatch
 
-  const settingsResult = updateUserSettings('userSettings', { env: envPatch })
-  let settingsError: string | null = null
+  const settingsPatch = {
+    env: envPatch,
+    ...(options && 'model' in options
+      ? { model: options.model ?? undefined }
+      : {}),
+  }
+  const settingsTransition = options?.updateUserSettings
+    ? {
+        result: updateUserSettings('userSettings', settingsPatch),
+        transition: undefined,
+      }
+    : commitSettingsTransition(settingsPatch)
+  const settingsResult = settingsTransition.result
   if (!wasSettingsUpdateCommitted(settingsResult)) {
-    settingsError =
-      settingsResult.error?.message ?? 'Settings update was not written'
+    return settingsResult.error?.message ?? 'Settings update was not written'
   } else if (settingsResult.error) {
     // The override bytes reached disk. Preserve that committed truth for
     // callers while retaining the release/cleanup warning in diagnostics.
@@ -94,7 +112,9 @@ export function clearStartupProviderOverrides(options?: {
 
   let globalConfigError: string | null = null
   try {
+    let updaterRan = false
     saveConfig((current: GlobalConfigWithEnv) => {
+      updaterRan = true
       const currentEnv = current.env ?? {}
       let changed = false
       const nextEnv = { ...currentEnv }
@@ -106,10 +126,22 @@ export function clearStartupProviderOverrides(options?: {
       }
       return changed ? { ...current, env: nextEnv } : current
     })
+    if (!updaterRan) {
+      globalConfigError = 'Global config update was not applied'
+    }
   } catch (configError) {
     globalConfigError =
       configError instanceof Error ? configError.message : String(configError)
   }
 
-  return [settingsError, globalConfigError].filter(Boolean).join('; ') || null
+  if (globalConfigError && settingsTransition.transition) {
+    const rollback = rollbackModelSettingsTransition(
+      settingsTransition.transition,
+    )
+    if (rollback.status === 'failed') {
+      globalConfigError += `; settings rollback failed: ${rollback.error}`
+    }
+  }
+
+  return globalConfigError
 }

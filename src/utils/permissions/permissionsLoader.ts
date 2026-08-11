@@ -5,8 +5,11 @@ import {
   type SettingSource,
 } from '../settings/constants.js'
 import {
+  SETTINGS_UPDATE_NO_CHANGE,
   getSettingsForSource,
   updateSettingsForSourceWithFreshSettings,
+  updateSettingsForSourceWithFreshSettingsOrNoop,
+  wasSettingsUpdateApplied,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
@@ -112,6 +115,12 @@ export type PermissionRuleFromEditableSettings = PermissionRule & {
   source: EditableSettingSource
 }
 
+type AddPermissionRulesDependencies = {
+  shouldAllowManagedRulesOnly?: typeof shouldAllowManagedPermissionRulesOnly
+  updateFreshSettingsOrNoop?:
+    typeof updateSettingsForSourceWithFreshSettingsOrNoop
+}
+
 // Editable sources that can be modified (excludes policySettings and flagSettings)
 const EDITABLE_SOURCES: EditableSettingSource[] = [
   'userSettings',
@@ -197,9 +206,13 @@ export function addPermissionRulesToSettings(
     ruleBehavior: PermissionBehavior
   },
   source: EditableSettingSource,
+  dependencies?: AddPermissionRulesDependencies,
 ): boolean {
   // When allowManagedPermissionRulesOnly is enabled, don't persist new permission rules
-  if (shouldAllowManagedPermissionRulesOnly()) {
+  const managedRulesOnly =
+    dependencies?.shouldAllowManagedRulesOnly ??
+    shouldAllowManagedPermissionRulesOnly
+  if (managedRulesOnly()) {
     return false
   }
 
@@ -210,7 +223,10 @@ export function addPermissionRulesToSettings(
 
   const ruleStrings = ruleValues.map(permissionRuleValueToString)
   try {
-    const result = updateSettingsForSourceWithFreshSettings(
+    const updateFreshSettingsOrNoop =
+      dependencies?.updateFreshSettingsOrNoop ??
+      updateSettingsForSourceWithFreshSettingsOrNoop
+    const result = updateFreshSettingsOrNoop(
       source,
       freshSettings => {
         const existingRules = freshSettings.permissions?.[ruleBehavior] ?? []
@@ -222,6 +238,9 @@ export function addPermissionRulesToSettings(
         const newRules = ruleStrings.filter(
           rule => !existingRulesSet.has(rule),
         )
+        if (newRules.length === 0) {
+          return SETTINGS_UPDATE_NO_CHANGE
+        }
         return {
           permissions: {
             [ruleBehavior]: [...existingRules, ...newRules],
@@ -230,7 +249,7 @@ export function addPermissionRulesToSettings(
       },
     )
 
-    if (!wasSettingsUpdateCommitted(result)) {
+    if (!wasSettingsUpdateApplied(result)) {
       throw result.error ?? new Error('Settings update was not written')
     }
 

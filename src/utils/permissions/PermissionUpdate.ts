@@ -354,14 +354,27 @@ export function persistPermissionUpdate(update: PermissionUpdate): boolean {
  * Persists multiple permission updates to the appropriate settings sources
  * Only persists updates with persistable sources
  * @param updates The permission updates to persist
- * @returns Whether every required settings write reached disk
+ * @returns The updates whose requested state was applied and those that failed
  */
-export function persistPermissionUpdates(updates: PermissionUpdate[]): boolean {
-  let persisted = true
+export function persistPermissionUpdates(updates: PermissionUpdate[]): {
+  appliedUpdates: PermissionUpdate[]
+  failedUpdates: PermissionUpdate[]
+  allApplied: boolean
+} {
+  const appliedUpdates: PermissionUpdate[] = []
+  const failedUpdates: PermissionUpdate[] = []
   for (const update of updates) {
-    persisted = persistPermissionUpdate(update) && persisted
+    if (persistPermissionUpdate(update)) {
+      appliedUpdates.push(update)
+    } else {
+      failedUpdates.push(update)
+    }
   }
-  return persisted
+  return {
+    appliedUpdates,
+    failedUpdates,
+    allApplied: failedUpdates.length === 0,
+  }
 }
 
 /**

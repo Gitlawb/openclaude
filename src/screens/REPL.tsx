@@ -5250,16 +5250,25 @@ export function REPL({
                 }],
                 behavior: (allow ? 'allow' : 'deny') as 'allow' | 'deny',
                 destination: 'localSettings' as const
-              };
+            };
+              const persisted = persistPermissionUpdate(update);
               setAppState(prev => ({
                 ...prev,
                 toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
               }));
-              persistPermissionUpdate(update);
 
-              // Immediately update sandbox in-memory config to prevent race conditions
-              // where pending requests slip through before settings change is detected
+              // Apply the explicit decision for this session even when the
+              // durable write fails; otherwise "allow and remember" silently
+              // degrades to a one-shot approval.
               SandboxManager.refreshConfig();
+              if (!persisted) {
+                addNotification({
+                  key: `sandbox-permission-session-only:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
+                  color: 'warning',
+                  priority: 'immediate'
+                });
+              }
             }
 
             // Resolve ALL pending requests for the same host (not just the first one)
@@ -5325,12 +5334,20 @@ export function REPL({
                 behavior: 'allow' as const,
                 destination: 'localSettings' as const
               };
+              const persisted = persistPermissionUpdate(update);
               setAppState(prev => ({
                 ...prev,
                 toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
               }));
-              persistPermissionUpdate(update);
               SandboxManager.refreshConfig();
+              if (!persisted) {
+                addNotification({
+                  key: `worker-sandbox-permission-session-only:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
+                  color: 'warning',
+                  priority: 'immediate'
+                });
+              }
             }
 
             // Remove from queue

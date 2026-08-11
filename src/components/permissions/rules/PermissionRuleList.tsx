@@ -1023,6 +1023,7 @@ export function PermissionRuleList(t0: Props): React.ReactNode {
         const updatedContext = applyPermissionUpdate(toolPermissionContext, permissionUpdate);
         if (remember && !persistPermissionUpdate(permissionUpdate)) {
           setChanges(prev_5 => [...prev_5, `Could not save directory ${chalk.bold(path_0)} to local settings`]);
+          setIsAddingWorkspaceDirectory(false);
           return;
         }
         setAppState(prev_4 => ({

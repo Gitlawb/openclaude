@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
+import type { GlobalConfigWithEnv } from './providerStartupOverrides.js'
 
 async function importStartupOverridesForTest() {
   return import(
@@ -10,9 +11,9 @@ describe('clearStartupProviderOverrides', () => {
   test('removes stale provider env from user settings and global config env', async () => {
     const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
     const updateUserSettings = mock(() => ({ error: null, written: true }))
-    const saveConfig = mock((updater: (current: {
-      env: Record<string, string>
-    }) => { env: Record<string, string> }) =>
+    const saveConfig = mock((updater: (
+      current: GlobalConfigWithEnv
+    ) => GlobalConfigWithEnv) =>
       updater({
         env: {
           CLAUDE_CODE_USE_OPENAI: '1',
@@ -31,7 +32,7 @@ describe('clearStartupProviderOverrides', () => {
 
     const error = clearStartupProviderOverrides({
       updateUserSettings,
-      saveConfig: saveConfig as any,
+      saveConfig,
     })
 
     expect(error).toBeNull()
@@ -64,7 +65,9 @@ describe('clearStartupProviderOverrides', () => {
         error: new Error('lock release failed'),
         written: true,
       })),
-      saveConfig: mock(updater => updater({ env: {} })) as any,
+      saveConfig: mock((updater: (
+        current: GlobalConfigWithEnv
+      ) => GlobalConfigWithEnv) => updater({ env: {} })),
     })
 
     expect(error).toBeNull()
@@ -73,11 +76,46 @@ describe('clearStartupProviderOverrides', () => {
   test('reports an unwritten settings update even when no error object is returned', async () => {
     const { clearStartupProviderOverrides } = await importStartupOverridesForTest()
 
+    const saveConfig = mock((updater: (
+      current: GlobalConfigWithEnv
+    ) => GlobalConfigWithEnv) => updater({ env: {} }))
     const error = clearStartupProviderOverrides({
       updateUserSettings: mock(() => ({ error: null, written: false })),
-      saveConfig: mock(updater => updater({ env: {} })) as any,
+      saveConfig,
     })
 
     expect(error).toBe('Settings update was not written')
+    expect(saveConfig).not.toHaveBeenCalled()
   })
+
+  test('persists the selected model in the same settings transition', async () => {
+    const updateUserSettings = mock(() => ({ error: null, written: true }))
+
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+    expect(
+      clearStartupProviderOverrides({
+        model: 'gpt-5-mini',
+        updateUserSettings,
+        saveConfig: mock(updater => updater({ env: {} })),
+      }),
+    ).toBeNull()
+    expect(updateUserSettings).toHaveBeenCalledWith(
+      'userSettings',
+      expect.objectContaining({ model: 'gpt-5-mini' }),
+    )
+  })
+
+  test('reports a silently refused global config update', async () => {
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+
+    expect(
+      clearStartupProviderOverrides({
+        updateUserSettings: mock(() => ({ error: null, written: true })),
+        saveConfig: mock(() => undefined),
+      }),
+    ).toBe('Global config update was not applied')
+  })
+
 })

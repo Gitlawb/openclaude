@@ -45,6 +45,7 @@ import {
 import {
   formatResolutionError,
   installResolvedPlugin,
+  validatePathWithinBase,
 } from '../../utils/plugins/pluginInstallationHelpers.js'
 import {
   cachePlugin,
@@ -526,26 +527,30 @@ export async function uninstallPluginOp(
 
   clearAllCaches()
 
-  // Remove from installed_plugins_v2.json for this scope
-  removePluginInstallation(pluginId, scope, projectPath)
-
-  const updatedData = loadInstalledPluginsV2()
-  const remainingInstallations = updatedData.plugins[pluginId]
-  const isLastScope =
-    !remainingInstallations || remainingInstallations.length === 0
-  if (isLastScope && installPath) {
-    await markPluginVersionOrphaned(installPath)
+  // Cleanup and final-scope removal share the installed-plugins lock. A failed
+  // secure-storage scrub leaves the registration intact so the user can retry;
+  // a concurrent replacement is serialized behind this decision.
+  let removal: ReturnType<typeof removePluginInstallation>
+  try {
+    removal = removePluginInstallation(pluginId, scope, projectPath, {
+      beforeLastRemoval() {
+        const cleanup = deletePluginOptions(pluginId)
+        if (!cleanup.success) {
+          throw new Error(cleanup.error ?? 'cleanup did not complete')
+        }
+      },
+    })
+  } catch (error) {
+    return {
+      success: false,
+      message: `Plugin settings were disabled, but final cleanup could not complete; the installation remains registered for retry: ${error instanceof Error ? error.message : String(error)}`,
+    }
   }
-  // Separate from the `&& installPath` guard above — deletePluginOptions only
-  // needs pluginId, not installPath. Last scope removed → wipe stored options
-  // and secrets. Before this, uninstalling left orphaned entries in
-  // settings.pluginConfigs (including the legacy ungated mcpServers sub-key
-  // from the MCPB Configure flow) and keychain pluginSecrets forever. No
-  // feature gate: deletePluginOptions no-ops when nothing is stored, and
-  // pluginConfigs.mcpServers is written ungated so its cleanup must run
-  // ungated too.
-  if (isLastScope) {
-    deletePluginOptions(pluginId)
+
+  if (removal.removedLastScope) {
+    if (removal.installPath ?? installPath) {
+      await markPluginVersionOrphaned(removal.installPath ?? installPath)
+    }
     if (deleteDataDir) {
       await deletePluginDataDir(pluginId)
     }
@@ -977,7 +982,7 @@ async function performPluginUpdate({
     const marketplaceDir = marketplaceStats.isDirectory()
       ? marketplaceInstallLocation
       : dirname(marketplaceInstallLocation)
-    sourcePath = join(marketplaceDir, entry.source)
+    sourcePath = validatePathWithinBase(marketplaceDir, entry.source)
 
     // Verify sourcePath exists. This stat is required — neither downstream
     // op reliably surfaces ENOENT:

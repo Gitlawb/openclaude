@@ -508,6 +508,9 @@ export async function marketplaceAddHandler(
     if (!wasSettingsUpdateCommitted(settingsResult)) {
       throw settingsResult.error ?? new Error('Settings update was not written')
     }
+    if (settingsResult.error) {
+      logError(settingsResult.error)
+    }
 
     clearAllCaches()
 

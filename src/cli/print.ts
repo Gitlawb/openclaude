@@ -3295,6 +3295,11 @@ function runHeadlessStreaming(
               for (const source of result.settingsSourcesWritten) {
                 settingsChangeDetector.notifyChange(source)
               }
+              if (!result.complete) {
+                throw new Error(
+                  'Remote settings were only partially downloaded; plugins were not reloaded',
+                )
+              }
             }
 
             const r = await refreshActivePlugins(setAppState)

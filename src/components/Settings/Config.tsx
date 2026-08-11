@@ -20,7 +20,8 @@ import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPAT
 import { isBridgeEnabled } from '../../bridge/bridgeEnabled.js';
 import { ThemePicker } from '../ThemePicker.js';
 import { useAppState, useSetAppState, useAppStateStore } from '../../state/AppState.js';
-import { ModelPicker } from '../ModelPicker.js';
+import { withPrecommittedModelStateUpdate } from '../../state/onChangeAppState.js';
+import { ModelPicker, type ModelPickerPersistence } from '../ModelPicker.js';
 import { modelDisplayString, isOpus1mMergeEnabled } from '../../utils/model/model.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { ClaudeMdExternalIncludesDialog } from '../ClaudeMdExternalIncludesDialog.js';
@@ -39,6 +40,7 @@ import { SearchBox } from '../SearchBox.js';
 import { isSupportedTerminal, hasAccessToIDEExtensionDiffFeature } from '../../utils/ide.js';
 import { getInitialSettings, getSettingsForSource, updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import type { SettingsJson } from '../../utils/settings/types.js';
+import { commitModelSettingsTransition, commitSettingsTransition, mergeSettingsTransitions, rollbackModelSettingsTransition, type ModelSettingsTransition } from '../../utils/settings/modelTransition.js';
 import { getUserMsgOptIn, setUserMsgOptIn } from '../../bootstrap/state.js';
 import { DEFAULT_OUTPUT_STYLE_NAME } from 'src/constants/outputStyles.js';
 import { isEnvTruthy, isRunningOnHomespace } from 'src/utils/envUtils.js';
@@ -162,6 +164,7 @@ export function Config({
     return {
       mainLoopModel: s_4.mainLoopModel,
       mainLoopModelForSession: s_4.mainLoopModelForSession,
+      effortValue: s_4.effortValue,
       verbose: s_4.verbose,
       thinkingEnabled: s_4.thinkingEnabled,
       fastMode: s_4.fastMode,
@@ -181,6 +184,7 @@ export function Config({
   // Set on first user-visible change; gates revertChanges() on Escape so
   // opening-then-closing doesn't trigger redundant disk writes.
   const isDirty = React.useRef(false);
+  const settingsRollbackTransition = React.useRef<ModelSettingsTransition | null>(null);
   const [showThinkingWarning, setShowThinkingWarning] = useState(false);
   const [showSubmenu, setShowSubmenu] = useState<SubMenu | null>(null);
   const [revertError, setRevertError] = useState<string | null>(null);
@@ -218,17 +222,31 @@ export function Config({
   const pendingScope = getPendingExternalIncludesScope();
   const shouldShowExternalIncludesToggle = pendingScope !== null;
   const autoUpdaterDisabledReason = getAutoUpdaterDisabledReason();
-  function onChangeMainModelConfig(value: string | null): void {
+  function applyMainModelConfig(
+    value: string | null,
+    persistence?: ModelPickerPersistence,
+  ): { success: boolean; error?: string } {
     const previousModel = mainLoopModel;
+    const modelTransition = commitModelSettingsTransition(value, persistence?.settingsPatch);
+    if (!wasSettingsUpdateCommitted(modelTransition.result)) {
+      const error = `Could not save model and effort preference: ${modelTransition.result.error?.message ?? 'settings were not written'}`;
+      setRevertError(error);
+      return { success: false, error };
+    }
+    settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, modelTransition.transition!);
+    withPrecommittedModelStateUpdate(value, () => {
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: value,
+        mainLoopModelForSession: null,
+        ...(persistence ? { effortValue: persistence.effortValue } : {})
+      }));
+    });
+    setRevertError(null);
     logEvent('tengu_config_model_changed', {
       from_model: previousModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       to_model: value as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
-    setAppState(prev => ({
-      ...prev,
-      mainLoopModel: value,
-      mainLoopModelForSession: null
-    }));
     setChanges(prev_0 => {
       const valStr = modelDisplayString(value) + (isBilledAsExtraUsage(value, false, isOpus1mMergeEnabled()) ? ' · Billed as extra usage' : '');
       if ('model' in prev_0) {
@@ -246,6 +264,10 @@ export function Config({
         model: valStr
       };
     });
+    return { success: true };
+  }
+  function onChangeMainModelConfig(value: string | null): boolean {
+    return applyMainModelConfig(value).success;
   }
   function onChangeVerbose(value_0: boolean): void {
     // Update the global config to persist the setting
@@ -496,20 +518,26 @@ export function Config({
     value: !!isFastMode,
     type: 'boolean' as const,
     onChange(enabled_0: boolean) {
-      if (!persistSettingsForSource('userSettings', {
-        fastMode: enabled_0 ? true : undefined
-      })) return false;
+      const fastModeModel = getFastModeModel();
+      const transition = commitSettingsTransition({
+        fastMode: enabled_0 ? true : undefined,
+        ...(enabled_0 ? { model: fastModeModel } : {})
+      });
+      if (!wasSettingsUpdateCommitted(transition.result)) return false;
+      settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, transition.transition!);
       clearFastModeCooldown();
       if (enabled_0) {
-        setAppState(prev_7 => ({
-          ...prev_7,
-          mainLoopModel: getFastModeModel(),
-          mainLoopModelForSession: null,
-          fastMode: true
-        }));
+        withPrecommittedModelStateUpdate(fastModeModel, () => {
+          setAppState(prev_7 => ({
+            ...prev_7,
+            mainLoopModel: fastModeModel,
+            mainLoopModelForSession: null,
+            fastMode: true
+          }));
+        });
         setChanges(prev_8 => ({
           ...prev_8,
-          model: getFastModeModel(),
+          model: fastModeModel,
           'Fast mode': 'ON'
         }));
       } else {
@@ -1380,7 +1408,6 @@ export function Config({
     const iu = initialUserSettings;
     const userRollback = updateSettingsForSource('userSettings', {
       alwaysThinkingEnabled: iu?.alwaysThinkingEnabled,
-      fastMode: iu?.fastMode,
       promptSuggestionEnabled: iu?.promptSuggestionEnabled,
       autoUpdatesChannel: iu?.autoUpdatesChannel,
       minimumVersion: iu?.minimumVersion,
@@ -1399,29 +1426,48 @@ export function Config({
         defaultMode: iu?.permissions?.defaultMode
       }
     });
-    if ([localRollback, userRollback].some(result => !wasSettingsUpdateCommitted(result))) {
+    const expectedSettings = settingsRollbackTransition.current;
+    const settingsRollback = expectedSettings ? rollbackModelSettingsTransition(expectedSettings) : { status: 'restored' as const };
+    const transitionRestored = settingsRollback.status === 'restored';
+    const modelRestored = transitionRestored && expectedSettings !== null && 'model' in expectedSettings.attempted;
+    const effortRestored = transitionRestored && expectedSettings !== null && 'effortLevel' in expectedSettings.attempted;
+    const fastModeRestored = transitionRestored && expectedSettings !== null && 'fastMode' in expectedSettings.attempted;
+    if (
+      [localRollback, userRollback].some(result => !wasSettingsUpdateCommitted(result)) ||
+      settingsRollback.status === 'failed'
+    ) {
       setRevertError('Could not restore settings. Press Esc to retry. Press Enter to close.');
       return false;
     }
     setRevertError(null);
     // AppState: batch-restore all possibly-touched fields.
     const ia = initialAppState;
-    setAppState(prev_23 => ({
-      ...prev_23,
-      mainLoopModel: ia.mainLoopModel,
-      mainLoopModelForSession: ia.mainLoopModelForSession,
-      verbose: ia.verbose,
-      thinkingEnabled: ia.thinkingEnabled,
-      fastMode: ia.fastMode,
-      promptSuggestionEnabled: ia.promptSuggestionEnabled,
-      isBriefOnly: ia.isBriefOnly,
-      replBridgeEnabled: ia.replBridgeEnabled,
-      replBridgeOutboundOnly: ia.replBridgeOutboundOnly,
-      settings: ia.settings,
-      // Reconcile auto-mode state after useAutoModeDuringPlan revert above —
-      // the onChange handler may have activated/deactivated auto mid-plan.
-      toolPermissionContext: transitionPlanAutoMode(prev_23.toolPermissionContext)
-    }));
+    const restoreAppState = () => {
+      setAppState(prev_23 => ({
+        ...prev_23,
+        ...(modelRestored ? {
+          mainLoopModel: ia.mainLoopModel,
+          mainLoopModelForSession: ia.mainLoopModelForSession
+        } : {}),
+        ...(effortRestored ? { effortValue: ia.effortValue } : {}),
+        verbose: ia.verbose,
+        thinkingEnabled: ia.thinkingEnabled,
+        ...(fastModeRestored ? { fastMode: ia.fastMode } : {}),
+        promptSuggestionEnabled: ia.promptSuggestionEnabled,
+        isBriefOnly: ia.isBriefOnly,
+        replBridgeEnabled: ia.replBridgeEnabled,
+        replBridgeOutboundOnly: ia.replBridgeOutboundOnly,
+        settings: ia.settings,
+        // Reconcile auto-mode state after useAutoModeDuringPlan revert above —
+        // the onChange handler may have activated/deactivated auto mid-plan.
+        toolPermissionContext: transitionPlanAutoMode(prev_23.toolPermissionContext)
+      }));
+    };
+    if (modelRestored) {
+      withPrecommittedModelStateUpdate(ia.mainLoopModel, restoreAppState);
+    } else {
+      restoreAppState();
+    }
     // Bootstrap state: restore userMsgOptIn. Only touched by the defaultView
     // onChange above, so no feature() guard needed here (that path only
     // exists when showDefaultViewPicker is true).
@@ -1655,15 +1701,20 @@ export function Config({
             </Text>
           </Box>
         </> : showSubmenu === 'Model' ? <>
-          <ModelPicker initial={mainLoopModel} onSelect={(model_0, _effort) => {
+          <ModelPicker initial={mainLoopModel} onSelect={(model_0, _effort, _switchToProfileId, persistence) => {
+        const result = applyMainModelConfig(model_0, persistence);
+        if (!result.success) return result.error ?? 'Could not save model selection';
         isDirty.current = true;
-        onChangeMainModelConfig(model_0);
         setShowSubmenu(null);
         setTabsHidden(false);
+        return null;
       }} onCancel={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
       }} showFastModeNotice={isFastModeEnabled() ? isFastMode && isFastModeSupportedByModel(mainLoopModel) && isFastModeAvailable() : false} />
+          {revertError ? <Text color="error">
+              {revertError}
+            </Text> : null}
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />

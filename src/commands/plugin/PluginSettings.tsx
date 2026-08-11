@@ -1,4 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
+import { existsSync } from 'node:fs';
 import figures from 'figures';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -17,7 +18,7 @@ import { loadMarketplacesWithGracefulDegradation } from '../../utils/plugins/mar
 import { loadKnownMarketplacesConfig, removeMarketplaceSource } from '../../utils/plugins/marketplaceManager.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
 import type { EditableSettingSource } from '../../utils/settings/constants.js';
-import { getSettingsForSource, updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+import { SETTINGS_UPDATE_NO_CHANGE, getSettingsFilePathForSource, getSettingsForSource, updateSettingsForSourceWithFreshSettingsOrNoop, wasSettingsUpdateApplied } from '../../utils/settings/settings.js';
 import { AddMarketplace } from './AddMarketplace.js';
 import { BrowseMarketplace } from './BrowseMarketplace.js';
 import { DiscoverPlugins } from './DiscoverPlugins.js';
@@ -330,26 +331,23 @@ function removeExtraMarketplace(name: string, sources: Array<{
   for (const {
     source
   } of sources) {
-    const settings = getSettingsForSource(source);
-    if (!settings) continue;
+    const settingsPath = getSettingsFilePathForSource(source);
+    if (source !== 'userSettings' && settingsPath && !existsSync(settingsPath)) continue;
     const suffix = `@${name}`;
-    const hasRelatedPlugins = Object.keys(settings.enabledPlugins ?? {}).some(pluginId => pluginId.endsWith(suffix));
-    if (settings.extraKnownMarketplaces?.[name] || hasRelatedPlugins) {
-      const result = updateSettingsForSourceWithFreshSettings(source, freshSettings => {
-        const updates: Record<string, unknown> = {};
-        if (freshSettings.extraKnownMarketplaces?.[name]) {
-          updates.extraKnownMarketplaces = {
-            [name]: undefined
-          };
-        }
-        const removedPlugins = Object.fromEntries(Object.keys(freshSettings.enabledPlugins ?? {}).filter(pluginId => pluginId.endsWith(suffix)).map(pluginId => [pluginId, undefined]));
-        if (Object.keys(removedPlugins).length > 0) {
-          updates.enabledPlugins = removedPlugins;
-        }
-        return updates;
-      });
-      if (!wasSettingsUpdateCommitted(result)) committed = false;
-    }
+    const result = updateSettingsForSourceWithFreshSettingsOrNoop(source, freshSettings => {
+      const updates: Record<string, unknown> = {};
+      if (freshSettings.extraKnownMarketplaces?.[name]) {
+        updates.extraKnownMarketplaces = {
+          [name]: undefined
+        };
+      }
+      const removedPlugins = Object.fromEntries(Object.keys(freshSettings.enabledPlugins ?? {}).filter(pluginId => pluginId.endsWith(suffix)).map(pluginId => [pluginId, undefined]));
+      if (Object.keys(removedPlugins).length > 0) {
+        updates.enabledPlugins = removedPlugins;
+      }
+      return Object.keys(updates).length > 0 ? updates : SETTINGS_UPDATE_NO_CHANGE;
+    });
+    if (!wasSettingsUpdateApplied(result)) committed = false;
   }
   return committed;
 }

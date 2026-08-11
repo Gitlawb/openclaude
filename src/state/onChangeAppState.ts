@@ -26,12 +26,56 @@ import {
   updateSettingsForSource,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
+import type { SettingsJson } from '../utils/settings/types.js'
 import type { AppState } from './AppStateStore.js'
 
 type OnChangeAppStateDependencies = {
   updateUserSettings?: typeof updateSettingsForSource
   setModelOverride?: typeof setMainLoopModelOverride
   persistProfileModel?: typeof persistActiveProviderProfileModel
+}
+
+const NO_PRECOMMITTED_MODEL = Symbol('no-precommitted-model')
+let precommittedModel: string | null | typeof NO_PRECOMMITTED_MODEL =
+  NO_PRECOMMITTED_MODEL
+
+/**
+ * Scope a synchronous AppState update whose model bytes have already reached
+ * user settings. This prevents the observer from performing a second write
+ * that could fail after a coordinated provider/model transition committed.
+ */
+export function withPrecommittedModelStateUpdate<T>(
+  model: string | null,
+  updateState: () => T,
+): T {
+  const previous = precommittedModel
+  precommittedModel = model
+  try {
+    return updateState()
+  } finally {
+    precommittedModel = previous
+  }
+}
+
+/**
+ * Persist a model selection before applying its in-memory state transition.
+ * Callers that own success UI can use the returned write result to avoid
+ * closing or notifying when the transaction was rejected.
+ */
+export function commitModelStateUpdate<T>(
+  model: string | null,
+  updateState: () => T,
+  updateUserSettings: typeof updateSettingsForSource = updateSettingsForSource,
+  additionalSettings: SettingsJson = {},
+): ReturnType<typeof updateSettingsForSource> {
+  const result = updateUserSettings('userSettings', {
+    ...additionalSettings,
+    model: model ?? undefined,
+  })
+  if (wasSettingsUpdateCommitted(result)) {
+    withPrecommittedModelStateUpdate(model, updateState)
+  }
+  return result
 }
 
 // Inverse of the push below — restore on worker restart.
@@ -67,7 +111,28 @@ export function onChangeAppState({
     dependencies?.setModelOverride ?? setMainLoopModelOverride
   const persistProfileModel =
     dependencies?.persistProfileModel ?? persistActiveProviderProfileModel
-  let acceptedState = newState
+  if (newState.mainLoopModel !== oldState.mainLoopModel) {
+    // Validate the model before applying any other side effects from this
+    // state transition. If persistence is rejected, the store rejects the
+    // whole transition, so permission/config/runtime effects must not advance.
+    const modelUpdate =
+      precommittedModel !== NO_PRECOMMITTED_MODEL &&
+      precommittedModel === newState.mainLoopModel
+        ? { error: null, written: true }
+        : updateUserSettings('userSettings', {
+            model: newState.mainLoopModel ?? undefined,
+          })
+    if (!wasSettingsUpdateCommitted(modelUpdate)) return oldState
+
+    setModelOverride(newState.mainLoopModel)
+    if (
+      newState.mainLoopModel !== null &&
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+    ) {
+      persistProfileModel(newState.mainLoopModel)
+    }
+  }
+
   // toolPermissionContext.mode — single choke point for CCR/SDK mode sync.
   //
   // Prior to this block, mode changes were relayed to CCR by only 2 of 8+
@@ -121,32 +186,6 @@ export function onChangeAppState({
     notifyPermissionModeChanged(newMode)
   }
 
-  if (newState.mainLoopModel !== oldState.mainLoopModel) {
-    const modelUpdate = updateUserSettings('userSettings', {
-      model: newState.mainLoopModel ?? undefined,
-    })
-    if (wasSettingsUpdateCommitted(modelUpdate)) {
-      setModelOverride(newState.mainLoopModel)
-
-      // Keep active provider profiles in sync with /model choices so restarts
-      // keep using the last selected model instead of the profile's old default.
-      if (
-        newState.mainLoopModel !== null &&
-        process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-      ) {
-        persistProfileModel(newState.mainLoopModel)
-      }
-    } else {
-      // The store accepts an observer-returned replacement state. Keep the
-      // previously active model when persistence is rejected so the UI,
-      // runtime override, and restart behavior cannot diverge.
-      acceptedState = {
-        ...newState,
-        mainLoopModel: oldState.mainLoopModel,
-      }
-    }
-  }
-
   // expandedView → persist as showExpandedTodos + showSpinnerTree for backwards compat
   if (newState.expandedView !== oldState.expandedView) {
     const showExpandedTodos = newState.expandedView === 'tasks'
@@ -193,5 +232,4 @@ export function onChangeAppState({
     }
   }
 
-  if (acceptedState !== newState) return acceptedState
 }

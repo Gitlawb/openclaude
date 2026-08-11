@@ -259,6 +259,50 @@ describe('isFastModeSupportedByModel — Opus model gate (#1769)', () => {
 })
 
 describe('fastMode ant-only fallback cleanup', () => {
+  test('API rejection carries a failed cleanup into the next status retry', async () => {
+    const {
+      handleFastModeRejectedByAPI,
+      persistOrgDisabledFastModePreferenceIfNeeded,
+    } = await importFreshFastModeModule()
+    const persist = mock()
+      .mockReturnValueOnce({ error: new Error('lock busy'), written: false })
+      .mockReturnValueOnce({ error: null, written: true })
+
+    handleFastModeRejectedByAPI(persist)
+    persistOrgDisabledFastModePreferenceIfNeeded(false, false, persist)
+
+    expect(persist).toHaveBeenCalledTimes(2)
+  })
+
+  test('organization-disable preference cleanup retries after a rejected write', async () => {
+    const { persistOrgDisabledFastModePreferenceIfNeeded } =
+      await importFreshFastModeModule()
+    const persist = mock()
+      .mockReturnValueOnce({
+        error: new Error('settings lock busy'),
+        written: false,
+      })
+      .mockReturnValueOnce({ error: null, written: true })
+
+    persistOrgDisabledFastModePreferenceIfNeeded(false, true, persist)
+    persistOrgDisabledFastModePreferenceIfNeeded(false, false, persist)
+
+    expect(persist).toHaveBeenCalledTimes(2)
+  })
+
+  test('a pending cleanup is abandoned when the organization re-enables Fast mode', async () => {
+    const { persistOrgDisabledFastModePreferenceIfNeeded } =
+      await importFreshFastModeModule()
+    const persist = mock()
+      .mockReturnValueOnce({ error: new Error('lock busy'), written: false })
+      .mockReturnValueOnce({ error: null, written: true })
+
+    persistOrgDisabledFastModePreferenceIfNeeded(false, true, persist)
+    persistOrgDisabledFastModePreferenceIfNeeded(true, false, persist)
+
+    expect(persist).toHaveBeenCalledTimes(1)
+  })
+
   test('resolveFastModeStatusFromCache does not force-enable from USER_TYPE=ant', async () => {
     process.env.USER_TYPE = 'ant'
     forceFirstPartyProviderEnv()

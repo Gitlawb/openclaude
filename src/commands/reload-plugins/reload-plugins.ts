@@ -32,6 +32,13 @@ export const call: LocalCommandCall = async (_args, context) => {
     for (const source of result.settingsSourcesWritten) {
       settingsChangeDetector.notifyChange(source)
     }
+    if (!result.complete) {
+      return {
+        type: 'text',
+        value:
+          'Could not reload plugins because remote settings were only partially downloaded. Retry /reload-plugins.',
+      }
+    }
   }
 
   const r = await refreshActivePlugins(context.setAppState)

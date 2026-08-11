@@ -16,6 +16,7 @@ import { withSettingsFileLockSync } from '../settings/settingsFileLock.js'
 import {
   applyPermissionUpdate,
   persistPermissionUpdate,
+  persistPermissionUpdates,
 } from './PermissionUpdate.js'
 
 describe('applyPermissionUpdate', () => {
@@ -70,5 +71,33 @@ describe('persistPermissionUpdate', () => {
     })
 
     expect(persisted).toBe(false)
+  })
+
+  test('batch persistence identifies session updates separately from rejected writes', () => {
+    const settingsPath = getSettingsFilePathForSource('userSettings')!
+    let result: ReturnType<typeof persistPermissionUpdates> | undefined
+
+    withSettingsFileLockSync(settingsPath, () => {
+      result = persistPermissionUpdates([
+        {
+          type: 'addDirectories',
+          directories: ['/session-workspace'],
+          destination: 'session',
+        },
+        {
+          type: 'addDirectories',
+          directories: ['/persisted-workspace'],
+          destination: 'userSettings',
+        },
+      ])
+    })
+
+    expect(result?.appliedUpdates.map(update => update.destination)).toEqual([
+      'session',
+    ])
+    expect(result?.failedUpdates.map(update => update.destination)).toEqual([
+      'userSettings',
+    ])
+    expect(result?.allApplied).toBe(false)
   })
 })

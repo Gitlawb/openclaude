@@ -29,7 +29,16 @@ let updateSettingsForTest = mock(
     written: persistWritten,
   }),
 )
+let freshUserSettings: SettingsJson = {}
 let completeOutputStyle: ((style: string | undefined) => void) | undefined
+let completeModelSelection:
+  | ((model: string | null, effort: undefined, marker?: string, persistence?: {
+      settingsPatch: SettingsJson
+      effortValue: 'high'
+      previousEffortLevel: 'low'
+      wroteEffort: true
+    }) => void)
+  | undefined
 
 const initialSettings: SettingsJson = {
   outputStyle: 'default',
@@ -52,6 +61,31 @@ async function installMocks(): Promise<void> {
     updateSettingsForSource: (
       ...args: Parameters<SettingsModule['updateSettingsForSource']>
     ) => updateSettingsForTest(...args),
+    updateSettingsForSourceWithFreshSettings: (
+      source: Parameters<SettingsModule['updateSettingsForSource']>[0],
+      update: (settings: SettingsJson) => SettingsJson,
+    ) => {
+      const patch = update(structuredClone(freshUserSettings))
+      const result = updateSettingsForTest(source, patch)
+      if (result.written) {
+        freshUserSettings = { ...freshUserSettings, ...patch }
+      }
+      return result
+    },
+    updateSettingsForSourceWithFreshSettingsOrNoop: (
+      source: Parameters<SettingsModule['updateSettingsForSource']>[0],
+      update: (settings: SettingsJson) => SettingsJson | symbol,
+    ) => {
+      const patch = update(structuredClone(freshUserSettings))
+      if (typeof patch === 'symbol') {
+        return { error: null, written: false, unchanged: true }
+      }
+      const result = updateSettingsForTest(source, patch)
+      if (result.written) {
+        freshUserSettings = { ...freshUserSettings, ...patch }
+      }
+      return result
+    },
   }))
   mock.module('../../utils/claudemd.js', () => ({
     getExternalClaudeMdIncludes: () => [],
@@ -66,6 +100,16 @@ async function installMocks(): Promise<void> {
     }) => {
       completeOutputStyle = onComplete
       return <Text>Test output style picker</Text>
+    },
+  }))
+  mock.module('../ModelPicker.js', () => ({
+    ModelPicker: ({
+      onSelect,
+    }: {
+      onSelect: NonNullable<typeof completeModelSelection>
+    }) => {
+      completeModelSelection = onSelect
+      return <Text>Test model picker</Text>
     },
   }))
 }
@@ -132,12 +176,14 @@ beforeEach(async () => {
   persistError = null
   persistWritten = false
   completeOutputStyle = undefined
+  completeModelSelection = undefined
   updateSettingsForTest = mock(
     (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
       error: persistError,
       written: persistWritten,
     }),
   )
+  freshUserSettings = structuredClone(initialSettings)
   await installMocks()
 })
 
@@ -304,7 +350,7 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
   try {
     await waitForCondition(() => getFrame().includes('Type to filter'))
     stdin.write('Output style')
-    await waitForCondition(() => getFrame().includes('Output style'))
+    await waitForCondition(() => getFrame().includes('⌕ Output style'))
     stdin.write('\r')
     await waitForCondition(() => !getFrame().includes('Type to filter'))
     stdin.write(' ')
@@ -318,6 +364,66 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
     persistError = null
     persistWritten = true
     completeOutputStyle?.('Explanatory')
+    await waitForCondition(() => setTabsHidden.mock.calls.length === 2)
+    expect(updateSettingsForTest).toHaveBeenCalledTimes(2)
+    expect(setTabsHidden.mock.calls).toEqual([[true], [false]])
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('failed model persistence keeps the model submenu open and retryable', async () => {
+  const { Config } = await import(`./Config.js?modelFailure=${Date.now()}`)
+  const { stdin, stdout, getFrame } = makeStdio()
+  const setTabsHidden = mock((_hidden: boolean) => {})
+  const initialState = {
+    ...getDefaultAppState(),
+    mainLoopModel: 'claude-haiku-4-5' as const,
+  }
+  const instance = await render(
+    <AppStateProvider initialState={initialState}>
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={() => {}}
+          setTabsHidden={setTabsHidden}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Type to filter'))
+    stdin.write('Model')
+    await waitForCondition(() => getFrame().includes('⌕ Model'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+    stdin.write(' ')
+    await waitForCondition(() => completeModelSelection !== undefined)
+
+    const persistence = {
+      settingsPatch: { effortLevel: 'high' as const },
+      effortValue: 'high' as const,
+      previousEffortLevel: 'low' as const,
+      wroteEffort: true as const,
+    }
+    completeModelSelection?.('claude-opus-4-5', undefined, undefined, persistence)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() =>
+      getFrame().includes('Could not save model and effort preference'),
+    )
+    expect(getFrame()).toContain('Test model picker')
+    expect(setTabsHidden.mock.calls).toEqual([[true]])
+
+    persistWritten = true
+    completeModelSelection?.('claude-opus-4-5', undefined, undefined, persistence)
     await waitForCondition(() => setTabsHidden.mock.calls.length === 2)
     expect(updateSettingsForTest).toHaveBeenCalledTimes(2)
     expect(setTabsHidden.mock.calls).toEqual([[true], [false]])

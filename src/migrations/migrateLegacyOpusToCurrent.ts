@@ -8,6 +8,7 @@ import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from '../utils/model/pro
 import {
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -45,7 +46,8 @@ export function migrateLegacyOpusToCurrent(): void {
     return
   }
 
-  updateSettingsForSource('userSettings', { model: 'opus' })
+  const result = updateSettingsForSource('userSettings', { model: 'opus' })
+  if (!wasSettingsUpdateCommitted(result)) return
   saveGlobalConfig(current => ({
     ...current,
     legacyOpusMigrationTimestamp: Date.now(),

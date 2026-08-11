@@ -327,16 +327,16 @@ export function createInProcessCanUseTool(
                 toolUseContext.getAppState().toolPermissionContext.mode ===
                   'plan',
               )
-              persistPermissionUpdates(updatesToApply)
+              const persistence = persistPermissionUpdates(updatesToApply)
               // Write back permission updates to the leader's shared context
-              if (updatesToApply.length > 0) {
+              if (persistence.appliedUpdates.length > 0) {
                 const setToolPermissionContext =
                   getLeaderSetToolPermissionContext()
                 if (setToolPermissionContext) {
                   const currentAppState = toolUseContext.getAppState()
                   const updatedContext = applyPermissionUpdates(
                     currentAppState.toolPermissionContext,
-                    updatesToApply,
+                    persistence.appliedUpdates,
                   )
                   // Preserve the leader's mode to prevent workers'
                   // transformed 'acceptEdits' context from leaking back

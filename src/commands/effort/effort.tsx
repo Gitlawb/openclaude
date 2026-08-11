@@ -81,7 +81,7 @@ function unsetEffortLevel(): EffortCommandResult {
   });
   if (!wasSettingsUpdateCommitted(result)) {
     return {
-      message: `Failed to set effort level: ${result.error?.message ?? 'settings were not written'}`
+      message: `Failed to clear effort level: ${result.error?.message ?? 'settings were not written'}`
     };
   }
   logEvent('tengu_effort_command', {

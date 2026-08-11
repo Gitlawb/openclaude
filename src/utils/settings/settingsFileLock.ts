@@ -32,7 +32,6 @@ import { resetSettingsCache } from './settingsCache.js'
 const SETTINGS_LOCK_STALE_MS = Number.MAX_SAFE_INTEGER
 const SETTINGS_LOCK_UPDATE_MS = 60_000
 const SETTINGS_LOCK_OWNER_MAX_BYTES = 1_024
-const SETTINGS_LOCK_OWNERLESS_GRACE_MS = 30_000
 
 type SettingsLockRuntimeIdentity = {
   hostId: string
@@ -158,6 +157,8 @@ export type SettingsFileLockContext = {
   targetPath: string
   assertOwned(): void
 }
+
+export class SettingsFileLockOwnershipError extends Error {}
 
 export function getSettingsFileLockPath(targetPath: string): string {
   const lockId = hashIdentity([
@@ -538,7 +539,9 @@ function quarantineSettingsLock(
     } catch {
       // The ownership-change error below is more useful than cleanup failure.
     }
-    throw new Error('Settings lock ownership changed during quarantine')
+    throw new SettingsFileLockOwnershipError(
+      'Settings lock ownership changed during quarantine',
+    )
   }
 
   return {
@@ -591,38 +594,9 @@ function quarantineRecoveredLock(
   return true
 }
 
-function lockIsOlderThan(
+function removeOwnerlessRecoveryClaim(
   lockPath: string,
   identity: LockIdentity,
-  minimumAgeMs: number,
-): boolean {
-  try {
-    const stats = getFsImplementation().lstatSync(lockPath)
-    if (
-      !stats.isDirectory() ||
-      stats.isSymbolicLink() ||
-      !lockIdentityMatches(
-        { dev: stats.dev, ino: stats.ino, birthtimeMs: stats.birthtimeMs },
-        identity,
-      )
-    ) {
-      return false
-    }
-    const newestTimestamp = Math.max(
-      stats.birthtimeMs,
-      stats.ctimeMs,
-      stats.mtimeMs,
-    )
-    return Date.now() - newestTimestamp >= minimumAgeMs
-  } catch {
-    return false
-  }
-}
-
-function removeOwnerlessRecoveryLock(
-  lockPath: string,
-  identity: LockIdentity,
-  ownerPath: string,
 ): boolean {
   const recoveryPath = join(lockPath, 'recovery.json')
   const recoveryOwner = readOwner(recoveryPath)
@@ -635,24 +609,7 @@ function removeOwnerlessRecoveryLock(
       recoveryOwner,
     )
   }
-  if (
-    !pathIsAbsent(recoveryPath) ||
-    !pathIsAbsent(ownerPath) ||
-    !lockIsOlderThan(lockPath, identity, SETTINGS_LOCK_OWNERLESS_GRACE_MS)
-  ) {
-    return false
-  }
-
-  const quarantined = quarantineSettingsLock(
-    lockPath,
-    identity,
-    null,
-    null,
-    'ownerless',
-  )
-  if (!quarantined) return false
-  cleanupQuarantinedSettingsLock(quarantined, null, null)
-  return true
+  return false
 }
 
 function removeDeadOwnerLock(
@@ -666,7 +623,11 @@ function removeDeadOwnerLock(
   const owner = readOwner(ownerPath)
   if (!owner) {
     locallyAbandonedSettingsLocks.delete(lockPath)
-    return removeOwnerlessRecoveryLock(lockPath, identity, ownerPath)
+    // Missing ownership metadata is ambiguous: a live acquisition exists
+    // briefly before owner.json is published, and metadata can also disappear
+    // while its owner is still alive. Never recover on age alone. The only
+    // ownerless state we can prove abandoned is a dead recovery claimant.
+    return removeOwnerlessRecoveryClaim(lockPath, identity)
   }
   const abandoned = locallyAbandonedSettingsLocks.get(lockPath)
   const locallyAbandoned =
@@ -824,7 +785,9 @@ function acquireSettingsFileLock(filePath: string): {
     writeOwner(ownerPath, owner)
     ownerWritten = true
     if (!lockIdentityMatches(readLockIdentity(lockPath), identity)) {
-      throw new Error('Settings lock ownership changed during acquisition')
+      throw new SettingsFileLockOwnershipError(
+        'Settings lock ownership changed during acquisition',
+      )
     }
   } catch (error) {
     let quarantined: QuarantinedSettingsLock | null = null
@@ -862,15 +825,24 @@ function acquireSettingsFileLock(filePath: string): {
   }
 
   const assertOwned = (): void => {
+    if (resolveSettingsFileTarget(filePath) !== targetPath) {
+      throw new SettingsFileLockOwnershipError(
+        'Settings file target changed during update',
+      )
+    }
     if (compromisedError) {
-      throw new Error(`Settings lock was compromised: ${compromisedError}`)
+      throw new SettingsFileLockOwnershipError(
+        `Settings lock was compromised: ${compromisedError}`,
+      )
     }
     if (
       !ownersMatch(readOwner(ownerPath), owner) ||
       !identity ||
       !lockIdentityMatches(readLockIdentity(lockPath), identity)
     ) {
-      throw new Error('Settings lock ownership changed during update')
+      throw new SettingsFileLockOwnershipError(
+        'Settings lock ownership changed during update',
+      )
     }
   }
 
@@ -896,7 +868,9 @@ function acquireSettingsFileLock(filePath: string): {
           'released',
         )
         if (!quarantined) {
-          throw new Error('Settings lock ownership changed during release')
+          throw new SettingsFileLockOwnershipError(
+            'Settings lock ownership changed during release',
+          )
         }
       } catch (error) {
         ownershipError = toError(error)
@@ -976,7 +950,10 @@ export function replaceSettingsFileSync(
   try {
     withSettingsFileLockSync(filePath, ({ targetPath, assertOwned }) => {
       assertOwned()
-      writeFileSyncAndFlush_DEPRECATED(targetPath, content)
+      writeFileSyncAndFlush_DEPRECATED(targetPath, content, {
+        encoding: 'utf-8',
+        preserveSymlink: false,
+      })
       written = true
       markInternalWrite(filePath)
       markInternalWrite(targetPath)

@@ -7,6 +7,7 @@ import {
 import {
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -37,7 +38,8 @@ export function migrateOpusToOpus1m(): void {
     parseUserSpecifiedModel(getDefaultMainLoopModelSetting())
       ? undefined
       : migrated
-  updateSettingsForSource('userSettings', { model: modelToSet })
+  const result = updateSettingsForSource('userSettings', { model: modelToSet })
+  if (!wasSettingsUpdateCommitted(result)) return
 
   logEvent('tengu_opus_to_opus1m_migration', {})
 }

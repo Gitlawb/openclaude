@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve, sep } from 'path'
@@ -13,11 +19,15 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
-import { getSettingsFilePathForSource } from '../settings/settings.js'
+import {
+  getSettingsFilePathForSource,
+  getSettingsForSource,
+} from '../settings/settings.js'
 import { resetSettingsCache } from '../settings/settingsCache.js'
 import { withSettingsFileLockSync } from '../settings/settingsFileLock.js'
 import type { SettingsJson } from '../settings/types.js'
 import {
+  addToExcludedCommands,
   convertToSandboxRuntimeConfig,
   SandboxManager,
 } from './sandbox-adapter.js'
@@ -27,7 +37,7 @@ describe('sandbox settings persistence', () => {
   let tempRoot: string
 
   beforeEach(async () => {
-    await acquireSharedMutationLock('utils/sandbox/sandbox-persistence.test.ts')
+    await acquireSharedMutationLock('utils/sandbox/sandbox-adapter.test.ts')
     previousOriginalCwd = getOriginalCwd()
     tempRoot = mkdtempSync(join(tmpdir(), 'openclaude-sandbox-persistence-'))
     mkdirSync(join(tempRoot, '.openclaude'), { recursive: true })
@@ -55,6 +65,66 @@ describe('sandbox settings persistence', () => {
 
     expect(updatePromise).toBeDefined()
     await expect(updatePromise!).rejects.toThrow('Failed to update settings')
+  })
+
+  test('a cached exclusion still verifies the fresh file under the lock', () => {
+    const settingsPath = getSettingsFilePathForSource('localSettings')!
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({ sandbox: { excludedCommands: ['npm test'] } }, null, 2)}\n`,
+      'utf8',
+    )
+    resetSettingsCache()
+
+    expect(() =>
+      withSettingsFileLockSync(settingsPath, () => {
+        addToExcludedCommands('npm test')
+      }),
+    ).toThrow('already being held')
+  })
+
+  test('a stale cached exclusion is restored after a peer removes it', () => {
+    const settingsPath = getSettingsFilePathForSource('localSettings')!
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({ sandbox: { excludedCommands: ['npm test'] } }, null, 2)}\n`,
+      'utf8',
+    )
+    resetSettingsCache()
+
+    expect(getSettingsForSource('localSettings')?.sandbox?.excludedCommands).toEqual([
+      'npm test',
+    ])
+    writeFileSync(settingsPath, '{}\n', 'utf8')
+
+    expect(addToExcludedCommands('npm test')).toBe('npm test')
+    expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
+      sandbox: { excludedCommands: ['npm test'] },
+    })
+  })
+
+  test('a fresh no-op invalidates the stale per-source cache', () => {
+    const settingsPath = getSettingsFilePathForSource('localSettings')!
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({ sandbox: { excludedCommands: ['cached'] } }, null, 2)}\n`,
+      'utf8',
+    )
+    resetSettingsCache()
+    expect(getSettingsForSource('localSettings')?.sandbox?.excludedCommands).toEqual([
+      'cached',
+    ])
+
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({ sandbox: { excludedCommands: ['npm test'] } }, null, 2)}\n`,
+      'utf8',
+    )
+    expect(addToExcludedCommands('npm test')).toBe('npm test')
+
+    expect(getSettingsForSource('localSettings')?.sandbox?.excludedCommands).toEqual([
+      'npm test',
+    ])
   })
 })
 

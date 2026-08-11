@@ -225,6 +225,9 @@ test('does not advance syntax state when the settings write is not committed', a
     await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
     stdin.write('\x14')
     await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForFrame(getOutput, frame =>
+      frame.includes('Could not save syntax highlighting preference'),
+    )
 
     expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
       syntaxHighlightingDisabled: true,

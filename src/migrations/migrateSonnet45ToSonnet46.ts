@@ -12,6 +12,7 @@ import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from '../utils/model/pro
 import {
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -46,9 +47,10 @@ export function migrateSonnet45ToSonnet46(): void {
   }
 
   const has1m = model.endsWith('[1m]')
-  updateSettingsForSource('userSettings', {
+  const result = updateSettingsForSource('userSettings', {
     model: has1m ? 'sonnet[1m]' : 'sonnet',
   })
+  if (!wasSettingsUpdateCommitted(result)) return
 
   // Skip notification for brand-new users — they never experienced the old default
   const config = getGlobalConfig()

@@ -1,26 +1,32 @@
-import { afterAll, expect, mock, test } from 'bun:test'
+import { afterAll, expect, test } from 'bun:test'
 
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { SETTINGS_UPDATE_NO_CHANGE } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
+import { addPermissionRulesToSettings } from './permissionsLoader.js'
 
 await acquireSharedMutationLock(
   'utils/permissions/permissionsLoader.transaction.test.ts',
 )
 
-const actualSettings = await import(
-  `../settings/settings.ts?permissionsTransactionActual=${Date.now()}-${Math.random()}`
-)
-const staleSettings: SettingsJson = {
-  permissions: { allow: ['Read(base)'] },
-}
 let diskSettings: SettingsJson = {
   permissions: { allow: ['Read(base)', 'Read(concurrent)'] },
 }
+let writeResult: {
+  error: Error | null
+  written: boolean
+  unchanged?: boolean
+} = {
+  error: null,
+  written: true,
+}
+let appliedPatchCount = 0
 
 function applyPatch(patch: SettingsJson): void {
+  appliedPatchCount += 1
   diskSettings = {
     ...diskSettings,
     ...patch,
@@ -31,36 +37,29 @@ function applyPatch(patch: SettingsJson): void {
   }
 }
 
-mock.module('../settings/settings.js', () => ({
-  ...actualSettings,
-  getSettingsForSource: (source: string) =>
-    source === 'policySettings' ? {} : structuredClone(staleSettings),
-  updateSettingsForSource: (_source: string, patch: SettingsJson) => {
-    applyPatch(patch)
-    return { error: null, written: true }
-  },
-  updateSettingsForSourceWithFreshSettings: (
+const dependencies = {
+  shouldAllowManagedRulesOnly: () => false,
+  updateFreshSettingsOrNoop: (
     _source: string,
-    createPatch: (settings: SettingsJson) => SettingsJson,
+    createPatch: (
+      settings: SettingsJson,
+    ) => SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE,
   ) => {
-    applyPatch(createPatch(structuredClone(diskSettings)))
-    return { error: null, written: true }
+    if (!writeResult.written) return writeResult
+    const patch = createPatch(structuredClone(diskSettings))
+    if (patch === SETTINGS_UPDATE_NO_CHANGE) {
+      return { error: null, written: false, unchanged: true }
+    }
+    applyPatch(patch)
+    return writeResult
   },
-}))
+}
 
 afterAll(() => {
-  try {
-    mock.restore()
-  } finally {
-    releaseSharedMutationLock()
-  }
+  releaseSharedMutationLock()
 })
 
-test('permission additions are computed from the lock-scoped settings snapshot', async () => {
-  const { addPermissionRulesToSettings } = await import(
-    `./permissionsLoader.js?transaction=${Date.now()}-${Math.random()}`
-  )
-
+test('permission additions are computed from the lock-scoped settings snapshot', () => {
   expect(
     addPermissionRulesToSettings(
       {
@@ -68,6 +67,7 @@ test('permission additions are computed from the lock-scoped settings snapshot',
         ruleBehavior: 'allow',
       },
       'userSettings',
+      dependencies,
     ),
   ).toBe(true)
   expect(diskSettings.permissions?.allow).toEqual([
@@ -75,4 +75,64 @@ test('permission additions are computed from the lock-scoped settings snapshot',
     'Read(concurrent)',
     'Read(requested)',
   ])
+})
+
+test('an uncommitted write reports failure and leaves permission rules unchanged', () => {
+  const before = structuredClone(diskSettings.permissions?.allow ?? [])
+  writeResult = { error: null, written: false }
+
+  try {
+    expect(
+      addPermissionRulesToSettings(
+        {
+          ruleValues: [{ toolName: 'Read', ruleContent: 'dropped' }],
+          ruleBehavior: 'allow',
+        },
+        'userSettings',
+        dependencies,
+      ),
+    ).toBe(false)
+    expect(diskSettings.permissions?.allow).toEqual(before)
+  } finally {
+    writeResult = { error: null, written: true }
+  }
+})
+
+test('an already-present permission is a successful lock-scoped no-op', () => {
+  const patchCountBefore = appliedPatchCount
+
+  expect(
+    addPermissionRulesToSettings(
+      {
+        ruleValues: [{ toolName: 'Read', ruleContent: 'concurrent' }],
+        ruleBehavior: 'allow',
+      },
+      'userSettings',
+      dependencies,
+    ),
+  ).toBe(true)
+  expect(appliedPatchCount).toBe(patchCountBefore)
+})
+
+test('a no-op with a transaction error is not accepted as persisted', () => {
+  writeResult = {
+    error: new Error('settings target changed during release'),
+    written: false,
+    unchanged: true,
+  }
+
+  try {
+    expect(
+      addPermissionRulesToSettings(
+        {
+          ruleValues: [{ toolName: 'Read', ruleContent: 'concurrent' }],
+          ruleBehavior: 'allow',
+        },
+        'userSettings',
+        dependencies,
+      ),
+    ).toBe(false)
+  } finally {
+    writeResult = { error: null, written: true }
+  }
 })

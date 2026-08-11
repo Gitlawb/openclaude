@@ -124,19 +124,22 @@ export async function permissionPromptToolResultToPermissionDecision(
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
     )
     if (updatedPermissions.length > 0) {
+      const persistence = persistPermissionUpdates(updatedPermissions)
+      const appliedUpdates = persistence.appliedUpdates
       let updatedContext = toolUseContext.getAppState().toolPermissionContext
-      toolUseContext.setAppState(prev => {
-        updatedContext = applyPermissionUpdatesToLiveContext(
-          prev.toolPermissionContext,
-          updatedPermissions,
-        )
-        if (prev.toolPermissionContext === updatedContext) return prev
-        return {
-          ...prev,
-          toolPermissionContext: updatedContext,
-        }
-      })
-      persistPermissionUpdates(updatedPermissions)
+      if (appliedUpdates.length > 0) {
+        toolUseContext.setAppState(prev => {
+          updatedContext = applyPermissionUpdatesToLiveContext(
+            prev.toolPermissionContext,
+            appliedUpdates,
+          )
+          if (prev.toolPermissionContext === updatedContext) return prev
+          return {
+            ...prev,
+            toolPermissionContext: updatedContext,
+          }
+        })
+      }
     }
     const postUpdatePlanModeDecision =
       await revalidatePlanModePermissionAllowWithRaceGuard(

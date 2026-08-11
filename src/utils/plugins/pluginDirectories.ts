@@ -165,7 +165,10 @@ export async function getPluginDataDirSize(
  * cleanup side-effect surfacing as "uninstall failed". Same rationale as
  * deletePluginOptions (pluginOptionsStorage.ts).
  */
-export async function deletePluginDataDir(pluginId: string): Promise<void> {
+export async function deletePluginDataDir(
+  pluginId: string,
+  options?: { throwOnError?: boolean },
+): Promise<void> {
   const dir = pluginDataDirPath(pluginId)
   try {
     await rm(dir, { recursive: true, force: true })
@@ -174,5 +177,6 @@ export async function deletePluginDataDir(pluginId: string): Promise<void> {
       `Failed to delete plugin data dir ${dir}: ${errorMessage(e)}`,
       { level: 'warn' },
     )
+    if (options?.throwOnError) throw e
   }
 }

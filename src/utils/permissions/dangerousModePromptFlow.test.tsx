@@ -98,7 +98,7 @@ test('shows the fullAccess dangerous-mode dialog through the rendered startup fl
           mode: permissionMode === 'fullAccess' ? 'fullAccess' : null,
           shouldShow: true,
         }),
-        persistAcceptance: () => {},
+        persistAcceptance: () => null,
       },
     )
 
@@ -130,7 +130,7 @@ test('skips rendering the dialog when fullAccess consent was already accepted', 
               ? !hasFullAccessAcceptance
               : !hasBypassAcceptance,
         }),
-        persistAcceptance: () => {},
+        persistAcceptance: () => null,
       },
     )
 

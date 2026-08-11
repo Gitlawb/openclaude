@@ -32,6 +32,7 @@ import {
   getInitialSettings,
   getSettingsForSource,
   updateSettingsForSource,
+  wasSettingsUpdateCommitted,
 } from './settings/settings.js'
 import { createSignal } from './signal.js'
 
@@ -248,16 +249,28 @@ export function clearFastModeCooldown(): void {
  * not enabled for your organization"). Permanently disables fast mode using
  * the same flow as when the prefetch discovers the org has it disabled.
  */
-export function handleFastModeRejectedByAPI(): void {
+export function handleFastModeRejectedByAPI(
+  persist: typeof updateSettingsForSource = updateSettingsForSource,
+): void {
   if (orgStatus.status === 'disabled') {
     return
   }
   orgStatus = { status: 'disabled', reason: 'preference' }
-  updateSettingsForSource('userSettings', { fastMode: undefined })
-  saveGlobalConfig(current => ({
-    ...current,
-    penguinModeOrgEnabled: false,
-  }))
+  const result = persist('userSettings', { fastMode: undefined })
+  if (wasSettingsUpdateCommitted(result)) {
+    orgDisablePreferenceCleanupPending = false
+    saveGlobalConfig(current => ({
+      ...current,
+      penguinModeOrgEnabled: false,
+    }))
+  } else {
+    // The disabled org state suppresses duplicate API-rejection handling, so
+    // carry an explicit retry into the next status prefetch.
+    orgDisablePreferenceCleanupPending = true
+    logForDebugging('Could not persist the API-rejected fast mode preference', {
+      level: 'warn',
+    })
+  }
   orgFastModeChange.emit(false)
 }
 
@@ -310,11 +323,17 @@ export function handleFastModeOverageRejection(reason: string | null): void {
   })
   // Disable fast mode permanently unless the user has ran out of credits
   if (!isOutOfCreditsReason(reason)) {
-    updateSettingsForSource('userSettings', { fastMode: undefined })
-    saveGlobalConfig(current => ({
-      ...current,
-      penguinModeOrgEnabled: false,
-    }))
+    const result = updateSettingsForSource('userSettings', { fastMode: undefined })
+    if (wasSettingsUpdateCommitted(result)) {
+      saveGlobalConfig(current => ({
+        ...current,
+        penguinModeOrgEnabled: false,
+      }))
+    } else {
+      logForDebugging('Could not persist the overage-rejected fast mode preference', {
+        level: 'warn',
+      })
+    }
   }
   overageRejection.emit(message)
 }
@@ -361,6 +380,35 @@ type FastModeOrgStatus =
   | { status: 'disabled'; reason: FastModeDisabledReason }
 
 let orgStatus: FastModeOrgStatus = { status: 'pending' }
+let orgDisablePreferenceCleanupPending = false
+
+export function persistOrgDisabledFastModePreferenceIfNeeded(
+  enabled: boolean,
+  previousEnabled: boolean | undefined,
+  persist: typeof updateSettingsForSource = updateSettingsForSource,
+): void {
+  if (enabled) {
+    // A pending retry represents an earlier disabled response. Once the
+    // latest organization state allows Fast mode again, that cleanup is stale
+    // and must not erase the user's saved preference.
+    orgDisablePreferenceCleanupPending = false
+    return
+  }
+  if (
+    !orgDisablePreferenceCleanupPending &&
+    previousEnabled === false
+  ) {
+    return
+  }
+  const result = persist('userSettings', { fastMode: undefined })
+  orgDisablePreferenceCleanupPending = !wasSettingsUpdateCommitted(result)
+  if (orgDisablePreferenceCleanupPending) {
+    logForDebugging(
+      'Could not persist the organization-disabled fast mode preference',
+      { level: 'warn' },
+    )
+  }
+}
 
 // Listeners notified when org-level fast mode status changes
 const orgFastModeChange = createSignal<[orgEnabled: boolean]>()
@@ -498,11 +546,13 @@ export async function prefetchFastModeStatus(): Promise<void> {
             status: 'disabled',
             reason: status.disabled_reason ?? 'preference',
           }
+      // Keep retrying until the organization-disable preference cleanup is
+      // committed. The org-status cache must not suppress this write.
+      persistOrgDisabledFastModePreferenceIfNeeded(
+        status.enabled,
+        previousEnabled,
+      )
       if (previousEnabled !== status.enabled) {
-        // When org disables fast mode, permanently turn off the user's fast mode setting
-        if (!status.enabled) {
-          updateSettingsForSource('userSettings', { fastMode: undefined })
-        }
         saveGlobalConfig(current => ({
           ...current,
           penguinModeOrgEnabled: status.enabled,

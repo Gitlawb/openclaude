@@ -37,6 +37,7 @@ import { settingsChangeDetector } from '../settings/changeDetector.js'
 import { SETTING_SOURCES, type SettingSource } from '../settings/constants.js'
 import { getManagedSettingsDropInDir } from '../settings/managedPath.js'
 import {
+  SETTINGS_UPDATE_NO_CHANGE,
   getInitialSettings,
   getRelativeSettingsFilePathForSource,
   getSettings_DEPRECATED,
@@ -44,6 +45,8 @@ import {
   getSettingsForSource,
   getSettingsRootPathForSource,
   updateSettingsForSourceWithFreshSettings,
+  updateSettingsForSourceWithFreshSettingsOrNoop,
+  wasSettingsUpdateApplied,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
@@ -890,21 +893,26 @@ export function addToExcludedCommands(
     }
   }
 
-  const result = updateSettingsForSourceWithFreshSettings(
+  const result = updateSettingsForSourceWithFreshSettingsOrNoop(
     'localSettings',
-    freshSettings => ({
-      sandbox: {
-        ...freshSettings.sandbox,
-        excludedCommands: [
-          ...new Set([
-            ...(freshSettings.sandbox?.excludedCommands ?? []),
-            commandPattern,
-          ]),
-        ],
-      },
-    }),
+    freshSettings => {
+      if (freshSettings.sandbox?.excludedCommands?.includes(commandPattern)) {
+        return SETTINGS_UPDATE_NO_CHANGE
+      }
+      return {
+        sandbox: {
+          ...freshSettings.sandbox,
+          excludedCommands: [
+            ...new Set([
+              ...(freshSettings.sandbox?.excludedCommands ?? []),
+              commandPattern,
+            ]),
+          ],
+        },
+      }
+    },
   )
-  if (!wasSettingsUpdateCommitted(result)) {
+  if (!wasSettingsUpdateApplied(result)) {
     throw result.error ?? new Error('Sandbox exclusion was not written')
   }
 

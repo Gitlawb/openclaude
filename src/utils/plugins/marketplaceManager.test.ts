@@ -19,15 +19,185 @@ import {
   setFsImplementation,
   type FsOperations,
 } from '../fsOperations.js'
+import {
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../envUtils.js'
+import { resetSettingsCache } from '../settings/settingsCache.js'
+import {
+  addPluginInstallation,
+  clearInstalledPluginsCache,
+  loadInstalledPluginsV2,
+} from './installedPluginsManager.js'
 
 import type { MarketplaceSource } from './schemas.js'
 
 // @ts-expect-error -- query-string cache-buster: the import specifier ends with `?bust=...`
 // so TypeScript cannot resolve the bare path. The runtime import works under Bun (treats the
 // query string as a distinct module id that bypasses other test files' mock.module registrations).
-import { _test, removeMarketplaceSource, getMarketplaceCacheOnly, getPluginByIdCacheOnly } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
+import { _test, loadKnownMarketplacesConfig, removeMarketplaceSource, saveKnownMarketplacesConfig, getMarketplaceCacheOnly, getPluginByIdCacheOnly } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 
 const { loadAndCacheMarketplace } = _test
+
+test('failed known-marketplace save keeps its exact config entry for retry', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-removal-retry-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  const originalFs = getFsImplementation()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  clearInstalledPluginsCache()
+  resetSettingsCache()
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'github', repo: 'example/retryable' },
+        installLocation: join(pluginsDir, 'marketplaces', 'retryable'),
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+    addPluginInstallation(
+      'demo@retryable',
+      'user',
+      join(pluginsDir, 'cache', 'retryable', 'demo', '1.0.0'),
+      { version: '1.0.0' },
+    )
+
+    setFsImplementation({
+      ...originalFs,
+      mkdir: async path => {
+        if (String(path) === pluginsDir) {
+          throw new Error('known marketplace save unavailable')
+        }
+        return originalFs.mkdir(path)
+      },
+    })
+    await expect(removeMarketplaceSource('retryable')).rejects.toThrow(
+      'known marketplace save unavailable',
+    )
+
+    clearInstalledPluginsCache()
+    expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
+    expect((await loadKnownMarketplacesConfig()).retryable).toBeDefined()
+
+    setFsImplementation(originalFs)
+    await removeMarketplaceSource('retryable')
+    clearInstalledPluginsCache()
+    expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
+  } finally {
+    setFsImplementation(originalFs)
+    clearInstalledPluginsCache()
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('failed custom cache cleanup retains the exact marketplace path for retry', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-cache-retry-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const customCachePath = join(tempRoot, 'Custom-Mixed-Cache')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  const originalFs = getFsImplementation()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  clearInstalledPluginsCache()
+  resetSettingsCache()
+  mkdirSync(customCachePath, { recursive: true })
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'github', repo: 'example/retryable' },
+        installLocation: customCachePath,
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+    addPluginInstallation(
+      'demo@retryable',
+      'user',
+      join(pluginsDir, 'cache', 'retryable', 'demo', '1.0.0'),
+      { version: '1.0.0' },
+    )
+
+    setFsImplementation({
+      ...originalFs,
+      rm: async (path, options) => {
+        if (String(path) === customCachePath) {
+          throw new Error('custom cache unavailable')
+        }
+        return originalFs.rm(path, options)
+      },
+    })
+    await expect(removeMarketplaceSource('retryable')).rejects.toThrow(
+      'custom cache unavailable',
+    )
+    expect((await loadKnownMarketplacesConfig()).retryable?.installLocation).toBe(
+      customCachePath,
+    )
+
+    setFsImplementation(originalFs)
+    await removeMarketplaceSource('retryable')
+    expect(existsSync(customCachePath)).toBe(false)
+  } finally {
+    setFsImplementation(originalFs)
+    clearInstalledPluginsCache()
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+describe('marketplace auto-update settings transaction', () => {
+  test('preserves a declaration changed by another writer before the lock-scoped update', () => {
+    expect(
+      _test.buildMarketplaceAutoUpdatePatch(
+        {
+          extraKnownMarketplaces: {
+            community: {
+              source: { url: 'https://fresh.example/marketplace.json' },
+              autoUpdate: false,
+            },
+          },
+        },
+        'community',
+        true,
+        'userSettings',
+      ),
+    ).toEqual({
+      extraKnownMarketplaces: {
+        community: {
+          source: { url: 'https://fresh.example/marketplace.json' },
+          autoUpdate: true,
+        },
+      },
+    })
+  })
+
+  test('refuses to recreate a marketplace removed before the lock-scoped update', () => {
+    expect(() =>
+      _test.buildMarketplaceAutoUpdatePatch(
+        {},
+        'community',
+        true,
+        'userSettings',
+      ),
+    ).toThrow("Marketplace 'community' is no longer declared in userSettings")
+  })
+})
 
 /**
  * The static import above uses a query-string suffix to bypass Bun's

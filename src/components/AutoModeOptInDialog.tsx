@@ -21,6 +21,7 @@ export function AutoModeOptInDialog(t0: Props) {
     onDecline,
     declineExits
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1: [];
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [];
@@ -32,6 +33,7 @@ export function AutoModeOptInDialog(t0: Props) {
   let t2;
   if ($[1] !== onAccept || $[2] !== onDecline) {
     t2 = function onChange(value: 'accept' | 'accept-default' | 'decline') {
+      setSaveError(null);
       bb3: switch (value) {
         case "accept":
           {
@@ -41,6 +43,8 @@ export function AutoModeOptInDialog(t0: Props) {
             });
             if (wasSettingsUpdateCommitted(result)) {
               onAccept();
+            } else {
+              setSaveError(result.error?.message ?? "Could not save auto mode preference. Try again.");
             }
             break bb3;
           }
@@ -55,6 +59,8 @@ export function AutoModeOptInDialog(t0: Props) {
             });
             if (wasSettingsUpdateCommitted(result_0)) {
               onAccept();
+            } else {
+              setSaveError(result_0.error?.message ?? "Could not save auto mode preference. Try again.");
             }
             break bb3;
           }
@@ -138,7 +144,7 @@ export function AutoModeOptInDialog(t0: Props) {
   } else {
     t10 = $[17];
   }
-  return t10;
+  return <>{t10}{saveError ? <Text color="error">{saveError}</Text> : null}</>;
 }
 function _temp() {
   logEvent("tengu_auto_mode_opt_in_dialog_shown", {});

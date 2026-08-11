@@ -60,6 +60,10 @@ const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsLockSymlinkSwap.fixture.ts',
 )
+const SETTINGS_TARGET_RETARGET_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsTargetRetarget.fixture.ts',
+)
 const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsReloadNotification.fixture.ts',
@@ -170,6 +174,27 @@ async function collectChild<T>(
   }
 }
 
+async function stopChild(
+  processHandle: ReturnType<typeof startWriter> | undefined,
+): Promise<void> {
+  if (!processHandle) return
+  if (processHandle.exitCode === null) {
+    processHandle.kill('SIGKILL')
+  }
+  const drain = async (stream: ReadableStream<Uint8Array>): Promise<void> => {
+    try {
+      await new Response(stream).text()
+    } catch {
+      // A successful collectChild call has already consumed this stream.
+    }
+  }
+  await Promise.allSettled([
+    drain(processHandle.stdout),
+    drain(processHandle.stderr),
+    processHandle.exited,
+  ])
+}
+
 async function runScenario<T>(scenario: string): Promise<T> {
   const result = await collectChild<{ ok: boolean; value?: T; error?: string }>(
     Bun.spawn([process.execPath, TRANSACTION_SCENARIO_FIXTURE, scenario], {
@@ -204,6 +229,8 @@ test('concurrent writers through symlink aliases cannot both report success and 
   const writerARead = join(tempDir, 'writer-a-read')
   const writerBRead = join(tempDir, 'writer-b-read')
   const releaseWriterA = join(tempDir, 'release-writer-a')
+  let writerA: ReturnType<typeof startWriter> | undefined
+  let writerB: ReturnType<typeof startWriter> | undefined
 
   mkdirSync(physicalDir)
   symlinkSync(
@@ -223,7 +250,7 @@ test('concurrent writers through symlink aliases cannot both report success and 
   )
 
   try {
-    const writerA = startWriter(
+    writerA = startWriter(
       aliasA,
       settingsPath,
       'WRITER_A',
@@ -232,7 +259,7 @@ test('concurrent writers through symlink aliases cannot both report success and 
     )
     await waitFor(() => existsSync(writerARead), 'writer A to read settings')
 
-    const writerB = startWriter(
+    writerB = startWriter(
       aliasB,
       settingsPath,
       'WRITER_B',
@@ -267,6 +294,7 @@ test('concurrent writers through symlink aliases cannot both report success and 
     }
     expect(finalSettings.env).toEqual({ BASE: '1', WRITER_A: 'true' })
   } finally {
+    await Promise.all([stopChild(writerA), stopChild(writerB)])
     rmSync(tempDir, { recursive: true, force: true })
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -547,6 +575,8 @@ test('recovery quarantine cannot remove a newly acquired live lock', async () =>
   const aRelease = join(tempDir, 'a-release')
   const bMarker = join(tempDir, 'b-write-stat')
   const bRelease = join(tempDir, 'b-release')
+  let writerA: ReturnType<typeof startRecoveryWriter> | undefined
+  let writerB: ReturnType<typeof startRecoveryWriter> | undefined
 
   writeFileSync(
     settingsPath,
@@ -563,7 +593,7 @@ test('recovery quarantine cannot remove a newly acquired live lock', async () =>
   )
 
   try {
-    const writerA = startRecoveryWriter(
+    writerA = startRecoveryWriter(
       tempDir,
       settingsPath,
       'RECOVERER_A',
@@ -573,7 +603,7 @@ test('recovery quarantine cannot remove a newly acquired live lock', async () =>
     )
     await waitFor(() => existsSync(aMarker), 'recoverer A to claim cleanup')
 
-    const writerB = startRecoveryWriter(
+    writerB = startRecoveryWriter(
       tempDir,
       settingsPath,
       'RECOVERER_B',
@@ -604,6 +634,7 @@ test('recovery quarantine cannot remove a newly acquired live lock', async () =>
       env: { BASE: '1', RECOVERER_B: 'true' },
     })
   } finally {
+    await Promise.all([stopChild(writerA), stopChild(writerB)])
     rmSync(tempDir, { recursive: true, force: true })
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -673,7 +704,7 @@ test('recovery metadata tokens cannot control quarantine paths', async () => {
   })
 })
 
-test('abandoned ownerless locks are recovered after a conservative grace period', async () => {
+test('ownerless locks fail closed even when their directory is old', async () => {
   const result = await getScenario<{
     error: string | null
     lockExists: boolean
@@ -681,9 +712,9 @@ test('abandoned ownerless locks are recovered after a conservative grace period'
   }>('abandoned-ownerless-lock')
 
   expect(result).toEqual({
-    error: null,
-    lockExists: false,
-    final: { env: { BASE: '1', RECOVERED_OWNERLESS_LOCK: 'yes' } },
+    error: expect.stringContaining('already being held'),
+    lockExists: true,
+    final: { env: { BASE: '1' } },
   })
 })
 
@@ -836,6 +867,95 @@ test('acquisition failure cannot unlink owner metadata through a swapped lock sy
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
+test('a retargeted settings symlink aborts before writing the old or new target', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    error?: string | null
+    written?: boolean
+    committed?: boolean
+    originalUnchanged?: boolean
+    replacementUnchanged?: boolean
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+  if (result.value.skipped) return
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      error: expect.stringContaining('target changed during update'),
+      written: false,
+      committed: false,
+      originalUnchanged: true,
+      replacementUnchanged: true,
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('a post-write symlink retarget reports physical bytes without a logical commit', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    error?: string | null
+    written?: boolean
+    committed?: boolean
+    originalUnchanged?: boolean
+    replacementUnchanged?: boolean
+  }>(
+    Bun.spawn(
+      [process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE, 'after-write'],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+  if (result.value.skipped) return
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      error: expect.stringContaining('target changed during update'),
+      written: true,
+      committed: false,
+      originalUnchanged: false,
+      replacementUnchanged: true,
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('a swapped physical-target symlink cannot redirect the locked write', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    error?: string | null
+    written?: boolean
+    committed?: boolean
+    originalUnchanged?: boolean
+    replacementUnchanged?: boolean
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        SETTINGS_TARGET_RETARGET_FIXTURE,
+        'physical-before-write',
+      ],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+  if (result.value.skipped) return
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      error: null,
+      written: true,
+      committed: true,
+      originalUnchanged: false,
+      replacementUnchanged: true,
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
 test('recovery cleanup crashes only after the live lock path is freed', async () => {
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-recovery-cleanup-')),
@@ -845,6 +965,7 @@ test('recovery cleanup crashes only after the live lock path is freed', async ()
   const ownerPath = join(lockPath, 'owner.json')
   const cleanupMarker = join(tempDir, 'recovery-metadata-removed')
   const neverRelease = join(tempDir, 'never-release')
+  let crashedRecoverer: ReturnType<typeof startRecoveryWriter> | undefined
 
   writeFileSync(
     settingsPath,
@@ -861,7 +982,7 @@ test('recovery cleanup crashes only after the live lock path is freed', async ()
   )
 
   try {
-    const crashedRecoverer = startRecoveryWriter(
+    crashedRecoverer = startRecoveryWriter(
       tempDir,
       settingsPath,
       'CRASHED_DURING_CLEANUP',
@@ -902,6 +1023,7 @@ test('recovery cleanup crashes only after the live lock path is freed', async ()
       env: { BASE: '1', RECOVERED_AFTER_CLEANUP_CRASH: 'true' },
     })
   } finally {
+    await stopChild(crashedRecoverer)
     rmSync(tempDir, { recursive: true, force: true })
   }
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -984,6 +1106,7 @@ for (const mode of ['acquisition', 'release'] as const) {
   test(`${mode === 'acquisition' ? 'an' : 'a'} ${mode} quarantine failure retires the underlying lock handle`, async () => {
     const result = await collectChild<{
       firstError: string | null
+      firstWritten: boolean
       firstWriteLanded: boolean
       retryError: string | null
       releaseCalls: number

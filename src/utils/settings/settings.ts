@@ -29,7 +29,10 @@ import {
   type SettingSource,
 } from './constants.js'
 import { markInternalWrite } from './internalWrites.js'
-import { withSettingsFileLockSync } from './settingsFileLock.js'
+import {
+  SettingsFileLockOwnershipError,
+  withSettingsFileLockSync,
+} from './settingsFileLock.js'
 import {
   getManagedFilePath,
   getManagedSettingsDropInDir,
@@ -435,9 +438,26 @@ export function updateSettingsForSource(
 }
 
 export type SettingsWriteResult = {
+  /**
+   * The persistence or cleanup error, when one exists. A pre-write refusal
+   * such as an unavailable settings path can have `error: null` together with
+   * `written: false`; callers should supply operation-specific fallback copy.
+   */
   error: Error | null
+  /** True only when the requested bytes reached the settings file. */
   written: boolean
+  /**
+   * False when bytes reached the acquired physical target but ownership or
+   * logical-target identity changed before the transaction released. Omitted
+   * by legacy/test callers, where `written` remains the compatibility signal.
+   */
+  committed?: boolean
+  /** The requested state was already present in the locked fresh snapshot. */
+  unchanged?: boolean
 }
+
+/** Return from a fresh-settings updater when its requested state already exists. */
+export const SETTINGS_UPDATE_NO_CHANGE = Symbol('settings-update-no-change')
 
 /**
  * True only when the requested settings bytes reached disk. A release or
@@ -447,7 +467,20 @@ export type SettingsWriteResult = {
 export function wasSettingsUpdateCommitted(
   result: SettingsWriteResult,
 ): boolean {
-  return result.written
+  return result.committed ?? result.written
+}
+
+/**
+ * True when the guarded transaction either wrote the requested bytes or
+ * verified that the requested state was already present without an error.
+ */
+export function wasSettingsUpdateApplied(
+  result: SettingsWriteResult,
+): boolean {
+  return (
+    wasSettingsUpdateCommitted(result) ||
+    (result.unchanged === true && result.error === null)
+  )
 }
 
 /**
@@ -461,6 +494,22 @@ export function wasSettingsUpdateCommitted(
 export function updateSettingsForSourceWithFreshSettings(
   source: EditableSettingSource,
   createSettingsPatch: (settings: SettingsJson) => SettingsJson,
+): SettingsWriteResult {
+  return updateSettingsForSourceWithFreshSettingsOrNoop(
+    source,
+    createSettingsPatch,
+  )
+}
+
+/**
+ * Fresh-settings update variant that can explicitly report that the requested
+ * state already exists, avoiding an unnecessary rewrite while under the lock.
+ */
+export function updateSettingsForSourceWithFreshSettingsOrNoop(
+  source: EditableSettingSource,
+  createSettingsPatch: (
+    settings: SettingsJson,
+  ) => SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE,
 ): SettingsWriteResult {
   if (
     (source as unknown) === 'policySettings' ||
@@ -476,6 +525,9 @@ export function updateSettingsForSourceWithFreshSettings(
   }
 
   let written = false
+  let committed = false
+  let unchanged = false
+  let noChangeRequested = false
   try {
     withSettingsFileLockSync(
       filePath,
@@ -520,6 +572,10 @@ export function updateSettingsForSourceWithFreshSettings(
         const settings = createSettingsPatch(
           structuredClone(existingSettings || {}),
         )
+        if (settings === SETTINGS_UPDATE_NO_CHANGE) {
+          noChangeRequested = true
+          return
+        }
         const updatedSettings = mergeWith(
           existingSettings || {},
           settings,
@@ -548,30 +604,59 @@ export function updateSettingsForSourceWithFreshSettings(
         writeFileSyncAndFlush_DEPRECATED(
           targetPath,
           jsonStringify(updatedSettings, null, 2) + '\n',
+          { encoding: 'utf-8', preserveSymlink: false },
         )
         written = true
         markInternalWrite(filePath)
         markInternalWrite(targetPath)
         resetSettingsCache()
+        // Detect a logical symlink retarget or ownership compromise that lands
+        // after the pre-write assertion but before release. The old physical
+        // target may contain bytes, but the logical settings transaction did
+        // not commit in that case.
+        assertOwned()
       },
     )
-
-    if (source === 'localSettings') {
-      // Okay to add to gitignore async without awaiting
+    committed = written
+    // A requested no-op is trustworthy only after release validates that the
+    // same physical target remained owned for the complete transaction.
+    unchanged = noChangeRequested
+    if (unchanged) {
+      // The lock-scoped snapshot may be newer than the public parser caches.
+      // Invalidate them even when no bytes were needed so later readers see
+      // the state this transaction just verified.
+      resetSettingsCache()
+    }
+  } catch (e) {
+    committed =
+      written && !(e instanceof SettingsFileLockOwnershipError)
+    const error = new Error(
+      `Failed to update settings at ${filePath}: ${e}`,
+    )
+    logError(error)
+    return {
+      error,
+      written,
+      committed,
+      ...(unchanged ? { unchanged: true } : {}),
+    }
+  } finally {
+    if (source === 'localSettings' && written) {
+      // Bytes can land before ownership or release reports an error. Preserve
+      // the local-settings gitignore side effect for every physical write.
       void addFileGlobRuleToGitignore(
         getRelativeSettingsFilePathForSource('localSettings'),
         getOriginalCwd(),
       )
     }
-  } catch (e) {
-    const error = new Error(
-      `Failed to update settings at ${filePath}: ${e}`,
-    )
-    logError(error)
-    return { error, written }
   }
 
-  return { error: null, written }
+  return {
+    error: null,
+    written,
+    committed,
+    ...(unchanged ? { unchanged: true } : {}),
+  }
 }
 
 /**
