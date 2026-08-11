@@ -954,6 +954,11 @@ class Project {
   // from remoteEgressOmittedParents. Do not store uuid-only keys that all
   // share lastRemoteEgressUuid (that steals a later sibling's children).
   private remoteEgressCompactAncestry = new Map<UUID, UUID | null>()
+  // UUIDs dropped from both bounded maps. Scan-gate only — not an ancestor
+  // source. Keeps on-demand walks off parents that were never omitted.
+  private remoteEgressKnownOmitted = new Set<UUID>()
+  // Negative cache for on-demand walks that returned { found: false }.
+  private remoteEgressResolvedMisses = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
 
   constructor() {}
@@ -969,6 +974,8 @@ class Project {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
     this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
@@ -1303,6 +1310,8 @@ class Project {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
     this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
     const path = this.sessionFile
     if (!path) return
     ingestRemoteEgressOmissionsFromTranscriptFile(
@@ -1317,6 +1326,8 @@ class Project {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
     this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
     this.lastRemoteEgressUuid = null
   }
 
@@ -2012,11 +2023,11 @@ class Project {
                         ) ?? null,
                     }
                   } else if (
-                    this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
-                    (this.evictedRemoteEgressOmissions.size >=
-                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE &&
-                      this.remoteEgressCompactAncestry.size >=
-                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+                    !this.remoteEgressResolvedMisses.has(originalParentUuid) &&
+                    (this.evictedRemoteEgressOmissions.has(
+                      originalParentUuid,
+                    ) ||
+                      this.remoteEgressKnownOmitted.has(originalParentUuid))
                   ) {
                     const resolved =
                       resolveCompactOmissionAncestorFromLocalTranscript(
@@ -2033,6 +2044,12 @@ class Project {
                         ...entry,
                         parentUuid: resolved.ancestor,
                       }
+                    } else {
+                      this.remoteEgressResolvedMisses.add(originalParentUuid)
+                      boundUuidSet(
+                        this.remoteEgressResolvedMisses,
+                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                      )
                     }
                   }
                 }
@@ -2057,6 +2074,7 @@ class Project {
                   this.remoteEgressOmittedParents,
                   this.evictedRemoteEgressOmissions,
                   this.remoteEgressCompactAncestry,
+                  this.remoteEgressKnownOmitted,
                 )
               }
             }
@@ -3873,10 +3891,19 @@ function boundCompactAncestryMap(
   }
 }
 
+function boundUuidSet(ids: Set<UUID>, maxSize: number): void {
+  while (ids.size > maxSize) {
+    const oldest = ids.values().next().value
+    if (oldest === undefined) break
+    ids.delete(oldest)
+  }
+}
+
 function boundRemoteEgressOmissionMap(
   omittedParents: Map<UUID, UUID | null>,
   evicted: Set<UUID>,
   compactAncestry: Map<UUID, UUID | null>,
+  knownOmitted: Set<UUID>,
 ): void {
   while (omittedParents.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
     const oldest = omittedParents.keys().next().value
@@ -3891,14 +3918,66 @@ function boundRemoteEgressOmissionMap(
     if (oldest === undefined) break
     evicted.delete(oldest)
     compactAncestry.delete(oldest)
+    knownOmitted.add(oldest)
   }
+  boundUuidSet(knownOmitted, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
   boundCompactAncestryMap(compactAncestry)
+}
+
+function ingestCompactAncestryNodesFromTranscriptContent(
+  content: string,
+  byUuid: Map<UUID, { parentUuid: UUID | null; safe: boolean }>,
+): void {
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue
+    let parsed: unknown
+    try {
+      parsed = jsonParse(line)
+    } catch {
+      continue
+    }
+    if (!isTranscriptMessage(parsed as Entry)) continue
+    const entry = parsed as TranscriptMessage
+    if (!entry.uuid) continue
+    byUuid.set(entry.uuid, {
+      parentUuid: entry.parentUuid ?? null,
+      safe: isSafeForExternalEgress(entry),
+    })
+  }
+}
+
+function resolveAncestorFromCompactAncestryNodes(
+  byUuid: Map<UUID, { parentUuid: UUID | null; safe: boolean }>,
+  omittedUuid: UUID,
+): { found: boolean; ancestor: UUID | null } | null {
+  const target = byUuid.get(omittedUuid)
+  if (!target) {
+    return null
+  }
+  if (target.safe) {
+    return { found: false, ancestor: null }
+  }
+  let current = target.parentUuid
+  const seen = new Set<UUID>()
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    const node = byUuid.get(current)
+    if (!node) {
+      return null
+    }
+    if (node.safe) {
+      return { found: true, ancestor: current }
+    }
+    current = node.parentUuid
+  }
+  return { found: true, ancestor: current }
 }
 
 /**
  * On-demand ancestry when an omitted parent has fallen out of both bounded
- * maps. Walks local JSONL from the start (capped) and returns the nearest
- * still-safe ancestor of that omitted UUID — never lastRemoteEgressUuid.
+ * maps. Starts at the tail (OMISSION_REBUILD_TAIL_BYTES) and walks earlier
+ * windows until the omitted UUID and its nearest safe ancestor are visible,
+ * or MAX_TRANSCRIPT_READ_BYTES is scanned. Never lastRemoteEgressUuid.
  */
 function resolveCompactOmissionAncestorFromLocalTranscript(
   sessionFile: string | null,
@@ -3914,46 +3993,37 @@ function resolveCompactOmissionAncestorFromLocalTranscript(
     if (size === 0) {
       return { found: false, ancestor: null }
     }
-    const readSize = Math.min(size, MAX_TRANSCRIPT_READ_BYTES)
-    const buf = Buffer.allocUnsafe(readSize)
-    const bytesRead = readSync(fd, buf, 0, readSize, 0)
-    const content = buf.toString('utf8', 0, bytesRead)
     const byUuid = new Map<
       UUID,
       { parentUuid: UUID | null; safe: boolean }
     >()
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue
-      let parsed: unknown
-      try {
-        parsed = jsonParse(line)
-      } catch {
-        continue
+    let cursor = size
+    let scanned = 0
+    while (cursor > 0 && scanned < MAX_TRANSCRIPT_READ_BYTES) {
+      const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
+      const { content, nextEnd } = readTranscriptRangeForOmissionRebuild(
+        fd,
+        start,
+        cursor,
+      )
+      scanned += cursor - start
+      ingestCompactAncestryNodesFromTranscriptContent(content, byUuid)
+      const resolved = resolveAncestorFromCompactAncestryNodes(
+        byUuid,
+        omittedUuid,
+      )
+      if (resolved) {
+        return resolved
       }
-      if (!isTranscriptMessage(parsed as Entry)) continue
-      const entry = parsed as TranscriptMessage
-      if (!entry.uuid) continue
-      byUuid.set(entry.uuid, {
-        parentUuid: entry.parentUuid ?? null,
-        safe: isSafeForExternalEgress(entry),
-      })
-      if (entry.uuid === omittedUuid) break
-    }
-    const target = byUuid.get(omittedUuid)
-    if (!target || target.safe) {
-      return { found: false, ancestor: null }
-    }
-    let current = target.parentUuid
-    const seen = new Set<UUID>()
-    while (current && !seen.has(current)) {
-      seen.add(current)
-      const node = byUuid.get(current)
-      if (!node || node.safe) {
-        return { found: true, ancestor: current }
+      if (nextEnd < cursor) {
+        cursor = nextEnd
+      } else if (start < cursor) {
+        cursor = start
+      } else {
+        break
       }
-      current = node.parentUuid
     }
-    return { found: true, ancestor: current }
+    return { found: false, ancestor: null }
   } catch {
     return { found: false, ancestor: null }
   } finally {

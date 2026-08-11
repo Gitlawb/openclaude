@@ -1013,8 +1013,21 @@ describe('appendEntry remote egress gate', () => {
       await recordTranscript(listings, undefined, userUuid)
       await flushSessionStorage()
 
+      // Push firstListing outside the first tail window so the on-demand
+      // resolver cannot succeed from a head read or a single tail slice.
+      await appendFile(
+        path,
+        Buffer.concat([
+          Buffer.from('\n'),
+          Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 1, 0x78),
+          Buffer.from('\n'),
+        ]),
+      )
+
       const map = getRemoteEgressOmittedParentsForTesting()
       expect(map.has(firstListing)).toBe(false)
+      // Documents that 130 omissions exceed MAX*2 and drop firstListing
+      // from both bounded maps; not a file-size assertion.
       expect(omissionCount).toBeGreaterThan(129)
 
       const sibling = {
