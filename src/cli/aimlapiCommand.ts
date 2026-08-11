@@ -1,4 +1,5 @@
 import { Command as CommanderCommand } from '@commander-js/extra-typings'
+import { createInterface } from 'node:readline'
 
 import {
   DEFAULT_MODEL,
@@ -13,6 +14,26 @@ type LoadAimlapiTopupHandler = () => Promise<AimlapiTopupHandler>
 const loadAimlapiTopupHandler: LoadAimlapiTopupHandler = async () => {
   const { aimlapiTopup } = await import('./handlers/aimlapi.js')
   return aimlapiTopup
+}
+
+/**
+ * Read exactly one line from stdin for --code-stdin: a noninteractive way to
+ * supply the passwordless sign-in code that never touches argv (visible to
+ * other local users via shell history and the process list, e.g. `ps` /
+ * `/proc/<pid>/cmdline`) or an env var (visible via `/proc/<pid>/environ`).
+ * Stops at the first line rather than draining to EOF, so a caller piping
+ * more than one value is not silently read past its intended input.
+ */
+async function readOneLineFromStdin(): Promise<string> {
+  const rl = createInterface({ input: process.stdin })
+  try {
+    for await (const line of rl) {
+      return line.trim()
+    }
+    return ''
+  } finally {
+    rl.close()
+  }
 }
 
 /**
@@ -33,7 +54,17 @@ export function registerAimlapiCommand(
       'Use passwordless sign-in, open AI/ML API top-up, then configure OpenClaude',
     )
     .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
-    .option('--code <code>', '6-digit code for an existing account (or AIMLAPI_CODE env)')
+    .option(
+      '--code <code>',
+      'Deprecated: 6-digit code for an existing account, as a plain argument. This ' +
+        'exposes it to shell history and the process list (`ps`, /proc/<pid>/cmdline) on ' +
+        'the local machine. Prefer --code-stdin, AIMLAPI_CODE, or the interactive prompt.',
+    )
+    .option(
+      '--code-stdin',
+      'Read the 6-digit code for an existing account from stdin (one line) instead of ' +
+        '--code, for noninteractive use without exposing it via argv',
+    )
     .option(
       '--amount <usd>',
       `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`,
@@ -46,10 +77,17 @@ export function registerAimlapiCommand(
     )
     .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
     .action(async opts => {
+      if (opts.code) {
+        process.stderr.write(
+          'Warning: --code exposes the sign-in code via shell history and the process ' +
+            'list. Use --code-stdin, AIMLAPI_CODE, or omit it to be prompted instead.\n',
+        )
+      }
+      const code = opts.codeStdin ? await readOneLineFromStdin() : opts.code
       const handler = await loadHandler()
       await handler({
         email: opts.email,
-        code: opts.code,
+        code,
         amountUsd: opts.amount,
         autoTopUp: opts.autoTopUp,
         model: opts.model,

@@ -309,6 +309,53 @@ test('an ambiguous key-mint failure holds the lease instead of releasing it for 
   expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
 })
 
+test('a 2xx createKey response with an unusable body holds the checkout key-mint lease too', async () => {
+  // POST /v1/keys is non-idempotent: a 2xx status means the server received
+  // and likely committed the request, even when the body that would have
+  // confirmed it is unusable. Each of these must be held ambiguous, not
+  // treated as proof nothing was created — mirrors the sign-in mint path's
+  // equivalent test in onboarding.test.ts.
+  const malformedResponses: Record<string, () => Response> = {
+    empty: () => new Response('', { status: 200 }),
+    'non-json': () => new Response('not json', { status: 200 }),
+    oversized: () => new Response('x'.repeat((1 << 20) + 1), { status: 200 }),
+    'missing-id': () => new Response(JSON.stringify({ key: 'k_test' }), { status: 200 }),
+    'missing-key': () => new Response(JSON.stringify({ id: 'id_test' }), { status: 200 }),
+  }
+
+  for (const [label, makeResponse] of Object.entries(malformedResponses)) {
+    const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+    temporaryDirectories.push(configDirectory)
+    setClaudeConfigHomeDirForTesting(configDirectory)
+    process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+    process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+    process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+    const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+      if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+      if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+      if (url.endsWith('/v1/keys')) return makeResponse()
+      throw new Error(`Unexpected request: ${url}`)
+    }) as unknown as typeof fetch
+
+    await expect(
+      runAimlapiTopup({ email: 'user@example.com', code: '123456', amountUsd: '25', noOpen: true }),
+    ).rejects.toThrow()
+
+    const saved = JSON.parse(readFileSync(statePath, 'utf8')) as {
+      apiKey?: string
+      keyMintLeaseOwner?: string
+      keyMintLeaseAt?: number
+    }
+    expect(saved.apiKey ?? '', `no key recorded after a ${label} 2xx response`).toBe('')
+    expect(saved.keyMintLeaseOwner, `lease held after a ${label} 2xx response`).toBeTruthy()
+    expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
+  }
+})
+
 test('a competing claim cannot orphan a key mint already in flight for a different intent', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
   temporaryDirectories.push(configDirectory)

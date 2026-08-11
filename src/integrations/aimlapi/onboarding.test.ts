@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -299,6 +299,51 @@ test('two concurrent sign-ins for the same email never both mint a key', async (
   expect(resultB.apiKeyId).toBe('minted-id-1')
 }, 10_000)
 
+test('a 2xx createKey response with an unusable body holds the sign-in lease instead of allowing an immediate re-mint', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+
+  // POST /v1/keys is non-idempotent: a 2xx status means the server received
+  // and likely committed the request, even when the body that would have
+  // confirmed it is unusable. Each of these must be held ambiguous, not
+  // treated as proof nothing was created.
+  const malformedResponses: Record<string, () => Response> = {
+    empty: () => new Response('', { status: 200 }),
+    'non-JSON': () => new Response('not json', { status: 200 }),
+    oversized: () => new Response('x'.repeat((1 << 20) + 1), { status: 200 }),
+    'missing id': () => new Response(JSON.stringify({ key: 'k_test' }), { status: 200 }),
+    'missing key': () => new Response(JSON.stringify({ id: 'id_test' }), { status: 200 }),
+  }
+
+  for (const [label, makeResponse] of Object.entries(malformedResponses)) {
+    // Lowercase: the lease file's keys are normalized (case-insensitive)
+    // email, so a mixed-case label here (e.g. "non-JSON") would otherwise
+    // look up the wrong key below and fail regardless of the real behavior.
+    const email = `user-${label.toLowerCase().replace(/\s+/g, '-')}@example.com`
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+      if (url.endsWith('/v1/keys')) return makeResponse()
+      throw new Error(`Unexpected request: ${url}`)
+    }) as unknown as typeof fetch
+
+    await expect(
+      completeAimlapiCodeSignIn(email, '123456', undefined, 'https://api.example.test/v1'),
+    ).rejects.toThrow()
+
+    const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
+    const lease = JSON.parse(readFileSync(leasePath, 'utf8')) as Record<
+      string,
+      { owner?: string; at?: number }
+    >
+    expect(lease[email]?.owner, `lease held after a ${label} 2xx response`).toBeTruthy()
+    // No key was ever cached for this ambiguous outcome — a later resolution
+    // (once the lease goes stale, or the real outcome is confirmed some other
+    // way) must still be able to adopt/recover it, not find a wrong cache entry.
+    expect(loadAimlapiSignInKey(email)).toBeNull()
+  }
+})
+
 test('a slow createKey refreshes the sign-in lease before the cache save lands', async () => {
   process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
   process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
@@ -329,10 +374,11 @@ test('a slow createKey refreshes the sign-in lease before the cache save lands',
     'https://api.example.test/v1',
   )
 
-  // If mintOrAdoptSignInKey refreshed the lease right after createKey
-  // succeeded, its timestamp is recent — not the artificially aged one this
-  // test seeded — proof the refresh actually fires as part of the real mint
-  // path, closing the gap the isolated topupState lease test covers.
-  const store = JSON.parse(readFileSync(leasePath, 'utf8')) as Record<string, { at: number }>
-  expect(store['user@example.com'].at).toBeGreaterThan(Date.now() - 5_000)
+  // The commit at the end of a successful mint retires the lease outright
+  // (see commitAimlapiSignInKeyAsync) rather than merely refreshing it, so a
+  // near-stale timestamp at commit time must not stop that retirement — the
+  // refresh's own effect (keeping a still-in-flight lease from going stale
+  // mid-wait) is covered directly by the isolated topupState lease test this
+  // one closes the gap for.
+  expect(existsSync(leasePath)).toBe(false)
 })

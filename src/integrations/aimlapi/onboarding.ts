@@ -13,9 +13,9 @@ import { resolveEndpoints } from './config.js'
 import {
   acquireAimlapiSignInKeyLeaseAsync,
   clearAimlapiSignInKeyAsync,
+  commitAimlapiSignInKeyAsync,
   refreshAimlapiSignInKeyLeaseAsync,
   releaseAimlapiSignInKeyLeaseAsync,
-  saveAimlapiSignInKeyAsync,
 } from './topupState.js'
 import { abortError, isAmbiguousTransportApiError, sleep } from './transport.js'
 
@@ -71,11 +71,12 @@ async function mintOrAdoptSignInKey(
         // margin over this refresh's own worst-case lock wait, so losing
         // ownership here should be exceedingly rare. A failed refresh call,
         // or one that reports ownership already lost, is still non-fatal: the
-        // key was already minted, and the save below is safe to attempt
-        // regardless (saveAimlapiSignInKeyAsync is first-writer-wins, so a
-        // losing write here is a harmless no-op) — but log the lost-ownership
-        // case, since it signals the stale window was cut closer than
-        // expected and a peer may now also be minting concurrently.
+        // key was already minted, and the commit below is safe to attempt
+        // regardless (its cache write is first-writer-wins, so a losing write
+        // here is a harmless no-op, and it only retires a lease it still
+        // owns) — but log the lost-ownership case, since it signals the
+        // stale window was cut closer than expected and a peer may now also
+        // be minting concurrently.
         const refreshed = await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(
           (refreshError: unknown): false => {
             logForDebugging(
@@ -93,7 +94,12 @@ async function mintOrAdoptSignInKey(
           )
         }
         try {
-          await saveAimlapiSignInKeyAsync(email, created.key, created.id)
+          // Commits the cache entry and retires this lease together: leaving
+          // the lease behind after a successful mint would let it resurface
+          // as "held" for a fresh acquire as soon as something later clears
+          // just the cache entry (see clearAimlapiSignInKeyAsync), even
+          // though no mint is still running.
+          await commitAimlapiSignInKeyAsync(email, created.key, created.id, owner)
         } catch {
           // Retained in memory below; the cache is only a recovery aid.
         }

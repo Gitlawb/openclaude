@@ -36,6 +36,16 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 // (createKey, exchange) must not treat them as proof it never happened. A
 // genuine 4xx (other than 408/429) is a definitive server rejection instead.
 //
+// A 2xx status belongs in this set too, not the definite-failure side: it
+// proves the server received and processed the request, so client.request
+// throwing anyway (empty body, non-JSON body, oversized body, or a body that
+// parsed but failed an endpoint's own shape check, e.g. createKey's
+// isCreatedKey) means the response confirming a non-idempotent mutation was
+// lost, not that the mutation never happened — if anything a 2xx is stronger
+// evidence the mutation committed than a 5xx or a network error is. Treating
+// it as a definite failure would release a mint/exchange lease and let a
+// retry orphan the credential the lost response could no longer name.
+//
 // This predicate alone is NOT the complete ambiguity test for a mutation's
 // in-flight request: client.request rethrows a caller-driven abort as the
 // raw (unwrapped) abort error rather than an AimlapiApiError, so it fails the
@@ -47,6 +57,10 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export function isAmbiguousTransportApiError(error: unknown): boolean {
   return (
     error instanceof AimlapiApiError &&
-    (error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)
+    (error.status === 0 ||
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500 ||
+      (error.status >= 200 && error.status < 300))
   )
 }

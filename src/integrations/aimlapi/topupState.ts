@@ -400,22 +400,58 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   )
 }
 
+function isEnoentError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code: unknown }).code === 'ENOENT'
+  )
+}
+
 /**
- * Read the stored record, treating a missing OR unreadable/corrupt file as "no
- * state". Writes are atomic (temp + rename), so the live file is never a partial
- * write; a corrupt file therefore only arises from external tampering, and
- * overwriting it to start a fresh checkout is safe.
+ * Read the stored record. Only a genuinely missing file (ENOENT) means "no
+ * state" — an empty slot claimTopupStateOperation may safely write a fresh
+ * claim over. A file that exists but cannot be trusted — a permission/I/O
+ * error, invalid JSON, or a record that fails validation (e.g. an
+ * unrecognized schema/version) — is NOT the same as empty: silently treating
+ * it as empty would let a claim overwrite a still-live pending or
+ * already-paid receipt whose bytes just happened to be momentarily
+ * unreadable. Surface those as a fail-closed error instead, and never touch
+ * the original bytes while the failure is unresolved.
  */
 function readAimlapiTopupStateUnlocked(): AimlapiPersistedTopup | null {
   const path = statePath()
-  if (!existsSync(path)) return null
-  let raw: unknown
+  let raw: string
   try {
-    raw = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return null
+    raw = readFileSync(path, 'utf8')
+  } catch (error) {
+    if (isEnoentError(error)) return null
+    throw new Error(
+      `Could not read the local AI/ML API checkout receipt at ${path}. Resolve the ` +
+        `underlying issue and retry, rather than starting a new checkout — it may still ` +
+        `point at a pending or already-paid one.`,
+      { cause: error },
+    )
   }
-  return isPersistedTopup(raw) ? raw : null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    throw new Error(
+      `The local AI/ML API checkout receipt at ${path} is not valid JSON. Remove or repair ` +
+        `it manually before retrying — it may still point at a pending or already-paid checkout.`,
+      { cause: error },
+    )
+  }
+  if (!isPersistedTopup(parsed)) {
+    throw new Error(
+      `The local AI/ML API checkout receipt at ${path} does not match the expected format. ` +
+        `Remove or repair it manually before retrying — it may still point at a pending or ` +
+        `already-paid checkout.`,
+    )
+  }
+  return parsed
 }
 
 /**
@@ -456,6 +492,29 @@ function toCheckoutState(state: AimlapiPersistedTopup): AimlapiCheckoutState {
     settled: state.settled,
     exchange: state.exchange,
   }
+}
+
+/**
+ * Best-effort reconciliation for a settled receipt whose claiming intent this
+ * process never saw (e.g. it was left behind by an earlier run that settled a
+ * by-key top-up but never reached the profile write — see
+ * claimTopupStateOperation's unconditional refusal to overwrite a
+ * settled-but-unsaved receipt). Clears the record only when it is settled AND
+ * already holds the SAME credential the caller is about to reuse as-is: that
+ * is the one case where discarding it loses nothing — the credential's funds
+ * are already reflected server-side (the caller just confirmed its balance),
+ * and no new payment is being made here to record. Safe no-op otherwise —
+ * mismatched, unpaid, or in-progress state is left untouched for its actual
+ * owner to resolve.
+ */
+export function reconcileSettledAimlapiTopupStateAsync(apiKey: string): Promise<void> {
+  const trimmedApiKey = apiKey.trim()
+  if (!trimmedApiKey) return Promise.resolve()
+  return withStateLockAsync(() => {
+    const current = readAimlapiTopupStateUnlocked()
+    if (!current?.settled || current.apiKey?.trim() !== trimmedApiKey) return
+    rmSync(statePath(), { force: true })
+  })
 }
 
 /**
@@ -1130,6 +1189,41 @@ export function saveAimlapiSignInKeyAsync(
     () => saveSignInKeyOperation(normalizedEmail, apiKey, apiKeyId),
     signInKeyPath(),
   )
+}
+
+/**
+ * Commit a freshly minted sign-in key to the cache AND retire the mint lease
+ * that authorized minting it, under the same lock acquisition (both are
+ * already locked on signInKeyPath() — see the sign-in key-mint lease comment
+ * below). Completion was previously represented only indirectly, via the
+ * cache entry masking the lease on lookup (acquireSignInKeyLeaseOperation
+ * checks the cache first) — but the lease itself was never cleared, so it
+ * resurfaces as live and blocks a fresh acquire for up to
+ * SIGN_IN_KEY_LEASE_STALE_MS as soon as something later clears just the
+ * cache entry (see clearSignInKeyOperation), even though no mint is running.
+ * The lease is retired only while it still belongs to `owner`, so a stale
+ * writer (one whose lease already went stale and was reclaimed by a newer
+ * owner) can never clear that newer owner's live lease. If the cache write
+ * itself throws, the lease is left untouched — a failed commit must stay
+ * indeterminate, not silently retire the lease for a key that was never
+ * durably recorded.
+ */
+export function commitAimlapiSignInKeyAsync(
+  email: string,
+  apiKey: string,
+  apiKeyId: string,
+  owner: string,
+): Promise<void> {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail || !apiKey.trim() || !apiKeyId.trim()) return Promise.resolve()
+  return withStateLockAsync(() => {
+    saveSignInKeyOperation(normalizedEmail, apiKey, apiKeyId)
+    const leaseStore = readSignInLeaseStoreUnlocked()
+    if (leaseStore[normalizedEmail]?.owner === owner) {
+      delete leaseStore[normalizedEmail]
+      writeSignInLeaseStore(leaseStore)
+    }
+  }, signInKeyPath())
 }
 
 // Delete only this email's entry, and only when it still holds the key this flow

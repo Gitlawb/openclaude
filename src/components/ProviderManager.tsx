@@ -64,6 +64,7 @@ import {
   recordAimlapiCheckoutSessionAsync,
   resetAimlapiCheckoutSessionAsync,
   saveAimlapiTopupStateAsync,
+  reconcileSettledAimlapiTopupStateAsync,
   loadAimlapiSignInKey,
   saveAimlapiSignInKeyAsync,
   clearAimlapiSignInKeyAsync,
@@ -2259,6 +2260,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function handleBackFromPresetModel(): void {
     setErrorMessage(undefined)
+    // A by-key top-up payment already settled and its receipt was persisted
+    // (checkoutState.settled/apiKey) before routing here to confirm the
+    // model — Back cannot "cancel" a payment that already cleared. Complete
+    // the pending profile update with the current model instead of
+    // abandoning it: leaving without saving strands the settled receipt,
+    // which then refuses any later, differently-amounted top-up until it is
+    // recovered (by re-running this exact amount) or manually deleted.
+    if (
+      aimlapiTopupPaidRef.current &&
+      aimlapiPersistedIntentRef.current &&
+      (aimlapiExistingProfileId || aimlapiExistingUsesEnv)
+    ) {
+      persistExistingAimlapi()
+      return
+    }
     setScreen('select-preset')
   }
 
@@ -2320,6 +2336,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   })
 
   function handleBackFromAimlapiTopupAmount(): void {
+    // Cancel a startAimlapiTopup invocation that may still be in its preflight
+    // (claiming/saving checkout state can contend for the state lock for up
+    // to 15s before the screen would otherwise change) — without this, that
+    // stale invocation can still resolve after navigating away and barge
+    // back onto the progress screen to start provisioning.
+    aimlapiAbortRef.current?.abort()
     setErrorMessage(undefined)
     setScreen(aimlapiNewAccount ? 'aimlapi-topup-email' : 'aimlapi-low-balance')
   }
@@ -3000,6 +3022,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         if (balance.lowBalance) {
           setScreen('aimlapi-low-balance')
         } else {
+          // This path reuses an already-funded credential without claiming a
+          // checkout, so it never runs startAimlapiTopup's own settled-receipt
+          // recovery. An earlier top-up for this SAME credential may still be
+          // sitting settled-but-unsaved (its model picker was backed out of or
+          // closed before this fix) and would otherwise refuse any later,
+          // differently-amounted top-up. Nothing new is being paid for here —
+          // the balance just confirmed above already reflects it — so clearing
+          // that leftover marker is safe and unblocks a future top-up.
+          void reconcileSettledAimlapiTopupStateAsync(apiKey).catch(() => {})
           setCursorOffset(draft.model.length)
           setScreen('preset-model')
         }
@@ -3292,6 +3323,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     // never leak into a later, unrelated claim in the same mount.
     const forceAbandonExisting = aimlapiForceAbandonExistingRef.current
     aimlapiForceAbandonExistingRef.current = false
+
+    // Own this invocation's cancellation from here, BEFORE the first async
+    // boundary: claimAimlapiTopupStateAsync below can contend for the state
+    // lock for up to LOCK_TIMEOUT_ASYNC_MS (15s) while the screen is still
+    // aimlapi-topup-amount, so a stale run must not resume unattended after
+    // that wait — reaffirmed after every awaited preflight step below, before
+    // any ref/state mutation or network/payment work.
+    aimlapiAbortRef.current?.abort()
+    const controller = new AbortController()
+    aimlapiAbortRef.current = controller
+
     let checkoutState: Awaited<ReturnType<typeof claimAimlapiTopupStateAsync>>
     try {
       // The abandon-ack gate above already made the user explicitly confirm
@@ -3308,10 +3350,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           abandoningOpenedCheckout || abandoningPersistedIntent || forceAbandonExisting,
       })
     } catch (error) {
+      if (controller.signal.aborted) return
       setErrorMessage(safeAimlapiErrorMessage(error, [aimlapiIssuedKey]))
       setScreen('aimlapi-topup-amount')
       return
     }
+    // Esc/unmount during the wait above aborted this controller — a screen
+    // navigated away from (or a manager closed during) that wait must not
+    // have this now-resolved claim barge back in and mutate state or start
+    // provisioning as if it were still the active operation.
+    if (controller.signal.aborted) return
+
     aimlapiPersistedIntentRef.current = {
       ...intent,
       paymentSessionId: checkoutState.paymentSessionId,
@@ -3361,11 +3410,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       } catch {
         // Retained in memory; persistence is only a resume aid.
       }
+      if (controller.signal.aborted) return
     }
 
-    aimlapiAbortRef.current?.abort()
-    const controller = new AbortController()
-    aimlapiAbortRef.current = controller
     setScreen('aimlapi-topup-progress')
     setErrorMessage(undefined)
     setAimlapiTopupStatus('creating-session')

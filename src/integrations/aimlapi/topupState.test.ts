@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test'
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -15,6 +16,7 @@ import {
   acquireAimlapiExchangeLeaseAsync,
   acquireAimlapiKeyMintLeaseAsync,
   acquireAimlapiSignInKeyLeaseAsync,
+  commitAimlapiSignInKeyAsync,
   refreshAimlapiExchangeLeaseAsync,
   refreshAimlapiSignInKeyLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
@@ -26,6 +28,7 @@ import {
   clearAimlapiSignInKey,
   loadAimlapiSignInKey,
   loadAimlapiTopupState,
+  reconcileSettledAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
   recordAimlapiSettledKeyAsync,
   resetAimlapiCheckoutSession,
@@ -42,6 +45,19 @@ afterEach(() => {
     rmSync(directory, { force: true, recursive: true })
   }
 })
+
+// Permission bits don't restrict a root process (common in CI containers), so
+// a chmod-based unreadable-file test would spuriously pass without exercising
+// anything. Detect that case and skip rather than assert on it.
+function readableDespiteNoPermissions(path: string): boolean {
+  if (process.platform === 'win32') return true
+  try {
+    readFileSync(path, 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
 
 function useTemporaryConfig(): string {
   const directory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-topup-'))
@@ -392,6 +408,50 @@ test('refreshing the sign-in key-mint lease keeps a slow createKey-plus-cache-sa
   }
 })
 
+test('a committed sign-in key retires its own lease so a same-email reacquire is immediate, not held', async () => {
+  const directory = useTemporaryConfig()
+  const leasePath = join(directory, 'aimlapi-signin-lease.json')
+
+  const acquired = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
+  expect(acquired.status).toBe('acquired')
+  expect(existsSync(leasePath)).toBe(true)
+
+  await commitAimlapiSignInKeyAsync('user@example.com', 'minted-key', 'minted-id', 'owner-a')
+
+  // The lease file is gone outright — not just masked behind the cache entry.
+  expect(existsSync(leasePath)).toBe(false)
+
+  // Reproduces the finding's exact sequence: acquire(A) -> commit -> clear
+  // the cache -> acquire(B). Before the fix, the stale lease resurfaced here
+  // as "held" for owner-a (a ~150s wait) even though nothing was minting.
+  clearAimlapiSignInKey('user@example.com', 'minted-id')
+  const reacquired = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-b')
+  expect(reacquired.status).toBe('acquired')
+})
+
+test('a commit from a since-reclaimed owner must not clear a newer owner\'s live lease', async () => {
+  const directory = useTemporaryConfig()
+  const leasePath = join(directory, 'aimlapi-signin-lease.json')
+  await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
+
+  // owner-a's lease goes stale and is reclaimed by owner-b before owner-a's
+  // own (very delayed) commit lands.
+  const staleStore = JSON.parse(readFileSync(leasePath, 'utf8'))
+  staleStore['user@example.com'].at = Date.now() - 151_000
+  writeFileSync(leasePath, JSON.stringify(staleStore))
+  const reclaimed = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-b')
+  expect(reclaimed.status).toBe('acquired')
+
+  // owner-a's belated commit must not clear owner-b's now-live lease. (Its
+  // cache write still lands — first-writer-wins, same as a plain save — so
+  // a later re-acquire would short-circuit on the cache instead of the
+  // lease; read the lease file directly to check the lease itself.)
+  await commitAimlapiSignInKeyAsync('user@example.com', 'stale-owner-key', 'stale-owner-id', 'owner-a')
+
+  const leaseAfterCommit = JSON.parse(readFileSync(leasePath, 'utf8'))
+  expect(leaseAfterCommit['user@example.com'].owner).toBe('owner-b')
+})
+
 test('refreshing a sign-in key-mint lease this process no longer owns reports false and touches nothing', async () => {
   useTemporaryConfig()
   await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'owner-a')
@@ -641,6 +701,122 @@ test('a new key never inherits a stale apiKeyId left over from a different key',
   const loaded = loadAimlapiTopupState(intent)
   expect(loaded?.apiKey).toBe('new-key')
   expect(loaded?.apiKeyId).toBeUndefined()
+})
+
+test('an unreadable receipt fails closed instead of being claimed over as empty', () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'live-resume-token',
+  })
+  const statePath = join(directory, 'aimlapi-topup.json')
+  const original = readFileSync(statePath, 'utf8')
+
+  chmodSync(statePath, 0o000)
+  try {
+    if (readableDespiteNoPermissions(statePath)) return
+    expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+      /Could not read the local AI\/ML API checkout receipt/,
+    )
+  } finally {
+    chmodSync(statePath, 0o600)
+  }
+
+  // The permission failure must not have let a claim overwrite the original
+  // receipt: the pending resume token is still there afterward.
+  expect(readFileSync(statePath, 'utf8')).toBe(original)
+})
+
+test('a malformed-JSON receipt fails closed instead of being claimed over as empty', () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'live-resume-token',
+  })
+  const statePath = join(directory, 'aimlapi-topup.json')
+  writeFileSync(statePath, '{ this is not valid json')
+
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    /is not valid JSON/,
+  )
+  expect(readFileSync(statePath, 'utf8')).toBe('{ this is not valid json')
+})
+
+test('a receipt that fails schema validation fails closed instead of being claimed over as empty', () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'live-resume-token',
+  })
+  const statePath = join(directory, 'aimlapi-topup.json')
+  const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+  // Corrupt a required field's type, e.g. an unsupported schema/version.
+  seeded.amountUsdMinor = 'not-a-number'
+  writeFileSync(statePath, JSON.stringify(seeded))
+
+  expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+    /does not match the expected format/,
+  )
+  expect(JSON.parse(readFileSync(statePath, 'utf8')).amountUsdMinor).toBe('not-a-number')
+})
+
+test('reconcileSettledAimlapiTopupStateAsync clears a stale settled receipt for the same credential', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+    settled: true,
+  })
+  const statePath = join(directory, 'aimlapi-topup.json')
+  expect(existsSync(statePath)).toBe(true)
+
+  await reconcileSettledAimlapiTopupStateAsync('existing-key')
+
+  expect(existsSync(statePath)).toBe(false)
+})
+
+test('reconcileSettledAimlapiTopupStateAsync leaves a receipt for a DIFFERENT credential untouched', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+    settled: true,
+  })
+
+  await reconcileSettledAimlapiTopupStateAsync('some-other-key')
+
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
+})
+
+test('reconcileSettledAimlapiTopupStateAsync leaves an unsettled (still in-progress) receipt untouched', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'live-session',
+    apiKey: 'existing-key',
+    apiKeyId: 'existing-id',
+    // Not settled: a checkout may still be open/chargeable for this record.
+  })
+
+  await reconcileSettledAimlapiTopupStateAsync('existing-key')
+
+  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
 })
 
 test('recordAimlapiSettledKeyAsync persists the key and clears the lease under the CAS', async () => {

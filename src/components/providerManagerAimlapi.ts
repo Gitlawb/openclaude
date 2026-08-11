@@ -20,6 +20,7 @@ import {
   recordAimlapiCheckoutSessionAsync as recordAimlapiCheckoutSessionAsyncImpl,
   resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
   saveAimlapiTopupStateAsync as saveAimlapiTopupStateAsyncImpl,
+  reconcileSettledAimlapiTopupStateAsync as reconcileSettledAimlapiTopupStateAsyncImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKeyAsync as saveAimlapiSignInKeyAsyncImpl,
   clearAimlapiSignInKeyAsync as clearAimlapiSignInKeyAsyncImpl,
@@ -77,6 +78,10 @@ export const resetAimlapiCheckoutSessionAsync: typeof resetAimlapiCheckoutSessio
 
 export const saveAimlapiTopupStateAsync: typeof saveAimlapiTopupStateAsyncImpl = (...args) =>
   saveAimlapiTopupStateAsyncImpl(...args)
+
+export const reconcileSettledAimlapiTopupStateAsync: typeof reconcileSettledAimlapiTopupStateAsyncImpl = (
+  ...args
+) => reconcileSettledAimlapiTopupStateAsyncImpl(...args)
 
 export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =>
   loadAimlapiSignInKeyImpl(...args)
