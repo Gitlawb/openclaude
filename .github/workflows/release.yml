@@ -566,9 +566,10 @@ jobs:
               jq . <<<"$current" >&2
               exit 1
             fi
-            remote_release_blob="$(gh api "repos/${GITHUB_REPOSITORY}/contents/web/src/data/releases.ts?ref=${current_sha}" --jq .sha)"
-            if [ "$remote_release_blob" != "$validated_release_blob" ]; then
-              echo "release PR head changed to an unvalidated release entry" >&2
+            remote_release_entry="$(git ls-tree "$current_sha" -- web/src/data/releases.ts)"
+            expected_release_entry="100644 blob ${validated_release_blob}"$'\t''web/src/data/releases.ts'
+            if [ "$remote_release_entry" != "$expected_release_entry" ]; then
+              echo "release PR head changed to an unvalidated release entry or file mode" >&2
               jq . <<<"$current" >&2
               exit 1
             fi
