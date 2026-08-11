@@ -950,6 +950,9 @@ class Project {
   // Bounded with the same policy as remoteEgressOmittedParents: only recent
   // evictions can still appear as an incoming parentUuid.
   private evictedRemoteEgressOmissions = new Set<UUID>()
+  // UUIDs dropped from both bounded collections. Ancestry is compact: every
+  // key shares lastRemoteEgressUuid rather than a per-uuid ancestor map.
+  private remoteEgressCompactAncestryUuids = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
 
   constructor() {}
@@ -964,6 +967,7 @@ class Project {
     this.writeQueues = new Map()
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestryUuids.clear()
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
@@ -1297,6 +1301,7 @@ class Project {
   rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestryUuids.clear()
     const path = this.sessionFile
     if (!path) return
     ingestRemoteEgressOmissionsFromTranscriptFile(
@@ -1310,6 +1315,7 @@ class Project {
     this.pendingEntries = []
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestryUuids.clear()
     this.lastRemoteEgressUuid = null
   }
 
@@ -1992,7 +1998,10 @@ class Project {
                 )
                 if (
                   originalParentUuid &&
-                  this.evictedRemoteEgressOmissions.has(originalParentUuid)
+                  (this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
+                    this.remoteEgressCompactAncestryUuids.has(
+                      originalParentUuid,
+                    ))
                 ) {
                   remoteEntry = {
                     ...entry,
@@ -2019,6 +2028,7 @@ class Project {
                 boundRemoteEgressOmissionMap(
                   this.remoteEgressOmittedParents,
                   this.evictedRemoteEgressOmissions,
+                  this.remoteEgressCompactAncestryUuids,
                 )
               }
             }
@@ -3828,6 +3838,7 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
 function boundRemoteEgressOmissionMap(
   omittedParents: Map<UUID, UUID | null>,
   evicted: Set<UUID>,
+  compactAncestryUuids: Set<UUID>,
 ): void {
   while (omittedParents.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
     const oldest = omittedParents.keys().next().value
@@ -3839,6 +3850,7 @@ function boundRemoteEgressOmissionMap(
     const oldest = evicted.values().next().value
     if (oldest === undefined) break
     evicted.delete(oldest)
+    compactAncestryUuids.add(oldest)
   }
 }
 

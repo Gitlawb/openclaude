@@ -762,4 +762,91 @@ describe('appendEntry remote egress gate', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  test('compact ancestry fallback reparents a child of the oldest UUID after more than 129 omissions', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const omissionCount = MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE * 2 + 2
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-ancestry-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(300)
+    const firstListing = id(301)
+    const afterUuid = id(500)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      const listings: Message[] = []
+      let parent: UUID = userUuid
+      for (let n = 0; n < omissionCount; n++) {
+        const uuid = id(301 + n)
+        listings.push({
+          type: 'attachment',
+          uuid,
+          parentUuid: parent,
+          timestamp: `2026-08-11T00:${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}.000Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: `ANCESTRY-LEAK-${n}`,
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: `ANCESTRY-LEAK-${n}`,
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message)
+        parent = uuid
+      }
+      await recordTranscript(listings, undefined, userUuid)
+      await flushSessionStorage()
+
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.size).toBeLessThanOrEqual(MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+      expect(map.has(firstListing)).toBe(false)
+      expect(omissionCount).toBeGreaterThan(129)
+
+      const afterMsg = {
+        type: 'user',
+        uuid: afterUuid,
+        parentUuid: firstListing,
+        timestamp: '2026-08-11T00:03:00.000Z',
+        message: { role: 'user', content: 'child of oldest omitted uuid' },
+      } as unknown as Message
+      await recordTranscript([afterMsg], undefined, firstListing)
+      await flushSessionStorage()
+
+      const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
+      expect(remoteAfter).toBeDefined()
+      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      expect(remoteAfter?.parentUuid).not.toBe(firstListing)
+      expect(JSON.stringify(remotePayloads)).not.toContain('ANCESTRY-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
