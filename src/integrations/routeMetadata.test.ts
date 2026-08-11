@@ -799,8 +799,13 @@ test('getRouteDefaultModel skips hidden and expired catalog entries in the fallb
     })
     expect(getRouteDefaultModel('gw-default-fallback-empty')).toBeUndefined()
   } finally {
-    _clearRegistryForTesting()
-    ensureIntegrationsLoaded()
-    releaseSharedMutationLock()
+    // Nested so the lock is released even if the registry restore throws
+    // (same shape as registry.test.ts's afterEach).
+    try {
+      _clearRegistryForTesting()
+      ensureIntegrationsLoaded()
+    } finally {
+      releaseSharedMutationLock()
+    }
   }
 })
