@@ -5,7 +5,6 @@
       "release-type": "node",
       "package-name": "@gitlawb/openclaude",
       "bump-minor-pre-major": true,
-      "draft-pull-request": true,
       "include-v-in-tag": true
     }
   }

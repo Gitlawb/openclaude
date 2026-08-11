@@ -138,27 +138,6 @@ Dependency changes need a clear project benefit — fixing a bug, addressing a s
 
 AI-assisted and vibe-coded contributions are welcome, but please review your own changes thoroughly before opening a PR. Even frontier models produce subtle bugs, incorrect assumptions, and code that looks right but isn't.
 
-### Release web synchronization
-
-Release automation regenerates `web/src/data/releases.ts` on the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync validates with trusted `main` scripts (overlaying only the pending changelog/manifest) in a read-only job, then a separate write-only job applies the verified `releases.ts` artifact so PR-head scripts never run with write credentials. Sync failure cannot block npm or Docker publishing for an already-created release. Automation owns the top generated entry (marked in `releases.ts`); do not hand-edit that file on the bot release branch. To recover the entry on an explicit release/web PR, check out that PR, restore the trusted merge-base copy, then sync and validate:
-
-```bash
-base_ref="$(git merge-base origin/main HEAD)"
-git show "${base_ref}:web/src/data/releases.ts" > web/src/data/releases.ts
-bun install --frozen-lockfile
-bun run sync:web-release -- --base-ref "$base_ref"
-bun test ./scripts/sync-web-release-entry.test.ts
-bun run typecheck
-bun run typecheck:type-tests
-bun run security:pr-scan -- --base origin/main --head HEAD
-git diff --check origin/main...HEAD
-bun install --cwd web --frozen-lockfile
-bun run web:typecheck
-bun run web:build
-```
-
-`bun run sync:web-release` writes `web/src/data/releases.ts` from the pending changelog section and manifest version. Commit the generated file and confirm those checks leave tracked files unchanged.
-
 Before submitting, run multiple rounds of review on generated code:
 
 - check for correctness, not just whether it compiles

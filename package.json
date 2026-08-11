@@ -54,7 +54,6 @@
     "web:build": "bun run --cwd web build",
     "web:preview": "bun run --cwd web preview",
     "web:typecheck": "bun run --cwd web typecheck",
-    "sync:web-release": "bun scripts/sync-web-release-entry.ts --write",
     "test": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1",
     "test:full": "bun test --feature=UNATTENDED_RETRY --max-concurrency=1",
     "test:coverage": "bun test --feature=UNATTENDED_RETRY --coverage --coverage-reporter=lcov --coverage-dir=coverage --max-concurrency=1 && bun run scripts/render-coverage-heatmap.ts",
