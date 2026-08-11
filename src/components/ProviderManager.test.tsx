@@ -1539,11 +1539,77 @@ test('ProviderManager waits for stale-receipt reconciliation before showing the 
     mounted.stdin.write('\r')
 
     await waitForCondition(() => reconcileSettledAimlapiTopupStateAsync.mock.calls.length > 0)
-    // Reconcile is still pending: the model picker must not have appeared yet.
+    // Reconcile is still pending: the model picker must not have appeared
+    // yet, and the screen must still be the non-interactive spinner — not
+    // the "Continue with your saved API key" / "Set up a new key" Select,
+    // which would let the user start a competing top-up for this same
+    // credential while the reconcile is still running unattended.
     await Bun.sleep(50)
-    expect(stripAnsi(extractLastFrame(mounted.getOutput()))).not.toContain(
-      'Create provider profile',
+    const pendingFrame = stripAnsi(extractLastFrame(mounted.getOutput()))
+    expect(pendingFrame).not.toContain('Create provider profile')
+    expect(pendingFrame).toContain('Checking balance...')
+    expect(pendingFrame).not.toContain('Set up a new key or switch account')
+
+    releaseReconcile?.()
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
     )
+  } finally {
+    await mounted.dispose()
+  }
+}, 10_000)
+
+test('ProviderManager ignores Esc at the configured screen while stale-receipt reconciliation is still pending', async () => {
+  const profile = {
+    id: 'aimlapi_existing',
+    provider: 'aimlapi',
+    name: 'aimlapi.com',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'old-model',
+    apiKey: 'saved-key',
+    apiFormat: 'chat_completions',
+  }
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
+  let releaseReconcile: (() => void) | undefined
+  const reconcileSettledAimlapiTopupStateAsync = mock(
+    () => new Promise<void>(resolve => { releaseReconcile = resolve }),
+  )
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    getProviderProfiles: () => [profile],
+    getActiveProviderProfile: () => profile,
+    validateAimlapiApiKey,
+    reconcileSettledAimlapiTopupStateAsync,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('aimlapi.com account is already configured'),
+    )
+    mounted.stdin.write('\r')
+    await waitForCondition(() => reconcileSettledAimlapiTopupStateAsync.mock.calls.length > 0)
+    await Bun.sleep(50)
+
+    // Esc while the reconcile is still pending must be a no-op: escaping to
+    // select-preset here would let the user start a brand new top-up for
+    // this same credential while the abandoned reconcile (which has no
+    // abort signal of its own and keeps running regardless) could still
+    // catch and delete that new settlement's receipt.
+    mounted.stdin.write('\x1B')
+    await Bun.sleep(50)
+    expect(stripAnsi(extractLastFrame(mounted.getOutput()))).toContain('Checking balance...')
 
     releaseReconcile?.()
     await waitForFrameOutput(mounted.getOutput, frame =>

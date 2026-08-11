@@ -2320,7 +2320,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   useKeybinding('confirm:no', handleBackFromAimlapiConfigured, {
     context: 'Settings',
-    isActive: screen === 'aimlapi-configured',
+    // The balance check (and, past it, the stale-receipt reconcile) has no
+    // abort-and-stop-the-underlying-work guarantee for the reconcile part —
+    // aborting only stops THIS flow from acting on the result. Esc must stay
+    // inactive throughout so a user can't escape to select-preset and start
+    // a competing top-up for the same credential while that reconcile is
+    // still running unattended.
+    isActive: screen === 'aimlapi-configured' && !isAimlapiKeyValidating,
   })
 
   function handleBackFromAimlapiTopupEmail(): void {
@@ -3018,8 +3024,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           aimlapiInferenceBaseUrl,
         )
         if (controller.signal.aborted) return
-        setIsAimlapiKeyValidating(false)
         if (balance.lowBalance) {
+          setIsAimlapiKeyValidating(false)
           setScreen('aimlapi-low-balance')
         } else {
           // This path reuses an already-funded credential without claiming a
@@ -3036,11 +3042,20 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           // between this call and the user's next action here could otherwise
           // be swept up by a still-in-flight reconcile from THIS call. Waiting
           // for it to finish under its own lock before moving on keeps the two
-          // from interleaving.
+          // from interleaving. Crucially, isAimlapiKeyValidating (and with it
+          // the aimlapi-configured Select and its Esc binding, see the
+          // isActive guard below) also stays true for the whole wait: this
+          // reconcile has no abort signal of its own, so it keeps running
+          // regardless of what the UI does — leaving the Select reachable
+          // here would let the user start a genuinely NEW top-up for this
+          // same credential (e.g. "Set up a new key or switch account", or
+          // Esc then back in) whose fresh settlement could then be caught and
+          // deleted by this still-in-flight reconcile.
           await reconcileSettledAimlapiTopupStateAsync(apiKey, aimlapiExistingUsesEnv).catch(
             () => {},
           )
           if (controller.signal.aborted) return
+          setIsAimlapiKeyValidating(false)
           setCursorOffset(draft.model.length)
           setScreen('preset-model')
         }
