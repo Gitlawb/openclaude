@@ -950,9 +950,10 @@ class Project {
   // Bounded with the same policy as remoteEgressOmittedParents: only recent
   // evictions can still appear as an incoming parentUuid.
   private evictedRemoteEgressOmissions = new Set<UUID>()
-  // UUIDs dropped from both bounded collections. Ancestry is compact: every
-  // key shares lastRemoteEgressUuid rather than a per-uuid ancestor map.
-  private remoteEgressCompactAncestryUuids = new Set<UUID>()
+  // Bounded: omitted uuid → actual nearest external ancestor at eviction
+  // from remoteEgressOmittedParents. Do not store uuid-only keys that all
+  // share lastRemoteEgressUuid (that steals a later sibling's children).
+  private remoteEgressCompactAncestry = new Map<UUID, UUID | null>()
   private lastRemoteEgressUuid: UUID | null = null
 
   constructor() {}
@@ -967,7 +968,7 @@ class Project {
     this.writeQueues = new Map()
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
-    this.remoteEgressCompactAncestryUuids.clear()
+    this.remoteEgressCompactAncestry.clear()
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
@@ -1301,7 +1302,7 @@ class Project {
   rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
-    this.remoteEgressCompactAncestryUuids.clear()
+    this.remoteEgressCompactAncestry.clear()
     const path = this.sessionFile
     if (!path) return
     ingestRemoteEgressOmissionsFromTranscriptFile(
@@ -1315,7 +1316,7 @@ class Project {
     this.pendingEntries = []
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
-    this.remoteEgressCompactAncestryUuids.clear()
+    this.remoteEgressCompactAncestry.clear()
     this.lastRemoteEgressUuid = null
   }
 
@@ -1998,14 +1999,41 @@ class Project {
                 )
                 if (
                   originalParentUuid &&
-                  (this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
-                    this.remoteEgressCompactAncestryUuids.has(
-                      originalParentUuid,
-                    ))
+                  remoteEntry.parentUuid === originalParentUuid
                 ) {
-                  remoteEntry = {
-                    ...entry,
-                    parentUuid: this.lastRemoteEgressUuid,
+                  if (
+                    this.remoteEgressCompactAncestry.has(originalParentUuid)
+                  ) {
+                    remoteEntry = {
+                      ...entry,
+                      parentUuid:
+                        this.remoteEgressCompactAncestry.get(
+                          originalParentUuid,
+                        ) ?? null,
+                    }
+                  } else if (
+                    this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
+                    (this.evictedRemoteEgressOmissions.size >=
+                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE &&
+                      this.remoteEgressCompactAncestry.size >=
+                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+                  ) {
+                    const resolved =
+                      resolveCompactOmissionAncestorFromLocalTranscript(
+                        this.sessionFile,
+                        originalParentUuid,
+                      )
+                    if (resolved.found) {
+                      this.remoteEgressCompactAncestry.set(
+                        originalParentUuid,
+                        resolved.ancestor,
+                      )
+                      boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+                      remoteEntry = {
+                        ...entry,
+                        parentUuid: resolved.ancestor,
+                      }
+                    }
                   }
                 }
                 await this.persistToRemote(sessionId, remoteEntry)
@@ -2028,7 +2056,7 @@ class Project {
                 boundRemoteEgressOmissionMap(
                   this.remoteEgressOmittedParents,
                   this.evictedRemoteEgressOmissions,
-                  this.remoteEgressCompactAncestryUuids,
+                  this.remoteEgressCompactAncestry,
                 )
               }
             }
@@ -3835,22 +3863,107 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
   }
 }
 
+function boundCompactAncestryMap(
+  compactAncestry: Map<UUID, UUID | null>,
+): void {
+  while (compactAncestry.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = compactAncestry.keys().next().value
+    if (oldest === undefined) break
+    compactAncestry.delete(oldest)
+  }
+}
+
 function boundRemoteEgressOmissionMap(
   omittedParents: Map<UUID, UUID | null>,
   evicted: Set<UUID>,
-  compactAncestryUuids: Set<UUID>,
+  compactAncestry: Map<UUID, UUID | null>,
 ): void {
   while (omittedParents.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
     const oldest = omittedParents.keys().next().value
     if (oldest === undefined) break
+    const ancestor = omittedParents.get(oldest) ?? null
     omittedParents.delete(oldest)
     evicted.add(oldest)
+    compactAncestry.set(oldest, ancestor)
   }
   while (evicted.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
     const oldest = evicted.values().next().value
     if (oldest === undefined) break
     evicted.delete(oldest)
-    compactAncestryUuids.add(oldest)
+    compactAncestry.delete(oldest)
+  }
+  boundCompactAncestryMap(compactAncestry)
+}
+
+/**
+ * On-demand ancestry when an omitted parent has fallen out of both bounded
+ * maps. Walks local JSONL from the start (capped) and returns the nearest
+ * still-safe ancestor of that omitted UUID — never lastRemoteEgressUuid.
+ */
+function resolveCompactOmissionAncestorFromLocalTranscript(
+  sessionFile: string | null,
+  omittedUuid: UUID,
+): { found: boolean; ancestor: UUID | null } {
+  if (!sessionFile) {
+    return { found: false, ancestor: null }
+  }
+  let fd: number | undefined
+  try {
+    fd = openSync(sessionFile, 'r')
+    const size = fstatSync(fd).size
+    if (size === 0) {
+      return { found: false, ancestor: null }
+    }
+    const readSize = Math.min(size, MAX_TRANSCRIPT_READ_BYTES)
+    const buf = Buffer.allocUnsafe(readSize)
+    const bytesRead = readSync(fd, buf, 0, readSize, 0)
+    const content = buf.toString('utf8', 0, bytesRead)
+    const byUuid = new Map<
+      UUID,
+      { parentUuid: UUID | null; safe: boolean }
+    >()
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue
+      let parsed: unknown
+      try {
+        parsed = jsonParse(line)
+      } catch {
+        continue
+      }
+      if (!isTranscriptMessage(parsed as Entry)) continue
+      const entry = parsed as TranscriptMessage
+      if (!entry.uuid) continue
+      byUuid.set(entry.uuid, {
+        parentUuid: entry.parentUuid ?? null,
+        safe: isSafeForExternalEgress(entry),
+      })
+      if (entry.uuid === omittedUuid) break
+    }
+    const target = byUuid.get(omittedUuid)
+    if (!target || target.safe) {
+      return { found: false, ancestor: null }
+    }
+    let current = target.parentUuid
+    const seen = new Set<UUID>()
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      const node = byUuid.get(current)
+      if (!node || node.safe) {
+        return { found: true, ancestor: current }
+      }
+      current = node.parentUuid
+    }
+    return { found: true, ancestor: current }
+  } catch {
+    return { found: false, ancestor: null }
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // closeSync can throw; treat as unresolved
+      }
+    }
   }
 }
 

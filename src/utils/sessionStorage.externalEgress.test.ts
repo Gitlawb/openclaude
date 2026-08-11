@@ -849,4 +849,202 @@ describe('appendEntry remote egress gate', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  test('compact ancestry reparents a child to the actual ancestor after a later sibling updates lastRemoteEgressUuid', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const omissionCount = MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 16
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-sibling-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(600)
+    const firstListing = id(601)
+    const siblingUuid = id(800)
+    const childUuid = id(801)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      const listings: Message[] = []
+      let parent: UUID = userUuid
+      for (let n = 0; n < omissionCount; n++) {
+        const uuid = id(601 + n)
+        listings.push({
+          type: 'attachment',
+          uuid,
+          parentUuid: parent,
+          timestamp: `2026-08-11T00:${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}.000Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: `SIBLING-LEAK-${n}`,
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: `SIBLING-LEAK-${n}`,
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message)
+        parent = uuid
+      }
+      await recordTranscript(listings, undefined, userUuid)
+      await flushSessionStorage()
+
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(firstListing)).toBe(false)
+
+      const sibling = {
+        type: 'user',
+        uuid: siblingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-11T00:02:00.000Z',
+        message: { role: 'user', content: 'later sibling of compacted omission' },
+      } as unknown as Message
+      await recordTranscript([sibling], undefined, userUuid)
+      await flushSessionStorage()
+
+      const remoteSibling = remotePayloads.find(p => p.uuid === siblingUuid)
+      expect(remoteSibling?.parentUuid).toBe(userUuid)
+
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: firstListing,
+        timestamp: '2026-08-11T00:02:01.000Z',
+        message: { role: 'user', content: 'child of compacted omission' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, firstListing)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(userUuid)
+      expect(remoteChild?.parentUuid).not.toBe(siblingUuid)
+      expect(remoteChild?.parentUuid).not.toBe(firstListing)
+      expect(JSON.stringify(remotePayloads)).not.toContain('SIBLING-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('on-demand ancestry reparents a child after compact eviction and a later sibling persist', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const omissionCount = MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE * 2 + 2
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-ondemand-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(900)
+    const firstListing = id(901)
+    const siblingUuid = id(1100)
+    const childUuid = id(1101)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      const listings: Message[] = []
+      let parent: UUID = userUuid
+      for (let n = 0; n < omissionCount; n++) {
+        const uuid = id(901 + n)
+        listings.push({
+          type: 'attachment',
+          uuid,
+          parentUuid: parent,
+          timestamp: `2026-08-11T00:${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}.000Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: `ONDEMAND-LEAK-${n}`,
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: `ONDEMAND-LEAK-${n}`,
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message)
+        parent = uuid
+      }
+      await recordTranscript(listings, undefined, userUuid)
+      await flushSessionStorage()
+
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(firstListing)).toBe(false)
+      expect(omissionCount).toBeGreaterThan(129)
+
+      const sibling = {
+        type: 'user',
+        uuid: siblingUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-11T00:03:00.000Z',
+        message: { role: 'user', content: 'later sibling after compact eviction' },
+      } as unknown as Message
+      await recordTranscript([sibling], undefined, userUuid)
+      await flushSessionStorage()
+
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: firstListing,
+        timestamp: '2026-08-11T00:03:01.000Z',
+        message: { role: 'user', content: 'child after compact eviction' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, firstListing)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(userUuid)
+      expect(remoteChild?.parentUuid).not.toBe(siblingUuid)
+      expect(remoteChild?.parentUuid).not.toBe(firstListing)
+      expect(JSON.stringify(remotePayloads)).not.toContain('ONDEMAND-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
