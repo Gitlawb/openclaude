@@ -196,7 +196,7 @@ export function syncWebReleaseEntry(options: {
   const releasesTs = options.releasesTs ?? readFileSync(RELEASES_TS_PATH, 'utf8')
   const currentTop = readCurrentTopVersion(releasesTs)
   const baseReleasesTs = options.baseReleasesTs
-    ?? (options.releasesTs ? releasesTs : options.baseRef ? readBaseReleasesTs(options.baseRef) : null)
+    ?? (options.baseRef ? readBaseReleasesTs(options.baseRef) : null)
   if (baseReleasesTs === null)
     throw new Error('missing base release ref; pass --base-ref <ref> or provide baseReleasesTs')
   const baseTop = readCurrentTopVersion(baseReleasesTs)

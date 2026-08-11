@@ -40,6 +40,7 @@ describe('syncWebReleaseEntry', () => {
     const result = syncWebReleaseEntry({
       changelog: SAMPLE_CHANGELOG,
       releasesTs: SAMPLE_RELEASES_TS,
+      baseReleasesTs: SAMPLE_RELEASES_TS,
       manifestVersion: '0.28.0',
     })
 
@@ -255,15 +256,31 @@ describe('syncWebReleaseEntry', () => {
 
   test('rejects a missing version section and an empty release section', () => {
     expect(() =>
-      syncWebReleaseEntry({ changelog: SAMPLE_CHANGELOG, releasesTs: SAMPLE_RELEASES_TS, manifestVersion: '9.9.9' }),
+      syncWebReleaseEntry({
+        changelog: SAMPLE_CHANGELOG,
+        releasesTs: SAMPLE_RELEASES_TS,
+        baseReleasesTs: SAMPLE_RELEASES_TS,
+        manifestVersion: '9.9.9',
+      }),
     ).toThrow('no CHANGELOG.md section found for version 9.9.9')
     expect(() =>
       syncWebReleaseEntry({
         changelog: '## [0.28.0](url) (2026-08-10)\n',
         releasesTs: SAMPLE_RELEASES_TS,
+        baseReleasesTs: SAMPLE_RELEASES_TS,
         manifestVersion: '0.28.0',
       }),
     ).toThrow('CHANGELOG.md section for 0.28.0 has no bullet highlights')
+  })
+
+  test('requires an explicit trusted base', () => {
+    expect(() =>
+      syncWebReleaseEntry({
+        changelog: SAMPLE_CHANGELOG,
+        releasesTs: SAMPLE_RELEASES_TS,
+        manifestVersion: '0.28.0',
+      }),
+    ).toThrow('missing base release ref')
   })
 })
 

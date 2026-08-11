@@ -140,7 +140,7 @@ AI-assisted and vibe-coded contributions are welcome, but please review your own
 
 ### Release web synchronization
 
-Release automation regenerates `web/src/data/releases.ts` on the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync validates in a read-only job and pushes from a separate write-only job so a sync failure cannot block npm or Docker publishing for an already-created release, and so PR-head scripts never run with write credentials. Automation owns the top generated entry (marked in `releases.ts`); do not hand-edit that file on the bot release branch. To recover the entry on an explicit release/web PR, check out that PR, restore the trusted merge-base copy, then sync and validate:
+Release automation regenerates `web/src/data/releases.ts` on the pending Release Please PR while that PR is kept draft, then pushes the synced file and marks the PR ready. Web sync validates with trusted `main` scripts (overlaying only the pending changelog/manifest) in a read-only job, then a separate write-only job applies the verified `releases.ts` artifact so PR-head scripts never run with write credentials. Sync failure cannot block npm or Docker publishing for an already-created release. Automation owns the top generated entry (marked in `releases.ts`); do not hand-edit that file on the bot release branch. To recover the entry on an explicit release/web PR, check out that PR, restore the trusted merge-base copy, then sync and validate:
 
 ```bash
 base_ref="$(git merge-base origin/main HEAD)"
