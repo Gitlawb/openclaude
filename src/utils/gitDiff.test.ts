@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseGitDiff } from './gitDiff.js'
+import { parseGitDiff, parseRawDiffToToolUseDiff } from './gitDiff.js'
 
 describe('parseGitDiff', () => {
   it('keeps hunk content lines whose text starts with -- or ++', () => {
@@ -71,5 +71,63 @@ describe('parseGitDiff', () => {
     expect(lines).toContain('-const b = 2')
     expect(lines).toContain('+const b = 3')
     expect(lines).toContain(' const a = 1')
+  })
+
+  it('skips a file whose diff exceeds the 1MB cap in bytes, not UTF-16 units', () => {
+    // A per-file diff that is under the cap in UTF-16 code units but well over
+    // it in real UTF-8 bytes (each `一` is 1 code unit but 3 bytes). Before the
+    // fix the char-length check let this multi-MB diff through.
+    const cjkLine = '+' + '一'.repeat(100)
+    const body = ['a/big.txt b/big.txt', '@@ -1,1 +1,5000 @@']
+    for (let i = 0; i < 5000; i++) body.push(cjkLine)
+    const fileChunk = body.join('\n')
+    const stdout = 'diff --git ' + fileChunk
+
+    expect(fileChunk.length).toBeLessThan(1_000_000)
+    expect(Buffer.byteLength(fileChunk, 'utf8')).toBeGreaterThan(1_000_000)
+
+    expect(parseGitDiff(stdout).has('big.txt')).toBe(false)
+  })
+})
+
+describe('parseRawDiffToToolUseDiff', () => {
+  it('counts hunk content lines whose text starts with -- or ++', () => {
+    // Same class as the parseGitDiff regression above: a removed line whose
+    // content is "--legacy-peer-deps" shows as "---legacy-peer-deps", and an
+    // added line "++quiet-flag" shows as "+++quiet-flag". The `+++`/`---`
+    // file-header lines only appear before the first @@, so guarding on them
+    // inside a hunk dropped these real additions/deletions from the counts.
+    const raw = [
+      '--- a/run.sh',
+      '+++ b/run.sh',
+      '@@ -1,2 +1,2 @@',
+      '-npm install',
+      '---legacy-peer-deps',
+      '+npm ci',
+      '+++quiet-flag',
+    ].join('\n')
+
+    const diff = parseRawDiffToToolUseDiff('run.sh', raw, 'modified')
+    expect(diff.additions).toBe(2)
+    expect(diff.deletions).toBe(2)
+    expect(diff.changes).toBe(4)
+    // The header lines before the first @@ are not part of the counted hunk.
+    expect(diff.patch).toContain('---legacy-peer-deps')
+    expect(diff.patch).toContain('+++quiet-flag')
+    expect(diff.patch.startsWith('@@')).toBe(true)
+  })
+
+  it('counts a plain modification without over/under-counting', () => {
+    const raw = [
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -1,1 +1,1 @@',
+      '-const b = 2',
+      '+const b = 3',
+    ].join('\n')
+    const diff = parseRawDiffToToolUseDiff('a.ts', raw, 'modified')
+    expect(diff.additions).toBe(1)
+    expect(diff.deletions).toBe(1)
+    expect(diff.changes).toBe(2)
   })
 })

@@ -16,6 +16,12 @@ import {
   markBackgroundSessionKilled,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
+  getBackgroundSessionProcessLiveness,
+  isTerminalBackgroundSession,
+  verifyBackgroundSessionProcessIdentity,
+  type BackgroundSession,
+  type BackgroundSessionProcessIdentity,
+  type BackgroundSessionProcessIdentityOptions,
 } from './bgRegistry.js'
 
 export type ParsedBackgroundInvocation = {
@@ -720,6 +726,10 @@ export async function terminateBackgroundProcessTree(
     termGraceMs?: number
     killGraceMs?: number
     pollIntervalMs?: number
+    verifyBeforeSignal?: (
+      pid: number,
+      signal: string | number,
+    ) => Promise<'matches' | 'not-running'>
   },
 ): Promise<void> {
   const isProcessAlive = options?.isProcessAlive ?? isProcessRunning
@@ -728,7 +738,13 @@ export async function terminateBackgroundProcessTree(
   const pollIntervalMs =
     options?.pollIntervalMs ?? DEFAULT_KILL_POLL_INTERVAL_MS
 
-  if (!isProcessAlive(pid)) return
+  if (options?.verifyBeforeSignal) {
+    if ((await options.verifyBeforeSignal(pid, 'SIGTERM')) === 'not-running') {
+      return
+    }
+  } else if (!isProcessAlive(pid)) {
+    return
+  }
   await killTree(pid, 'SIGTERM')
   if (
     await waitForProcessExit(pid, {
@@ -741,6 +757,9 @@ export async function terminateBackgroundProcessTree(
     return
   }
 
+  if ((await options?.verifyBeforeSignal?.(pid, 'SIGKILL')) === 'not-running') {
+    return
+  }
   await killTree(pid, 'SIGKILL')
   if (
     await waitForProcessExit(pid, {
@@ -754,6 +773,113 @@ export async function terminateBackgroundProcessTree(
   }
 
   throw new Error(`Process ${pid} did not exit after SIGKILL`)
+}
+
+type BackgroundSessionTerminationOptions = BackgroundSessionProcessIdentityOptions & {
+  killTree?: (pid: number, signal: string | number) => Promise<void>
+  sleep?: (ms: number) => Promise<void>
+  termGraceMs?: number
+  killGraceMs?: number
+  pollIntervalMs?: number
+  verifySessionIdentity?: (
+    session: BackgroundSession,
+  ) => BackgroundSessionProcessIdentity
+}
+
+function unverifiedProcessError(
+  session: BackgroundSession,
+  reason: string,
+): Error {
+  return new Error(
+    `OpenClaude refused to signal an unverified process for background session ${session.id} (PID ${session.pid}): ${reason}. Re-run \`openclaude ps\` and retry after confirming the session identity.`,
+  )
+}
+
+export async function terminateBackgroundSessionProcessTree(
+  session: BackgroundSession,
+  options: BackgroundSessionTerminationOptions = {},
+): Promise<void> {
+  const getLiveness = (pid: number) =>
+    getBackgroundSessionProcessLiveness(pid, options)
+
+  await terminateBackgroundProcessTree(session.pid, {
+    ...options,
+    isProcessAlive: pid => getLiveness(pid) !== 'not-running',
+    verifyBeforeSignal: async pid => {
+      const identity = verifySelectedBackgroundSessionIdentity(session, options)
+      if (pid !== session.pid) {
+        throw unverifiedProcessError(
+          session,
+          'the identity check did not correspond to the selected session and PID',
+        )
+      }
+      return authorizeBackgroundSessionSignal(session, identity)
+    },
+  })
+}
+
+function verifySelectedBackgroundSessionIdentity(
+  session: BackgroundSession,
+  options: BackgroundSessionTerminationOptions,
+): BackgroundSessionProcessIdentity {
+  let identity: BackgroundSessionProcessIdentity
+  if (options.verifySessionIdentity) {
+    try {
+      identity = options.verifySessionIdentity(session)
+    } catch {
+      throw unverifiedProcessError(
+        session,
+        'the live process identity could not be read',
+      )
+    }
+  } else {
+    identity = verifyBackgroundSessionProcessIdentity(session, options)
+  }
+  if (
+    identity.backgroundSessionId !== session.id ||
+    identity.pid !== session.pid
+  ) {
+    throw unverifiedProcessError(
+      session,
+      'the identity check did not correspond to the selected session and PID',
+    )
+  }
+  return identity
+}
+
+function authorizeBackgroundSessionSignal(
+  session: BackgroundSession,
+  identity: BackgroundSessionProcessIdentity,
+): 'matches' | 'not-running' {
+  if (identity.state === 'not-running') return 'not-running'
+  if (identity.state === 'matches') return 'matches'
+  throw unverifiedProcessError(
+    session,
+    identity.state === 'mismatch'
+      ? 'the PID now belongs to a different process'
+      : 'the live process identity could not be read',
+  )
+}
+
+export async function killBackgroundSession(
+  session: BackgroundSession,
+  options: BackgroundSessionTerminationOptions & {
+    markKilled?: (session: BackgroundSession) => Promise<BackgroundSession>
+  } = {},
+): Promise<BackgroundSession> {
+  const markKilled =
+    options.markKilled ??
+    (async (selected: BackgroundSession) =>
+      await markBackgroundSessionKilled(selected.id))
+
+  if (isTerminalBackgroundSession(session)) return await markKilled(session)
+
+  const identity = verifySelectedBackgroundSessionIdentity(session, options)
+  if (authorizeBackgroundSessionSignal(session, identity) === 'matches') {
+    await terminateBackgroundSessionProcessTree(session, options)
+  }
+
+  return await markKilled(session)
 }
 
 export async function psHandler(_args: string[]): Promise<void> {
@@ -811,20 +937,11 @@ export async function killHandler(
 
   await refreshBackgroundSessionStatuses()
   const session = await resolveSessionOrExit(target)
-  if (session.status === 'unknown' && isProcessRunning(session.pid)) {
+  const killed = await killBackgroundSession(session).catch(error => {
     fail(
-      `Cannot safely kill background session ${session.id}: process identity could not be verified`,
+      `Failed to kill background session ${session.id}: ${errorMessage(error)}`,
     )
-  }
-  if (session.status === 'running' && isProcessRunning(session.pid)) {
-    await terminateBackgroundProcessTree(session.pid).catch(error => {
-      fail(
-        `Failed to kill background session ${session.id}: ${errorMessage(error)}`,
-      )
-    })
-  }
-
-  const killed = await markBackgroundSessionKilled(session.id)
+  })
   console.log(`Killed background session ${killed.id}.`)
 }
 

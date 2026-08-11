@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const mojeekProvider: SearchProvider = {
   name: 'mojeek',
@@ -29,13 +30,15 @@ export const mojeekProvider: SearchProvider = {
       headers['Authorization'] = `Bearer ${process.env.MOJEEK_API_KEY}`
     }
 
-    const res = await fetch(url.toString(), { headers, signal })
+    const data = await fetchJsonWithWebSearchTimeout(
+      url.toString(),
+      {
+        headers,
+      },
+      signal,
+      { providerName: 'Mojeek' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Mojeek search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const rawResults = data?.response?.results ?? data?.results ?? []
 
     const hits = rawResults.map((r: any) => ({

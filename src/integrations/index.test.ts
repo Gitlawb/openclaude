@@ -37,6 +37,7 @@ describe('loaded registry validation', () => {
     expect(routeSupportsApiFormatSelection('minimax')).toBe(false)
     expect(routeSupportsAuthHeaders('minimax')).toBe(false)
     expect(routeSupportsCustomHeaders('minimax')).toBe(false)
+    expect(routeSupportsCustomHeaders('custom-anthropic')).toBe(true)
   })
 
   test('route catalogs do not duplicate defaultModel with catalog default flags', () => {
@@ -66,6 +67,13 @@ describe('loaded registry validation', () => {
       // Virtual model — the gateway's smart router resolves it server-side,
       // so there is no concrete model descriptor to reference.
       'gitlawb-opengateway:opengateway-auto',
+      // Cloudflare Workers AI serves provider-specific quantized builds
+      // (`@cf/...`) with no shared cross-provider model descriptor, the same
+      // situation as azure-deployment above. See gateways/cloudflare.ts (#1100).
+      'cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      'cloudflare:@cf/meta/llama-3.1-8b-instruct',
+      'cloudflare:@cf/deepseek-ai/deepseek-r1-distill-qwen-32b',
+      'cloudflare:@cf/qwen/qwen2.5-coder-32b-instruct',
     ])
     const missingDescriptors = getAllGateways().flatMap(gateway =>
       (gateway.catalog?.models ?? [])
@@ -91,6 +99,7 @@ describe('loaded registry validation', () => {
         const defaultModel = gateway.defaultModel?.trim()
         return !(gateway.catalog?.models ?? []).some(
           entry =>
+            entry.id === defaultModel ||
             entry.apiName === defaultModel ||
             entry.modelDescriptorId === defaultModel,
         )

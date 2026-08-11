@@ -29,7 +29,16 @@ const LEGACY_TOOL_NAME_ALIASES: Record<string, string> = {
 }
 
 export function normalizeLegacyToolName(name: string): string {
-  return LEGACY_TOOL_NAME_ALIASES[name] ?? name
+  // LEGACY_TOOL_NAME_ALIASES is a plain object, so a bracket lookup keyed by a
+  // caller-supplied name resolves inherited Object.prototype members. A tool or
+  // permission-rule name like `constructor`, `toString`, `valueOf`,
+  // `hasOwnProperty` or `__proto__` would otherwise return the inherited
+  // function/object (non-null, so `?? name` never fires), breaking this
+  // function's `string` contract and every downstream `Set.has` / `===`
+  // comparison. Only treat own aliases as matches.
+  return Object.hasOwn(LEGACY_TOOL_NAME_ALIASES, name)
+    ? LEGACY_TOOL_NAME_ALIASES[name]!
+    : name
 }
 
 export function getLegacyToolNames(canonicalName: string): string[] {

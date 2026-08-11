@@ -244,6 +244,10 @@ function interruptionMessages(yielded: any[]) {
   )
 }
 
+function systemMessages(yielded: any[]) {
+  return yielded.filter(message => message.type === 'system')
+}
+
 describe('handleStopHooks abort-reason handling', () => {
   test('abort reason "interrupt" suppresses the synthetic interruption message', async () => {
     const appStateRef = { current: getDefaultAppState() }
@@ -273,6 +277,76 @@ describe('handleStopHooks abort-reason handling', () => {
     )
 
     expect(interruptionMessages(yielded)).toHaveLength(0)
+    expect(returned.preventContinuation).toBe(true)
+  })
+
+  test('query timeout abort yields timeout wording without user interruption', async () => {
+    const appStateRef = { current: getDefaultAppState() }
+    const toolUseContext = makeToolUseContext(appStateRef)
+
+    const { yielded, returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        toolUseContext,
+        'sdk',
+        false,
+        undefined,
+        {
+          executeStopHooks: async function* () {
+            toolUseContext.abortController.abort('query-timeout')
+            yield {} as any
+          },
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content: 'Query timed out before completion.',
+        level: 'warning',
+      },
+    ])
+    expect(returned.preventContinuation).toBe(true)
+  })
+
+  test('background abort yields background wording without user interruption', async () => {
+    const appStateRef = { current: getDefaultAppState() }
+    const toolUseContext = makeToolUseContext(appStateRef)
+
+    const { yielded, returned } = await drain(
+      handleStopHooks(
+        [],
+        [assistant('assistant-1', 'Done.') as any],
+        asSystemPrompt([]),
+        {},
+        {},
+        toolUseContext,
+        'sdk',
+        false,
+        undefined,
+        {
+          executeStopHooks: async function* () {
+            toolUseContext.abortController.abort('background')
+            yield {} as any
+          },
+          isTeammate: () => false,
+        },
+      ),
+    )
+
+    expect(interruptionMessages(yielded)).toHaveLength(0)
+    expect(systemMessages(yielded)).toMatchObject([
+      {
+        content: 'Query was backgrounded before completion.',
+        level: 'warning',
+      },
+    ])
     expect(returned.preventContinuation).toBe(true)
   })
 

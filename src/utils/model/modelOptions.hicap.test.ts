@@ -103,6 +103,7 @@ test('Hicap Responses models expose the static route catalog in /model options',
   expect(values).toContain('gpt-5.5')
   expect(values).toContain('glm-5.2')
   expect(values).toContain('claude-opus-4.8')
+  expect(values).toContain('claude-opus-4.7')
 })
 
 test('Hicap active profile model options merge with the static route catalog', async () => {
@@ -140,6 +141,7 @@ test('Hicap active profile model options merge with the static route catalog', a
   expect(values).toContain('gpt-5.5')
   expect(values).toContain('glm-5.2')
   expect(values).toContain('claude-opus-4.8')
+  expect(values).toContain('claude-opus-4.7')
 })
 
 test('Hicap Responses catalog ignores stale legacy OpenAI model cache', async () => {
@@ -165,4 +167,5 @@ test('Hicap Responses catalog ignores stale legacy OpenAI model cache', async ()
   expect(values).toContain('gpt-5.4')
   expect(values).toContain('gpt-5.5')
   expect(values).toContain('glm-5.2')
+  expect(values).toContain('claude-opus-4.7')
 })

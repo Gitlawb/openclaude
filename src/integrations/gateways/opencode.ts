@@ -1,19 +1,40 @@
 import { defineGateway } from '../define.js'
+import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
+import type { ReasoningControlMode, ReasoningEffortLevel, ReasoningWireFormat, OpenAIShimTransportConfig } from '../descriptors.js'
 
 type OpenCodeCatalogSpec = {
   id: string
   label: string
   endpointPath?: string
+  zaiGlm?: boolean
 }
 
 function catalogEntry(spec: OpenCodeCatalogSpec) {
+  const openaiShim: Partial<OpenAIShimTransportConfig> = {
+    ...(spec.zaiGlm ? ZAI_GLM_OPENAI_SHIM : {}),
+    ...(spec.endpointPath ? { endpointPath: spec.endpointPath } : {}),
+  }
   return {
     id: spec.id,
     apiName: spec.id,
     label: spec.label,
     modelDescriptorId: `opencode-${spec.id}`,
-    ...(spec.endpointPath
-      ? { transportOverrides: { openaiShim: { endpointPath: spec.endpointPath } } }
+    ...(spec.zaiGlm
+      ? {
+          capabilities: {
+            supportsFunctionCalling: true,
+            supportsJsonMode: true,
+            supportsReasoning: true,
+          },
+          reasoning: {
+            mode: 'levels' as ReasoningControlMode,
+            levels: ['high', 'xhigh'] as ReasoningEffortLevel[],
+            wireFormat: 'zai_compatible' as ReasoningWireFormat,
+          },
+        }
+      : {}),
+    ...(Object.keys(openaiShim).length > 0
+      ? { transportOverrides: { openaiShim } }
       : {}),
   }
 }
@@ -52,8 +73,8 @@ const zenModels: OpenCodeCatalogSpec[] = [
   { id: 'grok-build-0.1', label: 'Grok Build 0.1' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
-  { id: 'glm-5.1', label: 'GLM 5.1' },
-  { id: 'glm-5', label: 'GLM 5' },
+  { id: 'glm-5.1', label: 'GLM 5.1', zaiGlm: true },
+  { id: 'glm-5', label: 'GLM 5', zaiGlm: true },
   { id: 'minimax-m2.7', label: 'MiniMax M2.7' },
   { id: 'minimax-m2.5', label: 'MiniMax M2.5' },
   { id: 'kimi-k2.6', label: 'Kimi K2.6' },

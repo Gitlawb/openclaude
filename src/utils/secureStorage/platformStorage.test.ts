@@ -1,10 +1,13 @@
 import { expect, test, mock, describe, beforeEach, afterEach, afterAll, beforeAll } from "bun:test";
 import * as realExeca from "execa";
-import { getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } from "./macOsKeychainHelpers.js";
+import { homedir } from "os";
+import { join } from "path";
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from "../../test/sharedMutationLock.js";
+import type * as EnvUtils from "../envUtils.js";
+import type * as MacOsKeychainHelpers from "./macOsKeychainHelpers.js";
 import type { linuxSecretStorage as LinuxSecretStorage } from "./linuxSecretStorage.js";
 import type { windowsCredentialStorage as WindowsCredentialStorage } from "./windowsCredentialStorage.js";
 
@@ -75,6 +78,10 @@ function getSecretToolArgs(index = 0): readonly string[] {
 
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
+  let realEnvUtils: typeof EnvUtils;
+  let getSecureStorageServiceName: typeof MacOsKeychainHelpers.getSecureStorageServiceName;
+  let CREDENTIALS_SERVICE_SUFFIX: typeof MacOsKeychainHelpers.CREDENTIALS_SERVICE_SUFFIX;
+  let setClaudeConfigHomeDirForTesting: typeof EnvUtils.setClaudeConfigHomeDirForTesting;
   let linuxSecretStorage: typeof LinuxSecretStorage;
   let windowsCredentialStorage: typeof WindowsCredentialStorage;
 
@@ -86,24 +93,35 @@ describe("Secure Storage Platform Implementations", () => {
       execaSync: mockExecaSync,
     }));
     const moduleSuffix = `?platformStorageTest=${Date.now()}-${Math.random()}`;
+    realEnvUtils = await import(`../envUtils.js${moduleSuffix}`);
+    mock.module("../envUtils.js", () => realEnvUtils);
+    ({ setClaudeConfigHomeDirForTesting } = realEnvUtils);
+    ({ getSecureStorageServiceName, CREDENTIALS_SERVICE_SUFFIX } = await import(
+      `./macOsKeychainHelpers.js${moduleSuffix}`
+    ));
     ({ linuxSecretStorage } = await import(`./linuxSecretStorage.js${moduleSuffix}`));
     ({ windowsCredentialStorage } = await import(`./windowsCredentialStorage.js${moduleSuffix}`));
   });
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    setClaudeConfigHomeDirForTesting(undefined);
     mockExecaSync.mockClear();
     // Default mock behavior
     mockExecaSync.mockImplementation(() => execaResult());
   });
 
   afterEach(() => {
+    setClaudeConfigHomeDirForTesting(undefined);
     process.env = originalEnv;
   });
 
   afterAll(() => {
     try {
       mock.module("execa", () => realExeca);
+      if (realEnvUtils) {
+        mock.module("../envUtils.js", () => realEnvUtils);
+      }
     } finally {
       releaseSharedMutationLock();
     }
@@ -121,7 +139,7 @@ describe("Secure Storage Platform Implementations", () => {
   };
 
   describe("Config-Dir Isolation", () => {
-    test("service name changes with CLAUDE_CONFIG_DIR", () => {
+    test("service name ignores CLAUDE_CONFIG_DIR", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
@@ -129,8 +147,8 @@ describe("Secure Storage Platform Implementations", () => {
       process.env.CLAUDE_CONFIG_DIR = "/tmp/other-config";
       const otherName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
-      expect(otherName).not.toBe(defaultName);
-      expect(otherName).toContain("Claude Code");
+      expect(otherName).toBe(defaultName);
+      expect(otherName).toContain("OpenClaude");
       expect(otherName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 
@@ -144,11 +162,33 @@ describe("Secure Storage Platform Implementations", () => {
       const preferredName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
 
       expect(preferredName).not.toBe(defaultName);
-      expect(preferredName).toContain("Claude Code");
+      expect(preferredName).toContain("OpenClaude");
       expect(preferredName).toContain(CREDENTIALS_SERVICE_SUFFIX);
     });
 
-    test("Linux storage uses scoped service name", () => {
+    test("service name stays default when OPENCLAUDE_CONFIG_DIR points at default config dir", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      process.env.OPENCLAUDE_CONFIG_DIR = join(homedir(), ".openclaude");
+      const explicitDefaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      expect(explicitDefaultName).toBe(defaultName);
+    });
+
+    test("service name stays default when OPENCLAUDE_CONFIG_DIR has a trailing separator", () => {
+      delete process.env.OPENCLAUDE_CONFIG_DIR;
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const defaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      process.env.OPENCLAUDE_CONFIG_DIR = `${join(homedir(), ".openclaude")}/`;
+      const explicitDefaultName = getSecureStorageServiceName(CREDENTIALS_SERVICE_SUFFIX);
+
+      expect(explicitDefaultName).toBe(defaultName);
+    });
+
+    test("Linux storage ignores CLAUDE_CONFIG_DIR scoped service name", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/linux-scoped";
@@ -171,7 +211,7 @@ describe("Secure Storage Platform Implementations", () => {
       expect(args).toContain(expectedName);
     });
 
-    test("Windows storage uses scoped resource name", () => {
+    test("Windows storage ignores CLAUDE_CONFIG_DIR scoped resource name", () => {
       delete process.env.OPENCLAUDE_CONFIG_DIR;
       delete process.env.CLAUDE_CONFIG_DIR;
       process.env.CLAUDE_CONFIG_DIR = "/tmp/win-scoped";

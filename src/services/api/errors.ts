@@ -30,7 +30,11 @@ import {
   isNonCustomOpusModel,
 } from 'src/utils/model/model.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
+} from 'src/utils/model/providers.js'
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import {
   API_PDF_MAX_PAGES,
@@ -122,6 +126,12 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
         error: 'rate_limit',
       })
 
+    case 'quota_exhausted':
+      return createAssistantAPIErrorMessage({
+        content: `${API_ERROR_MESSAGE_PREFIX}: Provider quota or usage allotment has run out. Please enable billing for your provider or switch provider via /provider.`,
+        error: 'rate_limit',
+      })
+
     case 'request_timeout':
       return createAssistantAPIErrorMessage({
         content: `${API_ERROR_MESSAGE_PREFIX}: Provider request timed out. Local models may be loading or overloaded; retry shortly or increase API_TIMEOUT_MS.`,
@@ -131,12 +141,20 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
     case 'context_overflow':
       return createAssistantAPIErrorMessage({
         content: `The conversation exceeded the provider context limit. ${compactHint}`,
+        apiError: 'context_overflow',
         error: 'invalid_request',
+        errorDetails: stripOpenAICompatibilityMetadata(options.rawMessage),
       })
 
     case 'tool_call_incompatible':
       return createAssistantAPIErrorMessage({
         content: `The selected provider/model rejected tool-calling payloads. Try ${switchCmd} to pick a tool-capable model or continue without tools.`,
+        error: 'invalid_request',
+      })
+
+    case 'tool_stream_unsupported':
+      return createAssistantAPIErrorMessage({
+        content: `The selected provider rejected the \`tool_stream\` parameter. Tool calls cannot be streamed on this provider. If this persists, switch models via ${switchCmd}.`,
         error: 'invalid_request',
       })
 
@@ -365,7 +383,7 @@ export const CCR_AUTH_ERROR_MESSAGE =
   'Authentication error · This may be a temporary network issue, please try again'
 export const REPEATED_529_ERROR_MESSAGE = 'Repeated 529 Overloaded errors'
 export function getCustomOffSwitchMessage(): string {
-  return getAPIProvider() === 'firstParty'
+  return isFirstPartyAnthropicProvider()
     ? 'Opus is experiencing high load, please use /model to switch to Sonnet'
     : 'The API is experiencing high load, please try again shortly or use /model to switch models'
 }
@@ -427,6 +445,103 @@ export function getVisionNotSupportedErrorMessage(): string {
 }
 export const OAUTH_ORG_NOT_ALLOWED_ERROR_MESSAGE =
   'Your account does not have access to OpenClaude. Please run /login.'
+
+// OpenCode Go subscription quota exhaustion. The opencode.ai gateway returns
+// 429 with one of these error types in the response body:
+//   - FreeUsageLimitError: free tier exhausted, upgrade required
+//   - GoUsageLimitError: paid Go subscription limit hit (rolling/weekly/monthly)
+// The `retry-after` header (seconds) indicates when the paid limit resets.
+// See https://github.com/anomalyco/opencode packages/opencode/src/session/retry.ts
+// for the canonical implementation we're mirroring.
+export const OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE =
+  'OpenCode Go free usage exhausted · Subscribe at https://opencode.ai/go'
+export const OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE =
+  'OpenCode Go subscription limit reached · See https://opencode.ai/workspace/go'
+
+function getOpenCodeGoAssistantMessage(error: APIError): AssistantMessage | null {
+  const goLimit = parseOpenCodeGoLimitError(error)
+  if (!goLimit) return null
+
+  if (goLimit.kind === 'free') {
+    return createAssistantAPIErrorMessage({
+      content: OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
+      error: 'rate_limit',
+    })
+  }
+
+  const reset =
+    goLimit.retryAfterSeconds !== undefined
+      ? ` · Resets in ${formatResetDuration(goLimit.retryAfterSeconds)}`
+      : ''
+  const workspace =
+    goLimit.workspace && goLimit.workspace !== 'default'
+      ? ` · Workspace: ${goLimit.workspace}`
+      : ''
+  const limit = goLimit.limitName ? ` · Limit: ${goLimit.limitName}` : ''
+  return createAssistantAPIErrorMessage({
+    content: `${OPENCODE_GO_USAGE_LIMIT_ERROR_MESSAGE}${limit}${workspace}${reset}`,
+    error: 'rate_limit',
+  })
+}
+
+function parseOpenCodeGoLimitError(
+  error: APIError,
+): {
+  kind: 'free' | 'go'
+  limitName?: string
+  workspace?: string
+  retryAfterSeconds?: number
+} | null {
+  const requestUrl = error.headers?.get?.('x-opencode-request-url')
+  let isOpencodeGo = false
+  if (typeof requestUrl === 'string') {
+    isOpencodeGo = requestUrl.includes('opencode.ai/zen/go')
+  } else {
+    isOpencodeGo = (process.env.OPENAI_BASE_URL ?? '').includes('opencode.ai/zen/go')
+  }
+  if (!isOpencodeGo) return null
+
+  const body = error.message ?? ''
+  const retryAfter = error.headers?.get?.('retry-after')
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : undefined
+
+  if (body.includes('FreeUsageLimitError')) {
+    return { kind: 'free' }
+  }
+  if (body.includes('GoUsageLimitError')) {
+    const limitNameMatch = body.match(/"limitName"\s*:\s*"([^"]+)"/)
+    const workspaceMatch = body.match(/"workspace"\s*:\s*"([^"]+)"/)
+    return {
+      kind: 'go',
+      limitName: limitNameMatch?.[1],
+      workspace: workspaceMatch?.[1],
+      retryAfterSeconds:
+        typeof retryAfterSeconds === 'number' && !isNaN(retryAfterSeconds)
+          ? retryAfterSeconds
+          : undefined,
+    }
+  }
+  return null
+}
+
+// True when the error is an OpenCode Go subscription/free quota exhaustion
+// (429 with FreeUsageLimitError / GoUsageLimitError from the opencode.ai Go
+// gateway). Callers use this to keep the specific OpenCode Go assistant
+// message intact instead of clobbering it with the generic quota guard.
+export function isOpenCodeGoQuotaError(error: unknown): boolean {
+  return error instanceof APIError && parseOpenCodeGoLimitError(error) !== null
+}
+
+function formatResetDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 && days === 0) parts.push(`${minutes}m`)
+  return parts.join(' ') || 'soon'
+}
 
 export function getTokenRevokedErrorMessage(): string {
   return getIsNonInteractiveSession()
@@ -692,6 +807,15 @@ export function getAssistantMessageFromError(
         errorDetails: error.message,
       })
     }
+  }
+
+  // OpenCode Go subscription quota exhaustion (429 with FreeUsageLimitError
+  // or GoUsageLimitError in the body). Check this before generic
+  // OpenAI-compatible markers so shim-shaped quota errors keep the
+  // provider-specific subscribe/reset guidance.
+  if (error instanceof APIError) {
+    const goMessage = getOpenCodeGoAssistantMessage(error)
+    if (goMessage) return goMessage
   }
 
   // OpenAI-compatible transport and HTTP failures include structured category
@@ -1086,7 +1210,7 @@ export function getAssistantMessageFromError(
   if (
     error instanceof Error &&
     error.message.toLowerCase().includes('x-api-key') &&
-    getAPIProvider() === 'firstParty'
+    isFirstPartyAnthropicProvider()
   ) {
     // In CCR mode, auth is via JWTs - this is likely a transient network issue
     if (isCCRMode()) {
@@ -1152,7 +1276,9 @@ export function getAssistantMessageFromError(
       error: 'authentication_failed',
       content: getIsNonInteractiveSession()
         ? `Failed to authenticate. ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`
-        : `Please run /login · ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`,
+        : isFirstPartyAnthropicProvider()
+          ? `Please run /login · ${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your API key configuration.`
+          : `${API_ERROR_MESSAGE_PREFIX}: Authentication failed (status ${error.status}). Check your provider credential configuration.`,
     })
   }
 
@@ -1206,6 +1332,7 @@ export function getAssistantMessageFromError(
       : ' Press esc twice to go up a few messages, or run /compact to reduce context.'
     return createAssistantAPIErrorMessage({
       content: `The conversation has grown too large for the API to process.${rewindInstruction} Alternatively, start a new session with /new.`,
+      apiError: 'context_overflow',
       error: 'invalid_request',
       errorDetails: `Context overflow (500): ${error.message}`,
     })
@@ -1236,7 +1363,7 @@ export function getAssistantMessageFromError(
  * Returns a model name suggestion, or undefined if no suggestion is applicable.
  */
 function get3PModelFallbackSuggestion(model: string): string | undefined {
-  if (getAPIProvider() === 'firstParty') {
+  if (isFirstPartyAnthropicProvider()) {
     return undefined
   }
   // @[MODEL LAUNCH]: Add a fallback suggestion chain for the new model → previous version for 3P
@@ -1297,6 +1424,11 @@ export function classifyAPIError(error: unknown): string {
     error.message.includes(CUSTOM_OFF_SWITCH_MESSAGE)
   ) {
     return 'capacity_off_switch'
+  }
+
+  // OpenCode Go subscription quota exhaustion (distinct from generic 429)
+  if (error instanceof APIError && parseOpenCodeGoLimitError(error)) {
+    return 'opencode_go_quota_exhausted'
   }
 
   // Rate limiting
@@ -1498,7 +1630,7 @@ export function getErrorMessageIfRefusal(
   logEvent('tengu_refusal_api_response', {})
 
   const usagePolicyUrl =
-    getAPIProvider() === 'firstParty'
+    isFirstPartyAnthropicProvider()
       ? 'https://www.anthropic.com/legal/aup'
       : "your provider's acceptable use policy"
 

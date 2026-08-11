@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
+import * as actualConfig from '../../utils/config.js'
+import * as actualSettings from '../../utils/settings/settings.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -34,6 +36,8 @@ mock.module('../../utils/config.js', () => ({
 afterAll(() => {
   try {
     mock.restore()
+    mock.module('../../utils/settings/settings.js', () => actualSettings)
+    mock.module('../../utils/config.js', () => actualConfig)
   } finally {
     releaseSharedMutationLock()
   }

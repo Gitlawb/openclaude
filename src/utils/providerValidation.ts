@@ -15,6 +15,9 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  isCanonicalApismartInferenceBaseUrl,
+  isCloudflareBaseUrl,
+  isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -132,7 +135,12 @@ function hasUsableCredentialEnvValue(
     return false
   }
 
-  if (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY') {
+  if (
+    envVar === 'OPENAI_API_KEYS' ||
+    envVar === 'OPENAI_API_KEY' ||
+    envVar === 'AIMLAPI_API_KEY' ||
+    envVar === 'APISMART_API_KEY'
+  ) {
     return hasUsableOpenAICredential(value)
   }
 
@@ -266,6 +274,20 @@ function getRuntimeValidationTarget(
   const baseUrlMatchedTarget = validationTargets.find(target => {
     const routing = getValidationRouting(target)
     if (!routing?.matchDefaultBaseUrl && !routing?.matchBaseUrlHosts?.length) {
+      return false
+    }
+
+    // Some routes have stricter endpoint boundaries than a host match. Keep
+    // validation aligned with the runtime resolver so a custom endpoint on a
+    // shared host is not forced through a dedicated-credential contract.
+    if (
+      ((target.descriptor.id === 'cloudflare' &&
+        !isCloudflareBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'longcat' &&
+          !isLongcatBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'apismart' &&
+          !isCanonicalApismartInferenceBaseUrl(request.baseUrl)))
+    ) {
       return false
     }
 

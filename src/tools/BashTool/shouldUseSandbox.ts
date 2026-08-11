@@ -9,6 +9,10 @@ import {
   stripAllLeadingEnvVars,
   stripSafeWrappers,
 } from './bashPermissions.js'
+import {
+  parseLegacyShellCommandForAnalysis,
+  type BashCommandAnalysis,
+} from './bashCommandAnalysis.js'
 
 type SandboxInput = {
   command?: string
@@ -19,7 +23,14 @@ type SandboxInput = {
 // NOTE: excludedCommands is a user-facing convenience feature, not a security boundary.
 // It is not a security bug to be able to bypass excludedCommands — the sandbox permission
 // system (which prompts users) is the actual security control.
-function containsExcludedCommand(command: string): boolean {
+function containsExcludedCommand(
+  command: string,
+  analysis?: BashCommandAnalysis,
+): boolean {
+  if (analysis?.legacyParse.kind === 'failed') {
+    return false
+  }
+
   // Check dynamic config for disabled commands and substrings
   const raw = getFeatureValue_CACHED_MAY_BE_STALE<{
     commands: string[]
@@ -137,7 +148,10 @@ function containsExcludedCommand(command: string): boolean {
   return false
 }
 
-export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
+export function shouldUseSandbox(
+  input: Partial<SandboxInput>,
+  analysis?: BashCommandAnalysis,
+): boolean {
   if (!SandboxManager.isSandboxingEnabled()) {
     return false
   }
@@ -159,9 +173,32 @@ export function shouldUseSandbox(input: Partial<SandboxInput>): boolean {
   }
 
   // Don't sandbox if the command contains user-configured excluded commands
-  if (containsExcludedCommand(input.command)) {
+  if (containsExcludedCommand(input.command, analysis)) {
     return false
   }
 
   return true
+}
+
+export function shouldUseSandboxForPresentation(
+  input: Partial<SandboxInput>,
+): boolean {
+  if (!input.command) {
+    return shouldUseSandbox(input)
+  }
+
+  const legacyParse = parseLegacyShellCommandForAnalysis(input.command)
+  if (legacyParse.kind !== 'failed') {
+    return shouldUseSandbox(input)
+  }
+
+  return shouldUseSandbox(input, {
+    command: input.command,
+    injectionCheckDisabled: false,
+    shadowEnabled: false,
+    astRoot: null,
+    astResult: { kind: 'parse-unavailable' },
+    astSubcommands: null,
+    legacyParse,
+  })
 }

@@ -18,10 +18,11 @@
  *   7. MINIMAX_API_KEY
  *   8. MIMO_API_KEY (Xiaomi Mimo)
  *   9. XAI_API_KEY
- *  10. NEARAI_API_KEY
- *  11. FIREWORKS_API_KEY
- *  12. Local Ollama reachable (default localhost:11434)
- *  13. Local LM Studio reachable (default localhost:1234)
+  *  10. NEARAI_API_KEY
+  *  11. FIREWORKS_API_KEY
+  *  12. LONGCAT_API_KEY
+  *  13. Local Ollama reachable (default localhost:11434)
+  *  14. Local LM Studio reachable (default localhost:1234)
  *
  * Local-service probes are parallelized and cheap (short timeout, no
  * request body). Env scans are synchronous and run first so we don't make
@@ -49,6 +50,7 @@ export type DetectedProviderKind =
   | 'xai'
   | 'nearai'
   | 'fireworks'
+  | 'longcat'
   | 'ollama'
   | 'lm-studio'
   | 'gitlawb-opengateway'
@@ -205,6 +207,13 @@ export function detectProviderFromEnv(
     return {
       kind: 'fireworks',
       source: 'FIREWORKS_API_KEY set',
+    }
+  }
+
+  if (envHasNonEmpty(env, 'LONGCAT_API_KEY')) {
+    return {
+      kind: 'longcat',
+      source: 'LONGCAT_API_KEY set',
     }
   }
 

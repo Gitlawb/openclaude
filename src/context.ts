@@ -16,8 +16,62 @@ import { execFileNoThrow } from './utils/execFileNoThrow.js'
 import { getBranch, getDefaultBranch, getIsGit, gitExe } from './utils/git.js'
 import { shouldIncludeGitInstructions } from './utils/gitSettings.js'
 import { logError } from './utils/log.js'
+import { getCwd } from './utils/cwd.js'
+import type { RepoMapResult } from './context/repoMap/index.js'
 
 const MAX_STATUS_CHARS = 2000
+const REPO_MAP_CONTEXT_TIMEOUT_MS = 5000
+const REPO_MAP_TIMEOUT = Symbol('repo_map_timeout')
+const REPO_MAP_CANCELLED = Symbol('repo_map_cancelled')
+
+type RepoMapBuildFn = (options: {
+  root: string
+  maxTokens: number
+  shouldContinue?: () => void
+}) => Promise<RepoMapResult>
+
+export async function runRepoMapBuildWithTimeout({
+  buildRepoMap,
+  root,
+  maxTokens,
+  timeoutMs,
+}: {
+  buildRepoMap: RepoMapBuildFn
+  root: string
+  maxTokens: number
+  timeoutMs: number
+}): Promise<{ result: RepoMapResult | null; timedOut: boolean }> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  const result = await Promise.race([
+    buildRepoMap({
+      root,
+      maxTokens,
+      shouldContinue: () => {
+        if (timedOut) throw REPO_MAP_CANCELLED
+      },
+    }).catch(err => {
+      if (err === REPO_MAP_CANCELLED) return REPO_MAP_TIMEOUT
+      throw err
+    }),
+    new Promise<typeof REPO_MAP_TIMEOUT>(resolve => {
+      timeout = setTimeout(
+        () => {
+          timedOut = true
+          resolve(REPO_MAP_TIMEOUT)
+        },
+        timeoutMs,
+      )
+    }),
+  ]).finally(() => {
+    if (timeout) clearTimeout(timeout)
+  }) as RepoMapResult | typeof REPO_MAP_TIMEOUT
+
+  if (result === REPO_MAP_TIMEOUT) {
+    return { result: null, timedOut: true }
+  }
+  return { result, timedOut: false }
+}
 
 // System prompt injection for cache breaking (internal-only, ephemeral debugging state)
 let systemPromptInjection: string | null = null
@@ -31,6 +85,7 @@ export function setSystemPromptInjection(value: string | null): void {
   // Clear context caches immediately when injection changes
   getUserContext.cache.clear?.()
   getSystemContext.cache.clear?.()
+  getRepoMapContext.cache.clear?.()
 }
 
 export const getGitStatus = memoize(async (): Promise<string | null> => {
@@ -110,6 +165,55 @@ export const getGitStatus = memoize(async (): Promise<string | null> => {
   }
 })
 
+export const getRepoMapContext = memoize(
+  async (): Promise<string | null> => {
+    // Enable via compile-time feature flag OR runtime env var.
+    // The runtime env var lets users enable auto-injection without rebuilding.
+    const runtimeEnabled = isEnvTruthy(process.env.REPO_MAP)
+    if (!feature('REPO_MAP') && !runtimeEnabled) return null
+    if (isBareMode()) return null
+    if (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE)) return null
+
+    try {
+      const startTime = Date.now()
+      logForDiagnosticsNoPII('info', 'repo_map_started')
+      const { buildRepoMap } = await import('./context/repoMap/index.js')
+      const { result, timedOut } = await runRepoMapBuildWithTimeout({
+        buildRepoMap,
+        root: getCwd(),
+        maxTokens: 1024,
+        timeoutMs: REPO_MAP_CONTEXT_TIMEOUT_MS,
+      })
+      if (timedOut) {
+        logForDiagnosticsNoPII('warn', 'repo_map_timeout', {
+          duration_ms: Date.now() - startTime,
+        })
+        getRepoMapContext.cache.clear?.()
+        getSystemContext.cache.clear?.()
+        return null
+      }
+      if (result === null) return null
+      if (!result.map || result.map.length === 0) {
+        return null
+      }
+      logForDiagnosticsNoPII('info', 'repo_map_completed', {
+        duration_ms: Date.now() - startTime,
+        token_count: result.tokenCount,
+        file_count: result.fileCount,
+        cache_hit: result.cacheHit,
+      })
+      return `This is a structural map of the repository, ranked by importance. Use it to understand the codebase architecture.\n\n${result.map}`
+    } catch (err) {
+      logForDiagnosticsNoPII('warn', 'repo_map_failed', {
+        error: String(err),
+      })
+      getRepoMapContext.cache.clear?.()
+      getSystemContext.cache.clear?.()
+      return null
+    }
+  },
+)
+
 /**
  * This context is prepended to each conversation, and cached for the duration of the conversation.
  */
@@ -120,12 +224,16 @@ export const getSystemContext = memoize(
     const startTime = Date.now()
     logForDiagnosticsNoPII('info', 'system_context_started')
 
-    // Skip git status in CCR (unnecessary overhead on resume) or when git instructions are disabled
-    const gitStatus =
+    const gitStatusPromise =
       isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) ||
       !shouldIncludeGitInstructions()
-        ? null
-        : await getGitStatus()
+        ? Promise.resolve(null)
+        : getGitStatus()
+
+    const [gitStatus, repoMap] = await Promise.all([
+      gitStatusPromise,
+      getRepoMapContext(),
+    ])
 
     // Include system prompt injection if set (for cache breaking, internal-only)
     const injection = feature('BREAK_CACHE_COMMAND')
@@ -135,11 +243,13 @@ export const getSystemContext = memoize(
     logForDiagnosticsNoPII('info', 'system_context_completed', {
       duration_ms: Date.now() - startTime,
       has_git_status: gitStatus !== null,
+      has_repo_map: repoMap !== null,
       has_injection: injection !== null,
     })
 
     return {
       ...(gitStatus && { gitStatus }),
+      ...(repoMap && { repoMap }),
       ...(feature('BREAK_CACHE_COMMAND') && injection
         ? {
             cacheBreaker: `[CACHE_BREAKER: ${injection}]`,

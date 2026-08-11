@@ -157,26 +157,61 @@ export type ChannelGateResult =
  * server-kind is exact match on bare name; plugin-kind matches on the second
  * segment of plugin:X:Y. Returns the matching entry so callers can read its
  * kind — that's the user's trust declaration, not inferred from runtime shape.
+ *
+ * When multiple entries share the same plugin name (e.g. a user has both
+ * `plugin:telegram@anthropic-marketplace` and `plugin:telegram@evil-marketplace`
+ * in --channels) and a pluginSource is provided, prefer the entry whose
+ * marketplace matches the actually-installed plugin. The trust declaration is
+ * marketplace-specific, so the lookup must be too — picking the first
+ * same-name match would let the gate reject a valid configured entry as a
+ * marketplace mismatch.
  */
 export function findChannelEntry(
   serverName: string,
   channels: readonly ChannelEntry[],
+  pluginSource?: string,
 ): ChannelEntry | undefined {
   // split unconditionally — for a bare name like 'slack', parts is ['slack']
   // and the plugin-kind branch correctly never matches (parts[0] !== 'plugin').
   const parts = serverName.split(':')
-  return channels.find(c =>
+  const candidates = channels.filter(c =>
     c.kind === 'server'
       ? serverName === c.name
       : parts[0] === 'plugin' && parts[1] === c.name,
   )
+  if (candidates.length <= 1) {
+    return candidates[0]
+  }
+
+  const pickBest = (opts: ChannelEntry[]) => opts.find(c => c.dev) || opts[0]
+
+  // First check: when exactly one kind: 'server' candidate exists, return it
+  const serverCandidates = candidates.filter(c => c.kind === 'server')
+  if (serverCandidates.length === 1) {
+    return serverCandidates[0]
+  }
+  // Multiple same-name entries — disambiguate by runtime marketplace.
+  if (parts[0] === 'plugin' && pluginSource) {
+    const runtimeMarketplace = parsePluginIdentifier(pluginSource).marketplace
+    if (runtimeMarketplace) {
+      const exacts = candidates.filter(
+        c => c.kind === 'plugin' && c.marketplace === runtimeMarketplace,
+      )
+      if (exacts.length > 0) return pickBest(exacts)
+      return undefined
+    }
+  }
+  // No disambiguator available — preserve prior first-match behavior so
+  // the downstream marketplace check still surfaces the issue, but prefer dev entries.
+  return pickBest(candidates)
 }
 
 /**
  * Gate an MCP server's channel-notification path. Caller checks
  * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
  * elimination). Gate order: capability → runtime gate (tengu_harbor) →
- * auth (OAuth only) → org policy → session --channels → allowlist.
+ * auth (OAuth) → org policy → session --channels → marketplace →
+ * allowlist.
  * API key users are blocked at the auth layer — channels requires
  * claude.ai auth; console orgs have no admin opt-in surface yet.
  *
@@ -247,7 +282,7 @@ export function gateChannelServer(
   // User-level session opt-in. A server must be explicitly listed in
   // --channels to push inbound this session — protects against a trusted
   // server surprise-adding the capability.
-  const entry = findChannelEntry(serverName, getAllowedChannels())
+  const entry = findChannelEntry(serverName, getAllowedChannels(), pluginSource)
   if (!entry) {
     return {
       action: 'skip',

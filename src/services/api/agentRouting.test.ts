@@ -703,6 +703,7 @@ describe('applyAgentProviderOverrideToEnv', () => {
       ANTHROPIC_MODEL: 'claude-parent',
       ANTHROPIC_API_KEY: 'anthropic-key',
       OPENAI_API_BASE: 'https://old.example/v1',
+      OPENAI_AZURE_STYLE: '1',
       OPENAI_AUTH_HEADER: 'X-Old-Key',
     }
 
@@ -725,6 +726,7 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.GEMINI_MODEL).toBeUndefined()
     expect(env.ANTHROPIC_MODEL).toBeUndefined()
     expect(env.OPENAI_API_BASE).toBeUndefined()
+    expect(env.OPENAI_AZURE_STYLE).toBeUndefined()
     expect(env.OPENAI_AUTH_HEADER).toBeUndefined()
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')

@@ -266,6 +266,12 @@ export const SettingsSchema = lazySchema(() =>
         .literal(CLAUDE_CODE_SETTINGS_SCHEMA_URL)
         .optional()
         .describe('JSON Schema reference for Claude Code settings'),
+      subscriptionType: z
+        .enum(['free', 'pro', 'max', 'team', 'enterprise'])
+        .optional()
+        .describe(
+          'Override the active subscription type from user settings only. Project, repository, local, flag, and policy settings are ignored to prevent spoofing. Allowed values: free, pro, max, team, enterprise. The "free" value is authoritative and takes precedence over OAuth fallback detection.',
+        ),
       apiKeyHelper: z
         .string()
         .optional()
@@ -459,7 +465,16 @@ export const SettingsSchema = lazySchema(() =>
           'and feed errors back for self-repair.',
         ),
       worktree: z
-        .object({
+        .preprocess((val: any) => {
+          if (val && typeof val === 'object') {
+            const copy = { ...val }
+            if ('enableGitLongPaths' in val && !('autoConfigureLongPaths' in val)) {
+              copy.autoConfigureLongPaths = val.enableGitLongPaths
+            }
+            return copy
+          }
+          return val
+        }, z.object({
           symlinkDirectories: z
             .array(z.string())
             .optional()
@@ -475,7 +490,18 @@ export const SettingsSchema = lazySchema(() =>
               'Directories to include when creating worktrees, via git sparse-checkout (cone mode). ' +
                 'Dramatically faster in large monorepos — only the listed paths are written to disk.',
             ),
-        })
+          autoConfigureLongPaths: z
+            .boolean()
+            .optional()
+            .describe(
+              'On Windows, enable Git long-path support (core.longpaths=true) before ' +
+                'creating worktrees. Defaults to true when unset.',
+            ),
+          enableGitLongPaths: z
+            .boolean()
+            .optional()
+            .describe('Deprecated alias for autoConfigureLongPaths.'),
+        }))
         .optional()
         .describe('Git worktree configuration for --worktree flag.'),
       // Whether to disable all hooks and statusLine
@@ -780,6 +806,32 @@ export const SettingsSchema = lazySchema(() =>
             'Use "default" key as fallback. Model name must exist in agentModels. ' +
             'Example: { "Explore": "deepseek-chat", "general-purpose": "gpt-4o", "default": "gpt-4o" }',
         ),
+      smartRouting: z
+        .object({
+          enabled: z.boolean().optional().describe('Opt in to per-turn simple-vs-strong model routing. Off by default.'),
+          simpleModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for turns classified "simple".'),
+          strongModel: z
+            .string()
+            .optional()
+            .describe('agentModels key (or bare model id) used for "strong" turns and whenever routing is unsure.'),
+          simpleMaxChars: z
+            .number()
+            .optional()
+            .describe('Max characters in user input to qualify as "simple". Passed to routeModel.'),
+          simpleMaxWords: z
+            .number()
+            .optional()
+            .describe('Max whitespace-separated words to qualify as "simple". Passed to routeModel.'),
+        })
+        .optional()
+        .describe(
+          'Opt-in smart routing: classify each user turn and route simple turns to the configured simple model. ' +
+            'simpleModel/strongModel are agentModels keys (or bare model ids). ' +
+            'Example: { "enabled": true, "simpleModel": "mini", "strongModel": "main" }',
+        ),
       providerFallbackChain: z
         .array(z.string())
         .optional()
@@ -788,6 +840,32 @@ export const SettingsSchema = lazySchema(() =>
             'or quota error, OpenClaude advances to the next profile in this list (starting after ' +
             'the currently-active id) and retries the turn. ' +
             'Example: ["provider_anthropic", "provider_openai", "provider_ollama"]',
+        ),
+      modelLimits: z
+        .record(
+          z.string(),
+          z.object({
+            contextWindow: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Total context window size in tokens.'),
+            maxOutputTokens: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe('Maximum output tokens per response.'),
+          }),
+        )
+        .optional()
+        .describe(
+          'Per-model overrides for context window and max output tokens. ' +
+            'Used for OpenAI-compatible models whose limits are not in the built-in catalog. ' +
+            'Keys are matched against the model name (exact match preferred, then prefix). ' +
+            'CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS / CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS env vars take precedence. ' +
+            'Example: { "qwen3.6-plus": { "contextWindow": 1048576, "maxOutputTokens": 32768 } }',
         ),
       fastMode: z
         .boolean()
@@ -1025,10 +1103,41 @@ export const SettingsSchema = lazySchema(() =>
             .describe(
               'When false, disables auto-memory reads and writes for this project. Discoverable alias for `autoMemoryEnabled`; the two are equivalent and either one can be used to opt out for governance / regulated / client-sensitive repos (issue #1326). When both are set, the more restrictive (false) value wins so a parent-scope opt-out cannot be silently re-enabled by a narrower scope.',
             ),
+          requireApprovalBeforeWrite: z
+            .boolean()
+            .optional()
+            .describe(
+              'Persistent auto-memory writes require explicit permission approval by default. Set to false to restore automatic memory writes when auto-memory is enabled.',
+            ),
         })
         .optional()
         .describe(
-          'Memory governance settings. Currently exposes `autoWrite` as the discoverable shape requested in #1326; further opt-in fields (e.g. approval gates) may be added under this namespace without taking a new top-level key each time.',
+          'Memory governance settings. `autoWrite` controls whether auto-memory is active; `requireApprovalBeforeWrite` forces explicit approval for persistent memory writes.',
+        ),
+      git: z
+        .object({
+          addAICoAuthor: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated Co-Authored-By trailer for local commits. When false in any settings source, generated commit attribution is blocked.',
+            ),
+          addGeneratedWithFooter: z
+            .boolean()
+            .optional()
+            .describe(
+              'When true, opt in to the generated OpenClaude footer for PR descriptions. When false in any settings source, generated PR attribution is blocked.',
+            ),
+          forbiddenCommitMessagePatterns: z
+            .array(z.string())
+            .optional()
+            .describe(
+              'Literal text patterns that must not appear in git commit messages, such as "Co-Authored-By:" or "Generated with".',
+            ),
+        })
+        .optional()
+        .describe(
+          'Git governance settings for AI attribution and commit-message policy.',
         ),
       autoMemoryDirectory: z
         .string()

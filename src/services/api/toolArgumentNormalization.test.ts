@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeToolArguments } from './toolArgumentNormalization'
+import {
+  hasToolFieldMapping,
+  normalizeToolArguments,
+} from './toolArgumentNormalization'
 
 describe('normalizeToolArguments', () => {
   describe('Bash tool', () => {
@@ -175,6 +178,44 @@ describe('normalizeToolArguments', () => {
       expect(normalizeToolArguments('UnknownTool', '"hello"')).toEqual(
         'hello',
       )
+    })
+  })
+
+  // A provider-supplied tool-call name that collides with an Object.prototype
+  // member must NOT resolve to an inherited value through the plain-object
+  // lookup table. Before the Object.hasOwn guard, `'constructor' in fields`
+  // was true and `fields['constructor']` was the Object constructor function,
+  // so a JSON-encoded string argument was wrapped into a garbage-keyed object
+  // ({ 'function Object() { [native code] }': 'hello' }) instead of passing
+  // through unchanged.
+  describe('prototype-polluting tool names', () => {
+    test.each([
+      'constructor',
+      '__proto__',
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+      'isPrototypeOf',
+    ])('%s is not treated as a known field mapping', (toolName) => {
+      expect(hasToolFieldMapping(toolName)).toBe(false)
+    })
+
+    test('does not wrap a plain string for a proto-chain tool name', () => {
+      expect(normalizeToolArguments('constructor', 'hello')).toEqual({})
+      expect(normalizeToolArguments('toString', 'hello')).toEqual({})
+    })
+
+    test('preserves a JSON-encoded string for a proto-chain tool name', () => {
+      expect(normalizeToolArguments('constructor', '"hello"')).toEqual('hello')
+      expect(normalizeToolArguments('valueOf', '"x"')).toEqual('x')
+    })
+  })
+
+  describe('hasToolFieldMapping', () => {
+    test('true for own known tools, false otherwise', () => {
+      expect(hasToolFieldMapping('Bash')).toBe(true)
+      expect(hasToolFieldMapping('Read')).toBe(true)
+      expect(hasToolFieldMapping('UnknownTool')).toBe(false)
     })
   })
 })

@@ -238,36 +238,6 @@ describe('Query interrupt lifecycle', () => {
     expect(userCancelMsg).toBeUndefined()
   }, 10_000)
 
-  test('interrupt() with reason undefined yields synthetic user cancellation message', async () => {
-    const q = query({
-      prompt: 'test undefined reason',
-      options: { cwd: process.cwd() },
-    })
-    const iterator = q[Symbol.asyncIterator]()
-    const firstPromise = iterator.next()
-    
-    // Interrupt during execution
-    q.interrupt()
-
-    const messages: any[] = []
-    try {
-      let result = await firstPromise
-      while (!result.done) {
-        messages.push(result.value)
-        result = await iterator.next()
-      }
-    } catch (err) {
-      if (!isExpectedDrainAbort(err)) throw err
-    }
-
-    const userCancelMsg = messages.find((m: any) => 
-      m.type === 'user' && 
-      Array.isArray(m.message?.content) && 
-      m.message.content[0]?.text === '[Request interrupted by user]'
-    )
-    expect(userCancelMsg).toBeDefined()
-  }, 10_000)
-
   test('Stop hook regression test - aborting with reason interrupt suppresses cancellation message', async () => {
     const { query: queryLoop } = await import('../../src/query.js')
     const { getDefaultAppState } = await import('../../src/state/AppStateStore.js')

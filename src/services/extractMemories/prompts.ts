@@ -11,11 +11,17 @@
 
 import { feature } from 'bun:bundle'
 import {
+  ENTRYPOINT_NAME,
+  MAX_ENTRYPOINT_BYTES,
+  MAX_ENTRYPOINT_LINES,
+} from '../../memdir/memdir.js'
+import {
   MEMORY_FRONTMATTER_EXAMPLE,
   TYPES_SECTION_COMBINED,
   TYPES_SECTION_INDIVIDUAL,
   WHAT_NOT_TO_SAVE_SECTION,
 } from '../../memdir/memoryTypes.js'
+import { formatFileSize } from '../../utils/format.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
@@ -75,7 +81,7 @@ export function buildExtractAutoOnlyPrompt(
         '',
         '**Step 2** — add a pointer to that file in `MEMORY.md`. `MEMORY.md` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `MEMORY.md`.',
         '',
-        '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
+        `- \`${ENTRYPOINT_NAME}\` is always loaded into your system prompt — it is truncated after ${MAX_ENTRYPOINT_LINES} lines or ${formatFileSize(MAX_ENTRYPOINT_BYTES)}, whichever comes first, so keep the index concise (one short line per entry)`,
         '- Organize memory semantically by topic, not chronologically',
         '- Update or remove memories that turn out to be wrong or outdated',
         '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
@@ -134,7 +140,7 @@ export function buildExtractCombinedPrompt(
         '',
         "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
         '',
-        '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
+        `- Both \`${ENTRYPOINT_NAME}\` indexes are loaded into your system prompt — each is truncated after ${MAX_ENTRYPOINT_LINES} lines or ${formatFileSize(MAX_ENTRYPOINT_BYTES)}, whichever comes first, so keep them concise`,
         '- Organize memory semantically by topic, not chronologically',
         '- Update or remove memories that turn out to be wrong or outdated',
         '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',

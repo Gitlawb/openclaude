@@ -29,8 +29,18 @@ export function formatFileSize(sizeInBytes: number): string {
  * Unlike formatDuration, always keeps the decimal — use for sub-minute timings
  * where the fractional second is meaningful (TTFT, hook durations, etc.).
  */
+/**
+ * Renders milliseconds as a one-decimal second value, rounding in integer
+ * milliseconds so half-steps are stable. Rounding the raw fraction with
+ * `(ms / 1000).toFixed(1)` is unstable because values like `0.95` aren't
+ * exactly representable in binary floating point (`950` would render `0.9`).
+ */
+function oneDecimalSeconds(ms: number): string {
+  return (Math.round(ms / 100) / 10).toFixed(1)
+}
+
 export function formatSecondsShort(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`
+  return `${oneDecimalSeconds(ms)}s`
 }
 
 export function formatDuration(
@@ -42,10 +52,12 @@ export function formatDuration(
     if (ms === 0) {
       return '0s'
     }
-    // For durations < 1s, show 1 decimal place (e.g., 0.5s)
-    if (ms < 1) {
-      const s = (ms / 1000).toFixed(1)
-      return `${s}s`
+    // For durations < 1s, show 1 decimal place (e.g., 0.5s). The threshold is
+    // 1000ms (1s), not 1ms — at `ms < 1` this branch could only ever fire for
+    // sub-millisecond values and always returned "0.0s", so real sub-second
+    // durations fell through and rendered as "0s".
+    if (ms < 1000) {
+      return `${oneDecimalSeconds(ms)}s`
     }
     const s = Math.floor(ms / 1000).toString()
     return `${s}s`
@@ -134,6 +146,14 @@ export function formatNumber(number: number): string {
 
 export function formatTokens(count: number): string {
   return formatNumber(count).replace('.0', '')
+}
+
+/** Formats a token count as integer — no decimal fraction, uppercase K/M prefix. Always en-US locale. */
+export function formatTokenCount(count: number): string {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 0,
+  }).format(count)
 }
 
 type RelativeTimeStyle = 'long' | 'short' | 'narrow'

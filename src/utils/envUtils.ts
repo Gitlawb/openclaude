@@ -1,171 +1,22 @@
 import memoize from 'lodash-es/memoize.js'
-import {
-  copyFileSync,
-  lstatSync,
-  mkdirSync,
-  readlinkSync,
-  readdirSync,
-  statSync,
-  symlinkSync,
-} from 'fs'
 import { homedir } from 'os'
-import { dirname, join } from 'path'
-
-const LEGACY_GLOBAL_CONFIG_FILE_RE =
-  /^\.claude(?:-(?:custom|local|staging)-oauth)?\.json$/
-
-function getErrnoCode(error: unknown): string | undefined {
-  if (
-    error &&
-    typeof error === 'object' &&
-    'code' in error &&
-    typeof error.code === 'string'
-  ) {
-    return error.code
-  }
-  return undefined
-}
-
-function pathExists(path: string): boolean {
-  try {
-    lstatSync(path)
-    return true
-  } catch (error) {
-    if (getErrnoCode(error) === 'ENOENT') {
-      return false
-    }
-    return true
-  }
-}
-
-function pathIsDirectory(path: string): boolean {
-  try {
-    return lstatSync(path).isDirectory()
-  } catch {
-    return false
-  }
-}
-
-function getSymlinkType(source: string): 'dir' | 'file' | 'junction' {
-  if (process.platform !== 'win32') {
-    return 'file'
-  }
-
-  try {
-    return statSync(source).isDirectory() ? 'junction' : 'file'
-  } catch {
-    return 'file'
-  }
-}
-
-function copyMissingPathSync(source: string, destination: string): void {
-  const sourceStats = lstatSync(source)
-
-  if (sourceStats.isDirectory()) {
-    if (!pathExists(destination)) {
-      // Match fsOperations' recursive mkdir behavior while keeping this module
-      // independent from the config-home resolver it backs.
-      mkdirSync(destination, { recursive: true })
-    } else if (!lstatSync(destination).isDirectory()) {
-      throw new Error(`Cannot migrate ${source}: ${destination} is not a directory`)
-    }
-
-    for (const entry of readdirSync(source)) {
-      copyMissingPathSync(join(source, entry), join(destination, entry))
-    }
-    return
-  }
-
-  if (pathExists(destination)) {
-    return
-  }
-
-  mkdirSync(dirname(destination), { recursive: true })
-
-  if (sourceStats.isSymbolicLink()) {
-    symlinkSync(readlinkSync(source), destination, getSymlinkType(source))
-    return
-  }
-
-  if (sourceStats.isFile()) {
-    copyFileSync(source, destination)
-  }
-}
-
-function getLegacyGlobalConfigFiles(homeDir: string): string[] {
-  try {
-    return readdirSync(homeDir).filter(file =>
-      LEGACY_GLOBAL_CONFIG_FILE_RE.test(file),
-    )
-  } catch (error) {
-    if (getErrnoCode(error) === 'ENOENT') {
-      return []
-    }
-    throw error
-  }
-}
-
-export function migrateLegacyClaudeConfigHome(options?: {
-  configDirEnv?: string
-  homeDir?: string
-}): boolean {
-  if (options?.configDirEnv) {
-    return true
-  }
-
-  const homeDir = options?.homeDir ?? homedir()
-  const openClaudeDir = join(homeDir, '.openclaude')
-  const legacyClaudeDir = join(homeDir, '.claude')
-
-  try {
-    const legacyDirExists = pathIsDirectory(legacyClaudeDir)
-    const legacyGlobalConfigFiles = getLegacyGlobalConfigFiles(homeDir)
-
-    if (!legacyDirExists && legacyGlobalConfigFiles.length === 0) {
-      return true
-    }
-
-    if (legacyDirExists) {
-      copyMissingPathSync(legacyClaudeDir, openClaudeDir)
-    }
-
-    for (const legacyFile of legacyGlobalConfigFiles) {
-      const openClaudeFile = legacyFile.replace(/^\.claude/, '.openclaude')
-      copyMissingPathSync(
-        join(homeDir, legacyFile),
-        join(homeDir, openClaudeFile),
-      )
-    }
-    return true
-  } catch {
-    return false
-  }
-}
+import { join } from 'path'
 
 /**
  * Resolves the override env value for the config home directory.
- * `OPENCLAUDE_CONFIG_DIR` is preferred — `CLAUDE_CONFIG_DIR` is the legacy
- * Anthropic name kept working for backward compatibility. When both are set
- * and disagree, `OPENCLAUDE_CONFIG_DIR` wins and we warn once so the user
- * can clean up. Exported for tests.
+ * Resolves the OpenClaude config home override.
+ *
+ * Intentionally does not read `CLAUDE_CONFIG_DIR`: OpenClaude config must stay
+ * independent from Claude Code config and credentials.
  */
-let warnedAboutConflictingConfigDirEnvs = false
-
 export function resolveConfigDirEnv(options?: {
   openClaudeConfigDir?: string
   legacyConfigDir?: string
   warn?: (message: string) => void
 }): string | undefined {
-  const open = options?.openClaudeConfigDir
-  const legacy = options?.legacyConfigDir
-  if (open && legacy && open !== legacy && !warnedAboutConflictingConfigDirEnvs) {
-    const message = `Both OPENCLAUDE_CONFIG_DIR and CLAUDE_CONFIG_DIR are set to different values. Using OPENCLAUDE_CONFIG_DIR=${open}; ignoring CLAUDE_CONFIG_DIR=${legacy}.`
-    if (options?.warn) {
-      warnedAboutConflictingConfigDirEnvs = true
-      options.warn(message)
-    }
-  }
-  return open || legacy || undefined
+  void options?.legacyConfigDir
+  void options?.warn
+  return options?.openClaudeConfigDir || undefined
 }
 
 /**
@@ -173,7 +24,7 @@ export function resolveConfigDirEnv(options?: {
  * unit tests can re-trigger it.
  */
 export function __resetConfigDirEnvWarningForTesting(): void {
-  warnedAboutConflictingConfigDirEnvs = false
+  // Kept as a no-op for older tests importing this helper.
 }
 
 export function resolveClaudeConfigHomeDir(options?: {
@@ -202,10 +53,20 @@ export function getClaudeConfigHomeDirOverrideForTesting(): string | undefined {
   return claudeConfigHomeDirOverride
 }
 
-// Memoized: 150+ callers, many on hot paths. Keyed off both override env
-// vars so tests that change either get a fresh value without explicit
-// cache.clear.
-export const getClaudeConfigHomeDir = memoize(
+// Memoized for the default home-dir path: 150+ callers, many on hot paths.
+// Explicit env overrides and test overrides bypass this cache so runtime
+// overrides cannot be masked by a previously memoized default path.
+const getDefaultClaudeConfigHomeDir = memoize(
+  (): string => {
+    const homeDir = homedir()
+    return resolveClaudeConfigHomeDir({
+      homeDir,
+    })
+  },
+  () => homedir(),
+)
+
+export const getClaudeConfigHomeDir = Object.assign(
   (): string => {
     if (claudeConfigHomeDirOverride) {
       return claudeConfigHomeDirOverride
@@ -213,36 +74,14 @@ export const getClaudeConfigHomeDir = memoize(
 
     const configDirEnv = resolveConfigDirEnv({
       openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
-      legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
-      warn: message => {
-        // eslint-disable-next-line no-console
-        console.warn(`[openclaude] ${message}`)
-      },
     })
-    const homeDir = homedir()
-    const migrationSucceeded = migrateLegacyClaudeConfigHome({
-      configDirEnv,
-      homeDir,
-    })
-    const openClaudeDir = join(homeDir, '.openclaude')
-    const legacyClaudeDir = join(homeDir, '.claude')
-
-    if (
-      !configDirEnv &&
-      !migrationSucceeded &&
-      !pathIsDirectory(openClaudeDir) &&
-      pathExists(legacyClaudeDir)
-    ) {
-      return legacyClaudeDir.normalize('NFC')
+    if (configDirEnv) {
+      return resolveClaudeConfigHomeDir({ configDirEnv })
     }
 
-    return resolveClaudeConfigHomeDir({
-      configDirEnv,
-      homeDir,
-    })
+    return getDefaultClaudeConfigHomeDir()
   },
-  () =>
-    `${claudeConfigHomeDirOverride ?? ''}\0${process.env.OPENCLAUDE_CONFIG_DIR ?? ''}\0${process.env.CLAUDE_CONFIG_DIR ?? ''}`,
+  { cache: getDefaultClaudeConfigHomeDir.cache },
 )
 
 export function getTeamsDir(): string {

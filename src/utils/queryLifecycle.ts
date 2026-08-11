@@ -1,3 +1,5 @@
+import { normalizeAbortReason } from './abortReasons.js'
+
 export type QueryTerminalReason =
   | 'ok'
   | 'query-timeout'
@@ -61,9 +63,34 @@ export type QueryGuardTimeoutInfo = {
   generation: number
   reason: QueryGuardTimeoutReason
   timeoutMs: number
+  /** Monotonic milliseconds since query start; do not compare with context.startedAt. */
   elapsedMs: number
   context: QueryLifecycleContext
   activeOperations: QueryActiveOperationSnapshot
+}
+
+export function getQueryTerminalReason(
+  signal: Pick<AbortSignal, 'aborted' | 'reason'>,
+  didThrow: boolean,
+): QueryTerminalReason {
+  if (!signal.aborted) return didThrow ? 'unknown' : 'ok'
+  switch (normalizeAbortReason(signal.reason)) {
+    case 'query-timeout':
+      return 'query-timeout'
+    case 'hard-max-query-timeout':
+      return 'hard-max-query-timeout'
+    case 'user-abort':
+    case 'interrupt':
+      return 'user-abort'
+    case 'background':
+    case 'parent-ended':
+    case 'side-task-cancelled':
+    case 'agent-summary-superseded':
+    case 'memory-extraction-superseded':
+      return 'parent-ended'
+    default:
+      return 'unknown'
+  }
 }
 
 export function formatQueryLifecycleAbortSignalReason(reason: string): string {
@@ -136,6 +163,11 @@ export class QueryLifecycleOperationTracker {
   }
 
   startToolUse(toolUse: QueryActiveToolUse): void {
+    this.toolUses.set(toolUse.toolUseId, toSafeToolUseSnapshot(toolUse))
+  }
+
+  updateToolUse(toolUse: QueryActiveToolUse): void {
+    if (!this.toolUses.has(toolUse.toolUseId)) return
     this.toolUses.set(toolUse.toolUseId, toSafeToolUseSnapshot(toolUse))
   }
 

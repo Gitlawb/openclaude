@@ -9,6 +9,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const braveProvider: SearchProvider = {
   name: 'brave',
@@ -24,19 +25,18 @@ export const braveProvider: SearchProvider = {
     url.searchParams.set('q', input.query)
     url.searchParams.set('count', '15')
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        'X-Subscription-Token': process.env.BRAVE_API_KEY!,
-        Accept: 'application/json',
+    const data = await fetchJsonWithWebSearchTimeout(
+      url.toString(),
+      {
+        headers: {
+          'X-Subscription-Token': process.env.BRAVE_API_KEY!,
+          Accept: 'application/json',
+        },
       },
       signal,
-    })
+      { providerName: 'Brave' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Brave search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const hits = (data.web?.results ?? []).map((r: any) => ({
       title: r.title ?? '',
       url: r.url ?? '',

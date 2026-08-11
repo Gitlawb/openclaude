@@ -36,6 +36,7 @@ import { launchRepl } from './replLauncher.js';
 import { refreshGrowthBookAfterAuthChange } from './services/analytics/growthbook.js';
 import { fetchBootstrapData } from './services/api/bootstrap.js';
 import { refreshStartupDiscoveryForActiveRoute } from './integrations/discoveryService.js';
+import { MAX_AMOUNT_USD_MINOR, MIN_AMOUNT_USD_MINOR } from './integrations/aimlapi/config.js';
 import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { type DownloadResult, downloadSessionFiles, type FilesApiConfig, parseFileSpecs } from './services/api/filesApi.js';
 import { prefetchPassesEligibility } from './services/api/referral.js';
@@ -45,6 +46,7 @@ import { isPolicyAllowed, loadPolicyLimits, refreshPolicyLimits, waitForPolicyLi
 import { loadRemoteManagedSettings, refreshRemoteManagedSettings } from './services/remoteManagedSettings/index.js';
 import type { ToolInputJSONSchema } from './Tool.js';
 import { createSyntheticOutputTool, isSyntheticOutputToolEnabled } from './tools/SyntheticOutputTool/SyntheticOutputTool.js';
+import { registerTaskReportCommand } from './cli/commands/taskReport.js';
 import { getTools } from './tools.js';
 import { canUserConfigureAdvisor, getInitialAdvisorSetting, isAdvisorEnabled, isValidAdvisorModel, modelSupportsAdvisor } from './utils/advisor.js';
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js';
@@ -52,10 +54,11 @@ import { count, uniq } from './utils/array.js';
 import { getSubscriptionType, isClaudeAISubscriber, prefetchAwsCredentialsAndBedRockInfoIfSafe, prefetchGcpCredentialsIfSafe, validateForceLoginOrg } from './utils/auth.js';
 import { checkHasTrustDialogAccepted, getGlobalConfig, getRemoteControlAtStartup, isAutoUpdaterDisabled, saveGlobalConfig } from './utils/config.js';
 import { seedEarlyInput, stopCapturingEarlyInput } from './utils/earlyInput.js';
-import { getInitialEffortSetting, parseEffortValue } from './utils/effort.js';
+import { clampUltracodeEffort, getInitialEffortSetting, parseEffortValue } from './utils/effort.js';
 import { getInitialFastModeSetting, isFastModeEnabled, prefetchFastModeStatus, resolveFastModeStatusFromCache } from './utils/fastMode.js';
 import { applyConfigEnvironmentVariables } from './utils/managedEnv.js';
 import { createSystemMessage, createUserMessage } from './utils/messages.js';
+import { isFirstPartyAnthropicBaseUrl } from './utils/model/providers.js';
 import { getPlatform } from './utils/platform.js';
 import { getBaseRenderOptions } from './utils/renderOptions.js';
 import { getSessionIngressAuthToken } from './utils/sessionIngressAuth.js';
@@ -120,6 +123,7 @@ import { getModelDeprecationWarning } from './utils/model/deprecation.js';
 import { getDefaultMainLoopModel, getUserSpecifiedModelSetting, normalizeModelStringForAPI, parseUserSpecifiedModel } from './utils/model/model.js';
 import { ensureModelStringsInitialized } from './utils/model/modelStrings.js';
 import { PERMISSION_MODES } from './utils/permissions/PermissionMode.js';
+import { MAX_TURNS_CLI_DESCRIPTION, parseMaxTurnsCommanderArgument } from './utils/replMaxTurns.js';
 import { checkAndDisableBypassPermissions, getAutoModeEnabledStateIfCached, initializeToolPermissionContext, initialPermissionModeFromCLI, isDefaultPermissionModeAuto, parseToolListFromCLI, stripDangerousPermissionsForAutoMode, verifyAutoModeGateAccess } from './utils/permissions/permissionSetup.js';
 import { cleanupOrphanedPluginVersionsInBackground } from './utils/plugins/cacheUtils.js';
 import { initializeVersionedPlugins } from './utils/plugins/installedPluginsManager.js';
@@ -585,24 +589,22 @@ export async function main() {
         parseConnectUrl
       } = await import('./server/parseConnectUrl.js');
       const parsed = parseConnectUrl(ccUrl);
-      _pendingConnect.dangerouslySkipPermissions = rawCliArgs.includes('--dangerously-skip-permissions');
+      _pendingConnect.dangerouslySkipPermissions = rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo');
       if (rawCliArgs.includes('-p') || rawCliArgs.includes('--print')) {
-        // Headless: rewrite to internal `open` subcommand
-        const stripped = rawCliArgs.filter((_, i) => i !== ccIdx);
-        const dspIdx = stripped.indexOf('--dangerously-skip-permissions');
-        if (dspIdx !== -1) {
-          stripped.splice(dspIdx, 1);
-        }
+        // Headless: rewrite to internal `open` subcommand. Strip both the
+        // canonical flag and its alias — the `open` stub does not register
+        // either, and passing both would leave one behind as an unknown option.
+        const stripped = rawCliArgs
+          .filter((_, i) => i !== ccIdx)
+          .filter(arg => arg !== '--dangerously-skip-permissions' && arg !== '--yolo');
         process.argv = [process.argv[0]!, process.argv[1]!, 'open', ccUrl, ...stripped];
       } else {
-        // Interactive: strip cc:// URL and flags, run main command
+        // Interactive: strip cc:// URL and both bypass spellings, run main command
         _pendingConnect.url = parsed.serverUrl;
         _pendingConnect.authToken = parsed.authToken;
-        const stripped = rawCliArgs.filter((_, i) => i !== ccIdx);
-        const dspIdx = stripped.indexOf('--dangerously-skip-permissions');
-        if (dspIdx !== -1) {
-          stripped.splice(dspIdx, 1);
-        }
+        const stripped = rawCliArgs
+          .filter((_, i) => i !== ccIdx)
+          .filter(arg => arg !== '--dangerously-skip-permissions' && arg !== '--yolo');
         process.argv = [process.argv[0]!, process.argv[1]!, ...stripped];
       }
     }
@@ -684,10 +686,14 @@ export async function main() {
         _pendingSSH.local = true;
         rawCliArgs.splice(localIdx, 1);
       }
-      const dspIdx = rawCliArgs.indexOf('--dangerously-skip-permissions');
-      if (dspIdx !== -1) {
-        _pendingSSH.dangerouslySkipPermissions = true;
-        rawCliArgs.splice(dspIdx, 1);
+      // Remove both bypass spellings from the forwarded argv; the remote state
+      // is carried by _pendingSSH.dangerouslySkipPermissions, not by a flag.
+      for (let i = rawCliArgs.length - 1; i >= 0; i -= 1) {
+        const arg = rawCliArgs[i];
+        if (arg === '--dangerously-skip-permissions' || arg === '--yolo') {
+          _pendingSSH.dangerouslySkipPermissions = true;
+          rawCliArgs.splice(i, 1);
+        }
       }
       const pmIdx = rawCliArgs.indexOf('--permission-mode');
       if (pmIdx !== -1 && rawCliArgs[pmIdx + 1] && !rawCliArgs[pmIdx + 1]!.startsWith('-')) {
@@ -942,7 +948,9 @@ async function run(): Promise<CommanderCommand> {
     } catch (error) {
       throw new InvalidArgumentError(errorMessage(error));
     }
-  })).option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.', () => true).addOption(new Option('--init', 'Run Setup hooks with init trigger, then continue').hideHelp()).addOption(new Option('--init-only', 'Run Setup and SessionStart:startup hooks, then exit').hideHelp()).addOption(new Option('--maintenance', 'Run Setup hooks with maintenance trigger, then continue').hideHelp()).addOption(new Option('--output-format <format>', 'Output format (only works with --print): "text" (default), "json" (single result), or "stream-json" (realtime streaming)').choices(['text', 'json', 'stream-json'])).addOption(new Option('--json-schema <schema>', 'JSON Schema for structured output validation. ' + 'Example: {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}').argParser(String)).option('--include-hook-events', 'Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)', () => true).option('--include-partial-messages', 'Include partial message chunks as they arrive (only works with --print and --output-format=stream-json)', () => true).addOption(new Option('--input-format <format>', 'Input format (only works with --print): "text" (default), or "stream-json" (realtime streaming input)').choices(['text', 'stream-json'])).option('--mcp-debug', '[DEPRECATED. Use --debug instead] Enable MCP debug mode (shows MCP server errors)', () => true).option('--dangerously-skip-permissions', 'Bypass all permission checks. Recommended only for sandboxes with no internet access.', () => true).option('--allow-dangerously-skip-permissions', 'Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.', () => true).addOption(new Option('--thinking <mode>', 'Thinking mode: enabled (equivalent to adaptive), disabled').choices(['enabled', 'adaptive', 'disabled']).hideHelp()).addOption(new Option('--max-thinking-tokens <tokens>', '[DEPRECATED. Use --thinking instead for newer models] Maximum number of thinking tokens (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-turns <turns>', 'Maximum number of agentic turns in non-interactive mode. This will early exit the conversation after the specified number of turns. (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-budget-usd <amount>', 'Maximum dollar amount to spend on API calls (only works with --print)').argParser(value => {
+  })).option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery. Sets CLAUDE_CODE_SIMPLE=1. Anthropic auth is strictly ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read). 3P providers (Bedrock/Vertex/Foundry) use their own credentials. Skills still resolve via /skill-name. Explicitly provide context via: --system-prompt[-file], --append-system-prompt[-file], --add-dir (CLAUDE.md dirs), --mcp-config, --settings, --agents, --plugin-dir.', () => true).addOption(new Option('--init', 'Run Setup hooks with init trigger, then continue').hideHelp()).addOption(new Option('--init-only', 'Run Setup and SessionStart:startup hooks, then exit').hideHelp()).addOption(new Option('--maintenance', 'Run Setup hooks with maintenance trigger, then continue').hideHelp()).addOption(new Option('--output-format <format>', 'Output format (only works with --print): "text" (default), "json" (single result), or "stream-json" (realtime streaming)').choices(['text', 'json', 'stream-json'])).addOption(new Option('--json-schema <schema>', 'JSON Schema for structured output validation. ' + 'Example: {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}').argParser(String)).option('--include-hook-events', 'Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)', () => true).option('--include-partial-messages', 'Include partial message chunks as they arrive (only works with --print and --output-format=stream-json)', () => true).addOption(new Option('--input-format <format>', 'Input format (only works with --print): "text" (default), or "stream-json" (realtime streaming input)').choices(['text', 'stream-json'])).option('--mcp-debug', '[DEPRECATED. Use --debug instead] Enable MCP debug mode (shows MCP server errors)', () => true).option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks. Recommended only for sandboxes with no internet access.', () => true).option('--allow-dangerously-skip-permissions', 'Enable bypassing all permission checks as an option, without it being enabled by default. Recommended only for sandboxes with no internet access.', () => true).addOption(new Option('--thinking <mode>', 'Thinking mode: enabled (equivalent to adaptive), disabled').choices(['enabled', 'adaptive', 'disabled']).hideHelp()).addOption(new Option('--max-thinking-tokens <tokens>', '[DEPRECATED. Use --thinking instead for newer models] Maximum number of thinking tokens (only works with --print)').argParser(Number).hideHelp()).addOption(new Option('--max-turns <turns>', MAX_TURNS_CLI_DESCRIPTION).argParser(value => {
+    return parseMaxTurnsCommanderArgument(value);
+  })).addOption(new Option('--max-budget-usd <amount>', 'Maximum dollar amount to spend on API calls (only works with --print)').argParser(value => {
     const amount = Number(value);
     if (isNaN(amount) || amount <= 0) {
       throw new Error('--max-budget-usd must be a positive number greater than 0');
@@ -963,9 +971,9 @@ async function run(): Promise<CommanderCommand> {
     return Number.isFinite(n) ? n : undefined;
   }).hideHelp()).option('--from-pr [value]', 'Resume a session linked to a PR by PR number/URL, or open interactive picker with optional search term', value => value || true).option('--no-session-persistence', 'Disable session persistence - sessions will not be saved to disk and cannot be resumed (only works with --print)').addOption(new Option('--resume-session-at <message id>', 'When resuming, only messages up to and including the assistant message with <message.id> (use with --resume in print mode)').argParser(String).hideHelp()).addOption(new Option('--rewind-files <user-message-id>', 'Restore files to state at the specified user message and exit (requires --resume)').hideHelp())
   // @[MODEL LAUNCH]: Update the example model ID in the --model help text.
-  .option('--model <model>', `Model for the current session. Provide an alias for the latest model (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-sonnet-4-6').`).option('--provider <provider>', `AI provider to use (anthropic, openai, gemini, github, bedrock, vertex, ollama). Reads API keys from environment variables.`).addOption(new Option('--effort <level>', `Effort level for the current session (low, medium, high, xhigh, max)`).argParser((rawValue: string) => {
+  .option('--model <model>', `Model for the current session. Provide an alias for the latest model (e.g. 'sonnet' or 'opus') or a model's full name (e.g. 'claude-sonnet-4-6').`).option('--provider <provider>', `AI provider to use (anthropic, openai, gemini, github, bedrock, vertex, ollama). Reads API keys from environment variables.`).addOption(new Option('--effort <level>', `Effort level for the current session (low, medium, high, xhigh, max, ultracode)`).argParser((rawValue: string) => {
     const value = rawValue.toLowerCase();
-    const allowed = ['low', 'medium', 'high', 'xhigh', 'max'];
+    const allowed = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'];
     if (!allowed.includes(value)) {
       throw new InvalidArgumentError(`It must be one of: ${allowed.join(', ')}`);
     }
@@ -1284,10 +1292,12 @@ async function run(): Promise<CommanderCommand> {
       const fileSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID || getSessionId();
       const files = parseFileSpecs(fileSpecs);
       if (files.length > 0) {
-        // Use ANTHROPIC_BASE_URL if set (by EnvManager), otherwise use OAuth config
-        // This ensures consistency with session ingress API in all environments
+        // Session ingress credentials are only valid for the first-party Files API.
+        // A custom Anthropic endpoint must never receive this bearer token.
         const config: FilesApiConfig = {
-          baseUrl: process.env.ANTHROPIC_BASE_URL || getOauthConfig().BASE_API_URL,
+          baseUrl: isFirstPartyAnthropicBaseUrl()
+            ? process.env.ANTHROPIC_BASE_URL || getOauthConfig().BASE_API_URL
+            : getOauthConfig().BASE_API_URL,
           oauthToken: sessionToken,
           sessionId: fileSessionId
         };
@@ -1457,7 +1467,7 @@ async function run(): Promise<CommanderCommand> {
         }
         if (reservedNameError) {
           // stderr+exit(1) — a throw here becomes a silent unhandled
-          // rejection in stream-json mode (void main() in cli.tsx).
+          // rejection in stream-json mode (await main() in cli.tsx).
           process.stderr.write(`Error: ${reservedNameError}\n`);
           process.exit(1);
         }
@@ -2578,7 +2588,7 @@ async function run(): Promise<CommanderCommand> {
           tools: mcpTools
         },
         toolPermissionContext,
-        effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
+        effortValue: clampUltracodeEffort(parseEffortValue(options.effort) ?? getInitialEffortSetting(), effectiveModel ?? resolvedInitialModel),
         ...(isFastModeEnabled() && {
           fastMode: getInitialFastModeSetting(effectiveModel ?? null)
         }),
@@ -2991,7 +3001,7 @@ async function run(): Promise<CommanderCommand> {
           content: String(inputPrompt)
         })
       } : null,
-      effortValue: parseEffortValue(options.effort) ?? getInitialEffortSetting(),
+      effortValue: clampUltracodeEffort(parseEffortValue(options.effort) ?? getInitialEffortSetting(), effectiveModel ?? resolvedInitialModel),
       activeOverlays: new Set<string>(),
       fastMode: getInitialFastModeSetting(resolvedInitialModel),
       ...(isAdvisorEnabled() && advisorModel && {
@@ -3043,7 +3053,9 @@ async function run(): Promise<CommanderCommand> {
       strictMcpConfig,
       systemPrompt,
       appendSystemPrompt,
-      thinkingConfig
+      thinkingConfig,
+      // Interactive REPL default is 50 via resolveReplMaxTurns; CLI wins over env.
+      maxTurns: options.maxTurns,
     };
 
     // Shared context for processResumedConversation calls
@@ -3144,7 +3156,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         directConnectConfig,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (feature('SSH_REMOTE') && _pendingSSH?.host) {
@@ -3210,7 +3223,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         sshSession,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (feature('KAIROS') && _pendingAssistantChat && (_pendingAssistantChat.sessionId || _pendingAssistantChat.discover)) {
@@ -3306,7 +3320,8 @@ async function run(): Promise<CommanderCommand> {
         mainThreadAgentDefinition,
         disableSlashCommands,
         remoteSessionConfig,
-        thinkingConfig
+        thinkingConfig,
+        maxTurns: options.maxTurns,
       }, renderAndRun);
       return;
     } else if (options.resume || options.fromPr || teleport || remote !== null) {
@@ -3455,7 +3470,8 @@ async function run(): Promise<CommanderCommand> {
           mainThreadAgentDefinition,
           disableSlashCommands,
           remoteSessionConfig,
-          thinkingConfig
+          thinkingConfig,
+          maxTurns: options.maxTurns,
         }, renderAndRun);
         return;
       } else if (teleport) {
@@ -3898,7 +3914,7 @@ async function run(): Promise<CommanderCommand> {
   // this action it means the argv rewrite didn't fire (e.g. user ran
   // `claude ssh` with no host) — just print usage.
   if (feature('SSH_REMOTE')) {
-    program.command('ssh <host> [dir]').description('Run OpenClaude on a remote host over SSH. Deploys the binary and ' + 'tunnels API auth back through your local machine — no remote setup needed.').option('--permission-mode <mode>', 'Permission mode for the remote session').option('--dangerously-skip-permissions', 'Skip all permission prompts on the remote (dangerous)').option('--local', 'e2e test mode — spawn the child CLI locally (skip ssh/deploy). ' + 'Exercises the auth proxy and unix-socket plumbing without a remote host.').action(async () => {
+    program.command('ssh <host> [dir]').description('Run OpenClaude on a remote host over SSH. Deploys the binary and ' + 'tunnels API auth back through your local machine — no remote setup needed.').option('--permission-mode <mode>', 'Permission mode for the remote session').option('--yolo, --dangerously-skip-permissions', 'Skip all permission prompts on the remote (dangerous)').option('--local', 'e2e test mode — spawn the child CLI locally (skip ssh/deploy). ' + 'Exercises the auth proxy and unix-socket plumbing without a remote host.').action(async () => {
       // Argv rewriting in main() should have consumed `ssh <host>` before
       // commander runs. Reaching here means host was missing or the
       // rewrite predicate didn't match.
@@ -4007,6 +4023,36 @@ async function run(): Promise<CommanderCommand> {
     const { xaiStatus } = await import('./cli/handlers/xaiAuth.js');
     await xaiStatus();
   });
+
+  // AI/ML API (aimlapi.com) — log in, open the co-branded top-up page, and
+  // auto-configure the provider with the issued key.
+  const aimlapi = program.command('aimlapi').description('AI/ML API (aimlapi.com) — top up balance and configure the provider').configureHelp(createSortedHelpConfig());
+  aimlapi.command('topup')
+    .description("Log in, open AI/ML API top-up, then set the issued key as OpenClaude's provider")
+    .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
+    .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
+    .addOption(new Option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)').choices(['card', 'crypto']).default('card'))
+    .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
+    .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
+    .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
+    .action(async (opts: {
+      email?: string;
+      amount?: string;
+      method?: string;
+      model?: string;
+      partnerId?: string;
+      open?: boolean;
+    }) => {
+      const { aimlapiTopup } = await import('./cli/handlers/aimlapi.js');
+      await aimlapiTopup({
+        email: opts.email,
+        amountUsd: opts.amount,
+        method: opts.method === 'crypto' ? 'crypto' : 'card',
+        model: opts.model,
+        partnerId: opts.partnerId,
+        noOpen: opts.open === false,
+      });
+    });
 
   /**
    * Helper function to handle marketplace command errors consistently.
@@ -4155,6 +4201,37 @@ async function run(): Promise<CommanderCommand> {
     await agentsHandler();
     process.exit(0);
   });
+
+  const runSkillsCommanderAction = async (action: (handlers: typeof import('./cli/handlers/skills.js')) => Promise<void>) => {
+    const [skillsHandlers, {
+      runSkillsCliAction
+    }] = await Promise.all([import('./cli/handlers/skills.js'), import('./cli/handlers/skillsCli.js')]);
+    await runSkillsCliAction(() => action(skillsHandlers));
+    process.exit(process.exitCode ?? 0);
+  };
+  const skillsCmd = program.command('skills').description('List, inspect, validate, and manage OpenClaude skills').configureHelp(createSortedHelpConfig());
+  skillsCmd.command('list').description('List configured skills').option('--json', 'Output as JSON').action(async (options: {
+    json?: boolean;
+  }) => runSkillsCommanderAction(({ skillsListHandler }) => skillsListHandler(options)));
+  skillsCmd.command('show <name>').description('Show details for a configured skill').action(async (name: string) => {
+    await runSkillsCommanderAction(({ skillsShowHandler }) => skillsShowHandler(name));
+  });
+  skillsCmd.command('validate <path>').description('Validate a local skill directory').action(async (path: string) => {
+    await runSkillsCommanderAction(({ skillsValidateHandler }) => skillsValidateHandler(path));
+  });
+  skillsCmd.command('install <idOrUrlOrPath>').description('Install a skill from the registry, URL, or local path').option('--registry <urlOrPath>', 'Registry JSON URL/path for registry ID installs').option('--sha256 <hash>', 'Expected SHA-256 digest for direct HTTP(S) URL installs').option('--global', 'Install to the user-global skills directory').option('--force', 'Overwrite an existing installed skill').action(async (idOrUrlOrPath: string, options: {
+    registry?: string;
+    sha256?: string;
+    global?: boolean;
+    force?: boolean;
+  }) => {
+    await runSkillsCommanderAction(({ skillsInstallHandler }) => skillsInstallHandler(idOrUrlOrPath, options));
+  });
+  skillsCmd.command('remove <name>').description('Remove a local project skill').option('--global', 'Remove from the user-global skills directory').action(async (name: string, options: {
+    global?: boolean;
+  }) => {
+    await runSkillsCommanderAction(({ skillsRemoveHandler }) => skillsRemoveHandler(name, options));
+  });
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Skip when tengu_auto_mode_config.enabled === 'disabled' (circuit breaker).
     // Reads from disk cache — GrowthBook isn't initialized at registration time.
@@ -4215,52 +4292,7 @@ async function run(): Promise<CommanderCommand> {
     });
   }
 
-  program
-    .command('report')
-    .description(
-      'Generate a deterministic JSON task report for an OpenClaude session',
-    )
-    .option('--json', 'Print JSON output')
-    .option('--transcript <file>', 'Path to a session JSONL transcript')
-    .option(
-      '--session <id>',
-      'Session ID to report (defaults to latest session in the current project)',
-    )
-    .option('--out <file>', 'Write the report to a file')
-    .action(async (options: {
-      json?: boolean;
-      transcript?: string;
-      session?: string;
-      out?: string;
-    }) => {
-      const {
-        taskReportHandler,
-        printTaskReportError,
-      } = await import('./cli/handlers/taskReport.js');
-      try {
-        if (options.json !== true) {
-          throw new Error(
-            'Task reports currently support JSON output only. Pass --json.',
-          );
-        }
-        if (options.transcript && options.session) {
-          throw new Error(
-            'Pass either --transcript <file> or --session <id>, not both.',
-          );
-        }
-        await taskReportHandler({
-          format: 'json',
-          transcriptPath: options.transcript ?? null,
-          sessionId: options.session ?? null,
-          outFile: options.out ?? null,
-          cwd: process.cwd(),
-        });
-        process.exit(0);
-      } catch (error) {
-        await printTaskReportError(error);
-        process.exit(1);
-      }
-    });
+  registerTaskReportCommand(program);
 
   // Doctor command - check installation health
   const doctorCommand = program

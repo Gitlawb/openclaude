@@ -7,7 +7,6 @@ import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import {
   getClaudeConfigHomeDir,
   isEnvTruthy,
-  migrateLegacyClaudeConfigHome,
   resolveConfigDirEnv,
 } from './envUtils.js'
 import { findExecutable } from './findExecutable.js'
@@ -20,22 +19,11 @@ export function resolveGlobalClaudeFile(options: {
   configDirEnv?: string
   homeDir?: string
   oauthSuffix?: string
-  migrationSucceeded?: boolean
-  existsSync: (path: string) => boolean
 }): string {
   const oauthSuffix = options.oauthSuffix ?? ''
   const configDir = options.configDirEnv || options.homeDir || homedir()
-  const hasExplicitConfigDir = Boolean(options.configDirEnv)
   const newFilename = `.openclaude${oauthSuffix}.json`
-  const legacyFilename = `.claude${oauthSuffix}.json`
 
-  if (
-    (hasExplicitConfigDir || options.migrationSucceeded === false) &&
-    !options.existsSync(join(configDir, newFilename)) &&
-    options.existsSync(join(configDir, legacyFilename))
-  ) {
-    return join(configDir, legacyFilename)
-  }
   return join(configDir, newFilename)
 }
 
@@ -53,25 +41,13 @@ export const getGlobalClaudeFile = memoize((): string => {
   const oauthSuffix = fileSuffixForOauthConfig()
   const configDirEnv = resolveConfigDirEnv({
     openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
-    legacyConfigDir: process.env.CLAUDE_CONFIG_DIR,
   })
   const configDir = configDirEnv || homedir()
-  const hasExplicitConfigDir = Boolean(configDirEnv)
-  let migrationSucceeded = true
 
-  if (!hasExplicitConfigDir) {
-    migrationSucceeded = migrateLegacyClaudeConfigHome({ homeDir: configDir })
-  }
-
-  // Default installs hard-cut to .openclaude.json after the migration above.
-  // Explicit config-dir users keep the legacy filename fallback because
-  // either env var is an opt-out for automatic migration.
   return resolveGlobalClaudeFile({
     configDirEnv,
     homeDir: configDir,
     oauthSuffix,
-    migrationSucceeded,
-    existsSync: path => getFsImplementation().existsSync(path),
   })
 })
 
@@ -190,16 +166,21 @@ export const JETBRAINS_IDES = [
 
 // Detect terminal type with fallbacks for all platforms
 function detectTerminal(): string | null {
+  const askpassMain = process.env.VSCODE_GIT_ASKPASS_MAIN?.toLowerCase()
   if (process.env.CURSOR_TRACE_ID) return 'cursor'
   // Cursor and Windsurf under WSL have TERM_PROGRAM=vscode
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('cursor')) {
+  if (askpassMain?.includes('cursor')) {
     return 'cursor'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('windsurf')) {
+  if (askpassMain?.includes('windsurf')) {
     return 'windsurf'
   }
-  if (process.env.VSCODE_GIT_ASKPASS_MAIN?.includes('antigravity')) {
-    return 'antigravity'
+  if (
+    askpassMain?.includes('antigravity') ||
+    askpassMain?.includes('agy') ||
+    process.env.TERM_PROGRAM === 'agy'
+  ) {
+    return 'agy'
   }
   const bundleId = process.env.__CFBundleIdentifier?.toLowerCase()
   if (bundleId?.includes('vscodium')) return 'codium'

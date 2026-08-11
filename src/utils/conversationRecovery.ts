@@ -252,6 +252,35 @@ function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
   )
 }
 
+/**
+ * Strip protected-thinking blocks from history only when the active provider
+ * tolerates it. Mirrors the gate used during session-resume deserialization:
+ * strip for non-preserve third-party providers, leave Anthropic-native and
+ * preserve-reasoning providers (DeepSeek/Kimi/Z.AI GLM — which 400 on a
+ * stripped block, issue #957) untouched.
+ *
+ * Exposed for callers that rewrite history across a model change (e.g. smart
+ * routing's per-turn model swap), so a model-bound thinking signature is never
+ * replayed to a different model without re-creating the preserve-reasoning 400.
+ */
+export function stripThinkingBlocksIfProviderAllows(
+  messages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const provider = getAPIProvider()
+  const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+    processEnv: process.env,
+    model: process.env.OPENAI_MODEL,
+    providerCategory: provider as NonNullable<
+      Parameters<typeof usesAnthropicNativeMessageFormat>[0]
+    >['providerCategory'],
+  })
+  const isThirdPartyProvider = provider !== 'foundry' && !isAnthropicNativeTransport
+  if (isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()) {
+    return stripThinkingBlocks(messages)
+  }
+  return messages
+}
+
 function parsePrIdentifier(value: string): number | null {
   const directNumber = parseInt(value, 10)
   if (!isNaN(directNumber) && directNumber > 0) {
@@ -347,22 +376,7 @@ export function deserializeMessagesWithInterruptDetection(
     // outgoing OpenAI-format message. Stripping the block leaves the shim with
     // no reasoning text to attach, and the provider 400s with
     // "reasoning_content in the thinking mode must be passed back" (issue #957).
-    const provider = getAPIProvider()
-    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
-      processEnv: process.env,
-      model: process.env.OPENAI_MODEL,
-      // runtimeMetadata's inline providerCategory union predates the newer
-      // 'xai'/'xiaomi-mimo' categories; they take the same third-party path.
-      providerCategory: provider as NonNullable<
-        Parameters<typeof usesAnthropicNativeMessageFormat>[0]
-      >['providerCategory'],
-    })
-    const isThirdPartyProvider =
-      provider !== 'foundry' && !isAnthropicNativeTransport
-    const thinkingStripped =
-      isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()
-        ? stripThinkingBlocks(filteredThinking)
-        : filteredThinking
+    const thinkingStripped = stripThinkingBlocksIfProviderAllows(filteredThinking)
 
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.

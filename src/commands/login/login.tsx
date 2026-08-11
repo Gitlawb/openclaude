@@ -1,7 +1,9 @@
 import { feature } from 'bun:bundle'
 import * as React from 'react'
 
-import { resetCostState } from '../../bootstrap/state.js'
+// Use the cost-tracker wrapper (not the raw bootstrap reset) so the routing
+// tally is cleared alongside cost counters on an account switch.
+import { resetCostState } from '../../cost-tracker.js'
 import {
   clearTrustedDeviceToken,
   enrollTrustedDevice,

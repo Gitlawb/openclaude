@@ -7,11 +7,19 @@ import {
   mcpInfoFromString,
 } from '../../services/mcp/mcpStringUtils.js'
 import type { Tool, ToolPermissionContext, ToolUseContext } from '../../Tool.js'
-import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
+import {
+  AGENT_TOOL_NAME,
+  ONE_SHOT_BUILTIN_AGENT_TYPES,
+} from '../../tools/AgentTool/constants.js'
 import { shouldUseSandbox } from '../../tools/BashTool/shouldUseSandbox.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
+import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../../tools/ExitPlanModeTool/constants.js'
+import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
+import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/constants.js'
+import { isPowerShellCommandReadOnly } from '../../tools/PowerShellTool/readOnlyValidation.js'
 import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
 import { REPL_TOOL_NAME } from '../../tools/REPLTool/constants.js'
+import { SEND_MESSAGE_TOOL_NAME } from '../../tools/SendMessageTool/constants.js'
 import type { AssistantMessage } from '../../types/message.js'
 import { extractOutputRedirections } from '../bash/commands.js'
 import { logForDebugging } from '../debug.js'
@@ -43,6 +51,7 @@ import type {
 import {
   applyPermissionUpdate,
   applyPermissionUpdates,
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import type {
@@ -74,6 +83,15 @@ function applyPermissionUpdatesToLiveContext(
   const { applyPermissionUpdatesToLiveContext: applyLiveUpdates } =
     require('./permissionSetup.js') as typeof import('./permissionSetup.js')
   return applyLiveUpdates(context, updates)
+}
+
+function isActivePlanFileForContext(
+  path: string,
+  agentId: ToolUseContext['agentId'],
+): boolean {
+  const { isActiveSessionPlanFile } =
+    require('./filesystem.js') as typeof import('./filesystem.js')
+  return isActiveSessionPlanFile(path, agentId)
 }
 
 import {
@@ -418,6 +436,14 @@ async function runPermissionRequestHooksForHeadlessAgent(
   permissionMode: string | undefined,
   suggestions: PermissionUpdate[] | undefined,
 ): Promise<PermissionDecision | null> {
+  const enforcePlanMode =
+    context.getAppState().toolPermissionContext.mode === 'plan'
+  const candidateRuleDecision = enforcePlanMode
+    ? await checkRuleBasedPermissions(tool, input, context)
+    : null
+  if (candidateRuleDecision?.behavior === 'deny') {
+    return candidateRuleDecision
+  }
   try {
     for await (const hookResult of executePermissionRequestHooks(
       tool.name,
@@ -434,10 +460,42 @@ async function runPermissionRequestHooksForHeadlessAgent(
       const decision = hookResult.permissionRequestResult
       if (decision.behavior === 'allow') {
         const finalInput = decision.updatedInput ?? input
+        const finalPlanMode =
+          enforcePlanMode ||
+          context.getAppState().toolPermissionContext.mode === 'plan'
+        const finalRuleDecision = finalPlanMode
+          ? await checkRuleBasedPermissions(tool, finalInput, context)
+          : null
+        if (finalRuleDecision?.behavior === 'deny') {
+          return finalRuleDecision
+        }
+        const planModeDecision = await checkPlanModePermissions(
+          tool,
+          finalInput,
+          context,
+          enforcePlanMode,
+        )
+        if (planModeDecision) {
+          return planModeDecision
+        }
+        if (
+          finalRuleDecision?.behavior === 'ask' &&
+          !samePermissionAskConstraint(
+            candidateRuleDecision,
+            finalRuleDecision,
+          )
+        ) {
+          return finalRuleDecision
+        }
         // Persist permission updates if provided
-        if (decision.updatedPermissions?.length) {
+        const permissionUpdates = filterPermissionRequestHookUpdates(
+          decision.updatedPermissions ?? [],
+          enforcePlanMode ||
+            context.getAppState().toolPermissionContext.mode === 'plan',
+        )
+        if (permissionUpdates.length) {
           // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = decision.updatedPermissions
+          const updatedPermissions = permissionUpdates
           let updatedContext = context.getAppState().toolPermissionContext
           context.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(
@@ -450,7 +508,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
               toolPermissionContext: updatedContext,
             }
           })
-          persistPermissionUpdates(decision.updatedPermissions)
+          persistPermissionUpdates(permissionUpdates)
         }
         return {
           behavior: 'allow',
@@ -490,7 +548,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
   return null
 }
 
-export const hasPermissionsToUseTool: CanUseToolFn = async (
+const hasPermissionsToUseToolWithModeHandling: CanUseToolFn = async (
   tool,
   input,
   context,
@@ -498,7 +556,6 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   toolUseID,
 ): Promise<PermissionDecision> => {
   const result = await hasPermissionsToUseToolInner(tool, input, context)
-
 
   // Reset consecutive denials on any allowed tool use in auto mode.
   // This ensures that a successful tool use (even one auto-allowed by rules)
@@ -973,6 +1030,38 @@ export const hasPermissionsToUseTool: CanUseToolFn = async (
   return result
 }
 
+export const hasPermissionsToUseTool: CanUseToolFn = async (
+  tool,
+  input,
+  context,
+  assistantMessage,
+  toolUseID,
+): Promise<PermissionDecision> => {
+  const planModeWasActive =
+    context.getAppState().toolPermissionContext.mode === 'plan'
+  const result = await hasPermissionsToUseToolWithModeHandling(
+    tool,
+    input,
+    context,
+    assistantMessage,
+    toolUseID,
+  )
+  if (result.behavior !== 'allow') {
+    return result
+  }
+
+  const finalInput = result.updatedInput ?? input
+  const planModeDecision =
+    await revalidatePlanModePermissionAllowWithRaceGuard(
+      tool,
+      input,
+      finalInput,
+      context,
+      planModeWasActive,
+    )
+  return planModeDecision ?? result
+}
+
 /**
  * Persist denial tracking state. For async subagents with localDenialTracking,
  * mutate the local state in place (since setAppState is a no-op). Otherwise,
@@ -1182,6 +1271,251 @@ export async function checkRuleBasedPermissions(
   return null
 }
 
+export function samePermissionAskConstraint(
+  candidate: Awaited<ReturnType<typeof checkRuleBasedPermissions>>,
+  final: PermissionAskDecision,
+): boolean {
+  if (candidate?.behavior !== 'ask') {
+    return false
+  }
+
+  const candidateReason = candidate.decisionReason
+  const finalReason = final.decisionReason
+  if (candidateReason?.type === 'rule' && finalReason?.type === 'rule') {
+    return (
+      candidateReason.rule.source === finalReason.rule.source &&
+      candidateReason.rule.ruleBehavior === finalReason.rule.ruleBehavior &&
+      candidateReason.rule.ruleValue.toolName ===
+        finalReason.rule.ruleValue.toolName &&
+      candidateReason.rule.ruleValue.ruleContent ===
+        finalReason.rule.ruleValue.ruleContent
+    )
+  }
+
+  return (
+    candidateReason?.type === finalReason?.type &&
+    candidate.message === final.message &&
+    candidate.blockedPath === final.blockedPath
+  )
+}
+
+/**
+ * Revalidates an externally approved input when plan mode is active. The
+ * original ask constraint may be satisfied by the approval, but a rewritten
+ * input cannot introduce a different ask/deny constraint or cross the
+ * mechanical plan-mode boundary.
+ */
+export async function revalidatePlanModePermissionAllow(
+  tool: Tool,
+  originalInput: { [key: string]: unknown },
+  finalInput: { [key: string]: unknown },
+  context: ToolUseContext,
+  planModeWasActive = false,
+): Promise<PermissionDecision | null> {
+  // Some SDK embedders provide a minimal context when no local permission
+  // mode is configured. There is no plan-mode state to enforce in that case.
+  if (typeof context.getAppState !== 'function') {
+    return null
+  }
+  if (
+    !planModeWasActive &&
+    context.getAppState().toolPermissionContext.mode !== 'plan'
+  ) {
+    return null
+  }
+
+  const candidateRuleDecision = await checkRuleBasedPermissions(
+    tool,
+    originalInput,
+    context,
+  )
+  if (candidateRuleDecision?.behavior === 'deny') {
+    return candidateRuleDecision
+  }
+
+  const finalRuleDecision = await checkRuleBasedPermissions(
+    tool,
+    finalInput,
+    context,
+  )
+  if (finalRuleDecision?.behavior === 'deny') {
+    return finalRuleDecision
+  }
+
+  const planModeDecision = await checkPlanModePermissions(
+    tool,
+    finalInput,
+    context,
+    true,
+  )
+  if (planModeDecision) {
+    return planModeDecision
+  }
+
+  if (
+    finalRuleDecision?.behavior === 'ask' &&
+    !samePermissionAskConstraint(candidateRuleDecision, finalRuleDecision)
+  ) {
+    return { ...finalRuleDecision, updatedInput: finalInput }
+  }
+
+  return null
+}
+
+/**
+ * Revalidates an approval and closes the async boundary where plan mode can
+ * become active after the first check has already read the previous mode.
+ */
+export async function revalidatePlanModePermissionAllowWithRaceGuard(
+  tool: Tool,
+  originalInput: { [key: string]: unknown },
+  finalInput: { [key: string]: unknown },
+  context: ToolUseContext,
+  planModeWasActive =
+    typeof context.getAppState === 'function' &&
+    context.getAppState().toolPermissionContext.mode === 'plan',
+): Promise<PermissionDecision | null> {
+  let revalidation = await revalidatePlanModePermissionAllow(
+    tool,
+    originalInput,
+    finalInput,
+    context,
+    planModeWasActive,
+  )
+  const enforcePlanMode =
+    planModeWasActive ||
+    (typeof context.getAppState === 'function' &&
+      context.getAppState().toolPermissionContext.mode === 'plan')
+  if (!revalidation && enforcePlanMode && !planModeWasActive) {
+    revalidation = await revalidatePlanModePermissionAllow(
+      tool,
+      originalInput,
+      finalInput,
+      context,
+      true,
+    )
+  }
+  return revalidation
+}
+
+function planModeDenial(toolName: string): PermissionDenyDecision {
+  return {
+    behavior: 'deny',
+    decisionReason: { type: 'mode', mode: 'plan' },
+    message: `Plan mode is read-only. Exit plan mode before using ${toolName}.`,
+  }
+}
+
+/**
+ * Mechanical plan-mode invariant. A null result means the invocation is
+ * demonstrably read-only (or is the exact active-plan-file exception) and
+ * should continue through the ordinary permission flow.
+ */
+export async function checkPlanModePermissions(
+  tool: Tool,
+  input: { [key: string]: unknown },
+  context: ToolUseContext,
+  planModeWasActive = false,
+): Promise<PermissionDenyDecision | null> {
+  if (
+    !planModeWasActive &&
+    context.getAppState().toolPermissionContext.mode !== 'plan'
+  ) {
+    return null
+  }
+
+  let parsed: ReturnType<Tool['inputSchema']['safeParse']>
+  try {
+    parsed = tool.inputSchema.safeParse(input)
+  } catch (error) {
+    logError(error)
+    return planModeDenial(tool.name)
+  }
+  if (!parsed.success) {
+    return planModeDenial(tool.name)
+  }
+
+  // MCP tools are classified only by their readOnlyHint-backed isReadOnly().
+  // Their server-provided names must never enter trusted built-in exceptions.
+  if (tool.isMcp || tool.mcpInfo !== undefined) {
+    try {
+      return tool.isReadOnly(parsed.data) ? null : planModeDenial(tool.name)
+    } catch (error) {
+      logError(error)
+      return planModeDenial(tool.name)
+    }
+  }
+
+  if (tool.name === EXIT_PLAN_MODE_V2_TOOL_NAME) {
+    return null
+  }
+
+  if (tool.name === SEND_MESSAGE_TOOL_NAME) {
+    return planModeDenial(tool.name)
+  }
+
+  if (tool.name === AGENT_TOOL_NAME) {
+    const agentInput = parsed.data as Record<string, unknown>
+    const rawAgentInput = input as Record<string, unknown>
+    const agentType = agentInput.subagent_type
+    const definition =
+      typeof agentType === 'string'
+        ? context.options.agentDefinitions?.activeAgents?.find(
+            candidate => candidate.agentType === agentType,
+          )
+        : undefined
+    const isSafeOneShot =
+      typeof agentType === 'string' &&
+      ONE_SHOT_BUILTIN_AGENT_TYPES.has(agentType) &&
+      definition?.source === 'built-in'
+    const hasUnsafeWrapperOptions =
+      rawAgentInput.name !== undefined ||
+      rawAgentInput.team_name !== undefined ||
+      rawAgentInput.mode !== undefined ||
+      rawAgentInput.isolation !== undefined ||
+      rawAgentInput.cwd !== undefined ||
+      rawAgentInput.run_in_background === true
+
+    return isSafeOneShot && !hasUnsafeWrapperOptions
+      ? null
+      : planModeDenial(tool.name)
+  }
+
+  if (
+    (tool.name === FILE_EDIT_TOOL_NAME || tool.name === FILE_WRITE_TOOL_NAME) &&
+    typeof (parsed.data as Record<string, unknown>).file_path === 'string' &&
+    isActivePlanFileForContext(
+      (parsed.data as Record<string, string>).file_path,
+      context.agentId,
+    )
+  ) {
+    return null
+  }
+
+  // Transparent wrappers execute operations other than the action described
+  // by their own input. Their inner calls remain guarded separately, but the
+  // wrapper itself is not proof of a read-only invocation.
+  if (tool.isTransparentWrapper?.()) {
+    return planModeDenial(tool.name)
+  }
+
+  let isReadOnly = false
+  try {
+    if (tool.name === POWERSHELL_TOOL_NAME) {
+      const command = (parsed.data as Record<string, unknown>).command
+      isReadOnly =
+        typeof command === 'string' &&
+        (await isPowerShellCommandReadOnly(command))
+    } else {
+      isReadOnly = tool.isReadOnly(parsed.data)
+    }
+  } catch (error) {
+    logError(error)
+  }
+
+  return isReadOnly ? null : planModeDenial(tool.name)
+}
+
 async function hasPermissionsToUseToolInner(
   tool: Tool,
   input: { [key: string]: unknown },
@@ -1192,6 +1526,7 @@ async function hasPermissionsToUseToolInner(
   }
 
   let appState = context.getAppState()
+  const enforcePlanMode = appState.toolPermissionContext.mode === 'plan'
   let isFullAccessMode = appState.toolPermissionContext.mode === 'fullAccess'
 
   // 1. Check if the tool is denied
@@ -1210,17 +1545,22 @@ async function hasPermissionsToUseToolInner(
 
   // 1b. Check if the entire tool should always ask for permission
   const askRule = getAskRuleForTool(appState.toolPermissionContext, tool)
+  let canSandboxAutoAllowAskRule = false
   if (askRule) {
     // When autoAllowBashIfSandboxed is on, sandboxed commands skip the ask rule and
     // auto-allow via Bash's checkPermissions. Commands that won't be sandboxed (excluded
     // commands, dangerouslyDisableSandbox) still need to respect the ask rule.
-    const canSandboxAutoAllow =
+    canSandboxAutoAllowAskRule =
       tool.name === BASH_TOOL_NAME &&
       SandboxManager.isSandboxingEnabled() &&
       SandboxManager.isAutoAllowBashIfSandboxedEnabled() &&
       shouldUseSandbox(input)
 
-    if (!canSandboxAutoAllow && !isFullAccessMode) {
+    if (
+      !canSandboxAutoAllowAskRule &&
+      !isFullAccessMode &&
+      appState.toolPermissionContext.mode !== 'plan'
+    ) {
       return {
         behavior: 'ask',
         decisionReason: {
@@ -1253,6 +1593,32 @@ async function hasPermissionsToUseToolInner(
   // 1d. Tool implementation denied permission
   if (toolPermissionResult?.behavior === 'deny') {
     return toolPermissionResult
+  }
+
+  const permissionInput = getUpdatedInputOrFallback(toolPermissionResult, input)
+  const planModeDecision = await checkPlanModePermissions(
+    tool,
+    permissionInput,
+    context,
+    enforcePlanMode,
+  )
+  if (planModeDecision) {
+    return planModeDecision
+  }
+
+  // In plan mode, defer an entire-tool ask rule until after the mechanical
+  // policy has rejected mutations. Read-only invocations still preserve it.
+  if (
+    askRule &&
+    !isFullAccessMode &&
+    (context.getAppState().toolPermissionContext.mode === 'plan' ||
+      !canSandboxAutoAllowAskRule)
+  ) {
+    return {
+      behavior: 'ask',
+      decisionReason: { type: 'rule', rule: askRule },
+      message: createPermissionRequestMessage(tool.name),
+    }
   }
 
   // 1e. Tool requires user interaction even in bypass mode
@@ -1307,12 +1673,9 @@ async function hasPermissionsToUseToolInner(
   appState = context.getAppState()
   // Check if permissions should be bypassed:
   // - Direct bypassPermissions mode
-  // - Plan mode when the user originally started with bypass mode (isBypassPermissionsModeAvailable)
   const shouldBypassPermissions =
     appState.toolPermissionContext.mode === 'bypassPermissions' ||
-    appState.toolPermissionContext.mode === 'fullAccess' ||
-    (appState.toolPermissionContext.mode === 'plan' &&
-      appState.toolPermissionContext.isBypassPermissionsModeAvailable)
+    appState.toolPermissionContext.mode === 'fullAccess'
   if (shouldBypassPermissions) {
     return {
       behavior: 'allow',

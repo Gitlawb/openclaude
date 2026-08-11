@@ -128,3 +128,21 @@ test('maps tool_call_incompatible category markers to model/tool guidance', () =
   expect(text).toContain('rejected tool-calling payloads')
   expect(text).toContain('/model')
 })
+
+test('maps tool_stream_unsupported without promising a retry after failure', () => {
+  const error = APIError.generate(
+    400,
+    undefined,
+    'OpenAI API error 400: tool_stream is unsupported [openai_category=tool_stream_unsupported]',
+    new Headers(),
+  )
+
+  const message = getAssistantMessageFromError(error, 'glm-5.2')
+  const text = getFirstText(message)
+
+  expect(text).toContain('rejected the `tool_stream` parameter')
+  expect(text).toContain('cannot be streamed')
+  expect(text).toContain('switch models')
+  expect(text).toMatch(/(\/model|--model)/)
+  expect(text).not.toContain('Retrying')
+})

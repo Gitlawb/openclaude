@@ -7,6 +7,8 @@
 import type { performance as PerformanceType } from 'perf_hooks'
 import { formatFileSize } from './format.js'
 
+const OPENCLAUDE_PERFORMANCE_PREFIX = 'openclaude:'
+
 // Lazy-load performance API only when profiling is enabled.
 // Shared across all profilers — perf_hooks.performance is a process-wide singleton.
 let performance: typeof PerformanceType | null = null
@@ -21,6 +23,45 @@ export function getPerformance(): typeof PerformanceType {
 
 export function formatMs(ms: number): string {
   return ms.toFixed(3)
+}
+
+function getProfilerPrefix(scope: string): string {
+  return `${OPENCLAUDE_PERFORMANCE_PREFIX}${scope}:`
+}
+
+export function getProfilerMarkName(scope: string, name: string): string {
+  return `${getProfilerPrefix(scope)}${name}`
+}
+
+export function getProfilerDisplayName(scope: string, name: string): string {
+  const prefix = getProfilerPrefix(scope)
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name
+}
+
+export function getProfilerEntries(
+  scope: string,
+  type: 'mark' | 'measure',
+) {
+  const prefix = getProfilerPrefix(scope)
+  return getPerformance()
+    .getEntriesByType(type)
+    .filter(entry => entry.name.startsWith(prefix))
+}
+
+export function clearProfilerEntries(scope: string): void {
+  const perf = getPerformance()
+
+  for (const name of new Set(
+    getProfilerEntries(scope, 'mark').map(entry => entry.name),
+  )) {
+    perf.clearMarks(name)
+  }
+
+  for (const name of new Set(
+    getProfilerEntries(scope, 'measure').map(entry => entry.name),
+  )) {
+    perf.clearMeasures(name)
+  }
 }
 
 /**

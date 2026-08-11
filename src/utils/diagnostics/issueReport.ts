@@ -34,7 +34,7 @@ import {
   redactDiagnosticUrl,
   redactHomePath,
   redactLikelySecrets,
-} from './redaction.js'
+} from '../redaction.js'
 
 export type IssueReportFormat = 'json' | 'markdown'
 

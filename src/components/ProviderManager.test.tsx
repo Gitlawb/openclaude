@@ -12,6 +12,16 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 
+type SettingsModule = typeof import('../utils/settings/settings.js')
+type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
+
+const actualSettingsModule = (await import(
+  `../utils/settings/settings.ts?providerManagerSettingsActual=${Date.now()}-${Math.random()}`
+)) as SettingsModule
+const actualProviderStartupOverridesModule = (await import(
+  `../utils/providerStartupOverrides.ts?providerManagerStartupOverridesActual=${Date.now()}-${Math.random()}`
+)) as ProviderStartupOverridesModule
+
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -20,6 +30,8 @@ const ORIGINAL_ENV = {
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   GH_TOKEN: process.env.GH_TOKEN,
+  AIMLAPI_EMAIL: process.env.AIMLAPI_EMAIL,
+  AIMLAPI_PASSWORD: process.env.AIMLAPI_PASSWORD,
 }
 
 function extractLastFrame(output: string): string {
@@ -102,14 +114,16 @@ async function waitForCondition(
 }
 
 // Provider list is sorted from generated preset metadata by description, with
-// Gitlawb Opengateway pinned first, Codex OAuth injected after DeepSeek, and
-// Custom always pinned last. Keep the target-by-label indirection here so
+// Gitlawb Opengateway pinned first, Anthropic second, Codex OAuth injected
+// after DeepSeek, and the custom endpoints always pinned last. Keep the target-by-label
+// indirection here so
 // these tests survive future list edits without hardcoding raw key counts.
 //
 // Order matches ProviderManager.renderPresetSelection() when
 // canUseCodexOAuth === true (default in mocked tests).
 const PRESET_ORDER = [
   'Gitlawb Opengateway',
+  'aimlapi.com',
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
@@ -117,16 +131,18 @@ const PRESET_ORDER = [
   'Azure OpenAI',
   'Bankr',
   'ClinePass',
+  'Cloudflare Workers AI',
   'DeepSeek',
   'Codex OAuth',
   'xAI OAuth (Grok)',
   'Fireworks AI',
-  'Google Gemini',
+  'Google AI / Gemini',
   'Groq',
   'Hicap',
   'LM Studio',
   'Atomic Chat',
   'Ollama',
+  'LongCat',
   'MiniMax',
   'Mistral AI',
   'Moonshot AI - API',
@@ -143,7 +159,8 @@ const PRESET_ORDER = [
   'Xiaomi MiMo',
   'Xiaomi MiMo (Token Plan)',
   'Z.AI - GLM Coding Plan',
-  'Custom',
+  'Custom (OpenAI-compatible)',
+  'Custom (Anthropic-compatible)',
 ] as const
 
 async function navigateToPreset(
@@ -215,6 +232,17 @@ function mockProviderProfilesModule(options?: {
         }
       }
 
+      if (preset === 'custom-anthropic') {
+        return {
+          provider: 'custom-anthropic',
+          name: 'Custom (Anthropic-compatible)',
+          baseUrl: 'https://anthropic-proxy.example',
+          model: 'claude-sonnet-4-6',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
       if (preset === 'azure-openai') {
         return {
           provider: 'azure-openai',
@@ -232,6 +260,17 @@ function mockProviderProfilesModule(options?: {
           name: 'OpenAI',
           baseUrl: 'https://api.openai.com/v1',
           model: 'gpt-5.4',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
+      if (preset === 'aimlapi') {
+        return {
+          provider: 'aimlapi',
+          name: 'aimlapi.com',
+          baseUrl: 'https://api.aimlapi.com/v1',
+          model: 'gpt-4o',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -306,6 +345,7 @@ function mockProviderManagerDependencies(
     codexAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
+    provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
     useCodexOAuthFlow?: (options: {
       onAuthenticated: (
         tokens: {
@@ -324,6 +364,10 @@ function mockProviderManagerDependencies(
       authUrl?: string
       browserOpened?: boolean | null
       message?: string
+      submitManualCallback?: (input: string) => {
+        ok: boolean
+        error?: string
+      }
     }
   },
 ): void {
@@ -412,7 +456,16 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../utils/settings/settings.js', () => ({
+    ...actualSettingsModule,
     updateSettingsForSource: () => ({ error: null }),
+  }))
+
+  mock.module('../integrations/aimlapi/index.js', () => ({
+    provisionAimlapiKey:
+      options?.provisionAimlapiKey ??
+      (async () => {
+        throw new Error('Unexpected aimlapi.com top-up in test')
+      }),
   }))
 
   mock.module('./useCodexOAuthFlow.js', () => ({
@@ -525,6 +578,8 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     mock.restore()
+    mock.module('../utils/settings/settings.js', () => actualSettingsModule)
+    mock.module('../utils/providerStartupOverrides.js', () => actualProviderStartupOverridesModule)
 
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
       if (value === undefined) {
@@ -626,7 +681,7 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
       frame.includes('Choose provider preset'),
     )
 
-    await navigateToPreset(mounted.stdin, 'Custom')
+    await navigateToPreset(mounted.stdin, 'Custom (OpenAI-compatible)')
     mounted.stdin.write('\r')
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') &&
@@ -644,9 +699,60 @@ test('ProviderManager shows API mode picker for custom OpenAI-compatible provide
     mounted.stdin.write('\r')
 
     const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('API mode') && frame.includes('Chat Completions'),
+      frame.includes('API mode') && frame.includes('Automatic'),
     )
     expect(output).toContain('Responses')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager offers a token field for custom Anthropic-compatible providers', async () => {
+  mockProviderManagerDependencies(() => undefined, async () => undefined)
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+    await navigateToPreset(mounted.stdin, 'Custom (Anthropic-compatible)')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider name'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Base URL'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Default model'))
+    mounted.stdin.write('\r')
+
+    const output = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Credential') && frame.includes('Anthropic-compatible API'),
+    )
+    expect(output).not.toContain('API mode')
+    mounted.stdin.write('\r')
+    const requiredOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Credential is required.'),
+    )
+    expect(requiredOutput).toContain('Credential is required.')
+    mounted.stdin.write('proxy-token')
+    mounted.stdin.write('\r')
+    const headersOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Custom headers'),
+    )
+    expect(headersOutput).toContain('Extra non-auth request headers')
+    mounted.stdin.write('\r')
+    const placeholderError = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Base URL must be a real Anthropic-compatible endpoint.'),
+    )
+    expect(placeholderError).toContain(
+      'Base URL must be a real Anthropic-compatible endpoint.',
+    )
   } finally {
     await mounted.dispose()
   }
@@ -808,6 +914,185 @@ test('ProviderManager saves OpenAI preset GPT-5 models with Responses API', asyn
         provider: 'openai',
         model: 'gpt-5.5',
         apiFormat: 'responses',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager saves aimlapi.com preset with OpenAI-compatible defaults', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Step 1 of 2: Default model'),
+    )
+
+    expect(modelOutput).toContain('aimlapi.com')
+    expect(modelOutput).toContain('gpt-4o')
+    expect(modelOutput).not.toContain('Provider name')
+    expect(modelOutput).not.toContain('Base URL')
+
+    mounted.stdin.write('\r')
+    const choiceOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 2 of 2: API key'),
+    )
+    expect(choiceOutput).toContain('Top up and get API key')
+    expect(choiceOutput).toContain('Enter existing API key')
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter the API key for aimlapi.com'),
+    )
+
+    mounted.stdin.write('aimlapi-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        name: 'aimlapi.com',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-test-key',
+        apiFormat: 'chat_completions',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager can top up aimlapi.com and save the issued key', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_PASSWORD
+
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+  const provisionAimlapiKey = mock(async (options: any) => {
+    options.onStatus?.('creating-session')
+    options.onStatus?.('opening-checkout', 'https://app.aimlapi.com/checkout/test')
+    options.onStatus?.('waiting-payment')
+    options.onStatus?.('provisioning-key')
+    return {
+      apiKey: 'aimlapi-issued-key',
+      apiKeyId: 'key_test',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+    provisionAimlapiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Top up and get API key'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com account email'),
+    )
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter your aimlapi.com password'),
+    )
+    mounted.stdin.write('secret-password')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose a top-up amount in USD') &&
+      frame.includes('25'),
+    )
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Payment method') &&
+      frame.includes('Card') &&
+      frame.includes('Crypto'),
+    )
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(provisionAimlapiKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'user@example.com',
+        password: 'secret-password',
+        amountUsd: '25',
+        method: 'crypto',
+        model: 'gpt-4o',
+        onStatus: expect.any(Function),
+      }),
+    )
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        name: 'aimlapi.com',
+        baseUrl: 'https://api.aimlapi.com/v1',
+        model: 'gpt-4o',
+        apiKey: 'aimlapi-issued-key',
+        apiFormat: 'chat_completions',
       }),
       expect.objectContaining({ makeActive: true }),
     )
@@ -1504,6 +1789,143 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
   await mounted.dispose()
 })
 
+test('ProviderManager Codex OAuth waiting state masks the paste field and delegates a good callback', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  delete process.env.SSH_CONNECTION
+  delete process.env.SSH_CLIENT
+
+  const onDone = mock(() => {})
+  const submitManualCallback = mock((_input: string) => ({ ok: true }))
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      // Stay in `waiting` (never call onAuthenticated) so the manual-paste UI
+      // renders. The hook returns a spy submitManualCallback.
+      useCodexOAuthFlow: () => ({
+        state: 'waiting',
+        authUrl: 'https://chatgpt.com/codex',
+        browserOpened: true,
+        submitManualCallback,
+      }),
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => frame.includes('Set up provider') && frame.includes('Codex OAuth'),
+  )
+
+  await navigateToPreset(mounted.stdin, 'Codex OAuth')
+  mounted.stdin.write('\r')
+
+  // Non-SSH session shows the generic "paste the callback URL" hint and the input.
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame =>
+      frame.includes('Callback URL') &&
+      frame.includes('paste the full callback URL'),
+  )
+
+  const callbackUrl =
+    'http://localhost:41100/auth/callback?code=goodsecret&state=s'
+  mounted.stdin.write(callbackUrl)
+  // The pasted secret must be masked — the raw code must never reach the frame.
+  await waitForFrameOutput(
+    mounted.getOutput,
+    frame => !frame.includes('goodsecret') && frame.includes('Callback URL'),
+  )
+
+  mounted.stdin.write('\r')
+  await waitForCondition(() => submitManualCallback.mock.calls.length > 0)
+  expect(submitManualCallback).toHaveBeenCalledWith(callbackUrl)
+  // A successful submit leaves no inline error on screen.
+  expect(
+    stripAnsi(extractLastFrame(mounted.getOutput())),
+  ).not.toContain('State mismatch')
+
+  await mounted.dispose()
+})
+
+test('ProviderManager Codex OAuth waiting state shows the SSH banner and surfaces a bad-callback error', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+  process.env.SSH_CONNECTION = '10.0.0.1 22 10.0.0.2 22'
+  delete process.env.SSH_CLIENT
+
+  const onDone = mock(() => {})
+  const submitManualCallback = mock((_input: string) => ({
+    ok: false,
+    error: 'State mismatch',
+  }))
+
+  try {
+    mockProviderManagerDependencies(
+      () => undefined,
+      async () => undefined,
+      {
+        useCodexOAuthFlow: () => ({
+          state: 'waiting',
+          authUrl: 'https://chatgpt.com/codex',
+          browserOpened: true,
+          submitManualCallback,
+        }),
+      },
+    )
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    const mounted = await mountProviderManager(ProviderManager, {
+      mode: 'first-run',
+      onDone,
+    })
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set up provider') && frame.includes('Codex OAuth'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Codex OAuth')
+    mounted.stdin.write('\r')
+
+    // SSH session shows the dedicated banner instead of the generic hint.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('SSH session detected') &&
+        frame.includes('Callback URL'),
+    )
+
+    mounted.stdin.write('http://localhost:41100/auth/callback?code=x&state=s')
+    mounted.stdin.write('\r')
+
+    // A rejected callback renders the inline error returned by the hook.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('State mismatch'),
+    )
+    expect(submitManualCallback).toHaveBeenCalledTimes(1)
+
+    await mounted.dispose()
+  } finally {
+    delete process.env.SSH_CONNECTION
+  }
+})
+
 test('ProviderManager first-run Codex OAuth surfaces credential storage warnings', async () => {
   delete process.env.CLAUDE_CODE_SIMPLE
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -2196,4 +2618,283 @@ test('ProviderManager hides Codex OAuth setup in bare mode', async () => {
 
   expect(output).toContain('Set up provider')
   expect(output).not.toContain('Codex OAuth')
+})
+
+test('ProviderManager switches back to Anthropic via the manager UI: resets the model and clears managed env', async () => {
+  // GitHub Models is the active provider with no saved profiles. Selecting the
+  // "Use Anthropic (built-in)" recovery option must reset the session model and
+  // drop the managed CLAUDE_CODE_USE_* flags. This is the production switch-back
+  // path; the existing util tests only cover the sentinel in isolation.
+  //
+  // The test mutates process-wide env and mounts an Ink app, so both are
+  // snapshotted/restored in finally — a failed wait or assertion must not leak
+  // provider flags or a live mount into later tests.
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
+  let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+
+  try {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    // Capture the real providerProfiles module before any mock replaces it so the
+    // Anthropic sentinel id and preset helpers stay intact.
+    const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+    const githubSyncRead = mock(() => undefined)
+    const githubAsyncRead = mock(async () => undefined)
+    mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    })
+
+    const clearActiveProviderProfile = mock(() => {
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith('CLAUDE_CODE_USE_')) {
+          delete process.env[key]
+        }
+      }
+      return true
+    })
+    const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
+    // Seed a stored GitHub Models token so the switch-back path has a real
+    // token to forward into the cleanup helper (rather than `undefined`).
+    const storedToken = 'ghp_stored_secure_storage_token'
+
+    mock.module('../utils/providerProfiles.js', () => ({
+      ...realProviderProfiles,
+      applyActiveProviderProfileFromConfig: () => {},
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+      setActiveProviderProfile: mock(() => null),
+      clearActiveProviderProfile,
+    }))
+    mock.module('../utils/githubModelsCredentials.js', () => ({
+      clearGithubModelsToken: () => ({ success: true }),
+      clearHydratedGithubModelsTokenFromEnv,
+      GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+      hydrateGithubModelsTokenFromSecureStorage: () => {},
+      readGithubModelsToken: () => storedToken,
+      readGithubModelsTokenAsync: async () => storedToken,
+    }))
+    const clearStartupProviderOverrides = mock(() => null)
+    mock.module('../utils/providerStartupOverrides.js', () => ({
+      clearStartupProviderOverrides,
+    }))
+
+    const onDoneResults: Array<Record<string, unknown>> = []
+    const appStateChanges: Array<{ newState: any; oldState: any }> = []
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    mounted = await mountProviderManager(ProviderManager, {
+      onDone: result => {
+        if (result && typeof result === 'object') {
+          onDoneResults.push(result as Record<string, unknown>)
+        }
+      },
+      onChangeAppState: args => {
+        appStateChanges.push(args as { newState: any; oldState: any })
+      },
+    })
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') &&
+        frame.includes('Set active provider'),
+    )
+
+    // Open "Set active provider" (second menu item).
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // Options here are [GitHub Models (active), Use Anthropic (built-in)]; move
+    // down to the switch-back option and select it.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Use Anthropic (built-in)'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => onDoneResults.length > 0)
+
+    const result = onDoneResults[0]
+    expect(result.action).toBe('activated')
+    expect(String(result.activeProviderName)).toMatch(/anthropic/i)
+    expect(typeof result.activeProviderModel).toBe('string')
+    expect((result.activeProviderModel as string).length).toBeGreaterThan(0)
+    // The switch-back must also refresh the live session AppState — that is the
+    // path onChangeAppState uses to update the runtime mainLoopModelOverride, so
+    // without it the running session could keep the previous provider model after
+    // selecting "Use Anthropic (built-in)". Mirror the active-provider tests:
+    // assert the AppState update sets mainLoopModel to the Anthropic model from
+    // the result and clears mainLoopModelForSession to null.
+    const anthropicModel = result.activeProviderModel as string
+    await waitForCondition(() =>
+      appStateChanges.some(
+        ({ newState }) => newState.mainLoopModel === anthropicModel,
+      ),
+    )
+    expect(
+      appStateChanges.some(
+        ({ newState, oldState }) =>
+          newState.mainLoopModel === anthropicModel &&
+          oldState.mainLoopModel !== newState.mainLoopModel,
+      ),
+    ).toBe(true)
+    expect(
+      appStateChanges.some(
+        ({ newState }) =>
+          newState.mainLoopModel === anthropicModel &&
+          newState.mainLoopModelForSession === null,
+      ),
+    ).toBe(true)
+    expect(
+      Object.keys(process.env).some(key => key.startsWith('CLAUDE_CODE_USE_')),
+    ).toBe(false)
+    expect(clearActiveProviderProfile).toHaveBeenCalled()
+    // The switch-back must forward the stored token into the cleanup helper so
+    // it clears only the hydrated secure-storage token and preserves a
+    // user-supplied GITHUB_TOKEN. Asserting the argument (not just the call)
+    // means the test fails if the branch stops forwarding the stored token.
+    expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+    // The restart fix depends on clearing persisted startup provider overrides
+    // after clearActiveProviderProfile(); without this the next launch replays
+    // the third-party provider. Anchor on the mocked symbol so the test fails
+    // if the Anthropic branch stops calling it.
+    expect(clearStartupProviderOverrides).toHaveBeenCalled()
+  } finally {
+    if (mounted) {
+      await mounted.dispose()
+    }
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('ProviderManager deleting the GitHub provider reverts the hydrated credential via the shared cleanup helper', async () => {
+  // Regression for the #1429 review: the GitHub Models delete path used to
+  // hand-roll its own cleanup that only dropped GITHUB_TOKEN, so a hydrated
+  // `copilot_key` (which hydrateGithubModelsTokenFromSecureStorage stores in
+  // GITHUB_COPILOT_KEY under the same marker) was left behind once the marker
+  // was removed. The delete flow must now delegate to the shared
+  // clearHydratedGithubModelsTokenFromEnv helper — the same one the switch-back
+  // path uses — so both GitHub Models removal paths revert the hydrated
+  // credential consistently. Asserting the helper is invoked with the stored
+  // token proves the delete path shares that cleanup rather than the old
+  // partial version.
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GITHUB_COPILOT_KEY',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
+  let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+
+  try {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+    const githubSyncRead = mock(() => undefined)
+    const githubAsyncRead = mock(async () => undefined)
+    mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    })
+
+    const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
+    // Seed a stored GitHub Models token so the delete path forwards a real token
+    // into the cleanup helper (rather than `undefined`).
+    const storedToken = 'ghp_stored_secure_storage_token'
+
+    mock.module('../utils/providerProfiles.js', () => ({
+      ...realProviderProfiles,
+      applyActiveProviderProfileFromConfig: () => {},
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    }))
+    mock.module('../utils/githubModelsCredentials.js', () => ({
+      clearGithubModelsToken: () => ({ success: true }),
+      clearHydratedGithubModelsTokenFromEnv,
+      GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+      hydrateGithubModelsTokenFromSecureStorage: () => {},
+      readGithubModelsToken: () => storedToken,
+      readGithubModelsTokenAsync: async () => storedToken,
+    }))
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    mounted = await mountProviderManager(ProviderManager)
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') &&
+        frame.includes('Delete provider'),
+    )
+
+    // Menu order is [Add, Set active, Edit, Delete, ...]; move to "Delete
+    // provider" and open it.
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // The active GitHub Models provider is the deletable entry; wait for the
+    // delete list to render before selecting it (avoid a render race).
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Delete provider') && frame.includes('GitHub Models'),
+    )
+    await Bun.sleep(40)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(
+      () => clearHydratedGithubModelsTokenFromEnv.mock.calls.length > 0,
+    )
+
+    // The delete path must forward the stored token into the shared cleanup
+    // helper (which reverts both the GITHUB_TOKEN and GITHUB_COPILOT_KEY
+    // hydration modes). Asserting the argument — not just that it was called —
+    // fails the test if the delete path regresses to a partial hand-rolled
+    // cleanup that leaves the hydrated Copilot key behind.
+    expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+  } finally {
+    if (mounted) {
+      await mounted.dispose()
+    }
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
 })

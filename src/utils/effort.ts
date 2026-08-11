@@ -6,7 +6,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { getAPIProvider } from './model/providers.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
-import { supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
+import { baseUrlSupportsResponsesAutoRoute, supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
 import {
   ensureIntegrationsLoaded,
   getCatalogEntriesForRoute,
@@ -33,6 +33,7 @@ export const EFFORT_LEVELS = [
   'high',
   'xhigh',
   'max',
+  'ultracode',
 ] as const satisfies readonly EffortLevel[]
 
 export const OPENAI_EFFORT_LEVELS = [
@@ -43,6 +44,9 @@ export const OPENAI_EFFORT_LEVELS = [
 ] as const
 
 export type OpenAIEffortLevel = typeof OPENAI_EFFORT_LEVELS[number]
+// OpenAI-compatible shims also serve providers such as Kimi that accept the
+// provider-specific `max` value in the same `reasoning_effort` wire field.
+export type OpenAIShimEffortLevel = OpenAIEffortLevel | 'max'
 export type EffortValue = EffortLevel | number
 
 export type ReasoningControlResolution = {
@@ -52,6 +56,7 @@ export type ReasoningControlResolution = {
   levels: EffortLevel[]
   defaultLevel?: EffortValue
   wireFormat?: ReasoningWireFormat
+  disableFormat?: ReasoningControlMetadata['disableFormat']
   source: 'metadata' | 'capability' | 'compat' | 'legacy' | 'none'
 }
 
@@ -76,6 +81,8 @@ export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
   catalogEntries?: readonly ModelCatalogEntry[]
   modelDescriptors?: Readonly<Record<string, Pick<ModelDescriptor, 'capabilities' | 'reasoning'>>>
   openaiShimConfig?: Partial<OpenAIShimTransportConfig>
+  baseUrl?: string
+  processEnv?: NodeJS.ProcessEnv
 }
 
 const DEFAULT_REASONING_LEVELS: EffortLevel[] = ['low', 'medium', 'high']
@@ -177,7 +184,7 @@ function modelLooksZaiCompatible(model: string): boolean {
 
 function supportsZaiReasoningEffort(model: string | undefined): boolean {
   const normalized = normalizedBaseModel(model)
-  return normalized === 'glm-5.2' || normalized === 'zai-org/glm-5.2'
+  return normalized === 'glm-5.2' || normalized === 'zai-org/glm-5.2' || normalized.endsWith('/glm-5.2')
 }
 
 function normalizeReasoningThinkingType(
@@ -194,15 +201,15 @@ function normalizeReasoningThinkingType(
 }
 
 function normalizeDeepSeekReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function normalizeZaiReasoningEffort(
-  effort: 'low' | 'medium' | 'high' | 'xhigh',
+  effort: OpenAIShimEffortLevel,
 ): 'high' | 'max' {
-  return effort === 'xhigh' ? 'max' : 'high'
+  return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
 function resolveCompatibilityWireFormat(
@@ -318,14 +325,33 @@ function resolveCatalogReasoningMetadata(
 
   ensureIntegrationsLoaded()
   const normalizedModel = model.trim().split('?', 1)[0]!.trim().toLowerCase()
-  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
-  const entry = entries.find(catalogEntry =>
+  const matchesModel = (catalogEntry: ModelCatalogEntry): boolean =>
     catalogEntry.apiName.trim().toLowerCase() === normalizedModel ||
     catalogEntry.id.trim().toLowerCase() === normalizedModel ||
     (catalogEntry.aliases ?? []).some(alias =>
       alias.trim().split('?', 1)[0]?.trim().toLowerCase() === normalizedModel,
-    ),
-  )
+    )
+
+  const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
+  let entry = entries.find(matchesModel)
+  const fallbackBaseUrl =
+    context?.baseUrl ?? context?.processEnv?.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+  if (
+    !entry &&
+    routeId === 'custom' &&
+    baseUrlSupportsResponsesAutoRoute(fallbackBaseUrl, context?.processEnv ?? process.env)
+  ) {
+    // Azure and regional/first-party OpenAI surfaces resolve to route 'custom'
+    // (their host is not a registered route; see resolveActiveRouteIdFromEnv),
+    // whose catalog is empty. Consult the openai vendor catalog by model name so
+    // reasoning models (gpt-5.6) carry their advertised metadata (default 'high',
+    // xhigh). Gate on baseUrlSupportsResponsesAutoRoute so this only fires on the
+    // same verified OpenAI/Azure surfaces the Responses auto-route uses, NOT
+    // arbitrary OpenAI-compatible gateways that also resolve to route 'custom' —
+    // those keep their pre-PR chat_completions behavior with no injected
+    // reasoning_effort default.
+    entry = getCatalogEntriesForRoute('openai').find(matchesModel)
+  }
 
   if (!entry) {
     return undefined
@@ -383,6 +409,7 @@ function resolveMetadataReasoningControl(
     levels,
     defaultLevel: normalizeReasoningDefaultLevel(reasoning.defaultLevel, levels),
     wireFormat,
+    disableFormat: reasoning.disableFormat,
     source: 'metadata',
   }
 }
@@ -558,13 +585,13 @@ export function modelSupportsWireEffort(model: string, context?: ReasoningContro
 
 export function resolveOpenAIShimReasoningRequestPlan(options: {
   model: string
-  requestedEffort?: OpenAIEffortLevel
+  requestedEffort?: OpenAIShimEffortLevel
   requestThinkingType?: string
   defaultThinkingType?: string
   thinkingRequestFormat?: OpenAIShimThinkingRequestFormat
   routeId?: string | null
   useRuntimeFallback?: boolean
-  reasoningControl?: Pick<ReasoningControlResolution, 'source' | 'wireFormat' | 'levels'>
+  reasoningControl?: Pick<ReasoningControlResolution, 'source' | 'wireFormat' | 'levels' | 'disableFormat'>
 }): OpenAIShimReasoningRequestPlan {
   const metadataWireFormat = options.reasoningControl?.source === 'metadata'
     ? options.reasoningControl.wireFormat
@@ -635,9 +662,27 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   }
 
   return {
-    reasoningEffort: options.requestedEffort,
-    wireFormat: options.requestedEffort ? 'reasoning_effort' : undefined,
-    source: options.requestedEffort ? 'legacy' : 'none',
+    thinkingType:
+      (requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+      options.reasoningControl?.disableFormat === 'thinking_type_disabled'
+        ? 'disabled'
+        : undefined,
+    reasoningEffort:
+      (requestedThinkingType ?? defaultThinkingType) === 'disabled'
+        ? undefined
+        : options.requestedEffort,
+    wireFormat:
+      options.requestedEffort ||
+      ((requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+        options.reasoningControl?.disableFormat === 'thinking_type_disabled')
+        ? 'reasoning_effort'
+        : undefined,
+    source:
+      options.requestedEffort ||
+      ((requestedThinkingType ?? defaultThinkingType) === 'disabled' &&
+        options.reasoningControl?.disableFormat === 'thinking_type_disabled')
+        ? 'metadata'
+        : 'none',
   }
 }
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
@@ -732,6 +777,26 @@ function getLegacyAvailableEffortLevels(
   if (legacyModelSupportsMaxEffort(model)) {
     levels.push('max')
   }
+  if (
+    getReasoningApiProvider(context) === 'firstParty' &&
+    legacyModelSupportsXHighEffort(model, context)
+  ) {
+    levels.push('ultracode')
+  }
+  return levels
+}
+
+function appendUltracodeLevel(
+  levels: EffortLevel[],
+  context?: ReasoningControlContext,
+): EffortLevel[] {
+  if (
+    getReasoningApiProvider(context) === 'firstParty' &&
+    levels.includes('xhigh') &&
+    !levels.includes('ultracode')
+  ) {
+    return [...levels, 'ultracode']
+  }
   return levels
 }
 
@@ -754,11 +819,12 @@ export function modelSupportsXHighEffort(model: string, context?: ReasoningContr
 export function getAvailableEffortLevels(model: string, context?: ReasoningControlContext): EffortLevel[] {
   const control = resolveModelReasoningControl(model, context)
   if (control.source === 'metadata' || control.source === 'capability' || control.source === 'compat') {
-    return [...control.levels]
+    return appendUltracodeLevel([...control.levels], context)
   }
   return getLegacyAvailableEffortLevels(model, context)
 }
 export function getEffortLevelLabel(level: EffortLevel | OpenAIEffortLevel): string {
+  if (level === 'ultracode') return 'Ultracode'
   if (level === 'xhigh') return 'Extra High'
   if (level === 'max') return 'Max'
   return capitalize(level)
@@ -769,7 +835,7 @@ export function openAIEffortToStandard(level: OpenAIEffortLevel): EffortLevel {
 }
 
 export function standardEffortToOpenAI(level: EffortLevel): OpenAIEffortLevel {
-  if (level === 'max') return 'xhigh'
+  if (level === 'max' || level === 'ultracode') return 'xhigh'
   return level as OpenAIEffortLevel
 }
 
@@ -796,6 +862,30 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
 }
 
 /**
+ * Frontmatter (skill / agent / plugin command) effort parser. Identical to
+ * parseEffortValue except it rejects 'ultracode'.
+ *
+ * ultracode is a session-only mode whose defining trait — the standing
+ * multi-agent permission — is granted by getUltracodePermissionAttachment(),
+ * which gates on AppState.effortValue / the env override, NOT on a
+ * command-level effort. A command/skill turn carrying `effort: ultracode`
+ * would therefore send xhigh API effort WITHOUT that permission attachment,
+ * making it indistinguishable from plain xhigh while claiming to be
+ * ultracode. Until command-level effort is threaded into attachment
+ * generation, keep ultracode out of frontmatter — callers fall back to
+ * undefined (model/session default) just as they do for any invalid value.
+ */
+export function parseFrontmatterEffortValue(
+  value: unknown,
+): Exclude<EffortValue, 'ultracode'> | undefined {
+  const parsed = parseEffortValue(value)
+  if (parsed === 'ultracode') {
+    return undefined
+  }
+  return parsed
+}
+
+/**
  * Numeric values are model-default only and not persisted.
  * 'max' can now be persisted by all users.
  * 'xhigh' is a first-class EffortLevel (supported by OpenCode Claude 4.7+)
@@ -805,7 +895,7 @@ export function parseEffortValue(value: unknown): EffortValue | undefined {
  */
 export function toPersistableEffort(
   value: EffortValue | undefined,
-): EffortLevel | undefined {
+): Exclude<EffortLevel, 'ultracode'> | undefined {
   if (
     value === 'low' ||
     value === 'medium' ||
@@ -847,6 +937,22 @@ export function resolvePickerEffortPersistence(
   return hadExplicit || picked !== modelDefault ? picked : undefined
 }
 
+export function clampUltracodeEffort(
+  effort: EffortValue | undefined,
+  model: string,
+  context?: ReasoningControlContext,
+): EffortValue | undefined {
+  if (effort === 'ultracode' && !getAvailableEffortLevels(model, context).includes('ultracode')) {
+    // Mirror resolveAppliedEffort's ultracode mapping (xhigh when supported,
+    // else high) so the startup/display clamp and the env/app-state resolution
+    // send the SAME effort to the API. Hardcoding 'max' here meant
+    // `--effort ultracode` (clamped to app state) and `CLAUDE_CODE_EFFORT_LEVEL=ultracode`
+    // (resolved live) diverged on max-capable-but-not-xhigh models like opus-4-6.
+    return modelSupportsXHighEffort(model, context) ? 'xhigh' : 'high'
+  }
+  return effort
+}
+
 export function getEffortEnvOverride(): EffortValue | null | undefined {
   const envOverride = process.env.CLAUDE_CODE_EFFORT_LEVEL
   return envOverride?.toLowerCase() === 'unset' ||
@@ -867,7 +973,7 @@ export function resolveAppliedEffort(
   model: string,
   appStateEffortValue: EffortValue | undefined,
   context?: ReasoningControlContext,
-): EffortValue | undefined {
+): Exclude<EffortValue, 'ultracode'> | undefined {
   const envOverride = getEffortEnvOverride()
   if (envOverride === null) {
     return undefined
@@ -880,12 +986,28 @@ export function resolveAppliedEffort(
     envOverride ?? appStateEffortValue ?? getDefaultEffortForModel(model, context)
   const control = resolveModelReasoningControl(model, context)
   if (
+    resolved === 'xhigh' &&
+    control.source === 'metadata' &&
+    control.wireFormat === 'reasoning_effort' &&
+    control.levels.length === 3 &&
+    control.levels.includes('low') &&
+    control.levels.includes('high') &&
+    control.levels.includes('max')
+  ) {
+    return 'max'
+  }
+  if (
     typeof resolved === 'string' &&
     (control.source === 'metadata' || control.source === 'capability' || control.source === 'compat') &&
     control.levels.length > 0 &&
     !control.levels.includes(resolved)
   ) {
-    return control.levels.includes('high') ? 'high' : (control.defaultLevel ?? control.levels[0])
+    const fallback = control.levels.includes('high')
+      ? 'high'
+      : (control.defaultLevel ?? control.levels[0])
+    return fallback === 'ultracode'
+      ? modelSupportsXHighEffort(model, context) ? 'xhigh' : 'high'
+      : fallback
   }
   // API rejects 'max' on non-Opus-4.6 Anthropic models — downgrade to 'high'.
   // OpenAI/Codex models use 'max' as the standard form of 'xhigh'; the client
@@ -903,7 +1025,22 @@ export function resolveAppliedEffort(
   if (resolved === 'xhigh' && !modelSupportsXHighEffort(model, context)) {
     return 'high'
   }
+  // ultracode is a meta-level: map it to xhigh (or high if unsupported).
+  if (resolved === 'ultracode') {
+    return modelSupportsXHighEffort(model, context) ? 'xhigh' : 'high'
+  }
   return resolved
+}
+
+function isEffectiveUltracodeDisplay(
+  model: string,
+  effort: EffortValue | undefined,
+  context?: ReasoningControlContext,
+): boolean {
+  return (
+    effort === 'ultracode' &&
+    getAvailableEffortLevels(model, context).includes('ultracode')
+  )
 }
 
 /**
@@ -914,8 +1051,22 @@ export function resolveAppliedEffort(
 export function getDisplayedEffortLevel(
   model: string,
   appStateEffort: EffortValue | undefined,
+  context?: ReasoningControlContext,
 ): EffortLevel {
-  const resolved = resolveAppliedEffort(model, appStateEffort) ?? 'high'
+  // `ultracode` is a meta-mode (the standing multi-agent permission), not just
+  // an API effort alias, so surface it as the current level rather than the
+  // `xhigh`/`high` it maps to at the API boundary — but only when it is the
+  // EFFECTIVE effort. CLAUDE_CODE_EFFORT_LEVEL takes precedence over app state
+  // (see resolveAppliedEffort), so `--effort ultracode` with
+  // CLAUDE_CODE_EFFORT_LEVEL=high must show high, matching the API and the
+  // permission gate rather than the stale session value.
+  const envOverride = getEffortEnvOverride()
+  const effectiveEffort =
+    envOverride === null ? undefined : (envOverride ?? appStateEffort)
+  if (isEffectiveUltracodeDisplay(model, effectiveEffort, context)) {
+    return 'ultracode'
+  }
+  const resolved = resolveAppliedEffort(model, appStateEffort, context) ?? 'high'
   return convertEffortValueToLevel(resolved)
 }
 
@@ -928,9 +1079,20 @@ export function getDisplayedEffortLevel(
 export function getEffortSuffix(
   model: string,
   effortValue: EffortValue | undefined,
+  context?: ReasoningControlContext,
 ): string {
   if (effortValue === undefined) return ''
-  const resolved = resolveAppliedEffort(model, effortValue)
+  // Surface the ultracode meta-mode here too (Logo/Spinner), consistent with
+  // getDisplayedEffortLevel — but only when it is the EFFECTIVE effort, so a
+  // CLAUDE_CODE_EFFORT_LEVEL override wins over the session value rather than
+  // showing ultracode for a turn the API runs at a different effort.
+  const envOverride = getEffortEnvOverride()
+  const effectiveEffort =
+    envOverride === null ? undefined : (envOverride ?? effortValue)
+  if (isEffectiveUltracodeDisplay(model, effectiveEffort, context)) {
+    return ' with ultracode effort'
+  }
+  const resolved = resolveAppliedEffort(model, effortValue, context)
   if (resolved === undefined) return ''
   return ` with ${convertEffortValueToLevel(resolved)} effort`
 }
@@ -983,6 +1145,8 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
       return 'Maximum capability with deepest reasoning (Opus 4.8+)'
     case 'xhigh':
       return 'Extra high reasoning effort for complex tasks'
+    case 'ultracode':
+      return 'xhigh effort + standing permission for multi-agent orchestration'
   }
 }
 

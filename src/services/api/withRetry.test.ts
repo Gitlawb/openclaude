@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type Anthropic from '@anthropic-ai/sdk'
-import { APIError } from '@anthropic-ai/sdk'
+import { APIError, APIUserAbortError } from '@anthropic-ai/sdk'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import * as debugNs from '../../utils/debug.js'
+import { markOpenAIRequestNonReplayable } from './openaiErrorClassification.js'
 type ProvidersModule = typeof import('../../utils/model/providers.js')
 
 // Helper to build a mock APIError with specific headers
@@ -17,6 +19,7 @@ function makeError(headers: Record<string, string>): APIError {
 
 // Save/restore env vars between tests
 const originalEnv = { ...process.env }
+const originalDebugModule = { ...debugNs }
 let originalProvidersModule: ProvidersModule | undefined
 
 const envKeys = [
@@ -52,6 +55,7 @@ afterEach(() => {
     if (originalProvidersModule) {
       mock.module('src/utils/model/providers.js', () => originalProvidersModule!)
     }
+    mock.module('src/utils/debug.js', () => originalDebugModule)
   } finally {
     releaseSharedMutationLock()
   }
@@ -73,12 +77,22 @@ async function importFreshWithRetryModule(
     | 'gemini'
     | 'codex'
     | 'foundry' = 'firstParty',
+  options: {
+    logForDebugging?: ReturnType<typeof mock>
+    forceFastMode?: boolean
+  } = {},
 ) {
   mock.restore()
   originalProvidersModule ??= await importActualProviders()
   mock.module('src/utils/sleep.js', () => ({
     sleep: async () => undefined,
   }))
+  if (options?.logForDebugging) {
+    mock.module('src/utils/debug.js', () => ({
+      ...originalDebugModule,
+      logForDebugging: options.logForDebugging!,
+    }))
+  }
   mock.module('src/utils/model/providers.js', () => ({
     ...originalProvidersModule!,
     getAPIProvider: () => provider,
@@ -87,6 +101,13 @@ async function importFreshWithRetryModule(
     isGithubNativeAnthropicMode: () => false,
     usesAnthropicAccountFlow: () => false,
   }))
+  if (options.forceFastMode) {
+    const realFastMode = await import('../../utils/fastMode.js')
+    mock.module('src/utils/fastMode.js', () => ({
+      ...realFastMode,
+      isFastModeEnabled: () => true,
+    }))
+  }
   return import(`./withRetry.js?ts=${Date.now()}-${Math.random()}`)
 }
 
@@ -177,7 +198,147 @@ describe('retry configuration', () => {
   })
 })
 
+describe('abort retry classification', () => {
+  test('does not retry or error-log expected side task aborts', async () => {
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { CannotRetryError, withRetry } = await importFreshWithRetryModule(
+      'firstParty',
+      { logForDebugging: debugLog },
+    )
+    const controller = new AbortController()
+    let attempts = 0
+
+    await expect(
+      drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            controller.abort('agent-summary-superseded')
+            throw new APIUserAbortError()
+          },
+          {
+            maxRetries: 2,
+            model: 'test-model',
+            thinkingConfig: { type: 'disabled' },
+            signal: controller.signal,
+            querySource: 'agent_summary',
+          },
+        ),
+      ),
+    ).rejects.toBeInstanceOf(CannotRetryError)
+
+    expect(attempts).toBe(1)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(false)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).includes('Expected side-task API abort') &&
+          String(message).includes('agent-summary-superseded') &&
+          (options as { level?: string } | undefined)?.level !== 'error'
+        )
+      }),
+    ).toBe(true)
+  })
+
+  test('still logs and retries real retryable API errors', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const debugLog = mock(
+      (_message: string, _options?: { level?: string }) => {},
+    )
+    const { withRetry } = await importFreshWithRetryModule('firstParty', {
+      logForDebugging: debugLog,
+    })
+    const retryableError = APIError.generate(
+      500,
+      undefined,
+      'internal server error',
+      new Headers(),
+    )
+    let attempts = 0
+
+    const result = await drainAsyncGenerator(
+      withRetry(
+        async () => ({} as Anthropic),
+        async () => {
+          attempts++
+          if (attempts === 1) {
+            throw retryableError
+          }
+          return { ok: true }
+        },
+        {
+          maxRetries: 2,
+          model: 'test-model',
+          thinkingConfig: { type: 'disabled' },
+          querySource: 'repl_main_thread',
+        },
+      ),
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(attempts).toBe(2)
+    expect(
+      debugLog.mock.calls.some(([message, options]) => {
+        return (
+          String(message).startsWith('API error (attempt 1/3)') &&
+          String(message).includes('500 internal server error') &&
+          (options as { level?: string } | undefined)?.level === 'error'
+        )
+      }),
+    ).toBe(true)
+  })
+})
+
 describe('OpenAI-compatible retry classification', () => {
+  test('does not retry request timeouts marked as non-replayable', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = markOpenAIRequestNonReplayable(
+      APIError.generate(
+        0,
+        undefined,
+        'OpenAI API transport error: no response headers [openai_category=request_timeout,host=slow.example.test]',
+        new Headers(),
+      ),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'gpt-4o-mini',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
+    expect(attempts).toBe(1)
+  })
+
   test('does not retry marked non-retryable auth failures', async () => {
     process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
     const { CannotRetryError, withRetry } =
@@ -208,6 +369,147 @@ describe('OpenAI-compatible retry classification', () => {
     ).rejects.toBeInstanceOf(CannotRetryError)
 
     expect(attempts).toBe(1)
+  })
+
+  test('does not retry quota/allotment exhaustion failures', async () => {
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const error = APIError.generate(
+      402,
+      undefined,
+      'OpenAI API error 402: Payment Required [openai_category=quota_exhausted,host=opencode.ai] Hint: Provider quota or usage allotment has run out.',
+      new Headers(),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
+    expect(attempts).toBe(1)
+  })
+
+  test('preserves the OpenCode Go quota message through the retry loop instead of the generic guard', async () => {
+    // Regression for #1749: the early isQuotaExhausted guard used to wrap an
+    // OpenCode Go FreeUsageLimitError in the generic "API quota exhausted or
+    // not enabled" message, clobbering the actionable subscribe guidance.
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai')
+    const { getAssistantMessageFromError, OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE } =
+      await import('./errors.js')
+    const error = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({
+        error: { type: 'FreeUsageLimitError', message: 'free usage limit reached' },
+      }),
+      new Headers({
+        'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages',
+      }),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+          },
+        ),
+      )
+    } catch (e) {
+      caught = e
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    // Terminal — no wasteful retries against an exhausted quota.
+    expect(attempts).toBe(1)
+    // The original APIError survives so the specific OpenCode Go assistant
+    // message is recoverable, not the generic billing guidance.
+    const original = (caught as { originalError?: unknown }).originalError
+    expect(original).toBe(error)
+    const message = getAssistantMessageFromError(original as APIError, 'glm-5.1')
+    const text = message.message.content[0]
+    expect(
+      typeof text === 'object' && text && 'text' in text ? text.text : '',
+    ).toBe(OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE)
+    expect((caught as Error).message).not.toContain(
+      'API quota exhausted or not enabled',
+    )
+  })
+
+  test('terminates OpenCode Go quota 429 immediately in fast mode (no fast-mode retry/cooldown)', async () => {
+    // Regression for #1749 (CodeRabbit): the OpenCode Go terminal throw must run
+    // BEFORE the fast-mode 429 fallback, otherwise fast mode retries/cooldowns a
+    // quota-exhausted subscription instead of surfacing the quota message.
+    process.env.OPENCLAUDE_RETRY_DELAY_MS = '1'
+    const { CannotRetryError, withRetry } =
+      await importFreshWithRetryModule('openai', { forceFastMode: true })
+    const error = APIError.generate(
+      429,
+      undefined,
+      JSON.stringify({
+        error: { type: 'GoUsageLimitError', message: 'subscription limit reached' },
+      }),
+      new Headers({
+        'x-opencode-request-url': 'https://opencode.ai/zen/go/v1/messages',
+      }),
+    )
+    let attempts = 0
+
+    let caught: unknown
+    try {
+      await drainAsyncGenerator(
+        withRetry(
+          async () => ({} as Anthropic),
+          async () => {
+            attempts++
+            throw error
+          },
+          {
+            maxRetries: 2,
+            model: 'glm-5.1',
+            thinkingConfig: { type: 'disabled' },
+            fastMode: true,
+          },
+        ),
+      )
+    } catch (e) {
+      caught = e
+    }
+
+    expect(caught).toBeInstanceOf(CannotRetryError)
+    // Fired exactly once — fast mode did not retry or enter cooldown.
+    expect(attempts).toBe(1)
+    expect((caught as { originalError?: unknown }).originalError).toBe(error)
   })
 
   test('keeps parseable 402 affordability errors on the max_tokens retry path', async () => {

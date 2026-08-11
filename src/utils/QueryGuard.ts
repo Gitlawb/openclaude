@@ -119,8 +119,13 @@ export class QueryGuard {
   private _changed = createSignal()
   private _timeoutId: ReturnType<typeof setTimeout> | null = null
   private _timeoutHandler: QueryTimeoutHandler | null = null
+  // Deadline arithmetic is monotonic so NTP/manual wall-clock jumps cannot
+  // manufacture an immediate timeout or postpone an already-scheduled one.
   private _queryStartedAt = 0
   private _lastActivityAt = 0
+  private _suspendCount = 0
+  private _suspendedAt = 0
+  private _totalSuspendedMs = 0
   private _leaseCounter = 0
   private _activeLeases = new Map<string, LeaseRecord>()
   private _context: QueryLifecycleContext | null = null
@@ -180,8 +185,11 @@ export class QueryGuard {
     this._status = 'running'
     ++this._generation
     this._activeLeases.clear()
+    this._suspendCount = 0
+    this._suspendedAt = 0
+    this._totalSuspendedMs = 0
     this._lastContext = null
-    this._queryStartedAt = Date.now()
+    this._queryStartedAt = performance.now()
     this._lastActivityAt = this._queryStartedAt
     this._context = this._createContext(metadata)
     this._getActiveOperations = metadata?.getActiveOperations ?? null
@@ -210,6 +218,9 @@ export class QueryGuard {
     if (this._status !== 'running') return false
     this._clearTimeout()
     this._activeLeases.clear()
+    this._suspendCount = 0
+    this._suspendedAt = 0
+    this._totalSuspendedMs = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
@@ -230,6 +241,9 @@ export class QueryGuard {
     if (this._status === 'idle') return
     this._clearTimeout()
     this._activeLeases.clear()
+    this._suspendCount = 0
+    this._suspendedAt = 0
+    this._totalSuspendedMs = 0
     this._completeContext(terminalReason, abortReason)
     this._status = 'idle'
     this._getActiveOperations = null
@@ -246,7 +260,7 @@ export class QueryGuard {
     void reason
     if (this._status !== 'running') return
     if (generation !== undefined && generation !== this._generation) return
-    this._lastActivityAt = Date.now()
+    this._lastActivityAt = performance.now()
     this._scheduleTimeout()
   }
 
@@ -267,7 +281,7 @@ export class QueryGuard {
       }
     }
 
-    const now = Date.now()
+    const now = performance.now()
     const leaseTimeoutMs =
       typeof input.timeoutMs === 'number' &&
       Number.isFinite(input.timeoutMs) &&
@@ -280,7 +294,7 @@ export class QueryGuard {
       input.hardCapMs > 0
         ? input.hardCapMs
         : this._hardMaxQueryMs
-    const queryHardDeadlineAt = this._queryStartedAt + this._hardMaxQueryMs
+    const queryHardDeadlineAt = this._getHardMaxDeadlineAt(now)
     const queryRemainingMs = Math.max(0, queryHardDeadlineAt - now)
     const effectiveHardCapMs = Math.min(leaseHardCapMs, queryRemainingMs)
     const leaseDeadlineAt =
@@ -317,6 +331,56 @@ export class QueryGuard {
     const lease = this._activeLeases.get(leaseId)
     if (!lease || lease.generation !== generation) return
     this._activeLeases.delete(leaseId)
+    this._scheduleTimeout()
+  }
+
+  /**
+   * Suspend idle and hard-max timeouts while the query is blocked on a human
+   * decision. Lease deadlines still run because they bound active program work.
+   * Reference-counted so concurrent or nested interactions are safe.
+   *
+   * Pass the generation when suspending from an async callback so a stale
+   * interaction cannot pause a newer query. Returns a resume function; call it
+   * exactly once (a good fit for a `finally` block). Repeated or stale-
+   * generation resume calls are ignored.
+   */
+  beginUserInteraction(generation = this._generation): () => void {
+    if (this._status !== 'running' || generation !== this._generation) {
+      return () => {}
+    }
+    if (this._suspendCount === 0) {
+      this._suspendedAt = performance.now()
+    }
+    this._suspendCount++
+    this._scheduleTimeout()
+
+    let resumed = false
+    return () => {
+      if (resumed) return
+      resumed = true
+      // A superseded query already reset the counter; ignore stale resumes.
+      if (generation !== this._generation) return
+      if (this._suspendCount === 0) return
+      this._suspendCount--
+      if (this._suspendCount === 0) {
+        this._resumeAfterInteraction()
+      }
+    }
+  }
+
+  /**
+   * Restart idle/hard-max accounting after the last concurrent human interaction
+   * ends. Lease deadlines are not shifted; they bound active program work even
+   * while the prompt is open.
+   */
+  private _resumeAfterInteraction(): void {
+    if (this._status !== 'running') return
+    const now = performance.now()
+    const suspendedStartedAt = this._suspendedAt
+    const suspendedMs = Math.max(0, now - suspendedStartedAt)
+    this._suspendedAt = 0
+    this._totalSuspendedMs += suspendedMs
+    this._lastActivityAt = now
     this._scheduleTimeout()
   }
 
@@ -431,7 +495,7 @@ export class QueryGuard {
     this._clearTimeout()
     if (this._status !== 'running') return
 
-    const now = Date.now()
+    const now = performance.now()
     const reason = this._getTimeoutReason(now)
     if (reason) {
       this._timeoutId = setTimeout(() => this._handleTimeout(), 0)
@@ -450,7 +514,7 @@ export class QueryGuard {
     this._timeoutId = null
     if (this._status !== 'running') return
 
-    const now = Date.now()
+    const now = performance.now()
     const reason = this._getTimeoutReason(now)
     if (!reason) {
       this._scheduleTimeout()
@@ -466,7 +530,7 @@ export class QueryGuard {
       generation: this._generation,
       reason,
       timeoutMs: this._getTimeoutMsForReason(reason, now),
-      elapsedMs: now - context.startedAt,
+      elapsedMs: now - this._queryStartedAt,
       context,
       activeOperations: this._snapshotActiveOperations(),
     }
@@ -483,8 +547,24 @@ export class QueryGuard {
     }
   }
 
+  private _getCurrentSuspendedMs(now: number): number {
+    return this._suspendCount > 0
+      ? Math.max(0, now - this._suspendedAt)
+      : 0
+  }
+
+  private _getHardMaxDeadlineAt(now: number): number {
+    return (
+      this._queryStartedAt +
+      this._hardMaxQueryMs +
+      this._totalSuspendedMs +
+      this._getCurrentSuspendedMs(now)
+    )
+  }
+
   private _getTimeoutReason(now: number): QueryGuardTimeoutReason | null {
-    if (now >= this._queryStartedAt + this._hardMaxQueryMs) {
+    const isSuspended = this._suspendCount > 0
+    if (!isSuspended && now >= this._getHardMaxDeadlineAt(now)) {
       return 'hard_max'
     }
 
@@ -496,7 +576,11 @@ export class QueryGuard {
       hasValidLease = true
     }
 
-    if (!hasValidLease && now >= this._lastActivityAt + this._idleTimeoutMs) {
+    if (
+      !isSuspended &&
+      !hasValidLease &&
+      now >= this._lastActivityAt + this._idleTimeoutMs
+    ) {
       return 'idle'
     }
 
@@ -520,17 +604,19 @@ export class QueryGuard {
   private _getNextDeadlineAt(now: number): number | null {
     if (this._status !== 'running') return null
 
-    const deadlines = [this._queryStartedAt + this._hardMaxQueryMs]
+    const isSuspended = this._suspendCount > 0
+    const deadlines = isSuspended ? [] : [this._getHardMaxDeadlineAt(now)]
     const leaseDeadlines = [...this._activeLeases.values()]
       .map(lease => lease.deadlineAt)
       .filter(deadline => deadline > now)
 
     if (leaseDeadlines.length > 0) {
       deadlines.push(Math.min(...leaseDeadlines))
-    } else {
+    } else if (!isSuspended) {
       deadlines.push(this._lastActivityAt + this._idleTimeoutMs)
     }
 
+    if (deadlines.length === 0) return null
     return Math.min(...deadlines)
   }
 

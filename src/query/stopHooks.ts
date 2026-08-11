@@ -17,6 +17,10 @@ import type {
   ToolUseSummaryMessage,
 } from '../types/message.js'
 import { createAttachmentMessage } from '../utils/attachments.js'
+import {
+  getQueryAbortSystemMessage,
+  shouldCreateUserInterruptionMessage,
+} from '../utils/abortReasons.js'
 import { logForDebugging } from '../utils/debug.js'
 import { errorMessage } from '../utils/errors.js'
 import type { REPLHookContext } from '../utils/hooks/postSamplingHooks.js'
@@ -316,13 +320,18 @@ export async function* handleStopHooks(
 
       // Check if we were aborted during hook execution
       if (toolUseContext.abortController.signal.aborted) {
+        const abortReason = toolUseContext.abortController.signal.reason
         logEvent('tengu_pre_stop_hooks_cancelled', {
           queryChainId: toolUseContext.queryTracking
             ?.chainId as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
 
           queryDepth: toolUseContext.queryTracking?.depth,
         })
-        if (toolUseContext.abortController.signal.reason !== 'interrupt') {
+        const abortSystemMessage = getQueryAbortSystemMessage(abortReason)
+        if (abortSystemMessage) {
+          yield createSystemMessage(abortSystemMessage, 'warning')
+        }
+        if (shouldCreateUserInterruptionMessage(abortReason)) {
           yield createUserInterruptionMessage({
             toolUse: false,
           })

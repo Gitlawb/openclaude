@@ -2,6 +2,7 @@ import type { Message } from '../types/message.js'
 import { getGlobalConfig } from '../utils/config.js'
 import { getUserMessageText } from '../utils/messages.js'
 import { getCompanion } from './companion.js'
+import { pickDeterministic } from './deterministic.js'
 
 const DIRECT_REPLIES = [
   'I am observing.',
@@ -18,19 +19,6 @@ const PET_REPLIES = [
   'wiggles with joy',
   'looks pleased',
 ] as const
-
-function hashString(s: string): number {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-function pickDeterministic<T>(items: readonly T[], seed: string): T {
-  return items[hashString(seed) % items.length]!
-}
 
 export async function fireCompanionObserver(
   messages: Message[],

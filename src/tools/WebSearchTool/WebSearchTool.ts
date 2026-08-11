@@ -3,7 +3,7 @@ import type {
   BetaWebSearchTool20250305,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { PRODUCT_DISPLAY_NAME } from 'src/constants/product.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 
 import { z } from 'zod/v4'
@@ -549,7 +549,7 @@ function shouldUseAdapterProvider(): boolean {
   // Auto mode: native/first-party/Codex take precedence over adapter
   if (isCodexResponsesWebSearchEnabled()) return false
   const provider = getAPIProvider()
-  if (provider === 'firstParty' || provider === 'vertex' || provider === 'foundry') {
+  if ((provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) || provider === 'vertex' || provider === 'foundry') {
     return false
   }
   // No native path available — fall back to adapter
@@ -566,7 +566,7 @@ function shouldUseAdapterProvider(): boolean {
 function hasNativeSearchFallback(): boolean {
   if (isCodexResponsesWebSearchEnabled()) return true
   const provider = getAPIProvider()
-  return provider === 'firstParty' || provider === 'vertex' || provider === 'foundry'
+  return (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) || provider === 'vertex' || provider === 'foundry'
 }
 
 // ---------------------------------------------------------------------------
@@ -605,7 +605,7 @@ export const WebSearchTool = buildTool({
     const model = getMainLoopModel()
 
     // Enable for firstParty
-    if (provider === 'firstParty') {
+    if (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
       return true
     }
 

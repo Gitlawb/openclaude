@@ -7,6 +7,7 @@ import { type AutoUpdaterResult, getLatestVersionFromGcs, getMaxVersion, shouldS
 import { isAutoUpdaterDisabled } from '../utils/config.js';
 import { logForDebugging } from '../utils/debug.js';
 import { getPackageManager, type PackageManager } from '../utils/nativeInstaller/packageManagers.js';
+import { getPackageManagerUpdateGuidance } from '../utils/packageManagerUpdateGuidance.js';
 import { gt, gte } from '../utils/semver.js';
 import { getInitialSettings } from '../utils/settings/settings.js';
 type Props = {
@@ -17,6 +18,10 @@ type Props = {
   showSuccessMessage: boolean;
   verbose: boolean;
 };
+export function PackageManagerUpdateAvailableNotice({ manager }: { manager: PackageManager }) {
+  const guidance = getPackageManagerUpdateGuidance(manager);
+  return <Text color="warning" wrap="truncate">Update available! {guidance.message}{guidance.command && <> Run: <Text bold={true}>{guidance.command}</Text></>}</Text>;
+}
 export function PackageManagerAutoUpdater(t0) {
   const $ = _c(10);
   const {
@@ -73,7 +78,6 @@ export function PackageManagerAutoUpdater(t0) {
   if (!updateAvailable) {
     return null;
   }
-  const updateCommand = packageManager === "homebrew" ? "brew upgrade claude-code" : packageManager === "winget" ? "winget upgrade Anthropic.ClaudeCode" : packageManager === "apk" ? "apk upgrade claude-code" : "your package manager update command";
   let t4;
   if ($[3] !== verbose) {
     t4 = verbose && <Text dimColor={true} wrap="truncate">currentVersion: {MACRO.VERSION}</Text>;
@@ -83,9 +87,9 @@ export function PackageManagerAutoUpdater(t0) {
     t4 = $[4];
   }
   let t5;
-  if ($[5] !== updateCommand) {
-    t5 = <Text color="warning" wrap="truncate">Update available! Run: <Text bold={true}>{updateCommand}</Text></Text>;
-    $[5] = updateCommand;
+  if ($[5] !== packageManager) {
+    t5 = <PackageManagerUpdateAvailableNotice manager={packageManager as PackageManager} />;
+    $[5] = packageManager;
     $[6] = t5;
   } else {
     t5 = $[6];

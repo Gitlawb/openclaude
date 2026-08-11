@@ -15,12 +15,17 @@ import {
 const TEST_ENV_KEYS = [
   'NODE_OPTIONS',
   'AZURE_OPENAI_API_VERSION',
+  'CLAUDE_CODE_USE_OPENAI',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'APISMART_API_KEY',
+  'APISMART_MODEL',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENCLAUDE_OLLAMA_NUM_CTX',
   'WEB_AUTH_HEADER',
   'WEB_AUTH_SCHEME',
   'WEB_BODY_TEMPLATE',
@@ -38,6 +43,7 @@ const TEST_ENV_KEYS = [
   'WEB_QUERY_PARAM',
   'WEB_SEARCH_API',
   'WEB_SEARCH_PROVIDER',
+  'WEB_SEARCH_TIMEOUT_SEC',
   'WEB_URL_TEMPLATE',
 ]
 
@@ -270,6 +276,22 @@ describe('loadEnvFile', () => {
     })
   })
 
+  it('loads documented ApiSmart env-only provider setup values', () => {
+    const filePath = writeTempEnvFile([
+      'APISMART_API_KEY=apismart-key',
+      'APISMART_MODEL=KIMI_K3',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.APISMART_API_KEY).toBe('apismart-key')
+    expect(process.env.APISMART_MODEL).toBe('KIMI_K3')
+    expect(loaded).toEqual({
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+    })
+  })
+
   it('loads documented Azure OpenAI API version values', () => {
     const filePath = writeTempEnvFile(
       'AZURE_OPENAI_API_VERSION=2024-12-01-preview',
@@ -280,6 +302,28 @@ describe('loadEnvFile', () => {
     expect(process.env.AZURE_OPENAI_API_VERSION).toBe('2024-12-01-preview')
     expect(loaded).toEqual({
       AZURE_OPENAI_API_VERSION: '2024-12-01-preview',
+    })
+  })
+
+  it('loads documented Azure-style handling flag values', () => {
+    const filePath = writeTempEnvFile('OPENAI_AZURE_STYLE=1')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
+    expect(loaded).toEqual({
+      OPENAI_AZURE_STYLE: '1',
+    })
+  })
+
+  it('loads documented Ollama request context window values', () => {
+    const filePath = writeTempEnvFile('OPENCLAUDE_OLLAMA_NUM_CTX=32768')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.OPENCLAUDE_OLLAMA_NUM_CTX).toBe('32768')
+    expect(loaded).toEqual({
+      OPENCLAUDE_OLLAMA_NUM_CTX: '32768',
     })
   })
 
@@ -298,6 +342,7 @@ describe('loadEnvFile', () => {
       'WEB_AUTH_SCHEME=',
       'WEB_HEADERS=Accept: application/json; X-Tenant: acme',
       'WEB_JSON_PATH=response.payload.results',
+      'WEB_SEARCH_TIMEOUT_SEC=30',
       'WEB_CUSTOM_TIMEOUT_SEC=15',
       'WEB_CUSTOM_MAX_BODY_KB=300',
       'WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS=true',
@@ -323,6 +368,7 @@ describe('loadEnvFile', () => {
       WEB_AUTH_SCHEME: '',
       WEB_HEADERS: 'Accept: application/json; X-Tenant: acme',
       WEB_JSON_PATH: 'response.payload.results',
+      WEB_SEARCH_TIMEOUT_SEC: '30',
       WEB_CUSTOM_TIMEOUT_SEC: '15',
       WEB_CUSTOM_MAX_BODY_KB: '300',
       WEB_CUSTOM_ALLOW_ARBITRARY_HEADERS: 'true',
@@ -332,6 +378,7 @@ describe('loadEnvFile', () => {
       CODEX_HOME: '/tmp/codex',
     })
     expect(process.env.WEB_SEARCH_API).toBe('https://search.example.com/search')
+    expect(process.env.WEB_SEARCH_TIMEOUT_SEC).toBe('30')
     expect(process.env.CODEX_AUTH_JSON_PATH).toBe('/tmp/codex-auth.json')
   })
 

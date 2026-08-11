@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
+import { roughTokenCountEstimationForMessages } from '../services/tokenEstimation.js'
 import { IncrementalTokenCounter, CounterFactory } from './incrementalTokenCounter.js'
 import type { Message } from '../types/message.js'
 
@@ -245,6 +246,32 @@ describe('IncrementalTokenCounter', () => {
 
       const count2 = counter.getCount([msg1, msg2, msg3])
       expect(count2).toBeGreaterThan(count1)
+    })
+  })
+
+  describe('attachment cache invalidation', () => {
+    it('recalculates when attachment-only messages differ', () => {
+      const counter = new IncrementalTokenCounter()
+      const smallAttachment = {
+        type: 'attachment',
+        attachment: {
+          type: 'opened_file_in_ide',
+          filename: 'a',
+        },
+      } as unknown as Message
+      const largeAttachment = {
+        type: 'attachment',
+        attachment: {
+          type: 'opened_file_in_ide',
+          filename: 'x'.repeat(2000),
+        },
+      } as unknown as Message
+
+      const smallCount = counter.getCount([smallAttachment])
+      const largeCount = counter.getCount([largeAttachment])
+
+      expect(largeCount).toBe(roughTokenCountEstimationForMessages([largeAttachment]))
+      expect(largeCount).toBeGreaterThan(smallCount)
     })
   })
 })

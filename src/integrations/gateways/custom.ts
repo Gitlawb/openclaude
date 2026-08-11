@@ -24,7 +24,7 @@ function getModelInfo(raw: unknown): Record<string, unknown> | undefined {
 
 export default defineGateway({
   id: 'custom',
-  label: 'Custom OpenAI-compatible',
+  label: 'Custom (OpenAI-compatible)',
   category: 'hosted',
   defaultModel: 'llama3.1:8b',
   supportsModelRouting: true,
@@ -42,8 +42,8 @@ export default defineGateway({
   preset: {
     id: 'custom',
     description: 'Any OpenAI-compatible provider',
-    label: 'Custom',
-    name: 'Custom OpenAI-compatible',
+    label: 'Custom (OpenAI-compatible)',
+    name: 'Custom (OpenAI-compatible)',
     apiKeyEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     baseUrlEnvVars: ['OPENAI_BASE_URL', 'OPENAI_API_BASE'],
     modelEnvVars: ['OPENAI_MODEL'],

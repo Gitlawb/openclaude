@@ -1,3 +1,5 @@
+import { latestVersion } from './releases'
+
 export const SITE = {
   url: 'https://openclaude.gitlawb.com',
   name: 'openclaude',
@@ -9,7 +11,7 @@ export const SITE = {
   github: 'https://github.com/Gitlawb/openclaude',
   gitlawb: 'https://gitlawb.com',
   gitlawbRepo: 'https://gitlawb.com/node/repos/z6MkqDnb/openclaude',
-  version: '0.18.0',
+  version: latestVersion,
   ogDefault: '/og/default.png',
   ogDocs: '/og/docs.png',
 } as const

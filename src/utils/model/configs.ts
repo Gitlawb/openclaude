@@ -5,6 +5,11 @@ import type { LegacyAPIProvider } from './providers.js'
 // returned from getAPIProvider(). Descriptor-native callers should prefer
 // route/model metadata directly; this table exists for older provider-keyed
 // consumers that have not been retired yet.
+//
+// Note: the `codex` keys are inert legacy compatibility entries. modelStrings.ts
+// routes codex to the `openai` key, and the only real reader is
+// getHardcodedTeammateModelFallback() (via CLAUDE_OPUS_4_8_CONFIG). We keep
+// them in sync with the Codex runtime default (gpt-5.6-sol) for consistency.
 export type LegacyProviderModelConfig = Record<LegacyAPIProvider, ModelName>
 
 // Backward-compatible alias for existing imports.
@@ -44,7 +49,7 @@ export const CLAUDE_3_7_SONNET_CONFIG = {
   gemini: 'gemini-2.0-flash',
   mistral: 'mistral-medium-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -60,7 +65,7 @@ export const CLAUDE_3_5_V2_SONNET_CONFIG = {
   gemini: 'gemini-2.0-flash',
   mistral: 'mistral-medium-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -76,7 +81,7 @@ export const CLAUDE_3_5_HAIKU_CONFIG = {
   gemini: 'gemini-2.0-flash-lite',
   mistral: 'ministral-3b-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -92,7 +97,7 @@ export const CLAUDE_HAIKU_4_5_CONFIG = {
   gemini: 'gemini-2.0-flash-lite',
   mistral: 'ministral-3b-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -108,7 +113,7 @@ export const CLAUDE_SONNET_4_CONFIG = {
   gemini: 'gemini-2.0-flash',
   mistral: 'mistral-medium-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -124,7 +129,7 @@ export const CLAUDE_SONNET_4_5_CONFIG = {
   gemini: 'gemini-2.0-flash',
   mistral: 'mistral-medium-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -140,7 +145,7 @@ export const CLAUDE_OPUS_4_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -156,7 +161,7 @@ export const CLAUDE_OPUS_4_1_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -172,7 +177,7 @@ export const CLAUDE_OPUS_4_5_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -188,7 +193,7 @@ export const CLAUDE_OPUS_4_6_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -204,7 +209,7 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -220,7 +225,7 @@ export const CLAUDE_OPUS_4_8_CONFIG = {
   gemini: 'gemini-2.5-pro',
   mistral: 'devstral-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',
@@ -236,7 +241,7 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   gemini: 'gemini-2.0-flash',
   mistral: 'mistral-medium-latest',
   github: 'github:copilot',
-  codex: 'gpt-5.5',
+  codex: 'gpt-5.6-sol',
   'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
   minimax: 'MiniMax-M2.5',
   'xiaomi-mimo': 'mimo-v2.5-pro',

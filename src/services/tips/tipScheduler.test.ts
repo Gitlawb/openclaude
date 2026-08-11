@@ -3,7 +3,11 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import * as actualAnalytics from '../analytics/index.js'
+import * as actualConfig from '../../utils/config.js'
+import * as actualSettings from '../../utils/settings/settings.js'
 import type { Tip } from './types.js'
+import * as actualTipRegistry from './tipRegistry.js'
 
 const settingsRef: {
   value: {
@@ -49,6 +53,10 @@ mock.module('../analytics/index.js', () => ({
 afterAll(() => {
   try {
     mock.restore()
+    mock.module('../../utils/settings/settings.js', () => actualSettings)
+    mock.module('../../utils/config.js', () => actualConfig)
+    mock.module('./tipRegistry.js', () => actualTipRegistry)
+    mock.module('../analytics/index.js', () => actualAnalytics)
   } finally {
     releaseSharedMutationLock()
   }

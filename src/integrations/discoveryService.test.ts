@@ -7,6 +7,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { publicBuildVersion } from '../utils/version.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -17,6 +18,7 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  APISMART_API_KEY: process.env.APISMART_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -58,6 +60,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
+  delete process.env.APISMART_API_KEY
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -75,6 +78,7 @@ beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
+  delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
   clearProviderEnv()
   globalThis.fetch = originalFetch
 })
@@ -91,6 +95,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_API_KEY')
     restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
+    restoreEnvValue('APISMART_API_KEY')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -108,15 +113,39 @@ afterEach(() => {
 })
 
 describe('discoverModelsForRoute', () => {
+  test('does not send an ApiSmart key to an overridden discovery URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.APISMART_API_KEY = 'apismart-secret'
+    let didFetch = false
+    let authorization: string | null | undefined
+    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      didFetch = true
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    await discoverModelsForRoute('apismart', {
+      baseUrl: 'https://proxy.example/v1',
+      forceRefresh: true,
+    })
+
+    expect(didFetch).toBe(true)
+    expect(authorization).not.toBe('Bearer apismart-secret')
+  })
+
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
     let callCount = 0
-    setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
+    const calledUrls: string[] = []
+    setMockFetch(mock((input: string | URL | Request) => {
       callCount++
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      expect(url).toBe('http://127.0.0.1:1337/v1/models')
-      expect(init?.headers).toBeUndefined()
+      calledUrls.push(url)
 
       return Promise.resolve(
         new Response(
@@ -139,6 +168,7 @@ describe('discoverModelsForRoute', () => {
     })
     expect(second?.source).toBe('cache')
     expect(callCount).toBe(1)
+    expect(calledUrls).toEqual(['http://127.0.0.1:1337/v1/models'])
   })
 
   test('partitions cached discovery results by endpoint base URL', async () => {
@@ -371,6 +401,185 @@ describe('discoverModelsForRoute', () => {
     expect(cached?.source).toBe('cache')
     expect(cached?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
     expect(callCount).toBe(1)
+  })
+
+  test('AI/ML API discovery filters chat models, dedupes ids, and omits auth', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedHeaders: HeadersInit | undefined
+    setMockFetch(mock((_input, init) => {
+      capturedHeaders = init?.headers
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              null,
+              'not-a-model-object',
+              { id: 42, type: 'chat-completion' },
+              { id: 'missing-type' },
+              { id: 'bad-type', type: 42 },
+              {
+                id: 'gpt-4o',
+                type: 'chat-completion',
+                info: {
+                  name: 'GPT-4o',
+                  developer: 'OpenAI',
+                  contextLength: 128000,
+                },
+              },
+              {
+                id: 'gpt-4o',
+                type: 'chat-completion',
+                info: {
+                  name: 'GPT-4o',
+                  developer: 'OpenAI',
+                  contextLength: 128000,
+                },
+              },
+              {
+                id: 'gemini-2.5-pro',
+                type: 'chat-completion',
+                info: {
+                  name: 'Gemini 2.5 Pro',
+                  developer: 'Google',
+                  contextLength: 1048576,
+                },
+              },
+              {
+                id: '  GLM-5.2  ',
+                type: 'chat-completion',
+                info: {
+                  name: 'GLM 5.2',
+                  developer: 'Z.AI',
+                },
+              },
+              {
+                id: 'glm-5.2',
+                type: 'chat-completion',
+                info: {
+                  name: 'GLM 5.2 Duplicate',
+                  developer: 'Z.AI',
+                },
+              },
+              {
+                id: 'whisper-large-v3',
+                type: 'audio-transcription',
+                info: {
+                  name: 'Whisper Large V3',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('aimlapi', {
+      apiKey: 'should-not-be-sent',
+      headers: {
+        Authorization: 'Bearer should-not-be-sent',
+        'anthropic-api-key': 'should-not-be-sent',
+        'X-Custom-Secret': 'should-not-be-sent',
+      },
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    expect(capturedHeaders).toEqual({
+      'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
+      'X-AIMLAPI-Integration-Version': publicBuildVersion,
+      'HTTP-Referer': 'OpenClaude',
+      'X-Title': 'OpenClaude',
+    })
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
+      'gpt-4o',
+      'gemini-2.5-pro',
+      'GLM-5.2',
+    ])
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gpt-4o')).toMatchObject({
+      id: 'aimlapi-gpt-4o',
+      label: 'GPT-4o',
+    })
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gemini-2.5-pro')).toMatchObject({
+      label: 'Gemini 2.5 Pro (Google)',
+      contextWindow: 1048576,
+    })
+  })
+
+  test('AI/ML API discovery maps the live GET /models response shape', async () => {
+    // Captured from the public, unauthenticated `GET https://api.aimlapi.com/v1/models`
+    // (returns HTTP 200 without credentials). Chat models use `openai/chat-completions`;
+    // the same id is also published under non-chat endpoint types (responses/submit,
+    // embeddings, image, anthropic/messages) which must be filtered out.
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    setMockFetch(mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            object: 'list',
+            data: [
+              {
+                id: 'gpt-3.5-turbo',
+                type: 'openai/chat-completions',
+                info: { name: 'GPT-3.5 Turbo', developer: 'Open AI', contextLength: 16000 },
+                aliases: ['openai/gpt-3.5-turbo'],
+                tags: ['playground:chat', 'tier:tier_2'],
+              },
+              {
+                id: 'gpt-3.5-turbo',
+                type: 'openai/responses/submit',
+                info: { name: 'GPT-3.5 Turbo', developer: 'Open AI', contextLength: 16000 },
+              },
+              {
+                id: 'claude-opus-4-1-20250805',
+                type: 'openai/chat-completions',
+                info: { name: 'Claude 4.1 Opus', developer: 'Anthropic', contextLength: 200000 },
+              },
+              {
+                id: 'text-embedding-3-small',
+                type: 'openai/embeddings',
+                info: { name: 'Text Embedding 3 Small', developer: 'Open AI' },
+              },
+              {
+                id: 'flux/schnell',
+                type: 'openai/image-generations',
+                info: { name: 'Flux Schnell', developer: 'Black Forest Labs' },
+              },
+              {
+                id: 'claude-3-5-haiku-20241022',
+                type: 'anthropic/messages',
+                info: { name: 'Claude 3.5 Haiku', developer: 'Anthropic' },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    ) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('aimlapi', { forceRefresh: true })
+
+    // Only `openai/chat-completions` entries survive discovery; the duplicate
+    // gpt-3.5-turbo (responses/submit), embeddings, image, and anthropic
+    // endpoint types are dropped. The curated `gpt-4o` rides along from the
+    // hybrid catalog.
+    expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
+      'gpt-4o',
+      'gpt-3.5-turbo',
+      'claude-opus-4-1-20250805',
+    ])
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'gpt-3.5-turbo')).toMatchObject({
+      label: 'GPT-3.5 Turbo (Open AI)',
+      contextWindow: 16000,
+    })
+    expect(result?.models.find((model: { apiName: string }) => model.apiName === 'claude-opus-4-1-20250805')).toMatchObject({
+      label: 'Claude 4.1 Opus (Anthropic)',
+      contextWindow: 200000,
+    })
   })
 
   test('skips descriptor network discovery when nonessential traffic is disabled', async () => {

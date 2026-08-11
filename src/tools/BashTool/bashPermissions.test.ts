@@ -1,10 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 import { getEmptyToolPermissionContext } from '../../Tool.js'
+import {
+  getOriginalCwd,
+  setAllowedSettingSources,
+  setOriginalCwd,
+} from '../../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+import { SETTING_SOURCES } from '../../utils/settings/constants.js'
 import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import {
   _test,
@@ -49,9 +59,9 @@ afterEach(() => {
   }
 })
 
-function makeToolUseContext() {
-  const toolPermissionContext = getEmptyToolPermissionContext()
-
+function makeToolUseContext(
+  toolPermissionContext = getEmptyToolPermissionContext(),
+) {
   return {
     abortController: new AbortController(),
     options: {
@@ -64,6 +74,87 @@ function makeToolUseContext() {
     },
   } as never
 }
+
+let legacyParserEnvToggleQueue = Promise.resolve()
+
+async function withLegacyParserDisabled<T>(fn: () => Promise<T>): Promise<T> {
+  const waitForTurn = legacyParserEnvToggleQueue
+  let releaseQueue!: () => void
+  legacyParserEnvToggleQueue = new Promise<void>(resolve => {
+    releaseQueue = resolve
+  })
+  await waitForTurn
+
+  const originalInjectionFlag =
+    process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
+  process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK = '1'
+  try {
+    return await fn()
+  } finally {
+    if (originalInjectionFlag === undefined) {
+      delete process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK
+    } else {
+      process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK =
+        originalInjectionFlag
+    }
+    releaseQueue()
+  }
+}
+
+test('legacy shell parser limitations fail closed to ask', async () => {
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission(
+      { command: 'echo ${value + 1}' },
+      makeToolUseContext(),
+    ),
+  )
+
+  expect(result.behavior).toBe('ask')
+  expect(result.decisionReason).toMatchObject({
+    type: 'other',
+    reason: expect.stringContaining('cannot be parsed'),
+  })
+})
+
+test('explicit deny rules win over legacy shell parser limitations', async () => {
+  const toolPermissionContext = {
+    ...getEmptyToolPermissionContext(),
+    alwaysDenyRules: {
+      session: ['Bash(echo:*)'],
+    },
+  }
+
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission(
+      { command: 'echo ${value + 1}' },
+      makeToolUseContext(toolPermissionContext),
+    ),
+  )
+
+  expect(result.behavior).toBe('deny')
+  expect(result.decisionReason).toMatchObject({
+    type: 'rule',
+    rule: {
+      ruleBehavior: 'deny',
+      ruleValue: {
+        toolName: 'Bash',
+        ruleContent: 'echo:*',
+      },
+    },
+  })
+})
+
+test('legacy parser fallback preserves env vars for path validation', async () => {
+  const result = await withLegacyParserDisabled(() =>
+    bashToolHasPermission({ command: 'cat $HOME/file' }, makeToolUseContext()),
+  )
+
+  expect(result.behavior).toBe('ask')
+  expect(result.decisionReason).toMatchObject({
+    type: 'other',
+    reason: 'Shell expansion syntax in paths requires manual approval',
+  })
+})
 
 test('sandbox auto-allow still enforces Bash path constraints', async () => {
   ;(globalThis as unknown as { MACRO: { VERSION: string } }).MACRO = {
@@ -181,6 +272,127 @@ test('checkSandboxAutoAllow caps fanout when astSubcommands is null', () => {
     type: 'other',
     reason: expect.stringContaining('too many to safety-check individually'),
   })
+})
+
+test('git commit governance policy runs through the production Bash permission path', async () => {
+  const originalCwd = getOriginalCwd()
+  const projectDir = await mkdtemp(join(tmpdir(), 'openclaude-git-policy-'))
+
+  try {
+    setOriginalCwd(projectDir)
+    setAllowedSettingSources([...SETTING_SOURCES])
+    await mkdir(join(projectDir, '.openclaude'), { recursive: true })
+    await writeFile(
+      join(projectDir, '.openclaude', 'settings.local.json'),
+      JSON.stringify({
+        git: { forbiddenCommitMessagePatterns: ['Generated with'] },
+      }),
+    )
+    resetSettingsCache()
+
+    const result = await bashToolHasPermission(
+      { command: 'git commit -m "fix: policy\n\nGenerated with OpenClaude"' },
+      makeToolUseContext(),
+    )
+    const compoundResult = await bashToolHasPermission(
+      {
+        command:
+          'cd repo && git commit -m "fix: policy\n\nGenerated with OpenClaude"',
+      },
+      makeToolUseContext(),
+    )
+    const safeCommitThenEchoResult = await bashToolHasPermission(
+      {
+        command:
+          'git commit -m "safe" && echo -m "Generated with OpenClaude"',
+      },
+      makeToolUseContext(),
+    )
+    const commandWrappedResult = await bashToolHasPermission(
+      {
+        command:
+          'command git commit -m "fix: policy\n\nGenerated with OpenClaude"',
+      },
+      makeToolUseContext(),
+    )
+    const commandPathWrappedResult = await bashToolHasPermission(
+      {
+        command:
+          'command -p git commit -m "fix: policy\n\nGenerated with OpenClaude"',
+      },
+      makeToolUseContext(),
+    )
+    const envWrappedResult = await bashToolHasPermission(
+      {
+        command:
+          'env git commit -m "fix: policy\n\nGenerated with OpenClaude"',
+      },
+      makeToolUseContext(),
+    )
+    const envSplitStringWrappedResult = await bashToolHasPermission(
+      {
+        command:
+          'env -S \'git commit -m "fix: policy\n\nGenerated with OpenClaude"\'',
+      },
+      makeToolUseContext(),
+    )
+    const envSplitStringAssignmentWrappedResult = await bashToolHasPermission(
+      {
+        command:
+          'env -S \'GIT_AUTHOR_NAME=bot git commit -m "fix: policy\n\nGenerated with OpenClaude"\'',
+      },
+      makeToolUseContext(),
+    )
+
+    expect(result.behavior).toBe('ask')
+    expect(compoundResult.behavior).toBe('ask')
+    expect(safeCommitThenEchoResult.behavior).not.toBe('ask')
+    expect(commandWrappedResult.behavior).toBe('ask')
+    expect(commandPathWrappedResult.behavior).toBe('ask')
+    expect(envWrappedResult.behavior).toBe('ask')
+    expect(envSplitStringWrappedResult.behavior).toBe('ask')
+    expect(envSplitStringAssignmentWrappedResult.behavior).toBe('ask')
+    expect(result.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(compoundResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(commandWrappedResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(commandPathWrappedResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(envWrappedResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(envSplitStringWrappedResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+    expect(envSplitStringAssignmentWrappedResult.decisionReason).toMatchObject({
+      type: 'safetyCheck',
+      reason: 'Git commit message contains forbidden pattern: Generated with',
+      classifierApprovable: false,
+    })
+  } finally {
+    setOriginalCwd(originalCwd)
+    setAllowedSettingSources([...SETTING_SOURCES])
+    resetSettingsCache()
+    await rm(projectDir, { recursive: true, force: true })
+  }
 })
 
 // SEC-02 regression: array subscript with command substitution must NOT be stripped.

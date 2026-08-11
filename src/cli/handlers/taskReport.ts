@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 
 import {
   buildTaskReport,
-  formatTaskReportAsJson,
+  formatTaskReport,
   writeTaskReport,
   type TaskReportArgs,
 } from '../../utils/taskReport.js'
@@ -33,10 +33,6 @@ function writeLine(
 export async function taskReportHandler(
   options: TaskReportArgs,
 ): Promise<void> {
-  if (options.format !== 'json') {
-    throw new Error('Task reports currently support JSON output only')
-  }
-
   const cwd = resolve(options.cwd ?? process.cwd())
   const transcriptPath = await resolveTranscriptPath({
     cwd,
@@ -47,7 +43,7 @@ export async function taskReportHandler(
     transcriptPath,
     cwd,
   })
-  const content = formatTaskReportAsJson(report)
+  const content = formatTaskReport(report, options.format)
 
   if (options.outFile) {
     const outputPath = await writeTaskReport(options.outFile, content)

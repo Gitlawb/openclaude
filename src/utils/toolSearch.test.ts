@@ -1,5 +1,15 @@
-import { describe, expect, test } from 'bun:test'
-import { resolveToolSearchMode } from './toolSearch.js'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+import {
+  isToolSearchEnabled,
+  modelSupportsToolReference,
+  resolveToolSearchMode,
+} from './toolSearch.js'
+import { TaskCreateTool } from '../tools/TaskCreateTool/TaskCreateTool.js'
+import { ToolSearchTool } from '../tools/ToolSearchTool/ToolSearchTool.js'
+
+afterEach(() => {
+  mock.restore()
+})
 
 describe('resolveToolSearchMode', () => {
   test('defaults to tst when nothing is configured', () => {
@@ -41,5 +51,35 @@ describe('resolveToolSearchMode', () => {
     }
     expect(resolveToolSearchMode(env, 'codex')).toBe('tst-auto')
     expect(resolveToolSearchMode(env, 'firstParty')).toBe('standard')
+  })
+})
+
+describe('modelSupportsToolReference', () => {
+  test('keeps Tencent HY3 on the inline tool-schema path', () => {
+    expect(modelSupportsToolReference('tencent/hy3')).toBe(false)
+    expect(modelSupportsToolReference('tencent/hy3?reasoning=high')).toBe(false)
+    expect(modelSupportsToolReference('other/hy3-documentation')).toBe(true)
+  })
+
+  test('does not defer TaskCreate for Tencent HY3', async () => {
+    expect(
+      await isToolSearchEnabled(
+        'tencent/hy3',
+        [ToolSearchTool, TaskCreateTool],
+        async () => undefined as never,
+        [],
+      ),
+    ).toBe(false)
+  })
+
+  test('keeps built-in HY3 compatibility when feature flags add exceptions', async () => {
+    mock.module('../services/analytics/growthbook.js', () => ({
+      getFeatureValue_CACHED_MAY_BE_STALE: () => ['haiku'],
+    }))
+    const freshToolSearch = await import(
+      `./toolSearch.ts?feature-flags-${Date.now()}`
+    )
+
+    expect(freshToolSearch.modelSupportsToolReference('tencent/hy3')).toBe(false)
   })
 })

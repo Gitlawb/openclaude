@@ -48,6 +48,10 @@ import {
   ImageResizeError,
   maybeResizeAndDownsampleImageBuffer,
 } from '../../utils/imageResizer.js'
+import {
+  getImageProcessor,
+  ImageProcessorUnavailableError,
+} from './imageProcessor.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { isAutoMemFile } from '../../utils/memoryFileDetection.js'
@@ -1261,15 +1265,13 @@ export async function readImageWithTokenBudget(
       }
     } catch (e) {
       logError(e)
-      // Fallback: heavily compressed version from the SAME buffer
+      // Fallback: heavily compressed version from the SAME buffer, loaded via
+      // the shared optional image processor (NOT a raw import('sharp')). This
+      // keeps the missing-image-processor contract: when no processor is
+      // installed, surface the actionable install hint instead of swallowing it
+      // and returning an image that already exceeded the token budget.
       try {
-        const sharpModule = await import('sharp')
-        // CJS/ESM interop: prefer .default; some loaders expose the callable
-        // as the module itself, hence the cast on the fallback.
-        const sharp =
-          sharpModule.default ||
-          (sharpModule as unknown as typeof sharpModule.default)
-
+        const sharp = await getImageProcessor()
         const fallbackBuffer = await sharp(imageBuffer)
           .resize(400, 400, {
             fit: 'inside',
@@ -1280,6 +1282,10 @@ export async function readImageWithTokenBudget(
 
         return createImageResponse(fallbackBuffer, 'jpeg', originalSize)
       } catch (error) {
+        // No image processor available → surface the install hint rather than
+        // returning an over-budget image. Other failures (e.g. a corrupt
+        // buffer) still degrade gracefully to the original.
+        if (error instanceof ImageProcessorUnavailableError) throw error
         logError(error)
         return createImageResponse(imageBuffer, detectedFormat, originalSize)
       }

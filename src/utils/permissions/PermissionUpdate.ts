@@ -27,6 +27,10 @@ import { addPermissionRulesToSettings } from './permissionsLoader.js'
 // Re-export for backwards compatibility
 export type { AdditionalWorkingDirectory, WorkingDirectorySource }
 
+function normalizeRuleString(rule: string): string {
+  return permissionRuleValueToString(permissionRuleValueFromString(rule))
+}
+
 export function extractRules(
   updates: PermissionUpdate[] | undefined,
 ): PermissionRuleValue[] {
@@ -44,6 +48,18 @@ export function extractRules(
 
 export function hasRules(updates: PermissionUpdate[] | undefined): boolean {
   return extractRules(updates).length > 0
+}
+
+/**
+ * PermissionRequest hooks may approve the current read-only action in plan
+ * mode, but they must not persist updates that change later permission checks
+ * or leave plan mode programmatically.
+ */
+export function filterPermissionRequestHookUpdates(
+  updates: PermissionUpdate[],
+  enforcePlanMode: boolean,
+): PermissionUpdate[] {
+  return enforcePlanMode ? [] : updates
 }
 
 /**
@@ -156,7 +172,7 @@ export function applyPermissionUpdate(
       const existingRules = context[ruleKind][update.destination] || []
       const rulesToRemove = new Set(ruleStrings)
       const filteredRules = existingRules.filter(
-        rule => !rulesToRemove.has(rule),
+        rule => !rulesToRemove.has(normalizeRuleString(rule)),
       )
 
       return {
@@ -279,12 +295,9 @@ export function persistPermissionUpdate(update: PermissionUpdate): void {
       const rulesToRemove = new Set(
         update.rules.map(permissionRuleValueToString),
       )
-      const filteredRules = existingRules.filter(rule => {
-        const normalized = permissionRuleValueToString(
-          permissionRuleValueFromString(rule),
-        )
-        return !rulesToRemove.has(normalized)
-      })
+      const filteredRules = existingRules.filter(
+        rule => !rulesToRemove.has(normalizeRuleString(rule)),
+      )
 
       updateSettingsForSource(update.destination, {
         permissions: {

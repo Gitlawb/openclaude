@@ -10,6 +10,8 @@ import figures from 'figures';
 import { type GlobalConfig, saveGlobalConfig, getCurrentProjectConfig, type OutputStyle, MAX_MESSAGES_COMPACTION_THRESHOLDS, normalizeMaxMessagesCompactionThreshold } from '../../utils/config.js';
 import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
+import { normalizeCompactTailTurns } from '../../utils/relevancePruning.js';
+import { normalizeReplMaxTurns, REPL_MAX_TURNS_OPTIONS } from '../../utils/replMaxTurns.js';
 import chalk from 'chalk';
 import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
@@ -294,7 +296,7 @@ export function Config({
   }, {
     id: 'maxMessagesCompactionThreshold',
     label: 'Message-count compaction',
-    value: globalConfig.maxMessagesCompactionThreshold ?? 'off',
+    value: normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold),
     options: [...MAX_MESSAGES_COMPACTION_THRESHOLDS],
     type: 'enum' as const,
     onChange(maxMessagesCompactionThreshold: string) {
@@ -309,6 +311,52 @@ export function Config({
       });
       logEvent('tengu_max_messages_compaction_threshold_changed', {
         threshold: normalizedThreshold as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
+    id: 'compactTailTurns',
+    label: 'Compaction: recent messages kept',
+    // Display and persist through the SAME normalization autoCompact applies,
+    // so a hand-edited 2.5 or 0 shows (and saves) as what actually runs.
+    value: String(normalizeCompactTailTurns(globalConfig.compactTailTurns)),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set(['2', '3', '5', '8', String(normalizeCompactTailTurns(globalConfig.compactTailTurns))])],
+    type: 'enum' as const,
+    onChange(compactTailTurnsValue: string) {
+      const compactTailTurns = normalizeCompactTailTurns(compactTailTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        compactTailTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        compactTailTurns
+      });
+      logEvent('tengu_compact_tail_turns_changed', {
+        value: compactTailTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
+      });
+    }
+  }, {
+    id: 'replMaxTurns',
+    label: 'Max turns (interactive)',
+    // Display/persist the saved preference (normalized). Effective runtime cap
+    // may still be overridden by CLI `--max-turns` or OPENCLAUDE_MAX_TURNS.
+    value: String(normalizeReplMaxTurns(globalConfig.replMaxTurns)),
+    // Include a hand-edited config value so it round-trips through the picker.
+    options: [...new Set([...REPL_MAX_TURNS_OPTIONS.map(String), String(normalizeReplMaxTurns(globalConfig.replMaxTurns))])],
+    type: 'enum' as const,
+    onChange(replMaxTurnsValue: string) {
+      const replMaxTurns = normalizeReplMaxTurns(replMaxTurnsValue);
+      saveGlobalConfig(current => ({
+        ...current,
+        replMaxTurns
+      }));
+      setGlobalConfig({
+        ...getGlobalConfig(),
+        replMaxTurns
+      });
+      logEvent('tengu_repl_max_turns_changed', {
+        value: replMaxTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
   }, {
@@ -1242,8 +1290,14 @@ export function Config({
       formattedChanges.push(`${globalConfig.autoCompactEnabled ? 'Enabled' : 'Disabled'} auto-compact`);
     }
     if (globalConfig.maxMessagesCompactionThreshold !== initialConfig.current.maxMessagesCompactionThreshold) {
-      const threshold = globalConfig.maxMessagesCompactionThreshold ?? 'off';
+      const threshold = normalizeMaxMessagesCompactionThreshold(globalConfig.maxMessagesCompactionThreshold);
       formattedChanges.push(threshold === 'off' ? 'Disabled message-count compaction' : `Set message-count compaction to ${threshold}`);
+    }
+    if (globalConfig.compactTailTurns !== initialConfig.current.compactTailTurns) {
+      formattedChanges.push(`Set compaction recent messages kept to ${normalizeCompactTailTurns(globalConfig.compactTailTurns)}`);
+    }
+    if (globalConfig.replMaxTurns !== initialConfig.current.replMaxTurns) {
+      formattedChanges.push(`Set interactive max turns to ${normalizeReplMaxTurns(globalConfig.replMaxTurns)}`);
     }
     if (globalConfig.toolHistoryCompressionEnabled !== initialConfig.current.toolHistoryCompressionEnabled) {
       formattedChanges.push(`${globalConfig.toolHistoryCompressionEnabled ? 'Enabled' : 'Disabled'} tool history compression`);

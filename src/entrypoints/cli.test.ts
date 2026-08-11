@@ -481,3 +481,183 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockCliMain).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Node 24 premature exit regression (issue #1678)', () => {
+  it('built CLI stays alive during initialization in interactive mode without premature exit', async () => {
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const fs = await import('node:fs/promises')
+    const url = await import('node:url')
+
+    const scriptPath = path.join(os.tmpdir(), `test-cli-startup-${Date.now()}.mjs`)
+    const cliUrl = url.pathToFileURL(path.resolve(import.meta.dir, '../../dist/cli.mjs')).href
+    let proc
+
+    try {
+      await Bun.write(scriptPath, `
+        // Mock TTY so the CLI thinks it's interactive and starts the TUI
+        process.stdout.isTTY = true;
+        process.stdin.isTTY = true;
+        process.stdin.setRawMode = () => {};
+        process.env.OPENCLAUDE_DISABLE_TELEMETRY = '1';
+        process.env.OPENGATEWAY_API_KEY = 'dummy';
+
+        // Ensure the CLI auto-runs even if the test runner disabled it globally
+        delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN;
+
+        // Use absolute import to work from os.tmpdir()
+        // If the entrypoint uses void main(), this promise resolves immediately.
+        // If it correctly uses await main(), it stays pending while the CLI runs.
+        import('${cliUrl}').then(() => {
+          console.log('---PREMATURE_EVAL_END---');
+          process.exit(0);
+        });
+      `)
+
+      proc = Bun.spawn(['node', scriptPath], { stdout: 'pipe' })
+      const reader = proc.stdout.getReader()
+
+      let gotOutput = false
+      let evaluationEndedPrematurely = false
+
+      async function readStdout() {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const text = new TextDecoder().decode(value)
+          if (text.includes('---PREMATURE_EVAL_END---')) {
+            evaluationEndedPrematurely = true
+          } else if (text.trim().length > 0) {
+            gotOutput = true
+          }
+        }
+      }
+
+      // Start reading without awaiting it yet
+      const readPromise = readStdout()
+
+      // Wait until we get startup output or detect premature evaluation end
+      const start = Date.now()
+      while (!gotOutput && !evaluationEndedPrematurely && Date.now() - start < 5000) {
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      expect(gotOutput).toBe(true)
+
+      // The critical regression window: wait 500ms *after* output.
+      // With void main(), Node 24 will exit during the subsequent async imports because the event loop empties,
+      // which allows the import() promise above to resolve and emit the signal.
+      await new Promise(r => setTimeout(r, 500))
+
+      expect(evaluationEndedPrematurely).toBe(false)
+      expect(proc.exitCode).toBe(null)
+      expect(proc.killed).toBe(false)
+    } finally {
+      if (proc && proc.exitCode === null && !proc.killed) {
+        proc.kill()
+      }
+      await fs.unlink(scriptPath).catch(() => {})
+    }
+  })
+
+  it('cli.tsx uses top-level await for main() to prevent premature exit', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    expect(src).toMatch(/await main\(\)/)
+    expect(src).not.toMatch(/^\s*void main\(\)/m)
+  })
+
+  describe('--yolo alias', () => {
+    it('is registered on the main command next to the canonical flag', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      expect(src).toContain(
+        ".option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks",
+      )
+    })
+
+    it('is registered on the ssh stub command', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      const sshCmd = src.indexOf("program.command('ssh <host> [dir]')")
+      expect(sshCmd).toBeGreaterThanOrEqual(0)
+      const sshAction = src.indexOf('.action(async () => {', sshCmd)
+      const sshBlock = src.slice(sshCmd, sshAction)
+      expect(sshBlock).toContain(
+        "--yolo, --dangerously-skip-permissions",
+      )
+    })
+
+    it('is recognized by the cc:// and ssh raw-argv scans', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // cc:// sets remote state via includes(); the rewrites and ssh path strip
+      // both spellings from the forwarded argv.
+      expect(src).toContain(
+        "rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo')",
+      )
+      expect(src).toContain("arg !== '--dangerously-skip-permissions' && arg !== '--yolo'")
+      expect(src).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
+      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
+      // Passing both flags at once must not leave one behind as an unknown
+      // option on the headless `open` subcommand or in the ssh forwarded line.
+      const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
+      const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
+      const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
+      const ccOccurrences =
+        ccBlock.split("'--dangerously-skip-permissions'").length - 1 +
+        ccBlock.split("'--yolo'").length - 1
+      expect(ccOccurrences).toBeGreaterThanOrEqual(4)
+
+      const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
+      const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
+      const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
+      expect(sshBlock).toContain(
+        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
+      )
+    })
+
+    it('is recognized by the skills leading scan so --yolo skills list routes', async () => {
+      const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+      const setStart = src.indexOf('SKILLS_LEADING_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('is recognized by the skills trailing scan so skills list --yolo routes', async () => {
+      const src = await Bun.file(
+        `${import.meta.dir}/../cli/handlers/skillsCli.ts`,
+      ).text()
+      const setStart = src.indexOf('TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([')
+      expect(setStart).toBeGreaterThanOrEqual(0)
+      const setEnd = src.indexOf(']', setStart)
+      const setBody = src.slice(setStart, setEnd)
+      expect(setBody).toContain("'--yolo'")
+    })
+
+    it('appears in the built CLI help', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
+      expect(fs.existsSync(cliPath)).toBe(true)
+
+      const originalGuard = process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+      try {
+        const proc = Bun.spawn(['node', cliPath, '--help'], { stdout: 'pipe' })
+        const text = await new Response(proc.stdout).text()
+        await proc.exited
+        expect(text).toContain('--yolo, --dangerously-skip-permissions')
+      } finally {
+        if (originalGuard === undefined) {
+          delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+        } else {
+          process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = originalGuard
+        }
+      }
+    })
+  })
+})

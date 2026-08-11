@@ -185,15 +185,13 @@ export function registerLSPNotificationHandlers(
             const diagnosticFiles =
               formatDiagnosticsForAttachment(diagnosticParams)
 
-            // Only send notification if there are diagnostics
+            // Register empty diagnostic snapshots too: in LSP they mean the
+            // file was cleared, and the registry uses them to update state
+            // without producing an empty model attachment.
             const firstFile = diagnosticFiles[0]
-            if (
-              !firstFile ||
-              diagnosticFiles.length === 0 ||
-              firstFile.diagnostics.length === 0
-            ) {
+            if (!firstFile) {
               logForDebugging(
-                `Skipping empty diagnostics from ${serverName} for ${diagnosticParams.uri}`,
+                `Skipping invalid diagnostics from ${serverName} for ${diagnosticParams.uri}`,
               )
               return
             }

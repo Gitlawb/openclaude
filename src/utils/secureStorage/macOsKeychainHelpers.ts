@@ -15,9 +15,13 @@
  */
 
 import { createHash } from 'crypto'
-import { userInfo } from 'os'
+import { homedir, userInfo } from 'os'
+import { resolve } from 'path'
 import { getOauthConfig } from 'src/constants/oauth.js'
-import { getClaudeConfigHomeDir } from '../envUtils.js'
+import {
+  getClaudeConfigHomeDir,
+  resolveClaudeConfigHomeDir,
+} from '../envUtils.js'
 import type { SecureStorageData } from './index.js'
 
 // Suffix distinguishing the OAuth credentials keychain entry from the legacy
@@ -27,22 +31,27 @@ import type { SecureStorageData } from './index.js'
 export const CREDENTIALS_SERVICE_SUFFIX = '-credentials'
 
 /**
- * Get the service/resource name for secure storage, scoped by CLAUDE_CONFIG_DIR
+ * Get the service/resource name for secure storage, scoped by OPENCLAUDE_CONFIG_DIR
  * if it's set to a non-default location.
  */
 export function getSecureStorageServiceName(
   serviceSuffix: string = '',
 ): string {
-  const configDir = getClaudeConfigHomeDir()
-  const isDefaultDir =
-    !process.env.OPENCLAUDE_CONFIG_DIR && !process.env.CLAUDE_CONFIG_DIR
+  const configDirEnv = process.env.OPENCLAUDE_CONFIG_DIR || undefined
+  const configDir = configDirEnv
+    ? resolveClaudeConfigHomeDir({ configDirEnv })
+    : getClaudeConfigHomeDir()
+  const defaultConfigDir = resolveClaudeConfigHomeDir({ homeDir: homedir() })
+  const normalizedConfigDir = resolve(configDir).normalize('NFC')
+  const normalizedDefaultConfigDir = resolve(defaultConfigDir).normalize('NFC')
+  const isDefaultDir = normalizedConfigDir === normalizedDefaultConfigDir
 
   // Use a hash of the config dir path to create a unique but stable suffix
   // Only add suffix for non-default directories to maintain backwards compatibility
   const dirHash = isDefaultDir
     ? ''
-    : `-${createHash('sha256').update(configDir).digest('hex').substring(0, 8)}`
-  return `Claude Code${getOauthConfig().OAUTH_FILE_SUFFIX}${serviceSuffix}${dirHash}`
+    : `-${createHash('sha256').update(normalizedConfigDir).digest('hex').substring(0, 8)}`
+  return `OpenClaude${getOauthConfig().OAUTH_FILE_SUFFIX}${serviceSuffix}${dirHash}`
 }
 
 export function getMacOsKeychainStorageServiceName(

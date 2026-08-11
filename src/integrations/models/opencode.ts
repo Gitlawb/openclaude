@@ -96,7 +96,7 @@ const zenModels: OpenCodeModelSpec[] = [
 ]
 
 const goModels: OpenCodeModelSpec[] = [
-  { id: 'opencode-go-glm-5.2', label: 'GLM 5.2', defaultModel: 'glm-5.2', contextWindow: 1_000_000, maxOutputTokens: 131_072, coding: true },
+  { id: 'opencode-go-glm-5.2', label: 'GLM 5.2', defaultModel: 'glm-5.2', contextWindow: 1_000_000, maxOutputTokens: 131_072, reasoning: true, coding: true },
   { id: 'opencode-go-qwen3.7-max', label: 'Qwen3.7 Max', defaultModel: 'qwen3.7-max', contextWindow: 1_000_000, maxOutputTokens: 65_536, reasoning: true, coding: true },
   { id: 'opencode-go-kimi-k2.7-code', label: 'Kimi K2.7 Code', defaultModel: 'kimi-k2.7-code', contextWindow: 262_144, maxOutputTokens: 262_144, reasoning: true, coding: true },
   { id: 'opencode-go-mimo-v2.5-pro', label: 'MiMo V2.5 Pro', defaultModel: 'mimo-v2.5-pro', contextWindow: 1_048_576, maxOutputTokens: 128_000, reasoning: true, coding: true },
@@ -105,7 +105,7 @@ const goModels: OpenCodeModelSpec[] = [
   { id: 'opencode-go-minimax-m3', label: 'MiniMax M3', defaultModel: 'minimax-m3', contextWindow: 512_000, maxOutputTokens: 131_072, reasoning: true, coding: true },
   { id: 'opencode-go-mimo-v2.5', label: 'MiMo V2.5', defaultModel: 'mimo-v2.5', contextWindow: 1_000_000, maxOutputTokens: 128_000, reasoning: true, coding: true },
   { id: 'opencode-go-deepseek-v4-flash', label: 'DeepSeek V4 Flash', defaultModel: 'deepseek-v4-flash', contextWindow: 1_000_000, maxOutputTokens: 384_000, coding: true },
-  { id: 'opencode-go-glm-5.1', label: 'GLM 5.1', defaultModel: 'glm-5.1', contextWindow: 202_752, maxOutputTokens: 32_768, coding: true },
+  { id: 'opencode-go-glm-5.1', label: 'GLM 5.1', defaultModel: 'glm-5.1', contextWindow: 202_752, maxOutputTokens: 32_768, reasoning: true, coding: true },
   { id: 'opencode-go-kimi-k2.6', label: 'Kimi K2.6', defaultModel: 'kimi-k2.6', contextWindow: 262_144, maxOutputTokens: 65_536, reasoning: true, coding: true },
   { id: 'opencode-go-qwen3.6-plus', label: 'Qwen3.6 Plus', defaultModel: 'qwen3.6-plus', contextWindow: 1_000_000, maxOutputTokens: 65_536, reasoning: true, coding: true },
   { id: 'opencode-go-minimax-m2.7', label: 'MiniMax M2.7', defaultModel: 'minimax-m2.7', contextWindow: 204_800, maxOutputTokens: 131_072, reasoning: true, vision: true, coding: true },

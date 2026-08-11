@@ -20,12 +20,14 @@ import config from './commands/config/index.js'
 import { context, contextNonInteractive } from './commands/context/index.js'
 import cost from './commands/cost/index.js'
 import diff from './commands/diff/index.js'
+import diagnostics from './commands/diagnostics/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
+import repomap from './commands/repomap/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
 import init from './commands/init.js'
@@ -166,6 +168,7 @@ import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
 import ads from './commands/ads.js'
+import smartroute from './commands/smartroute/index.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -277,6 +280,7 @@ const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
   ads,
+  smartroute,
   agents,
   autoFix,
   branch,
@@ -301,6 +305,7 @@ const COMMANDS = memoize((): Command[] => [
   cost,
   ctx_viz,
   diff,
+  diagnostics,
   dream,
   doctor,
   effort,
@@ -329,6 +334,7 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  repomap,
   replay,
   requestSize,
   requestSizeNonInteractive,
@@ -504,12 +510,12 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   ])
 
   return [
-    ...bundledSkills,
-    ...builtinPluginSkills,
     ...skillDirCommands,
     ...workflowCommands,
     ...pluginCommands,
     ...pluginSkills,
+    ...bundledSkills,
+    ...builtinPluginSkills,
     ...COMMANDS(),
   ]
 })

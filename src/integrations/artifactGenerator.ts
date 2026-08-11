@@ -234,12 +234,19 @@ function compareProviderPresetEntries(
     return 0
   }
 
-  // Pin Gitlawb Opengateway first so the startup-default provider is also
-  // the first guided setup option when users need to add an API key.
+  // Keep the primary guided providers at the top of setup: Gitlawb
+  // Opengateway first, aimlapi.com second, then the native Anthropic option.
   if (leftPreset === 'gitlawb-opengateway') {
     return -1
   }
   if (rightPreset === 'gitlawb-opengateway') {
+    return 1
+  }
+
+  if (leftPreset === 'aimlapi') {
+    return -1
+  }
+  if (rightPreset === 'aimlapi') {
     return 1
   }
 
@@ -250,12 +257,17 @@ function compareProviderPresetEntries(
     return 1
   }
 
-  if (leftPreset === 'custom') {
+  // Keep the generic custom endpoints together at the end of the picker,
+  // with the Anthropic-native option after the OpenAI-compatible one.
+  if (leftPreset === 'custom-anthropic') {
     return 1
   }
-  if (rightPreset === 'custom') {
+  if (rightPreset === 'custom-anthropic') {
     return -1
   }
+
+  if (leftPreset === 'custom') return 1
+  if (rightPreset === 'custom') return -1
 
   const descriptionDelta = PRESET_DESCRIPTION_COLLATOR.compare(
     String(left.description),

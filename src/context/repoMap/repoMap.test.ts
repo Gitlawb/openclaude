@@ -1,0 +1,866 @@
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { execFileSync, spawnSync } from 'child_process'
+import { cpSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join, win32 } from 'path'
+import { fileURLToPath } from 'url'
+import {
+  getClaudeConfigHomeDir,
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../../utils/envUtils.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import {
+  invalidateCache,
+  buildRepoMap,
+  extractTagsWithCache,
+} from './index.js'
+import {
+  getCachedTags,
+  loadCache,
+  saveCache,
+  setCachedTags,
+  statFile,
+} from './cache.js'
+import { clearSymbolExtractorCaches, extractTags } from './symbolExtractor.js'
+import { buildGraph } from './graph.js'
+import { getRepoFiles } from './gitFiles.js'
+import { rankFiles } from './pagerank.js'
+import { initParser, resolveProjectRoot } from './parser.js'
+import { renderMap } from './renderer.js'
+import { countTokens } from './tokenize.js'
+import type { FileTags } from './types.js'
+
+const FIXTURE_ROOT = join(import.meta.dir, '__fixtures__', 'mini-repo')
+const FIXTURE_FILES = ['fileA.ts', 'fileB.ts', 'fileC.ts', 'fileD.ts', 'fileE.ts']
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+beforeAll(async () => {
+  await initParser()
+})
+
+async function withWritableConfigHome<T>(
+  callback: (configDir: string) => Promise<T>,
+): Promise<T> {
+  await acquireSharedMutationLock('context/repoMap/repoMap.test.ts config home')
+  const previousConfigHomeOverride = getClaudeConfigHomeDirOverrideForTesting()
+  let configDir: string | undefined
+
+  try {
+    configDir = mkdtempSync(join(tmpdir(), 'repomap-test-config-'))
+    setClaudeConfigHomeDirForTesting(configDir)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    return await callback(configDir)
+  } finally {
+    setClaudeConfigHomeDirForTesting(previousConfigHomeOverride)
+    getClaudeConfigHomeDir.cache?.clear?.()
+    if (configDir) {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+    releaseSharedMutationLock()
+  }
+}
+
+// Clean up cache between tests to avoid cross-test interference
+afterEach(() => {
+  invalidateCache(FIXTURE_ROOT)
+  clearSymbolExtractorCaches()
+})
+
+describe('symbol extraction', () => {
+  test('extracts function and class defs from a TypeScript file', async () => {
+    const result = await extractTags('fileC.ts', FIXTURE_ROOT)
+    expect(result).not.toBeNull()
+
+    const defs = result!.tags.filter(t => t.kind === 'def')
+    const defNames = defs.map(t => t.name)
+
+    expect(defNames).toContain('DataStore')
+    expect(defNames).toContain('createStore')
+    expect(defNames).toContain('StoreConfig')
+    expect(defs.filter(d => d.name === 'StoreConfig')).toHaveLength(1)
+
+    // All defs should have kind='def'
+    for (const d of defs) {
+      expect(d.kind).toBe('def')
+    }
+  })
+
+  test('extracts TypeScript const arrow and function expression definitions', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-ts-const-functions-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'actions.ts'),
+        [
+          'export const makeUser = () => ({ id: 1 })',
+          'export const named = function named() { return 1 }',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('actions.ts', tempDir)
+      expect(result).not.toBeNull()
+
+      const defs = result!.tags
+        .filter(tag => tag.kind === 'def')
+        .map(tag => tag.name)
+
+      expect(defs).toContain('makeUser')
+      expect(defs).toContain('named')
+
+      const map = await buildRepoMap({
+        root: tempDir,
+        files: ['actions.ts'],
+        maxTokens: 1024,
+      })
+      expect(map.map).toContain('makeUser')
+      expect(map.map).toContain('named')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('extracts references to imported symbols', async () => {
+    const result = await extractTags('fileA.ts', FIXTURE_ROOT)
+    expect(result).not.toBeNull()
+
+    const refs = result!.tags.filter(t => t.kind === 'ref')
+    const refNames = refs.map(t => t.name)
+
+    // fileA imports CacheLayer from fileB and StoreConfig from fileC
+    expect(refNames).toContain('CacheLayer')
+    expect(refNames).toContain('StoreConfig')
+  })
+
+  test('parses TSX files with the TSX grammar', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-tsx-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'Widget.tsx'),
+        [
+          'export function Widget(): JSX.Element {',
+          '  return <div className="widget">Hello</div>',
+          '}',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('Widget.tsx', tempDir)
+      expect(result).not.toBeNull()
+      expect(result!.tags.some(tag =>
+        tag.kind === 'def' && tag.name === 'Widget',
+      )).toBe(true)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('extracts definitions and references from JavaScript files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.js'),
+        [
+          'class Widget {',
+          '  render() { return helper() }',
+          '}',
+          'function helper() { return new Widget() }',
+          'const makeWidget = () => new Widget()',
+          'exports.fromCommonJs = function() { return makeWidget() }',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await extractTags('main.js', tempDir)
+      expect(result).not.toBeNull()
+
+      const defs = result!.tags
+        .filter(tag => tag.kind === 'def')
+        .map(tag => tag.name)
+      const refs = result!.tags
+        .filter(tag => tag.kind === 'ref')
+        .map(tag => tag.name)
+
+      expect(defs).toContain('Widget')
+      expect(defs).toContain('helper')
+      expect(defs).toContain('makeWidget')
+      expect(defs).toContain('fromCommonJs')
+      expect(refs).toContain('Widget')
+      expect(refs).toContain('helper')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('builds a non-empty map for JavaScript-only repos', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-only-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.js'),
+        [
+          'export class JavaScriptOnly {}',
+          'export function createJavaScriptOnly() {',
+          '  return new JavaScriptOnly()',
+          '}',
+          '',
+        ].join('\n'),
+      )
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+        files: ['main.js'],
+      })
+
+      expect(result.map).toContain('main.js:')
+      expect(result.map).toContain('JavaScriptOnly')
+      expect(result.fileCount).toBe(1)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('shares concurrent query loads for the same language', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-js-concurrent-'))
+    try {
+      const files = Array.from({ length: 20 }, (_, i) => `file${i}.js`)
+      for (const file of files) {
+        writeFileSync(
+          join(tempDir, file),
+          `export function ${file.replace('.js', '')}() { return 1 }\n`,
+        )
+      }
+
+      const results = await Promise.all(
+        files.map(file => extractTags(file, tempDir)),
+      )
+
+      expect(results.every(result => result !== null)).toBe(true)
+      expect(
+        results.every(result =>
+          result!.tags.some(tag => tag.kind === 'def'),
+        ),
+      ).toBe(true)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+describe('graph', () => {
+  test('builds edges between files that reference each other\'s symbols', async () => {
+    const allTags: FileTags[] = []
+    for (const f of FIXTURE_FILES) {
+      const tags = await extractTags(f, FIXTURE_ROOT)
+      if (tags) allTags.push(tags)
+    }
+
+    const graph = buildGraph(allTags)
+
+    // fileA imports from fileB (references CacheLayer defined in fileB)
+    expect(graph.hasEdge('fileA.ts', 'fileB.ts')).toBe(true)
+
+    // fileA imports from fileC (references StoreConfig, DataStore defined in fileC)
+    expect(graph.hasEdge('fileA.ts', 'fileC.ts')).toBe(true)
+
+    // fileB imports from fileC (references DataStore defined in fileC)
+    expect(graph.hasEdge('fileB.ts', 'fileC.ts')).toBe(true)
+
+    // fileD imports from fileA
+    expect(graph.hasEdge('fileD.ts', 'fileA.ts')).toBe(true)
+
+    // fileE is isolated — no edges to/from it
+    expect(graph.degree('fileE.ts')).toBe(0)
+  })
+
+  test('skips edge creation when one symbol is defined in too many files', () => {
+    const tags: FileTags[] = [
+      {
+        path: 'source.ts',
+        tags: [
+          {
+            kind: 'ref',
+            name: 'SharedName',
+            line: 1,
+            signature: 'const value = SharedName',
+          },
+        ],
+      },
+    ]
+
+    for (let i = 0; i < 101; i++) {
+      tags.push({
+        path: `defs/file${i}.ts`,
+        tags: [
+          {
+            kind: 'def',
+            name: 'SharedName',
+            line: 1,
+            signature: `export const SharedName = ${i}`,
+          },
+        ],
+      })
+    }
+
+    const graph = buildGraph(tags)
+    expect(graph.outDegree('source.ts')).toBe(0)
+  })
+
+  test('does not create zero-weight edges for symbols defined in every file', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-zero-weight-'))
+    try {
+      for (const file of ['a.ts', 'b.ts']) {
+        writeFileSync(
+          join(tempDir, file),
+          [
+            'export class Config {}',
+            'export function useConfig(input: Config): Config { return input }',
+            '',
+          ].join('\n'),
+        )
+      }
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        files: ['a.ts', 'b.ts'],
+        maxTokens: 2048,
+      })
+
+      expect(result.fileCount).toBe(2)
+      expect(result.map).toContain('a.ts:')
+      expect(result.map).toContain('b.ts:')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+describe('tag cache extraction', () => {
+  test('preserves input file order when mixing cached and uncached tags', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-cache-order-'))
+    try {
+      const files = ['b.ts', 'a.ts', 'c.ts']
+      for (const file of files) {
+        const symbolName = file.replace('.ts', '').toUpperCase()
+        writeFileSync(join(tempDir, file), `export const ${symbolName} = 1\n`)
+      }
+
+      const fileStats = new Map(files.map(file => [file, statFile(tempDir, file)]))
+      const cache = { version: 2, entries: {}, renderedEntries: {} }
+      const cachedTags = await extractTags('b.ts', tempDir)
+      expect(cachedTags).not.toBeNull()
+      setCachedTags(
+        cache,
+        cachedTags!.path,
+        tempDir,
+        cachedTags!.tags,
+        fileStats.get(cachedTags!.path) ?? undefined,
+      )
+
+      const result = await extractTagsWithCache({
+        files,
+        root: tempDir,
+        cache,
+        fileStats,
+      })
+
+      expect(result.map(fileTags => fileTags.path)).toEqual(files)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+describe('parser project root resolution', () => {
+  test('resolves source checkout roots for Windows paths', () => {
+    const filePath = 'C:\\repo\\src\\context\\repoMap\\parser.ts'
+    expect(resolveProjectRoot(filePath)).toBe('C:\\repo\\')
+  })
+
+  test('resolves bundled roots from dist paths', () => {
+    const filePath = win32.join('C:\\repo', 'dist', 'cli.mjs')
+    expect(resolveProjectRoot(filePath)).toBe('C:\\repo\\')
+  })
+})
+
+describe('pagerank', () => {
+  test('ranks the most-imported file highest', async () => {
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 2048,
+      files: FIXTURE_FILES,
+    })
+
+    // The map starts with the highest-ranked file
+    const firstFile = result.map.split('\n')[0]
+    expect(firstFile).toBe('fileC.ts:')
+
+    // fileE should be ranked lowest (or near last)
+    const lines = result.map.split('\n')
+    const filePositions = FIXTURE_FILES.map(f => {
+      const idx = lines.findIndex(l => l === `${f}:`)
+      return { file: f, position: idx }
+    }).filter(x => x.position >= 0)
+    .sort((a, b) => a.position - b.position)
+
+    // fileC should be first
+    expect(filePositions[0]!.file).toBe('fileC.ts')
+
+    // fileE should be last (or among the last)
+    const lastFile = filePositions[filePositions.length - 1]!.file
+    expect(['fileD.ts', 'fileE.ts']).toContain(lastFile)
+  })
+
+  test('directory focus boosts matching file nodes', () => {
+    const graph = buildGraph([
+      {
+        path: 'src/tools/isolated.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'IsolatedTool',
+            line: 1,
+            signature: 'export class IsolatedTool {}',
+          },
+        ],
+      },
+      {
+        path: 'src/core.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'Core',
+            line: 1,
+            signature: 'export class Core {}',
+          },
+          {
+            kind: 'ref',
+            name: 'Helper',
+            line: 2,
+            signature: 'new Helper()',
+          },
+        ],
+      },
+      {
+        path: 'src/helper.ts',
+        tags: [
+          {
+            kind: 'def',
+            name: 'Helper',
+            line: 1,
+            signature: 'export class Helper {}',
+          },
+        ],
+      },
+    ])
+
+    const noFocus = rankFiles(graph).map(file => file.path)
+    const dirFocus = rankFiles(graph, ['src/tools/']).map(file => file.path)
+
+    expect(noFocus[0]).not.toBe('src/tools/isolated.ts')
+    expect(dirFocus[0]).toBe('src/tools/isolated.ts')
+  })
+
+  test('symbol focus boosts matching files in the core build path', async () => {
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 2048,
+      files: FIXTURE_FILES,
+      focusSymbols: ['ConsoleLogger'],
+    })
+
+    const firstFile = result.map.split('\n')[0]
+    expect(firstFile).toBe('fileE.ts:')
+    expect(result.map).toContain('export class ConsoleLogger implements Logger')
+  })
+})
+
+describe('renderer', () => {
+  test('respects the token budget within 5%', async () => {
+    const maxTokens = 500
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens,
+      files: FIXTURE_FILES,
+    })
+
+    const actualTokens = countTokens(result.map)
+    expect(actualTokens).toBeLessThanOrEqual(maxTokens * 1.05)
+    expect(result.tokenCount).toBeLessThanOrEqual(maxTokens * 1.05)
+  })
+
+  test('drops files that don\'t fit rather than listing their names', async () => {
+    // Very tight budget — should only fit 1-2 files
+    const result = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 100,
+      files: FIXTURE_FILES,
+    })
+
+    // Count how many files appear as headers in the output
+    const fileHeaders = result.map.split('\n').filter(l => l.endsWith(':') && !l.startsWith(' '))
+
+    // Every file header in the output should have its signatures listed
+    for (const header of fileHeaders) {
+      // The file must have at least one signature line after it
+      const headerIdx = result.map.indexOf(header)
+      const afterHeader = result.map.slice(headerIdx + header.length)
+      // Should have content (signatures), not just the filename
+      expect(afterHeader.trim().length).toBeGreaterThan(0)
+    }
+
+    // Should have fewer files than total
+    expect(fileHeaders.length).toBeLessThan(FIXTURE_FILES.length)
+  })
+
+  test('skips an oversized ranked file and keeps later files that fit', () => {
+    const hugeSignature = `export function enormous(${Array.from(
+      { length: 120 },
+      (_, i) => `arg${i}: string`,
+    ).join(', ')}): void {}`
+    const ranked = [
+      { path: 'big.ts', score: 10 },
+      { path: 'small.ts', score: 1 },
+    ]
+    const fileTagsMap = new Map<string, FileTags>([
+      [
+        'big.ts',
+        {
+          path: 'big.ts',
+          tags: [
+            {
+              kind: 'def',
+              name: 'enormous',
+              line: 1,
+              signature: hugeSignature,
+            },
+          ],
+        },
+      ],
+      [
+        'small.ts',
+        {
+          path: 'small.ts',
+          tags: [
+            {
+              kind: 'def',
+              name: 'small',
+              line: 1,
+              signature: 'export function small(): void {}',
+            },
+          ],
+        },
+      ],
+    ])
+
+    const result = renderMap(ranked, fileTagsMap, 80)
+
+    expect(result.map).toContain('small.ts:')
+    expect(result.map).not.toContain('big.ts:')
+    expect(result.fileCount).toBe(1)
+    expect(result.tokenCount).toBeLessThanOrEqual(80)
+  })
+})
+
+describe('cache', () => {
+  test('saveCache does not throw when persistence is unavailable', () => {
+    expect(() => {
+      saveCache('\0invalid-root', {
+        version: 2,
+        entries: {
+          bad: {
+            tags: [{ value: BigInt(1) }],
+            mtimeMs: 0,
+            size: 0,
+          },
+        },
+        renderedEntries: {},
+      } as never)
+    }).not.toThrow()
+  })
+
+  test('stores repo map cache under OPENCLAUDE_CONFIG_DIR when configured', async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'repomap-config-home-'))
+    const expectedCacheDir = join(configDir, 'repomap-cache')
+    const {
+      CLAUDE_CONFIG_DIR: _legacyConfigDir,
+      OPENCLAUDE_CONFIG_DIR: _openClaudeConfigDir,
+      ...env
+    } = process.env
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--eval',
+          [
+            "import { getCacheStats } from './src/context/repoMap/index.ts'",
+            'const stats = getCacheStats(process.argv[1])',
+            'if (stats.cacheDir !== process.argv[2]) {',
+            '  console.error(`Expected ${process.argv[2]}, got ${stats.cacheDir}`)',
+            '  process.exit(1)',
+            '}',
+          ].join('\n'),
+          FIXTURE_ROOT,
+          expectedCacheDir,
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: {
+            ...env,
+            FORCE_COLOR: '0',
+            OPENCLAUDE_CONFIG_DIR: configDir,
+          },
+        },
+      )
+
+      if (result.error) {
+        throw result.error
+      }
+
+      expect(result.stderr).toBe('')
+      expect(result.status).toBe(0)
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('second build of unchanged fixture uses the cache', async () => withWritableConfigHome(async () => {
+    // First build (cold)
+    const result1 = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 2048,
+      files: FIXTURE_FILES,
+    })
+    expect(result1.cacheHit).toBe(false)
+
+    // Second build (warm)
+    const result2 = await buildRepoMap({
+      root: FIXTURE_ROOT,
+      maxTokens: 2048,
+      files: FIXTURE_FILES,
+    })
+    expect(result2.cacheHit).toBe(true)
+
+    // Output should be identical
+    expect(result2.map).toBe(result1.map)
+  }))
+
+  test('modifying a file invalidates the rendered cache without clearing cache data', async () => withWritableConfigHome(async () => {
+    // Create a temp copy of the fixture
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-test-'))
+    try {
+      for (const f of FIXTURE_FILES) {
+        cpSync(join(FIXTURE_ROOT, f), join(tempDir, f))
+      }
+
+      // First build
+      const result1 = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 2048,
+        files: FIXTURE_FILES,
+      })
+      expect(result1.cacheHit).toBe(false)
+
+      // Touch one file to change its mtime
+      const targetFile = join(tempDir, 'fileE.ts')
+      const now = new Date()
+      utimesSync(targetFile, now, now)
+
+      const cacheBeforeSecondBuild = loadCache(tempDir)
+      expect(getCachedTags(
+        cacheBeforeSecondBuild,
+        'fileA.ts',
+        tempDir,
+        statFile(tempDir, 'fileA.ts') ?? undefined,
+      )).not.toBeNull()
+      expect(getCachedTags(
+        cacheBeforeSecondBuild,
+        'fileE.ts',
+        tempDir,
+        statFile(tempDir, 'fileE.ts') ?? undefined,
+      )).toBeNull()
+
+      // Second build — rendered cache should be invalidated because the map
+      // hash includes file stats, but unchanged files can still reuse tag cache.
+      const result2 = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 2048,
+        files: FIXTURE_FILES,
+      })
+      // The per-file cache for fileE should miss (mtime changed),
+      // but other files should still hit the per-file cache
+      expect(result2.cacheHit).toBe(false)
+
+      // Output should still be valid
+      expect(result2.map.length).toBeGreaterThan(0)
+      expect(result2.fileCount).toBe(result1.fileCount)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  }))
+})
+
+describe('gitFiles', () => {
+  test('ignores inherited git environment overrides', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-git-env-'))
+    const previousGitDir = process.env.GIT_DIR
+    const previousGitWorkTree = process.env.GIT_WORK_TREE
+    try {
+      writeFileSync(
+        join(tempDir, 'hello.ts'),
+        'export function hello(): string { return "world" }\n',
+      )
+
+      process.env.GIT_DIR = join(process.cwd(), '.git')
+      process.env.GIT_WORK_TREE = process.cwd()
+
+      expect(await getRepoFiles(tempDir)).toEqual(['hello.ts'])
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = previousGitDir
+      if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE
+      else process.env.GIT_WORK_TREE = previousGitWorkTree
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('preserves leading whitespace in git-tracked file paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-git-paths-'))
+    const env = { ...process.env }
+    delete env.GIT_DIR
+    delete env.GIT_WORK_TREE
+    delete env.GIT_INDEX_FILE
+
+    try {
+      writeFileSync(
+        join(tempDir, ' leading.ts'),
+        'export function LeadingSpaceFile(): string { return "ok" }\n',
+      )
+      writeFileSync(
+        join(tempDir, 'normal.ts'),
+        'export function NormalFile(): string { return "ok" }\n',
+      )
+
+      execFileSync('git', ['init'], { cwd: tempDir, env, stdio: 'ignore' })
+      execFileSync('git', ['add', '.'], { cwd: tempDir, env, stdio: 'ignore' })
+
+      const files = await getRepoFiles(tempDir)
+      expect(files).toContain(' leading.ts')
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+      })
+
+      expect(result.map).toContain(' leading.ts:')
+      expect(result.map).toContain('LeadingSpaceFile')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+
+  test('falls back gracefully when not in a git repo', async () => {
+    // Create a temp directory with source files but NO .git
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-nogit-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'hello.ts'),
+        'export function hello(): string { return "world" }\n',
+      )
+      writeFileSync(
+        join(tempDir, 'utils.ts'),
+        'export function add(a: number, b: number): number { return a + b }\n',
+      )
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+      })
+
+      // Should succeed without throwing
+      expect(result.map.length).toBeGreaterThan(0)
+      expect(result.totalFileCount).toBeGreaterThan(0)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+describe('error handling', () => {
+  test('no crash on malformed source file', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-malformed-'))
+    try {
+      // Valid file
+      writeFileSync(
+        join(tempDir, 'good.ts'),
+        'export function good(): number { return 1 }\n',
+      )
+      // Malformed file — severe syntax errors
+      writeFileSync(
+        join(tempDir, 'bad.ts'),
+        '}{}{}{export classclass [[[ function ,,, @@@ ###\n',
+      )
+
+      const result = await buildRepoMap({
+        root: tempDir,
+        maxTokens: 1024,
+        files: ['good.ts', 'bad.ts'],
+      })
+
+      // Should complete successfully
+      expect(result.map.length).toBeGreaterThan(0)
+      // The good file should be in the output
+      expect(result.map).toContain('good.ts')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+      invalidateCache(tempDir)
+    }
+  })
+})
+
+describe('rendered cache invalidation', () => {
+  test('reflects file edits without manual invalidation', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'repomap-stale-'))
+    try {
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function oldName(): void {}\n',
+      )
+
+      const first = await buildRepoMap({ root: tempDir, maxTokens: 1024 })
+      expect(first.cacheHit).toBe(false)
+      expect(first.map).toContain('oldName')
+
+      // Bump mtime forward so the change is visible on filesystems with
+      // coarse timestamp resolution.
+      const future = new Date(Date.now() + 2000)
+      writeFileSync(
+        join(tempDir, 'main.ts'),
+        'export function newName(): void {}\n',
+      )
+      utimesSync(join(tempDir, 'main.ts'), future, future)
+
+      const second = await buildRepoMap({ root: tempDir, maxTokens: 1024 })
+      expect(second.map).toContain('newName')
+      expect(second.map).not.toContain('oldName')
+    } finally {
+      invalidateCache(tempDir)
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+})

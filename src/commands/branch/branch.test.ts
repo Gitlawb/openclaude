@@ -465,6 +465,10 @@ test('/branch creates a new session, copies messages, keeps the source transcrip
   expect(forkPath).toBeString()
   expect((await stat(forkPath!)).mode & 0o777).toBe(0o600)
   const entries = await readEntries(forkPath!)
+  expect(entries[0]).toMatchObject({
+    type: 'session-branch',
+    sessionId: newSessionId,
+  })
   const persistedMessages = entries.filter(
     entry => entry.type === 'user' || entry.type === 'assistant',
   )

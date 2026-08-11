@@ -281,3 +281,36 @@ describe('agent definition loading', () => {
     expect(invalid).toBeNull()
   })
 })
+
+describe('parseAgentFromJson effort handling', () => {
+  // ultracode is a session-only meta-mode and must not be settable from an agent
+  // definition, so the JSON schema drops it (like the markdown/skill/plugin
+  // frontmatter and SDK paths) while preserving every other effort value.
+  test('drops ultracode from a JSON agent definition', () => {
+    const agent = parseAgentFromJson('my-agent', {
+      description: 'desc',
+      prompt: 'sys',
+      effort: 'ultracode',
+    })
+    expect(agent).not.toBeNull()
+    expect(agent?.effort).toBeUndefined()
+  })
+
+  test('preserves a non-ultracode effort level', () => {
+    const agent = parseAgentFromJson('my-agent', {
+      description: 'desc',
+      prompt: 'sys',
+      effort: 'high',
+    })
+    expect(agent?.effort).toBe('high')
+  })
+
+  test('preserves a numeric effort value', () => {
+    const agent = parseAgentFromJson('my-agent', {
+      description: 'desc',
+      prompt: 'sys',
+      effort: 2,
+    })
+    expect(agent?.effort).toBe(2)
+  })
+})

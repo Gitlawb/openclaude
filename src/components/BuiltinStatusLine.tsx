@@ -17,6 +17,7 @@ import { isFullscreenEnvEnabled } from '../utils/fullscreen.js';
 import { getRuntimeMainLoopModel, renderModelName } from '../utils/model/model.js';
 import type { Theme } from '../utils/theme.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
+import { formatTokenCount } from '../utils/format.js';
 
 /**
  * Built-in status bar shown when the user has NOT configured a custom
@@ -38,6 +39,8 @@ export type StatusSegment = {
   /** Lower survives longer when the terminal narrows. */
   priority: number;
   text: string;
+  /** Compact form swapped in before the segment is dropped entirely. */
+  shortText?: string;
   color?: keyof Theme;
 };
 const SEPARATOR = ' · ';
@@ -45,6 +48,12 @@ export type BuiltinStatusData = {
   modelName: string;
   /** 0–100, or null before the first assistant turn. */
   contextUsedPercent: number | null;
+  /** Current input token count (including cache), or null. */
+  contextInputTokens: number | null;
+  /** Model context window size in tokens. */
+  contextWindow: number | null;
+  /** When true, token counts are transcript-based estimates (e.g. all-zero provider response). */
+  contextIsEstimated?: boolean;
   costUSD: number;
   /** Worst rate-limit window, or null when no utilization data (API-key users). */
   rateLimit: {
@@ -58,14 +67,26 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
     priority: 0,
     text: data.modelName
   }];
-  if (data.contextUsedPercent !== null) {
+  if (data.contextUsedPercent !== null && data.contextInputTokens !== null && data.contextWindow !== null) {
     const pct = data.contextUsedPercent;
     const roundedPct = Math.round(pct);
+    const usedTokens = data.contextInputTokens;
+    const window = data.contextWindow;
     const pctText = pct > 0 && pct < 1 ? '<1' : String(roundedPct);
+    // Token display: "ctx ~5K/200K (7%)" — full form
+    // The ~ prefix signals that input token counts are transcript-based
+    // estimates (e.g. provider reported all-zero usage), matching the
+    // public custom-statusline contract which exposes is_estimated.
+    const prefix = data.contextIsEstimated ? '~' : '';
+    const tokenText = `${prefix}${formatTokenCount(usedTokens)}/${formatTokenCount(window)}`;
+    const text = `ctx ${tokenText} (${pctText}%)`;
+    // Short form: "ctx ~5K/200K"
+    const shortText = `ctx ${tokenText}`;
     segments.push({
       key: 'context',
       priority: 1,
-      text: `ctx ${pctText}%`,
+      text,
+      shortText,
       // Thresholds align with the auto-compact warnings
       color: roundedPct >= 90 ? 'error' : roundedPct >= 70 ? 'warning' : undefined
     });
@@ -75,7 +96,8 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
     segments.push({
       key: 'cost',
       priority: 2,
-      text: cost >= 100 ? `$${cost.toFixed(0)}` : `$${cost.toFixed(2)}`
+      text: cost >= 100 ? `$${cost.toFixed(0)}` : `$${cost.toFixed(2)}`,
+      shortText: `$${cost.toFixed(0)}`
     });
   }
   if (data.rateLimit) {
@@ -90,21 +112,51 @@ export function buildBuiltinStatusSegments(data: BuiltinStatusData): StatusSegme
   return segments;
 }
 
-/** Drops the highest-priority-number segments until the joined line fits. */
+/** Trailing marker signalling that segments were hidden for width. */
+const TRUNCATION_MARKER: StatusSegment = {
+  key: 'truncated',
+  priority: Number.MAX_SAFE_INTEGER,
+  text: '…'
+};
+
+/**
+ * Fits segments into maxWidth without lying about it: first swaps in each
+ * segment's shortText (highest priority number first), then drops segments,
+ * appending a dim `…` so hidden data is visible as hidden. The marker is
+ * best-effort — at extreme widths showing the model beats showing nothing.
+ */
 export function fitSegments(segments: StatusSegment[], maxWidth: number): StatusSegment[] {
   const fits = (segs: StatusSegment[]): boolean => {
     if (segs.length === 0) return true;
     const width = segs.reduce((sum, s) => sum + s.text.length, 0) + (segs.length - 1) * SEPARATOR.length;
     return width <= maxWidth;
   };
-  const result = [...segments];
-  while (result.length > 1 && !fits(result)) {
+  const result = segments.map(s => ({
+    ...s
+  }));
+  let droppedAny = false;
+  const withMarker = () => droppedAny ? [...result, TRUNCATION_MARKER] : result;
+
+  // Degrade before dropping.
+  if (!fits(withMarker())) {
+    const byPriorityDesc = [...result].sort((a, b) => b.priority - a.priority);
+    for (const seg of byPriorityDesc) {
+      if (seg.shortText !== undefined && seg.shortText.length < seg.text.length) {
+        seg.text = seg.shortText;
+        if (fits(withMarker())) break;
+      }
+    }
+  }
+  while (result.length > 1 && !fits(withMarker())) {
     let dropIndex = 0;
     for (let i = 1; i < result.length; i++) {
       if (result[i]!.priority > result[dropIndex]!.priority) dropIndex = i;
     }
     result.splice(dropIndex, 1);
+    droppedAny = true;
   }
+  const final = withMarker();
+  if (fits(final)) return final;
   return fits(result) ? result : [];
 }
 
@@ -144,10 +196,17 @@ function BuiltinStatusLineInner({
       exceeds200kTokens
     });
     const contextWindowSize = getContextWindowForModel(runtimeModel, getSdkBetas());
-    const contextPercentages = calculateContextPercentages(getCurrentUsage(msgs), contextWindowSize);
+    const currentUsage = getCurrentUsage(msgs);
+    const contextPercentages = calculateContextPercentages(currentUsage, contextWindowSize);
+    const inputTokens = currentUsage
+      ? currentUsage.input_tokens + currentUsage.cache_creation_input_tokens + currentUsage.cache_read_input_tokens
+      : null;
     return {
       modelName: renderModelName(runtimeModel),
       contextUsedPercent: contextPercentages.used,
+      contextInputTokens: inputTokens,
+      contextWindow: contextWindowSize,
+      contextIsEstimated: currentUsage?.is_estimated,
       costUSD: getTotalCost()
     };
     // messagesRef is stable; lastAssistantMessageId is the messages-changed signal

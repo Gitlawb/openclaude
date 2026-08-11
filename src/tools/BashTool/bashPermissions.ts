@@ -1,7 +1,6 @@
 import { feature } from 'bun:bundle'
 import { APIUserAbortError } from '@anthropic-ai/sdk'
 import type { z } from 'zod/v4'
-import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -12,8 +11,6 @@ import { count } from '../../utils/array.js'
 import {
   checkSemantics,
   nodeTypeId,
-  type ParseForSecurityResult,
-  parseForSecurityFromAst,
   type Redirect,
   type SimpleCommand,
 } from '../../utils/bash/ast.js'
@@ -23,7 +20,6 @@ import {
   getCommandSubcommandPrefix,
   splitCommand_DEPRECATED,
 } from '../../utils/bash/commands.js'
-import { parseCommandRaw } from '../../utils/bash/parser.js'
 import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 import { getCwd } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -68,9 +64,16 @@ import { SandboxManager } from '../../utils/sandbox/sandbox-adapter.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { windowsPathToPosixPath } from '../../utils/windowsPaths.js'
 import { BashTool } from './BashTool.js'
+import {
+  analyzeBashCommand,
+  type BashCommandAnalysis,
+  type LegacyShellParseAnalysis,
+  logLegacyParserLimitationOnce,
+} from './bashCommandAnalysis.js'
 import { checkCommandOperatorPermissions } from './bashCommandHelpers.js'
 import {
   bashCommandIsSafeAsync_DEPRECATED,
+  checkBashCommitMessagePolicy,
   stripSafeHeredocSubstitutions,
 } from './bashSecurity.js'
 import { checkPermissionMode } from './modeValidation.js'
@@ -1035,6 +1038,7 @@ export const bashToolCheckPermission = (
   toolPermissionContext: ToolPermissionContext,
   compoundCommandHasCd?: boolean,
   astCommand?: SimpleCommand,
+  analysis?: BashCommandAnalysis,
 ): PermissionResult => {
   const command = input.command.trim()
 
@@ -1099,6 +1103,7 @@ export const bashToolCheckPermission = (
     compoundCommandHasCd,
     astCommand?.redirects,
     astCommand ? [astCommand] : undefined,
+    astCommand ? undefined : analysis,
   )
   if (pathResult.behavior !== 'passthrough') {
     return pathResult
@@ -1128,7 +1133,11 @@ export const bashToolCheckPermission = (
   }
 
   // 6. Check for mode-specific permission handling
-  const modeResult = checkPermissionMode(input, toolPermissionContext)
+  const modeResult = checkPermissionMode(
+    input,
+    toolPermissionContext,
+    analysis?.legacyParse,
+  )
   if (modeResult.behavior !== 'passthrough') {
     return modeResult
   }
@@ -1708,76 +1717,38 @@ export async function bashToolHasPermission(
 ): Promise<PermissionResult> {
   let appState = context.getAppState()
 
-  // 0. AST-based security parse. This replaces both tryParseShellCommand
-  // (the shell-quote pre-check) and the bashCommandIsSafe misparsing gate.
-  // tree-sitter produces either a clean SimpleCommand[] (quotes resolved,
-  // no hidden substitutions) or 'too-complex' — which is exactly the signal
-  // we need to decide whether splitCommand's output can be trusted.
-  //
-  // When tree-sitter WASM is unavailable OR the injection check is disabled
-  // via env var, we fall back to the old path (legacy gate at ~1370 runs).
-  const injectionCheckDisabled = isEnvTruthy(
-    process.env.CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK,
-  )
-  // GrowthBook killswitch for shadow mode — when off, skip the native parse
-  // entirely. Computed once; feature() must stay inline in the ternary below.
-  const shadowEnabled = feature('TREE_SITTER_BASH_SHADOW')
-    ? getFeatureValue_CACHED_MAY_BE_STALE('tengu_birch_trellis', true)
-    : false
-  // Parse once here; the resulting AST feeds both parseForSecurityFromAst
-  // and bashToolCheckCommandOperatorPermissions.
-  let astRoot = injectionCheckDisabled
-    ? null
-    : feature('TREE_SITTER_BASH_SHADOW') && !shadowEnabled
-      ? null
-      : await parseCommandRaw(input.command)
-  let astResult: ParseForSecurityResult = astRoot
-    ? parseForSecurityFromAst(input.command, astRoot)
-    : { kind: 'parse-unavailable' }
-  let astSubcommands: string[] | null = null
-  let astRedirects: Redirect[] | undefined
-  let astCommands: SimpleCommand[] | undefined
-  let shadowLegacySubs: string[] | undefined
-
-  // Shadow-test tree-sitter: record its verdict, then force parse-unavailable
-  // so the legacy path stays authoritative. parseCommand stays gated on
-  // TREE_SITTER_BASH (not SHADOW) so legacy internals remain pure regex.
-  // One event per bash call captures both divergence AND unavailability
-  // reasons; module-load failures are separately covered by the
-  // session-scoped tengu_tree_sitter_load event.
-  if (feature('TREE_SITTER_BASH_SHADOW')) {
-    const available = astResult.kind !== 'parse-unavailable'
-    let tooComplex = false
-    let semanticFail = false
-    let subsDiffer = false
-    if (available) {
-      tooComplex = astResult.kind === 'too-complex'
-      semanticFail =
-        astResult.kind === 'simple' && !checkSemantics(astResult.commands).ok
-      const tsSubs =
-        astResult.kind === 'simple'
-          ? astResult.commands.map(c => c.text)
-          : undefined
-      const legacySubs = splitCommand(input.command)
-      shadowLegacySubs = legacySubs
-      subsDiffer =
-        tsSubs !== undefined &&
-        (tsSubs.length !== legacySubs.length ||
-          tsSubs.some((s, i) => s !== legacySubs[i]))
+  const commitPolicyResult = checkBashCommitMessagePolicy(input.command)
+  if (commitPolicyResult) {
+    if (
+      commitPolicyResult.behavior !== 'ask' &&
+      commitPolicyResult.behavior !== 'deny'
+    ) {
+      return commitPolicyResult
     }
-    logEvent('tengu_tree_sitter_shadow', {
-      available,
-      astTooComplex: tooComplex,
-      astSemanticFail: semanticFail,
-      subsDiffer,
-      injectionCheckDisabled,
-      killswitchOff: !shadowEnabled,
-      cmdOverLength: input.command.length > 10000,
-    })
-    // Always force legacy — shadow mode is observational only.
-    astResult = { kind: 'parse-unavailable' }
-    astRoot = null
+    return {
+      ...commitPolicyResult,
+      message: createPermissionRequestMessage(
+        BashTool.name,
+        commitPolicyResult.decisionReason ?? {
+          type: 'other',
+          reason: 'Git commit policy violation',
+        },
+      ),
+    }
   }
+
+  // 0. Analyze command structure once for this permission check. The helper
+  // keeps AST parsing, shadow telemetry, and legacy shell-quote fallback state
+  // together so parser limitations are classified once per tool use.
+  const analysis = await analyzeBashCommand(input.command)
+  const {
+    astRoot,
+    astResult,
+    astSubcommands,
+    astRedirects,
+    astCommands,
+    shadowLegacySubs,
+  } = analysis
 
   if (astResult.kind === 'too-complex') {
     // Parse succeeded but found structure we can't statically analyze
@@ -1833,17 +1804,8 @@ export async function bashToolHasPermission(
         suggestions: [],
       }
     }
-    // Stash the tokenized subcommands for use below. Downstream code (rule
-    // matching, path extraction, cd detection) still operates on strings, so
-    // we pass the original source span for each SimpleCommand. Downstream
-    // processing (stripSafeWrappers, parseCommandArguments) re-tokenizes
-    // these spans — that re-tokenization has known bugs (stripCommentLines
-    // mishandles newlines inside quotes), but checkSemantics already caught
-    // any argv element containing a newline, so those bugs can't bite here.
-    // Migrating downstream to operate on argv directly is a later commit.
-    astSubcommands = astResult.commands.map(c => c.text)
-    astRedirects = astResult.commands.flatMap(c => c.redirects)
-    astCommands = astResult.commands
+    // AST-derived subcommands, redirects, and argv are provided by
+    // analyzeBashCommand and reused below.
   }
 
   // Legacy shell-quote pre-check. Only reached on 'parse-unavailable'
@@ -1853,8 +1815,14 @@ export async function bashToolHasPermission(
     logForDebugging(
       'bashToolHasPermission: tree-sitter unavailable, using legacy shell-quote path',
     )
-    const parseResult = tryParseShellCommand(input.command)
-    if (!parseResult.success) {
+    const parseResult = analysis.legacyParse
+    if (parseResult.kind === 'failed') {
+      logLegacyParserLimitationOnce(analysis)
+      const earlyExit = checkEarlyExitDeny(
+        input,
+        appState.toolPermissionContext,
+      )
+      if (earlyExit?.behavior === 'deny') return earlyExit
       const decisionReason = {
         type: 'other' as const,
         reason: `Command contains malformed syntax that cannot be parsed: ${parseResult.error}`,
@@ -1872,7 +1840,7 @@ export async function bashToolHasPermission(
   if (
     SandboxManager.isSandboxingEnabled() &&
     SandboxManager.isAutoAllowBashIfSandboxedEnabled() &&
-    shouldUseSandbox(input)
+    shouldUseSandbox(input, analysis)
   ) {
     const sandboxAutoAllowResult = checkSandboxAutoAllow(
       input,
@@ -2091,9 +2059,10 @@ export async function bashToolHasPermission(
         input,
         getCwd(),
         appState.toolPermissionContext,
-        commandHasAnyCd(input.command),
+        commandHasAnyCd(input.command, analysis.legacyParse),
         astRedirects,
         astCommands,
+        analysis,
       )
       if (pathResult.behavior !== 'passthrough') {
         return pathResult
@@ -2201,6 +2170,29 @@ export async function bashToolHasPermission(
     cwdMingw,
   )
 
+  for (const subcommand of subcommands) {
+    const subcommandCommitPolicyResult =
+      checkBashCommitMessagePolicy(subcommand)
+    if (subcommandCommitPolicyResult) {
+      if (
+        subcommandCommitPolicyResult.behavior !== 'ask' &&
+        subcommandCommitPolicyResult.behavior !== 'deny'
+      ) {
+        return subcommandCommitPolicyResult
+      }
+      return {
+        ...subcommandCommitPolicyResult,
+        message: createPermissionRequestMessage(
+          BashTool.name,
+          subcommandCommitPolicyResult.decisionReason ?? {
+            type: 'other',
+            reason: 'Git commit policy violation',
+          },
+        ),
+      }
+    }
+  }
+
   // CC-643: Cap subcommand fanout. Only the legacy splitCommand path can
   // explode — the AST path returns a bounded list (astSubcommands !== null)
   // or short-circuits to 'too-complex' for structures it can't represent.
@@ -2287,6 +2279,7 @@ export async function bashToolHasPermission(
       appState.toolPermissionContext,
       compoundCommandHasCd,
       astCommandsByIdx[i],
+      subcommands.length === 1 ? analysis : undefined,
     ),
   )
 
@@ -2325,6 +2318,7 @@ export async function bashToolHasPermission(
     compoundCommandHasCd,
     astRedirects,
     astCommands,
+    analysis,
   )
   if (pathResult.behavior === 'deny') {
     return pathResult
@@ -2659,7 +2653,14 @@ export function isNormalizedCdCommand(command: string): boolean {
  * Checks if a compound command contains any cd command,
  * using normalized detection that handles env var prefixes and shell quotes.
  */
-export function commandHasAnyCd(command: string): boolean {
+export function commandHasAnyCd(
+  command: string,
+  legacyParse?: LegacyShellParseAnalysis,
+): boolean {
+  if (legacyParse?.kind === 'failed') {
+    return true
+  }
+
   return splitCommand(command).some(subcmd =>
     isNormalizedCdCommand(subcmd.trim()),
   )

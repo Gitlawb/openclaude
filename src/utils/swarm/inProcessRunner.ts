@@ -23,7 +23,10 @@ import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
 } from '../../services/analytics/index.js'
-import { getAutoCompactThreshold } from '../../services/compact/autoCompact.js'
+import {
+  getAutoCompactThreshold,
+  isAutoCompactEnabled,
+} from '../../services/compact/autoCompact.js'
 import {
   buildPostCompactMessages,
   compactConversation,
@@ -70,16 +73,31 @@ import { count } from '../array.js'
 import { logForDebugging } from '../debug.js'
 import { cloneFileStateCache } from '../fileStateCache.js'
 import {
+  getMaxActiveMessagesHardCap,
+  isAboveMaxActiveMessagesLimit,
+  parseMaxActiveMessagesLimit,
+  resolveMaxActiveMessagesLimit,
+} from '../maxActiveMessages.js'
+import {
+  getGlobalConfig,
+  isValidMaxMessagesCompactionThreshold,
+  normalizeMaxMessagesCompactionThreshold,
+} from '../config.js'
+import {
   SUBAGENT_REJECT_MESSAGE,
   SUBAGENT_REJECT_MESSAGE_WITH_REASON_PREFIX,
 } from '../messages.js'
 import type { ModelAlias } from '../model/aliases.js'
 import {
   applyPermissionUpdates,
+  filterPermissionRequestHookUpdates,
   persistPermissionUpdates,
 } from '../permissions/PermissionUpdate.js'
 import type { PermissionUpdate } from '../permissions/PermissionUpdateSchema.js'
-import { hasPermissionsToUseTool } from '../permissions/permissions.js'
+import {
+  hasPermissionsToUseTool,
+  revalidatePlanModePermissionAllowWithRaceGuard,
+} from '../permissions/permissions.js'
 import { emitTaskTerminatedSdk } from '../sdkEventQueue.js'
 import { sleep } from '../sleep.js'
 import { jsonStringify } from '../slowOperations.js'
@@ -138,6 +156,39 @@ function createInProcessCanUseTool(
     toolUseID,
     forceDecision,
   ) => {
+    const guardExternalApproval = async (
+      finalInput: Record<string, unknown>,
+      permissionUpdates: PermissionUpdate[],
+    ): Promise<
+      | { decision: PermissionDecision; permissionUpdates: [] }
+      | { decision: null; permissionUpdates: PermissionUpdate[] }
+    > => {
+      const planModeWasActive =
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      const decision =
+        await revalidatePlanModePermissionAllowWithRaceGuard(
+          tool,
+          input,
+          finalInput,
+          toolUseContext,
+          planModeWasActive,
+        )
+      const enforcePlanMode =
+        planModeWasActive ||
+        toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
+      if (decision) {
+        return { decision, permissionUpdates: [] }
+      }
+      return {
+        decision: null,
+        permissionUpdates: filterPermissionRequestHookUpdates(
+          permissionUpdates,
+          enforcePlanMode ||
+            toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
+        ),
+      }
+    }
+
     const shouldBypassForcedAsk =
       forceDecision?.behavior === 'ask' &&
       toolUseContext.getAppState().toolPermissionContext.mode === 'fullAccess'
@@ -171,6 +222,13 @@ function createInProcessCanUseTool(
         toolUseContext.options.isNonInteractiveSession,
       )
       if (classifierDecision) {
+        const approval = await guardExternalApproval(
+          input as Record<string, unknown>,
+          [],
+        )
+        if (approval.decision) {
+          return approval.decision
+        }
         return {
           behavior: 'allow',
           updatedInput: input as Record<string, unknown>,
@@ -264,16 +322,29 @@ function createInProcessCanUseTool(
                 onAbortListener,
               )
               reportPermissionWait()
-              persistPermissionUpdates(permissionUpdates)
+              const approval = await guardExternalApproval(
+                updatedInput,
+                permissionUpdates,
+              )
+              if (approval.decision) {
+                resolve(approval.decision)
+                return
+              }
+              const updatesToApply = filterPermissionRequestHookUpdates(
+                approval.permissionUpdates,
+                toolUseContext.getAppState().toolPermissionContext.mode ===
+                  'plan',
+              )
+              persistPermissionUpdates(updatesToApply)
               // Write back permission updates to the leader's shared context
-              if (permissionUpdates.length > 0) {
+              if (updatesToApply.length > 0) {
                 const setToolPermissionContext =
                   getLeaderSetToolPermissionContext()
                 if (setToolPermissionContext) {
                   const currentAppState = toolUseContext.getAppState()
                   const updatedContext = applyPermissionUpdates(
                     currentAppState.toolPermissionContext,
-                    permissionUpdates,
+                    updatesToApply,
                   )
                   // Preserve the leader's mode to prevent workers'
                   // transformed 'acceptEdits' context from leaking back
@@ -355,18 +426,32 @@ function createInProcessCanUseTool(
       registerPermissionCallback({
         requestId: request.id,
         toolUseId: toolUseID,
-        onAllow(
+        async onAllow(
           updatedInput: Record<string, unknown> | undefined,
           permissionUpdates: PermissionUpdate[],
           _feedback?: string,
           contentBlocks?: ContentBlockParam[],
         ) {
           cleanup()
-          persistPermissionUpdates(permissionUpdates)
           const finalInput =
             updatedInput && Object.keys(updatedInput).length > 0
               ? updatedInput
               : input
+          const approval = await guardExternalApproval(
+            finalInput,
+            permissionUpdates,
+          )
+          if (approval.decision) {
+            resolve(approval.decision)
+            return
+          }
+          persistPermissionUpdates(
+            filterPermissionRequestHookUpdates(
+              approval.permissionUpdates,
+              toolUseContext.getAppState().toolPermissionContext.mode ===
+                'plan',
+            ),
+          )
           resolve({
             behavior: 'allow',
             updatedInput: finalInput,
@@ -1100,12 +1185,43 @@ export async function runInProcessTeammate(
       // Check if compaction is needed before building context
       let contextMessages = allMessages
       const tokenCount = tokenCountWithEstimation(allMessages)
-      if (
-        tokenCount >
-        getAutoCompactThreshold(toolUseContext.options.mainLoopModel)
-      ) {
+      const configuredMessageThreshold =
+        getGlobalConfig().maxMessagesCompactionThreshold
+      const legacyMessageThreshold = parseMaxActiveMessagesLimit(
+        process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+      )
+      const hasExplicitMessageCountThreshold =
+        configuredMessageThreshold !== undefined &&
+        isValidMaxMessagesCompactionThreshold(configuredMessageThreshold) &&
+        configuredMessageThreshold !== 'off'
+      const hasLegacyMessageCountThreshold =
+        (configuredMessageThreshold === undefined ||
+          configuredMessageThreshold === 'off') &&
+        legacyMessageThreshold > 0
+      const shouldApplyMessageCountThreshold =
+        isAutoCompactEnabled() ||
+        hasExplicitMessageCountThreshold ||
+        hasLegacyMessageCountThreshold
+      const activeMessageLimit = shouldApplyMessageCountThreshold
+        ? resolveMaxActiveMessagesLimit(
+            configuredMessageThreshold === undefined && legacyMessageThreshold > 0
+              ? undefined
+              : normalizeMaxMessagesCompactionThreshold(configuredMessageThreshold),
+            process.env.OPENCLAUDE_MAX_ACTIVE_MESSAGES,
+          )
+        : getMaxActiveMessagesHardCap()
+      const tokenThreshold = getAutoCompactThreshold(
+        toolUseContext.options.mainLoopModel,
+      )
+      const shouldCompactForTokens =
+        isAutoCompactEnabled() && tokenCount > tokenThreshold
+      const shouldCompactForMessages = isAboveMaxActiveMessagesLimit(
+        allMessages.length,
+        activeMessageLimit,
+      )
+      if (shouldCompactForTokens || shouldCompactForMessages) {
         logForDebugging(
-          `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens)`,
+          `[inProcessRunner] ${identity.agentId} compacting history (${tokenCount} tokens, ${allMessages.length} messages)`,
         )
         // Create an isolated copy of toolUseContext so that compaction
         // does not clear the main session's readFileState cache or
@@ -1246,6 +1362,22 @@ export async function runInProcessTeammate(
               break
             }
 
+            if (
+              message.type === 'system' &&
+              'subtype' in message &&
+              message.subtype === 'compact_boundary'
+            ) {
+              allMessages.length = 0
+              resetMicrocompactState()
+              if (teammateReplacementState) {
+                teammateReplacementState = createContentReplacementState()
+              }
+              updateTaskState(
+                taskId,
+                task => ({ ...task, messages: [] }),
+                setAppState,
+              )
+            }
             iterationMessages.push(message)
             allMessages.push(message)
 

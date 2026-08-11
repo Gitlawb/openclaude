@@ -126,6 +126,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 return;
               }
               if (feature("BASH_CLASSIFIER") && result.pendingClassifierCheck && tool.name === BASH_TOOL_NAME && !appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
+                const classifierPlanModeWasActive = toolUseContext.getAppState().toolPermissionContext.mode === "plan";
                 const speculativePromise = peekSpeculativeClassifierCheck((input as {
                   command: string;
                 }).command);
@@ -138,23 +139,21 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                     consumeSpeculativeClassifierCheck((input as {
                       command: string;
                     }).command);
+                    const finalInput = result.updatedInput ?? input as Record<string, unknown>;
+                    const classifierDecision = await ctx.handleClassifierAllow(finalInput, {
+                      type: "classifier" as const,
+                      classifier: "bash_allow" as const,
+                      reason: `Allowed by prompt rule: "${raceResult.result.matchedDescription}"`
+                    }, undefined, classifierPlanModeWasActive);
+                    if (classifierDecision.behavior !== "allow") {
+                      resolve(classifierDecision);
+                      return;
+                    }
                     const matchedRule = raceResult.result.matchedDescription ?? undefined;
                     if (matchedRule) {
                       setClassifierApproval(toolUseID, matchedRule);
                     }
-                    ctx.logDecision({
-                      decision: "accept",
-                      source: {
-                        type: "classifier"
-                      }
-                    });
-                    resolve(ctx.buildAllow(result.updatedInput ?? input as Record<string, unknown>, {
-                      decisionReason: {
-                        type: "classifier" as const,
-                        classifier: "bash_allow" as const,
-                        reason: `Allowed by prompt rule: "${raceResult.result.matchedDescription}"`
-                      }
-                    }));
+                    resolve(classifierDecision);
                     return;
                   }
                 }

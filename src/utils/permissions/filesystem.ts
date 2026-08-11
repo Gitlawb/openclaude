@@ -3,25 +3,30 @@ import { randomBytes } from 'crypto'
 import ignore from 'ignore'
 import memoize from 'lodash-es/memoize.js'
 import { homedir, tmpdir } from 'os'
-import { join, normalize, posix, sep } from 'path'
+import { dirname, join, normalize, posix, sep } from 'path'
 import { hasAutoMemPathOverride, isAutoMemPath } from 'src/memdir/paths.js'
 import { isAgentMemoryPath } from 'src/tools/AgentTool/agentMemory.js'
 import {
   CLAUDE_FOLDER_PERMISSION_PATTERN,
   FILE_EDIT_TOOL_NAME,
   GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
-  LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN,
 } from 'src/tools/FileEditTool/constants.js'
 import type { z } from 'zod/v4'
 import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
 import { PRODUCT_DISPLAY_NAME } from '../../constants/product.js'
 import { checkStatsigFeatureGate_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
-import type { AnyObject, Tool, ToolPermissionContext } from '../../Tool.js'
+import type {
+  AnyObject,
+  Tool,
+  ToolPermissionContext,
+  ToolUseContext,
+} from '../../Tool.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { getCwd } from '../cwd.js'
 import { logForDebugging } from '../debug.js'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
-import { isFsInaccessible } from '../errors.js'
+import { isENOENT, isFsInaccessible } from '../errors.js'
+import { isMemoryWriteApprovalRequired } from '../governancePolicy.js'
 import {
   getFsImplementation,
   getPathsForPermissionCheck,
@@ -32,7 +37,13 @@ import {
   getDirectoryForPath,
   sanitizePath,
 } from '../path.js'
-import { getPlanSlug, getPlansDirectory } from '../plans.js'
+import {
+  AGENT_PLANS_SUBDIR,
+  getPlanSlug,
+  getPlansDirectory,
+  isCanonicalPlanFileEncoding,
+  isResolvedPathWithinPlansDir,
+} from '../plans.js'
 import { getPlatform } from '../platform.js'
 import { getProjectDir } from '../sessionStorage.js'
 import { SETTING_SOURCES } from '../settings/constants.js'
@@ -51,6 +62,7 @@ import type { PermissionRule, PermissionRuleSource } from './PermissionRule.js'
 import { createReadRuleSuggestion } from './PermissionUpdate.js'
 import type { PermissionUpdate } from './PermissionUpdateSchema.js'
 import { getRuleByContentsForToolName } from './permissions.js'
+import { isPermissiveSafety } from './safetyLevel.js'
 
 declare const MACRO: { VERSION: string }
 
@@ -80,8 +92,8 @@ export const DANGEROUS_DIRECTORIES = [
   '.git',
   '.vscode',
   '.idea',
-  '.claude',
   '.openclaude',
+  '.claude',
 ] as const
 
 /**
@@ -98,13 +110,12 @@ export function normalizeCaseForComparison(path: string): string {
 }
 
 /**
- * If filePath is inside a .claude/skills/{name}/ directory (project) or
- * .openclaude/skills/{name}/ directory (global), plus the legacy global
- * .claude/skills path, return the skill name and a session-allow pattern
+ * If filePath is inside a .openclaude/skills/{name}/ directory (project) or
+ * .openclaude/skills/{name}/ directory (global), return the skill name and a session-allow pattern
  * scoped to just that skill.
  * Used to offer a narrower "allow edits to this skill only" option in the
  * permission dialog and SDK suggestions, so iterating on one skill doesn't
- * require granting session access to all of .claude/ (settings.json, hooks/, etc.).
+ * require granting session access to all of .openclaude/ (settings.json, hooks/, etc.).
  */
 export function getClaudeSkillScope(
   filePath: string,
@@ -114,16 +125,12 @@ export function getClaudeSkillScope(
 
   const bases = [
     {
-      dir: expandPath(join(getOriginalCwd(), '.claude', 'skills')),
-      prefix: '/.claude/skills/',
+      dir: expandPath(join(getOriginalCwd(), '.openclaude', 'skills')),
+      prefix: '/.openclaude/skills/',
     },
     {
       dir: expandPath(join(homedir(), '.openclaude', 'skills')),
       prefix: '~/.openclaude/skills/',
-    },
-    {
-      dir: expandPath(join(homedir(), '.claude', 'skills')),
-      prefix: '~/.claude/skills/',
     },
   ]
 
@@ -225,7 +232,9 @@ export function isClaudeSettingsPath(filePath: string): boolean {
     normalizedPath.endsWith(`${sep}.claude${sep}settings.json`) ||
     normalizedPath.endsWith(`${sep}.claude${sep}settings.local.json`)
   ) {
-    // Include .claude/settings.json even for other projects
+    // Include .openclaude and legacy .claude settings even for other projects.
+    // This is write-safety classification only; config loading does not read
+    // or migrate from .claude.
     return true
   }
   // Check for current project's settings files (including managed settings and CLI args)
@@ -241,37 +250,74 @@ function isClaudeConfigFilePath(filePath: string): boolean {
     return true
   }
 
-  // Check if file is within .claude/commands or .claude/agents directories
+  // Check if file is within .openclaude/commands or .openclaude/agents directories
   // using proper path segment validation (not string matching with includes())
   // pathInWorkingPath now handles case-insensitive comparison to prevent bypasses
-  const commandsDir = join(getOriginalCwd(), '.claude', 'commands')
-  const agentsDir = join(getOriginalCwd(), '.claude', 'agents')
-  const skillsDir = join(getOriginalCwd(), '.claude', 'skills')
-  const openCommandsDir = join(getOriginalCwd(), '.openclaude', 'commands')
-  const openAgentsDir = join(getOriginalCwd(), '.openclaude', 'agents')
-  const openSkillsDir = join(getOriginalCwd(), '.openclaude', 'skills')
+  const commandsDir = join(getOriginalCwd(), '.openclaude', 'commands')
+  const agentsDir = join(getOriginalCwd(), '.openclaude', 'agents')
+  const skillsDir = join(getOriginalCwd(), '.openclaude', 'skills')
 
   return (
     pathInWorkingPath(filePath, commandsDir) ||
     pathInWorkingPath(filePath, agentsDir) ||
-    pathInWorkingPath(filePath, skillsDir) ||
-    pathInWorkingPath(filePath, openCommandsDir) ||
-    pathInWorkingPath(filePath, openAgentsDir) ||
-    pathInWorkingPath(filePath, openSkillsDir)
+    pathInWorkingPath(filePath, skillsDir)
   )
+}
+
+// Pure predicate for the two legitimate plan-file shapes getPlanFilePath emits:
+//   Main plan file:  {plansDir}/{planSlug}.md
+//   Agent plan file: {plansDir}/{AGENT_PLANS_SUBDIR}/{planSlug}-agent-{agentId}.md
+// Anchored on those exact delimiters. A bare startsWith on {plansDir}/{slug}
+// also matches any sibling whose name merely begins with the slug
+// ({slug}nova.md, {slug}-other.md, {slug}dir/x.md), which would silently
+// auto-allow reads and un-prompted writes to files that are not this session's
+// plan. Exported for testing.
+export function isPlanFilePath(
+  plansDir: string,
+  planSlug: string,
+  absolutePath: string,
+): boolean {
+  const expectedPrefix = join(plansDir, planSlug)
+  // SECURITY: Normalize to prevent path traversal bypasses via .. segments
+  const normalizedPath = normalize(absolutePath)
+  if (!normalizedPath.endsWith('.md')) {
+    return false
+  }
+  if (normalizedPath === expectedPrefix + '.md') {
+    return true
+  }
+  // Agent plans live in the dedicated subdirectory that keeps their escaped
+  // filenames from colliding with legacy plans written directly under plansDir.
+  const agentPrefix = join(plansDir, AGENT_PLANS_SUBDIR, `${planSlug}-agent-`)
+  if (!normalizedPath.startsWith(agentPrefix)) {
+    return false
+  }
+  // SECURITY: The remainder must be exactly the canonical encoded agent id that
+  // getPlanFilePath emits, followed by `.md`. Anchoring on the canonical
+  // encoding (isCanonicalPlanFileEncoding) rejects every path the encoder never
+  // produces: the bare prefix and the malformed {slug}-agent-.md; a lookalike
+  // sibling *directory* ({subdir}/{slug}-agent-evil/anything.md, whose raw `/`
+  // is not canonical); and raw-`%` lookalikes such as {slug}-agent-writer@100%.md
+  // (canonical form ...writer@100%25.md) or ...writer@a%2Fb.md (canonical form
+  // ...writer@a%252Fb.md). Any of those would otherwise be auto-allowed for
+  // unprompted read/write even though they are not this session's plan file.
+  const encodedAgentId = normalizedPath.slice(agentPrefix.length, -'.md'.length)
+  return isCanonicalPlanFileEncoding(encodedAgentId)
 }
 
 // Check if file is the plan file for the current session
 function isSessionPlanFile(absolutePath: string): boolean {
-  // Check if path is a plan file for this session (main or agent-specific)
-  // Main plan file: {plansDir}/{planSlug}.md
-  // Agent plan file: {plansDir}/{planSlug}-agent-{agentId}.md
-  const expectedPrefix = join(getPlansDirectory(), getPlanSlug())
-  // SECURITY: Normalize to prevent path traversal bypasses via .. segments
-  const normalizedPath = normalize(absolutePath)
-  return (
-    normalizedPath.startsWith(expectedPrefix) && normalizedPath.endsWith('.md')
-  )
+  const plansDir = getPlansDirectory()
+  if (!isPlanFilePath(plansDir, getPlanSlug(), absolutePath)) {
+    return false
+  }
+  // SECURITY: the plan-file carve-out grants unprompted read/write on a lexical
+  // name match, so a symlinked path component (e.g. a symlinked `agents`
+  // subdirectory, or a symlinked plans directory) could redirect the real
+  // target outside the plans directory. Resolve the deepest existing ancestor
+  // of the candidate and require it to stay within the *resolved* plans
+  // directory before honoring the carve-out. Shares the recovery-path helper.
+  return isResolvedPathWithinPlansDir(absolutePath, plansDir)
 }
 
 /**
@@ -492,6 +538,58 @@ function pathsEqualForPermission(a: string, b: string): boolean {
     normalizeCaseForComparison(normalize(b))
 }
 
+function pathsEqualForActivePlan(a: string, b: string): boolean {
+  const normalizedA = normalize(a)
+  const normalizedB = normalize(b)
+  return normalizedA === normalizedB
+}
+
+/**
+ * Whether a path resolves exactly to the active plan file for this execution
+ * context. Unlike isSessionPlanFile(), this deliberately does not accept other
+ * agent plan files or files that merely share the current plan slug prefix.
+ */
+export function isActiveSessionPlanFile(
+  path: string,
+  agentId?: ToolUseContext['agentId'],
+): boolean {
+  try {
+    const activePlanPath = getActiveSessionPlanFilePath(agentId)
+    try {
+      const activePlanStats = getFsImplementation().lstatSync(activePlanPath)
+      if (activePlanStats.isSymbolicLink() || !activePlanStats.isFile()) {
+        return false
+      }
+    } catch (error) {
+      if (!isENOENT(error)) return false
+    }
+
+    const expectedForms = getPathsForPermissionCheck(activePlanPath)
+    const targetForms = getPathsForPermissionCheck(expandPath(path))
+
+    return (
+      targetForms.length > 0 &&
+      targetForms.every(target =>
+        expectedForms.some(expected => pathsEqualForActivePlan(target, expected)),
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getActiveSessionPlanFilePath(
+  agentId?: ToolUseContext['agentId'],
+): string {
+  // Lazy import keeps the permission/filesystem cycle safe and ensures test
+  // harnesses that temporarily replace the plan provider cannot leave a stale
+  // function captured in this module.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getPlanFilePath } =
+    require('../plans.js') as typeof import('../plans.js')
+  return getPlanFilePath(agentId)
+}
+
 export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {
   const expectedPath = join(getOriginalCwd(), '.git', 'OPENCLAUDE_COMMIT_MSG')
   const expectedForms = getPathsForPermissionCheck(expectedPath)
@@ -514,7 +612,10 @@ export function isOpenClaudeCommitMessagePath(absolutePath: string): boolean {
  * - Shell configuration files (to prevent shell startup script manipulation)
  * - UNC paths (to prevent network file access and WebDAV attacks)
  */
-function isDangerousFilePathToAutoEdit(path: string): boolean {
+function isDangerousFilePathToAutoEdit(
+  path: string,
+  { skipConfigFileList = false }: { skipConfigFileList?: boolean } = {},
+): boolean {
   const absolutePath = expandPath(path)
   const pathSegments = absolutePath.split(sep)
   const fileName = pathSegments.at(-1)
@@ -535,17 +636,17 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
         continue
       }
 
-      // Special case: .claude/worktrees/ is a structural path (where Claude stores
-      // git worktrees), not a user-created dangerous directory. Skip the .claude
-      // segment when it's followed by 'worktrees'. Any nested .claude directories
+      // Special case: .openclaude/worktrees/ is a structural path (where OpenClaude stores
+      // git worktrees), not a user-created dangerous directory. Skip the .openclaude
+      // segment when it's followed by 'worktrees'. Any nested .openclaude directories
       // within the worktree (not followed by 'worktrees') are still blocked.
-      if (dir === '.claude') {
+      if (dir === '.openclaude') {
         const nextSegment = pathSegments[i + 1]
         if (
           nextSegment &&
           normalizeCaseForComparison(nextSegment) === 'worktrees'
         ) {
-          break // Skip this .claude, continue checking other segments
+          break // Skip this .openclaude, continue checking other segments
         }
       }
 
@@ -554,7 +655,7 @@ function isDangerousFilePathToAutoEdit(path: string): boolean {
   }
 
   // Check for dangerous configuration files (case-insensitive)
-  if (fileName) {
+  if (!skipConfigFileList && fileName) {
     const normalizedFileName = normalizeCaseForComparison(fileName)
     if (
       (DANGEROUS_FILES as readonly string[]).some(
@@ -731,9 +832,13 @@ export function checkPathSafetyForAutoEdit(
     }
   }
 
-  // Check for dangerous files on all paths
+  // Check for dangerous files on all paths. In permissive safety mode
+  // (OPENCLAUDE_SAFETY_LEVEL=permissive) we skip only the filename list that
+  // can prompt on routine edits like .gitmodules, shell rc files, or .mcp.json.
+  // Directory, UNC, symlink-resolved, and Windows path guards remain active.
+  const skipConfigFileList = isPermissiveSafety()
   for (const pathToCheck of pathsToCheck) {
-    if (isDangerousFilePathToAutoEdit(pathToCheck)) {
+    if (isDangerousFilePathToAutoEdit(pathToCheck, { skipConfigFileList })) {
       return {
         safe: false,
         message: `${PRODUCT_DISPLAY_NAME} requested permissions to edit ${path} which is a sensitive file.`,
@@ -1120,7 +1225,11 @@ export function checkReadPermissionForTool(
       message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
-  const path = tool.getPath(input)
+  // Tool inputs may be relative to the session CWD, which can differ from the
+  // process CWD for bridged or scoped sessions. Resolve before gathering
+  // symlink variants so every permission check uses the same session-relative
+  // absolute path.
+  const path = expandPath(tool.getPath(input))
 
   // Get paths to check (includes both original and resolved symlinks).
   // Computed once here and threaded through checkWritePermissionForTool →
@@ -1279,10 +1388,10 @@ export function checkReadPermissionForTool(
  * Permission result for write permission for the specified tool & tool input.
  *
  * @param precomputedPathsToCheck - Optional cached result of
- *   `getPathsForPermissionCheck(tool.getPath(input))`. Callers MUST derive this
- *   from the same `tool` and `input` in the same synchronous frame — `path` is
- *   re-derived internally for error messages and internal-path checks, so a
- *   stale value would silently check deny rules for the wrong path.
+ *   `getPathsForPermissionCheck(expandPath(tool.getPath(input)))`. Callers MUST
+ *   derive this from the same `tool` and `input` in the same synchronous frame
+ *   — `path` is re-derived internally for error messages and internal-path
+ *   checks, so a stale value would silently check deny rules for the wrong path.
  */
 export function checkWritePermissionForTool<Input extends AnyObject>(
   tool: Tool<Input>,
@@ -1296,7 +1405,11 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
       message: `${PRODUCT_DISPLAY_NAME} requested permissions to use ${tool.name}, but you haven't granted it yet.`,
     }
   }
-  const path = tool.getPath(input)
+  // Tool inputs may be relative to the session CWD, which can differ from the
+  // process CWD for bridged or scoped sessions. Resolve before gathering
+  // symlink variants so every permission check uses the same session-relative
+  // absolute path.
+  const path = expandPath(tool.getPath(input))
 
   // 1. Check for deny rules - check both the original path and resolved symlink path
   const pathsToCheck =
@@ -1355,22 +1468,19 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
   )
   if (claudeFolderAllowRule) {
     // Check if this rule is scoped under a Claude config folder.
-    // Accepts broad project/global patterns ('/.claude/**',
-    // '~/.openclaude/**', and legacy '~/.claude/**') plus narrowed skill
+    // Accepts broad project/global patterns ('/.openclaude/**',
+    // '~/.openclaude/**') plus narrowed skill
     // patterns like '~/.openclaude/skills/my-skill/**' so users can grant
     // session access to a single skill without also exposing settings.json
     // or hooks/. The rule already matched the path via matchingRuleForInput;
     // this is an additional scope check. Reject '..' to prevent a rule like
-    // '/.claude/../**' from leaking this bypass outside the config folder.
+    // '/.openclaude/../**' from leaking this bypass outside the config folder.
     const ruleContent = claudeFolderAllowRule.ruleValue.ruleContent
     if (
       ruleContent &&
       (ruleContent.startsWith(CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2)) ||
         ruleContent.startsWith(
           GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
-        ) ||
-        ruleContent.startsWith(
-          LEGACY_GLOBAL_CLAUDE_FOLDER_PERMISSION_PATTERN.slice(0, -2),
         )) &&
       !ruleContent.includes('..') &&
       ruleContent.endsWith('/**')
@@ -1650,13 +1760,23 @@ export function checkEditableInternalPath(
     }
   }
 
-  // Memdir directory (persistent memory for cross-session learning)
-  // This pre-safety-check carve-out exists because the default path is under
-  // ~/.claude/, which is in DANGEROUS_DIRECTORIES. The CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
-  // override is an arbitrary caller-designated directory with no such conflict,
-  // so it gets NO special permission treatment here — writes go through normal
-  // permission flow (step 5 → ask). SDK callers who want silent memory should
-  // pass an allow rule for the override path.
+  // Memdir directory (persistent memory for cross-session learning).
+  // Explicit memory-write approval applies even when the env override points
+  // memory at a caller-designated directory. The silent pre-safety-check
+  // carve-out below exists only for the default/settings-backed path because
+  // it can live under ~/.claude/, which is in DANGEROUS_DIRECTORIES.
+  if (isAutoMemPath(normalizedPath) && isMemoryWriteApprovalRequired()) {
+    return {
+      behavior: 'ask',
+      message: `${PRODUCT_DISPLAY_NAME} wants to save persistent memory. Approve this memory write?`,
+      decisionReason: {
+        type: 'safetyCheck',
+        reason: 'Persistent memory writes require explicit approval',
+        classifierApprovable: false,
+      },
+    }
+  }
+
   if (!hasAutoMemPathOverride() && isAutoMemPath(normalizedPath)) {
     return {
       behavior: 'allow',
@@ -1668,16 +1788,16 @@ export function checkEditableInternalPath(
     }
   }
 
-  // .claude/launch.json — desktop preview config (dev server command + port).
+  // .openclaude/launch.json — desktop preview config (dev server command + port).
   // The desktop's preview_start MCP tool instructs Claude to create/update
   // this file as part of the preview workflow. Without this carve-out the
-  // .claude/ DANGEROUS_DIRECTORIES check prompts for it, which in SDK mode
+  // .openclaude/ DANGEROUS_DIRECTORIES check prompts for it, which in SDK mode
   // cascades: user clicks "Always allow" → setMode:acceptEdits suggestion
   // applied → silent downgrade from auto mode. Matches the project-level
-  // .claude/ only (not ~/.claude/) since launch.json is per-project.
+  // .openclaude/ only (not ~/.openclaude/) since launch.json is per-project.
   if (
     normalizeCaseForComparison(normalizedPath) ===
-    normalizeCaseForComparison(join(getOriginalCwd(), '.claude', 'launch.json'))
+    normalizeCaseForComparison(join(getOriginalCwd(), '.openclaude', 'launch.json'))
   ) {
     return {
       behavior: 'allow',

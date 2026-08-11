@@ -23,11 +23,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getPlainStringToolArgumentField(toolName: string): string | null {
-  return STRING_ARGUMENT_TOOL_FIELDS[toolName] ?? null
+  // Guard with Object.hasOwn: `toolName` is a provider-supplied tool-call name,
+  // so a plain `STRING_ARGUMENT_TOOL_FIELDS[toolName]` lookup resolves inherited
+  // Object.prototype members (`constructor`, `toString`, `valueOf`, …) to their
+  // functions — truthy, so the `?? null` fallback never fires and the value is
+  // wrapped into a garbage-keyed object downstream.
+  return Object.hasOwn(STRING_ARGUMENT_TOOL_FIELDS, toolName)
+    ? STRING_ARGUMENT_TOOL_FIELDS[toolName]!
+    : null
 }
 
 export function hasToolFieldMapping(toolName: string): boolean {
-  return toolName in STRING_ARGUMENT_TOOL_FIELDS
+  // `toolName in obj` would leak proto-chain keys (see above); own-key only.
+  return Object.hasOwn(STRING_ARGUMENT_TOOL_FIELDS, toolName)
 }
 
 function wrapPlainStringToolArguments(

@@ -7,12 +7,18 @@ import {
   buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
   followLogFile,
+  killBackgroundSession,
   printExistingLog,
+  terminateBackgroundSessionProcessTree,
   terminateBackgroundProcessTree,
   LOG_STREAM_CHUNK_SIZE,
   parseBackgroundInvocation,
   parseLogsInvocation,
 } from './bg.js'
+import type {
+  BackgroundSession,
+  BackgroundSessionProcessIdentity,
+} from './bgRegistry.js'
 
 class TestOutput extends EventEmitter {
   chunks: Buffer[] = []
@@ -495,6 +501,375 @@ describe('background session CLI parsing', () => {
     })
 
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+})
+
+describe('background session process termination safety', () => {
+  const session: BackgroundSession = {
+    id: 'bg-safety',
+    name: 'safety',
+    pid: 4242,
+    cwd: '/repo',
+    status: 'running',
+    startedAt: '2026-07-10T08:00:00.000Z',
+    updatedAt: '2026-07-10T08:00:00.000Z',
+    sessionId: 'conversation-safety',
+    command: ['node', 'openclaude', '--session-id', 'conversation-safety'],
+    stdoutLogPath: '/tmp/stdout.log',
+    stderrLogPath: '/tmp/stderr.log',
+  }
+
+  function identity(
+    state: BackgroundSessionProcessIdentity['state'],
+    overrides: Partial<BackgroundSessionProcessIdentity> = {},
+  ): BackgroundSessionProcessIdentity {
+    return {
+      state,
+      backgroundSessionId: session.id,
+      pid: session.pid,
+      ...overrides,
+    }
+  }
+
+  it('verifies the selected session immediately before SIGTERM', async () => {
+    const calls: string[] = []
+    let aliveChecks = 0
+
+    await terminateBackgroundSessionProcessTree(session, {
+      isProcessAlive: () => ++aliveChecks <= 2,
+      getProcessCommand: pid => {
+        calls.push(`verify:${pid}`)
+        return 'node openclaude --session-id conversation-safety'
+      },
+      killTree: async (pid, signal) => {
+        calls.push(`signal:${pid}:${signal}`)
+      },
+      sleep: async () => {},
+      termGraceMs: 1,
+      pollIntervalMs: 1,
+    })
+
+    expect(calls).toEqual([
+      'verify:4242',
+      'signal:4242:SIGTERM',
+    ])
+  })
+
+  it('refuses a mismatched identity before SIGTERM and does not mark killed', async () => {
+    const calls: string[] = []
+
+    let refusal: unknown
+    try {
+      await killBackgroundSession(
+        {
+          ...session,
+          status: 'running',
+          command: [...session.command, 'private prompt value'],
+        },
+        {
+          isProcessAlive: () => true,
+          verifySessionIdentity: () => identity('mismatch'),
+          killTree: async (_pid, signal) => {
+            calls.push(`signal:${signal}`)
+          },
+          markKilled: async selected => {
+            calls.push(`mark:${selected.id}`)
+            return { ...selected, status: 'killed' }
+          },
+        },
+      )
+    } catch (error) {
+      refusal = error
+    }
+
+    expect(String(refusal)).toContain('refused to signal an unverified process')
+    expect(String(refusal)).not.toContain('private prompt value')
+    expect(calls).toEqual([])
+  })
+
+  it('does not verify or signal terminal records when a reused PID would match', async () => {
+    for (const status of ['stale', 'killed', 'exited', 'failed'] as const) {
+      const calls: string[] = []
+
+      const killed = await killBackgroundSession(
+        { ...session, status },
+        {
+          verifySessionIdentity: () => {
+            calls.push('verify')
+            return identity('matches')
+          },
+          killTree: async (_pid, signal) => {
+            calls.push(`signal:${signal}`)
+          },
+          markKilled: async selected => {
+            calls.push(`mark:${selected.id}`)
+            return { ...selected, status: 'killed' }
+          },
+        },
+      )
+
+      expect(killed.status).toBe('killed')
+      expect(calls).toEqual(['mark:bg-safety'])
+    }
+  })
+
+  it('freshly verifies an unknown session that becomes readable before killing', async () => {
+    const calls: string[] = []
+    const states: BackgroundSessionProcessIdentity['state'][] = [
+      'matches',
+      'matches',
+    ]
+
+    const killed = await killBackgroundSession(
+      { ...session, status: 'unknown' },
+      {
+        isProcessAlive: () => false,
+        verifySessionIdentity: () => {
+          const state = states.shift()!
+          calls.push(`verify:${state}`)
+          return identity(state)
+        },
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        markKilled: async selected => {
+          calls.push(`mark:${selected.id}`)
+          return { ...selected, status: 'killed' }
+        },
+      },
+    )
+
+    expect(killed.status).toBe('killed')
+    expect(calls).toEqual([
+      'verify:matches',
+      'verify:matches',
+      'signal:SIGTERM',
+      'mark:bg-safety',
+    ])
+  })
+
+  it('treats an unknown session that exits during fresh verification as terminated', async () => {
+    const calls: string[] = []
+    let aliveChecks = 0
+
+    const killed = await killBackgroundSession(
+      { ...session, status: 'unknown' },
+      {
+        isProcessAlive: () => ++aliveChecks === 1,
+        getProcessCommand: () => null,
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        markKilled: async selected => {
+          calls.push(`mark:${selected.id}`)
+          return { ...selected, status: 'killed' }
+        },
+      },
+    )
+
+    expect(killed.status).toBe('killed')
+    expect(calls).toEqual(['mark:bg-safety'])
+  })
+
+  it('does not escalate when identity changes during the SIGTERM grace period', async () => {
+    const calls: string[] = []
+    const states: BackgroundSessionProcessIdentity['state'][] = [
+      'matches',
+      'mismatch',
+    ]
+
+    await expect(
+      terminateBackgroundSessionProcessTree(session, {
+        isProcessAlive: () => true,
+        verifySessionIdentity: () => {
+          const state = states.shift()!
+          calls.push(`verify:${state}`)
+          return identity(state)
+        },
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        sleep: async () => {
+          calls.push('sleep')
+        },
+        termGraceMs: 1,
+        pollIntervalMs: 1,
+      }),
+    ).rejects.toThrow('refused to signal an unverified process')
+
+    expect(calls).toEqual([
+      'verify:matches',
+      'signal:SIGTERM',
+      'sleep',
+      'verify:mismatch',
+    ])
+  })
+
+  it('fails closed when the live process identity is unreadable', async () => {
+    const signals: Array<string | number> = []
+
+    await expect(
+      terminateBackgroundSessionProcessTree(session, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => null,
+        killTree: async (_pid, signal) => {
+          signals.push(signal)
+        },
+      }),
+    ).rejects.toThrow('refused to signal an unverified process')
+
+    expect(signals).toEqual([])
+  })
+
+  it('refuses signalling when liveness becomes unreadable during command lookup', async () => {
+    const calls: string[] = []
+    let probes = 0
+
+    await expect(
+      terminateBackgroundSessionProcessTree(session, {
+        signalProcess: () => {
+          probes++
+          calls.push(`probe:${probes}`)
+          if (probes > 1) {
+            throw Object.assign(new Error('access denied'), { code: 'EPERM' })
+          }
+        },
+        getProcessCommand: () => {
+          calls.push('command')
+          return 'node openclaude --session-id conversation-safety'
+        },
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        sleep: async () => {},
+        termGraceMs: 1,
+        pollIntervalMs: 1,
+      }),
+    ).rejects.toThrow('refused to signal an unverified process')
+
+    expect(calls).toEqual(['probe:1', 'command', 'probe:2'])
+  })
+
+  it('succeeds without signalling when the process exits before verification', async () => {
+    const calls: string[] = []
+
+    const killed = await killBackgroundSession(session, {
+      isProcessAlive: () => false,
+      getProcessCommand: () => {
+        calls.push('command')
+        return null
+      },
+      killTree: async (_pid, signal) => {
+        calls.push(`signal:${signal}`)
+      },
+      markKilled: async selected => {
+        calls.push(`mark:${selected.id}`)
+        return { ...selected, status: 'killed' }
+      },
+    })
+
+    expect(killed.status).toBe('killed')
+    expect(calls).toEqual(['mark:bg-safety'])
+  })
+
+  it('accepts a natural exit after verification without a misleading error', async () => {
+    const calls: string[] = []
+
+    await terminateBackgroundSessionProcessTree(session, {
+      isProcessAlive: () => false,
+      verifySessionIdentity: () => {
+        calls.push('verify')
+        return identity('matches')
+      },
+      killTree: async (_pid, signal) => {
+        calls.push(`signal:${signal}`)
+      },
+      sleep: async () => {
+        calls.push('sleep')
+      },
+      termGraceMs: 1,
+      pollIntervalMs: 1,
+    })
+
+    expect(calls).toEqual(['verify', 'signal:SIGTERM'])
+  })
+
+  it('revalidates a stable identity immediately before SIGKILL', async () => {
+    const calls: string[] = []
+    let aliveChecks = 0
+
+    await terminateBackgroundSessionProcessTree(session, {
+      isProcessAlive: () => ++aliveChecks < 4,
+      verifySessionIdentity: () => {
+        calls.push('verify')
+        return identity('matches')
+      },
+      killTree: async (_pid, signal) => {
+        calls.push(`signal:${signal}`)
+      },
+      sleep: async () => {
+        calls.push('sleep')
+      },
+      termGraceMs: 1,
+      killGraceMs: 1,
+      pollIntervalMs: 1,
+    })
+
+    expect(calls).toEqual([
+      'verify',
+      'signal:SIGTERM',
+      'sleep',
+      'verify',
+      'signal:SIGKILL',
+      'sleep',
+    ])
+  })
+
+  it('rejects stale verifier results for another session or PID', async () => {
+    for (const staleIdentity of [
+      identity('matches', { backgroundSessionId: 'bg-unrelated' }),
+      identity('matches', { pid: 9001 }),
+    ]) {
+      const signals: Array<string | number> = []
+
+      await expect(
+        terminateBackgroundSessionProcessTree(session, {
+          isProcessAlive: () => true,
+          verifySessionIdentity: () => staleIdentity,
+          killTree: async (_pid, signal) => {
+            signals.push(signal)
+          },
+        }),
+      ).rejects.toThrow('refused to signal an unverified process')
+
+      expect(signals).toEqual([])
+    }
+  })
+
+  it('sanitizes throwing injected identity verifiers without signalling or marking', async () => {
+    const calls: string[] = []
+    let refusal: unknown
+
+    try {
+      await killBackgroundSession(session, {
+        verifySessionIdentity: () => {
+          throw new Error('private verifier details')
+        },
+        killTree: async (_pid, signal) => {
+          calls.push(`signal:${signal}`)
+        },
+        markKilled: async selected => {
+          calls.push(`mark:${selected.id}`)
+          return { ...selected, status: 'killed' }
+        },
+      })
+    } catch (error) {
+      refusal = error
+    }
+
+    expect(String(refusal)).toContain('refused to signal an unverified process')
+    expect(String(refusal)).not.toContain('private verifier details')
+    expect(calls).toEqual([])
   })
 })
 

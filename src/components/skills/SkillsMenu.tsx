@@ -51,7 +51,7 @@ function getSkillListLabel(skill: SkillCommand): string {
   return leafName === skill.name ? skill.name : `${skill.name} - ${leafName}`;
 }
 export function getEmptySkillsMenuMessage(): string {
-  return `Create skills in .claude/skills/<name>/SKILL.md or ${getUserSkillExampleDisplayPath()}`;
+  return `Create skills in .openclaude/skills/<name>/SKILL.md or ${getUserSkillExampleDisplayPath()}`;
 }
 export function SkillsMenu(t0) {
   const $ = _c(35);

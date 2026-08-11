@@ -61,8 +61,10 @@ async function readSkillResource(
       markdownContent,
       source: 'mcp',
       baseDir: undefined,
+      skillFilePath: undefined,
       loadedFrom: 'mcp',
       paths: undefined,
+      skillTrust: undefined,
       executionContext: parsed.executionContext,
       // Security: MCP skills are remote and untrusted. Discard any `hooks`
       // frontmatter — otherwise the slash-command path would register them as

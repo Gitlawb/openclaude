@@ -8,6 +8,7 @@ import { count } from '../utils/array.js';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import figures from 'figures';
+import chalk from 'chalk';
 // eslint-disable-next-line custom-rules/prefer-use-keybindings -- / n N Esc [ v are bare letters in transcript modal context, same class as g/G/j/k in ScrollKeybindingHandler
 import { useInput } from '../ink.js';
 import { useSearchInput } from '../hooks/useSearchInput.js';
@@ -36,7 +37,9 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
-import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
+import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { claimBackgroundTurnBudget, canRestoreDeferredMaxTurnsCap, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurnsForSession, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
 import { formatTokens, truncateToWidth } from '../utils/format.js';
@@ -134,12 +137,14 @@ import { BASH_INPUT_TAG, COMMAND_MESSAGE_TAG, COMMAND_NAME_TAG, LOCAL_COMMAND_ST
 import { escapeXml } from '../utils/xml.js';
 import type { ThinkingConfig } from '../utils/thinking.js';
 import { gracefulShutdownSync, isShuttingDown } from '../utils/gracefulShutdown.js';
-import { handlePromptSubmit, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
+import { buildConcurrentRequeuedPrompt, handlePromptSubmit, isNormalLocalUserPrompt, type PromptInputHelpers } from '../utils/handlePromptSubmit.js';
+import { applyInterruptionCorrectionAutoRestore, applyInterruptionCorrectionAwareMessageUpdate, buildInterruptionCorrectionMessageViews, InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js';
 import { useQueueProcessor } from '../hooks/useQueueProcessor.js';
 import { useMailboxBridge } from '../hooks/useMailboxBridge.js';
-import { queryCheckpoint, logQueryProfileReport } from '../utils/queryProfiler.js';
+import { queryCheckpoint, logQueryProfileReport, clearQueryProfile } from '../utils/queryProfiler.js';
 import type { Message as MessageType, UserMessage, ProgressMessage, HookResultMessage, PartialCompactDirection } from '../types/message.js';
-import { query } from '../query.js';
+import { query, type QueryTurnBudget } from '../query.js';
+import type { Terminal as QueryTerminal } from '../query/transitions.js';
 import type { AutoCompactTrackingState } from '../services/compact/autoCompact.js';
 import { mergeClients, useMergedClients } from '../hooks/useMergedClients.js';
 import { getQuerySourceForREPL } from '../utils/promptCategory.js';
@@ -205,7 +210,7 @@ import { useIDEIntegration } from '../hooks/useIDEIntegration.js';
 import exit from '../commands/exit/index.js';
 import { ExitFlow } from '../components/ExitFlow.js';
 import { getCurrentWorktreeSession } from '../utils/worktree.js';
-import { popAllEditable, enqueue, type SetAppState, getCommandQueue, getCommandQueueLength, removeByFilter } from '../utils/messageQueueManager.js';
+import { popAllEditable, enqueue, prepend, type SetAppState, getCommandQueue, getCommandQueueLength, removeByFilter } from '../utils/messageQueueManager.js';
 import { useCommandQueue } from '../hooks/useCommandQueue.js';
 import { SessionBackgroundHint } from '../components/SessionBackgroundHint.js';
 import { startBackgroundSession } from '../tasks/LocalMainSessionTask.js';
@@ -214,7 +219,7 @@ import { diagnosticTracker } from '../services/diagnosticTracking.js';
 import { handleSpeculationAccept, type ActiveSpeculationState } from '../services/PromptSuggestion/speculation.js';
 import { IdeOnboardingDialog } from '../components/IdeOnboardingDialog.js';
 import { EffortCallout, shouldShowEffortCallout } from '../components/EffortCallout.js';
-import type { EffortValue } from '../utils/effort.js';
+import { getDisplayedEffortLevel, type EffortValue } from '../utils/effort.js';
 import { RemoteCallout } from '../components/RemoteCallout.js';
 import { getAPIProvider } from '../utils/model/providers.js';
 import { activityManager } from '../utils/activityManager.js';
@@ -271,6 +276,7 @@ const WebBrowserPanelModule = feature('WEB_BROWSER_TOOL') ? require('../tools/We
 import { IssueFlagBanner } from '../components/PromptInput/IssueFlagBanner.js';
 import { useIssueFlagBanner } from '../hooks/useIssueFlagBanner.js';
 import { CompanionSprite, CompanionFloatingBubble, MIN_COLS_FOR_FULL_SPRITE } from '../buddy/CompanionSprite.js';
+import { CompanionActionFX } from '../buddy/CompanionActionFX.js';
 import { isBuddyEnabled } from '../buddy/feature.js';
 import { fireCompanionObserver } from '../buddy/observer.js';
 // Session manager removed - using AppState now
@@ -285,6 +291,7 @@ import { useMessageActions, MessageActionsKeybindings, MessageActionsBar, type M
 import { setClipboard } from '../ink/termio/osc.js';
 import type { ScrollBoxHandle } from '../ink/components/ScrollBox.js';
 import { createAttachmentMessage, getQueuedCommandAttachments } from '../utils/attachments.js';
+import { dedupeQueuedTaskNotifications, filterClaimedTaskNotificationsForRestore, pendingCommandsForEmbeddedNotifications } from '../utils/taskNotificationIdentity.js';
 
 // Stable empty array for hooks that accept MCPServerConnection[] — avoids
 // creating a new [] literal on every render in remote mode, which would
@@ -559,20 +566,6 @@ function getAbortReasonLabel(reason: unknown): string | undefined {
   if (reason instanceof Error) return reason.name;
   return String(reason);
 }
-function getQueryTerminalReason(signal: AbortSignal, didThrow: boolean): QueryTerminalReason {
-  if (!signal.aborted) return didThrow ? 'unknown' : 'ok';
-  switch (getAbortReasonLabel(signal.reason)) {
-    case 'query-timeout':
-      return 'query-timeout';
-    case 'user-cancel':
-    case 'interrupt':
-      return 'user-abort';
-    case 'background':
-      return 'parent-ended';
-    default:
-      return 'unknown';
-  }
-}
 function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): string {
   const apiIds = snapshot.apiCalls.map(call => call.requestId ?? call.clientRequestId ?? 'unknown').join(',');
   const toolIds = snapshot.toolUses.map(tool => `${tool.toolName}:${tool.toolUseId}`).join(',');
@@ -581,6 +574,11 @@ function summarizeActiveOperations(snapshot: QueryActiveOperationSnapshot): stri
 function logQueryLifecycle(event: string, context: QueryLifecycleContext, extras = ''): void {
   logForDebugging(formatQueryLifecycleLogMessage(event, context, extras));
 }
+// Default per-prompt cap for every local interactive REPL entrypoint. Headless
+// and SDK callers retain their explicit maxTurns contracts. Local interactive
+// callers can raise the cap via --max-turns, OPENCLAUDE_MAX_TURNS /
+// CLAUDE_CODE_MAX_TURNS, or `/config` → Max turns (interactive).
+// Remote-backed sessions are not capped here.
 export type Props = {
   commands: Command[];
   debug: boolean;
@@ -629,6 +627,8 @@ export type Props = {
   thinkingConfig: ThinkingConfig;
   // Model to fallback to when primary model returns overloaded errors (529)
   fallbackModel?: string;
+  // Bound a single interactive prompt's sequential tool-use turns.
+  maxTurns?: number;
 };
 export type Screen = 'prompt' | 'transcript';
 export function REPL({
@@ -658,9 +658,30 @@ export function REPL({
   directConnectConfig,
   sshSession,
   thinkingConfig,
-  fallbackModel
+  fallbackModel,
+  maxTurns: maxTurnsProp
 }: Props): React.ReactNode {
+  // Resolve at query time so `/config` changes apply on the next prompt
+  // without requiring a REPL remount. CLI prop still wins over env/config.
   const isRemoteSession = !!remoteSessionConfig;
+  const foregroundTurnBudgetRef = useRef<ForegroundTurnBudgetHandoff | null>(null);
+  const backgroundHandoffStartedRef = useRef(false);
+  const [backgroundHandoffPreparing, setBackgroundHandoffPreparing] = useState(false);
+
+  useEffect(() => {
+    if (
+      shouldShowReplMaxTurnsUnlimitedWarning(maxTurnsProp, {
+        isRemoteSession,
+        directConnectConfig,
+        sshSession,
+      })
+    ) {
+      const warning = getReplMaxTurnsWarning(maxTurnsProp)
+      if (warning) {
+        process.stderr.write(chalk.yellow(`${warning}\n`))
+      }
+    }
+  }, [maxTurnsProp, isRemoteSession, directConnectConfig, sshSession]);
 
   // Env-var gates hoisted to mount-time — isEnvTruthy does toLowerCase+trim+
   // includes, and these were on the render path (hot during PageUp spam).
@@ -752,6 +773,14 @@ export function REPL({
   const terminal = useTerminalNotification();
   const mainLoopModel = useMainLoopModel();
   const appMainLoopModel = useAppState(s => s.mainLoopModel);
+  // Ambient ultracode indicator for the prompt border. Reactive to /effort so
+  // the border flips the moment ultracode is (de)selected, independent of the
+  // per-turn spinner color (which is set at query start in onQuery).
+  const effortValue = useAppState(s => s.effortValue);
+  const isUltracode = useMemo(
+    () => getDisplayedEffortLevel(mainLoopModel, effortValue) === 'ultracode',
+    [mainLoopModel, effortValue],
+  );
   const appMainLoopModelForSession = useAppState(s => s.mainLoopModelForSession);
   const initialAgentModelSelection = !hasExplicitModelOverride && initialMainThreadAgentDefinition?.model && initialMainThreadAgentDefinition.model !== 'inherit' ? getActiveSessionAgentModelSelection({
     agent: initialMainThreadAgentDefinition,
@@ -979,7 +1008,9 @@ export function REPL({
 
   // Ref for the synchronous restore callback — set after restoreMessageSync is
   // defined, read in the onQuery finally block for auto-restore on interrupt.
-  const restoreMessageSyncRef = useRef<(m: UserMessage) => void>(() => { });
+  const restoreMessageSyncRef = useRef<(m: UserMessage, options?: {
+    preserveInterruptionCorrectionReminder?: boolean;
+  }) => void>(() => { });
 
   // Ref to the fullscreen layout's scroll box for keyboard scrolling.
   // Null when fullscreen mode is disabled (ref never attached).
@@ -1002,7 +1033,26 @@ export function REPL({
   // Synchronous state machine for the query lifecycle. Replaces the
   // error-prone dual-state pattern where isLoading (React state, async
   // batched) and isQueryRunning (ref, sync) could desync. See QueryGuard.ts.
-  const queryGuard = React.useRef(new QueryGuard()).current;
+  const queryGuardRef = React.useRef<QueryGuard | null>(null);
+  if (queryGuardRef.current === null) {
+    queryGuardRef.current = new QueryGuard(getQueryGuardOptionsFromEnv());
+  }
+  const queryGuard = queryGuardRef.current;
+
+  // A user-cancelled model turn arms one hidden reminder for the next normal
+  // local prompt. The tracker reads QueryGuard directly so its tested lifecycle
+  // rules cannot drift from the REPL's active-query identity.
+  const interruptionCorrectionTrackerRef = useRef<InterruptionCorrectionTracker | null>(null);
+  if (interruptionCorrectionTrackerRef.current === null) {
+    interruptionCorrectionTrackerRef.current = new InterruptionCorrectionTracker(queryGuard, getSessionId);
+  }
+  const interruptionCorrectionTracker = interruptionCorrectionTrackerRef.current;
+  const takeInterruptionCorrectionReminder = useCallback(() => {
+    return interruptionCorrectionTracker.takeReminder();
+  }, []);
+  const restoreInterruptionCorrectionReminder = useCallback(() => {
+    interruptionCorrectionTracker.restoreReminder();
+  }, []);
 
   // Subscribe to the guard — true during dispatching or running.
   // This is the single source of truth for "is a local query in flight".
@@ -1018,7 +1068,7 @@ export function REPL({
   // Derived: any loading source active. Read-only — no setter. Local query
   // loading is driven by queryGuard (reserve/tryStart/end/cancelReservation),
   // external loading by setIsExternalLoading.
-  const isLoading = isQueryActive || isExternalLoading;
+  const isLoading = isQueryActive || isExternalLoading || backgroundHandoffPreparing;
 
   // Elapsed time is computed by SpinnerWithVerb from these refs on each
   // animation frame, avoiding a useInterval that re-renders the entire REPL.
@@ -1286,9 +1336,10 @@ export function REPL({
   // that queue functional updaters then synchronously read the ref
   // (e.g. handleSpeculationAccept → onQuery) see stale data.
   const setMessages = useCallback((action: React.SetStateAction<MessageType[]>) => {
-    const prev = messagesRef.current;
-    const next = typeof action === 'function' ? action(messagesRef.current) : action;
-    messagesRef.current = next;
+    const {
+      previousMessages: prev,
+      nextMessages: next
+    } = applyInterruptionCorrectionAwareMessageUpdate(messagesRef, action, interruptionCorrectionTracker);
     if (next.length < userInputBaselineRef.current) {
       // Shrank (compact/rewind/clear) — clamp so placeholderText's length
       // check can't go stale.
@@ -1309,7 +1360,7 @@ export function REPL({
       }
     }
     rawSetMessages(next);
-  }, []);
+  }, [interruptionCorrectionTracker]);
   // Capture the baseline message count alongside the placeholder text so
   // the render can hide it once displayedMessages grows past the baseline.
   const setUserInputOnProcessing = useCallback((input: string | undefined) => {
@@ -1537,11 +1588,34 @@ export function REPL({
     startupChecksStartedRef.current = true;
     void performStartupChecks(setAppState);
   }, [setAppState, isRemoteSession, hasHadFirstSubmission]);
+  const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   // Ref instead of state to avoid triggering React re-renders on every
-  // streaming text_delta. The spinner reads this via its animation timer.
+  // streaming text_delta. In reduced-motion mode we publish an initial update
+  // and then throttle subsequent token-display refreshes.
   const responseLengthRef = useRef(0);
+  const [reducedMotionResponseLength, setReducedMotionResponseLength] = useState(0);
+  const reducedMotionRef = useRef(reducedMotion);
+  const reducedMotionResponseLengthTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    reducedMotionRef.current = reducedMotion;
+    if (reducedMotion) {
+      setReducedMotionResponseLength(responseLengthRef.current);
+    }
+  }, [reducedMotion]);
+  useEffect(() => () => {
+    if (reducedMotionResponseLengthTimerRef.current) {
+      clearTimeout(reducedMotionResponseLengthTimerRef.current);
+    }
+  }, []);
   const setResponseLength = useCallback((f: (prev: number) => number) => {
-    responseLengthRef.current = f(responseLengthRef.current);
+    const next = f(responseLengthRef.current);
+    responseLengthRef.current = next;
+    if (!reducedMotionRef.current || reducedMotionResponseLengthTimerRef.current) return;
+    setReducedMotionResponseLength(next);
+    reducedMotionResponseLengthTimerRef.current = setTimeout(() => {
+      reducedMotionResponseLengthTimerRef.current = null;
+      setReducedMotionResponseLength(responseLengthRef.current);
+    }, 200);
   }, []);
 
   // Streaming text display. streamingTextRef holds the full accumulated text
@@ -1557,7 +1631,6 @@ export function REPL({
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const lastFlushedStreamingVisibleRef = useRef<string | null>(null);
-  const reducedMotion = useAppState(s => s.settings.prefersReducedMotion) ?? false;
   const showStreamingText = !reducedMotion && !hasCursorUpViewportYankBug();
   const onStreamingText = useCallback((f: (current: string | null) => string | null) => {
     // decideStreamingTextUpdate keeps the ref current even when the live preview
@@ -1698,6 +1771,11 @@ export function REPL({
     // does not leave the progress bar rendered in the idle UI.
     setCompactProgressRatio(null);
     responseLengthRef.current = 0;
+    setReducedMotionResponseLength(0);
+    if (reducedMotionResponseLengthTimerRef.current) {
+      clearTimeout(reducedMotionResponseLengthTimerRef.current);
+      reducedMotionResponseLengthTimerRef.current = null;
+    }
     streamingTextRef.current = null;
     lastFlushedStreamingVisibleRef.current = null;
     setStreamingText(null);
@@ -1804,11 +1882,12 @@ export function REPL({
   const mrRender = useCallback(() => null, []);
   const abortTimedOutQuery = useCallback((timeout: QueryGuardTimeoutInfo) => {
     const timeoutOperations = summarizeActiveOperations(timeout.activeOperations);
+    const timeoutAbortReason = timeout.context.terminalReason ?? 'query-timeout';
     logQueryLifecycle('timeout', timeout.context, timeoutOperations);
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
-      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
-      activeAbortController.abort('query-timeout');
+      logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason(timeoutAbortReason));
+      activeAbortController.abort(timeoutAbortReason);
     }
     if (timeout.activeOperations.apiCalls.length > 0) {
       logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
@@ -1820,7 +1899,7 @@ export function REPL({
     // QueryGuard calls this before forceEnd(); defer UI cleanup until after
     // the guard has released so the normal stale-generation finally path skips.
     queueMicrotask(() => {
-      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason('query-timeout'));
+      logQueryLifecycle('abort_acknowledged', timeout.context, formatQueryLifecycleAbortSignalReason(timeoutAbortReason));
       resetLoadingState();
       setAbortController(null);
       void mrOnTurnComplete(messagesRef.current, true);
@@ -1999,6 +2078,7 @@ export function REPL({
       // Clear any active loading state (no queryId since we're not in a query)
       resetLoadingState();
       setAbortController(null);
+      interruptionCorrectionTracker.handleSessionChange();
       setConversationId(sessionId);
 
       // Get target session's costs BEFORE saving current session
@@ -2300,7 +2380,9 @@ export function REPL({
     if (was !== now) repinScroll();
     prevDialogRef.current = focusedInputDialog;
   }, [focusedInputDialog, repinScroll]);
-  function onCancel() {
+  // Omitted means a programmatic edit/restore cancellation, which must not arm
+  // correction context because those flows rewind the conversation themselves.
+  function onCancel(isUserInitiated = false) {
     if (focusedInputDialog === 'elicitation') {
       // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
       return;
@@ -2313,6 +2395,13 @@ export function REPL({
       proactiveModule?.pauseProactive();
     }
     const cancelContext = queryGuard.activeContext;
+    interruptionCorrectionTracker.handleCancellation({
+      isUserInitiated,
+      isRemoteMode: activeRemote.isRemoteMode,
+      hasQueuedNormalPrompt: getCommandQueue().some(
+        isNormalLocalUserPrompt,
+      ),
+    });
     const cancelOperations = queryLifecycleTrackerRef.current.snapshot();
     const completedCancelContext = cancelContext ? {
       ...cancelContext,
@@ -2407,7 +2496,7 @@ export function REPL({
   // CancelRequestHandler props - rendered inside KeybindingSetup
   const cancelRequestProps = {
     setToolUseConfirmQueue,
-    onCancel,
+    onCancel: () => onCancel(true),
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
     screen,
@@ -2633,7 +2722,8 @@ export function REPL({
       registerActivity: (reason: string) => {
         queryGuard.registerActivity(reason, queryGeneration);
       },
-      acquireLease: (input) => queryGuard.acquireLease(input, queryGeneration)
+      acquireLease: (input) => queryGuard.acquireLease(input, queryGeneration),
+      beginUserInteraction: () => queryGuard.beginUserInteraction(queryGeneration)
     } satisfies ProcessUserInputContext['queryActivity'];
     return {
       abortController,
@@ -2774,59 +2864,162 @@ export function REPL({
   // Session backgrounding (Ctrl+B to background/foreground)
   const handleBackgroundQuery = useCallback(() => {
     const backgroundSessionId = getSessionId();
-    // Stop the foreground query so the background one takes over
-    abortController?.abort('background');
-    // Aborting subagents may produce task-completed notifications.
-    // Clear task notifications so the queue processor doesn't immediately
-    // start a new foreground query; forward them to the background session.
-    const removedNotifications = removeByFilter(cmd => cmd.mode === 'task-notification');
-    void (async () => {
-      const toolUseContext = getToolUseContext(messagesRef.current, [], new AbortController(), mainLoopModel);
-      const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, mainLoopModel, Array.from(toolPermissionContext.additionalWorkingDirectories.keys()), toolUseContext.options.mcpClients), getUserContext(), getSystemContext()]);
-      const systemPrompt = buildEffectiveSystemPrompt({
-        mainThreadAgentDefinition,
-        toolUseContext,
-        customSystemPrompt,
-        defaultSystemPrompt,
-        appendSystemPrompt
-      });
-      toolUseContext.renderedSystemPrompt = systemPrompt;
-      const notificationAttachments = await getQueuedCommandAttachments(removedNotifications).catch(() => []);
-      const notificationMessages = notificationAttachments.map(createAttachmentMessage);
-
-      // Deduplicate: if the query loop already yielded a notification into
-      // messagesRef before we removed it from the queue, skip duplicates.
-      // We use prompt text for dedup because source_uuid is not set on
-      // task-notification QueuedCommands (enqueuePendingNotification callers
-      // don't pass uuid), so it would always be undefined.
-      const existingPrompts = new Set<string>();
-      for (const m of messagesRef.current) {
-        if (m.type === 'attachment' && m.attachment.type === 'queued_command' && m.attachment.commandMode === 'task-notification' && typeof m.attachment.prompt === 'string') {
-          existingPrompts.add(m.attachment.prompt);
+    const backgroundSessionTitle = terminalTitle;
+    setBackgroundHandoffPreparing(true);
+    // Transfer the exact per-prompt budget before aborting. Re-resolving the
+    // limit or copying a callback-maintained count here can reset or skew the
+    // cap while the foreground query is winding down.
+    const backgroundHandoff = claimBackgroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef);
+    if (!backgroundHandoff) return;
+    const restoreDeferredMaxTurnsCap = () => {
+      const attemptRestore = (): boolean => {
+        const cap = backgroundHandoff.deferredMaxTurnsCap;
+        if (!cap || !canRestoreDeferredMaxTurnsCap(backgroundHandoff, messagesRef.current)) {
+          return false;
         }
+        backgroundHandoff.deferredMaxTurnsCap = undefined;
+        setMessages(prev => [...prev, createAttachmentMessage({
+          type: 'max_turns_reached',
+          maxTurns: cap.maxTurns,
+          turnCount: cap.turnCount
+        })]);
+        return true;
+      };
+      if (!attemptRestore()) {
+        void backgroundHandoff.settled.then(() => {
+          attemptRestore();
+        });
       }
-      const uniqueNotifications = notificationMessages.filter(m => m.attachment.type === 'queued_command' && (typeof m.attachment.prompt !== 'string' || !existingPrompts.has(m.attachment.prompt)));
-      startBackgroundSession({
-        messages: [...messagesRef.current, ...uniqueNotifications],
-        queryParams: {
-          systemPrompt,
-          userContext,
-          systemContext,
-          canUseTool,
-          toolUseContext,
-          fallbackModel,
-          querySource: getQuerySourceForREPL(),
-          autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
-          onAutoCompactTrackingChange: tracking => {
-            setAutoCompactTrackingForSession(backgroundSessionId, tracking);
+    };
+    const backgroundSession = startBackgroundSession({
+      prepare: async backgroundAbortController => {
+        // The foreground owns transcript completion. Wait until its abort path
+        // has appended terminal tool results before snapshotting continuation
+        // state, while still honoring a task stop during that wait.
+        const shouldContinue = await waitForForegroundTurnBudgetSettlement(backgroundHandoff, backgroundAbortController.signal);
+        if (shouldContinue === null) {
+          throw backgroundAbortController.signal.reason;
+        }
+        if (!shouldContinue) return null;
+
+        // The foreground is settled, but its QueryGuard will shortly release
+        // and allow a new prompt. Capture this continuation's transcript before
+        // any preparation await can observe that later foreground turn.
+        const settledMessages = [...messagesRef.current];
+        backgroundHandoff.settledTranscriptTailUuid =
+          settledMessages.at(-1)?.uuid ?? null;
+        // Claim main-thread notifications only. Subagent-addressed entries keep
+        // their owner-scoped drain path (QueuedCommand.agentId); issue #2079 is
+        // about configurable interactive turn caps, not queue isolation.
+        const pendingNotifications = removeByFilter(
+          cmd =>
+            cmd.mode === 'task-notification' && cmd.agentId === undefined,
+        );
+        let restorableNotifications = filterClaimedTaskNotificationsForRestore(
+          pendingNotifications,
+          settledMessages,
+        );
+        let notificationOwnershipActive = true;
+        const restoreNotificationsIfUnsent = () => {
+          if (!notificationOwnershipActive) return;
+          notificationOwnershipActive = false;
+          if (restorableNotifications.length > 0) {
+            prepend(restorableNotifications);
           }
-        },
-        description: terminalTitle,
-        setAppState,
-        agentDefinition: mainThreadAgentDefinition
-      });
-    })();
-  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel]);
+        };
+        try {
+        const toolUseContext = getToolUseContext(settledMessages, [], backgroundAbortController, mainLoopModel);
+        const [defaultSystemPrompt, userContext, systemContext] = await Promise.all([getSystemPrompt(toolUseContext.options.tools, mainLoopModel, Array.from(toolPermissionContext.additionalWorkingDirectories.keys()), toolUseContext.options.mcpClients), getUserContext(), getSystemContext()]).catch(error => {
+          restoreNotificationsIfUnsent();
+          throw error;
+        });
+        if (backgroundAbortController.signal.aborted) {
+          restoreNotificationsIfUnsent();
+          throw backgroundAbortController.signal.reason;
+        }
+        const systemPrompt = buildEffectiveSystemPrompt({
+          mainThreadAgentDefinition,
+          toolUseContext,
+          customSystemPrompt,
+          defaultSystemPrompt,
+          appendSystemPrompt
+        });
+        toolUseContext.renderedSystemPrompt = systemPrompt;
+        const notificationAttachments = await getQueuedCommandAttachments(pendingNotifications).catch(error => {
+          restoreNotificationsIfUnsent();
+          throw error;
+        });
+        if (backgroundAbortController.signal.aborted) {
+          restoreNotificationsIfUnsent();
+          throw backgroundAbortController.signal.reason;
+        }
+        const notificationMessages = notificationAttachments.map(createAttachmentMessage);
+
+        // Deduplicate against settled transcript keys and within the claimed batch.
+        const uniqueNotifications = dedupeQueuedTaskNotifications(
+          settledMessages,
+          notificationMessages,
+        );
+        restorableNotifications = pendingCommandsForEmbeddedNotifications(
+          pendingNotifications,
+          uniqueNotifications,
+        );
+        return {
+          messages: [...settledMessages, ...uniqueNotifications],
+          restoreNotificationsIfUnsent,
+          commitNotificationOwnership: () => {
+            notificationOwnershipActive = false;
+          },
+          queryParams: {
+            systemPrompt,
+            userContext,
+            systemContext,
+            canUseTool,
+            toolUseContext,
+            fallbackModel,
+            turnBudget: backgroundHandoff.budget,
+            querySource: getQuerySourceForREPL(),
+            autoCompactTracking: getAutoCompactTrackingForSession(backgroundSessionId),
+            onAutoCompactTrackingChange: tracking => {
+              setAutoCompactTrackingForSession(backgroundSessionId, tracking);
+            }
+          }
+        };
+        } catch (error) {
+          restoreNotificationsIfUnsent();
+          throw error;
+        }
+      },
+      description: backgroundSessionTitle,
+      setAppState,
+      agentDefinition: mainThreadAgentDefinition,
+      onPreparationError: () => {
+        restoreDeferredMaxTurnsCap();
+        addNotification({
+          key: 'background-session-start-failed',
+          text: 'Could not start the background session. The current request was cancelled.',
+          priority: 'high',
+        });
+      },
+      onContinuationCancelled: restoreDeferredMaxTurnsCap,
+      onRegistered: controller => {
+        setAbortController(current =>
+          current === controller ? null : current,
+        );
+      },
+      onSettled: controller => {
+        setBackgroundHandoffPreparing(false);
+        setAbortController(current =>
+          current === controller ? null : current,
+        );
+      },
+    });
+    // The task is intentionally published only after the foreground settles,
+    // but its controller must be reachable during preparation so Escape can
+    // cancel the handoff before it dispatches a provider request.
+    setAbortController(backgroundSession.abortController);
+    abortController?.abort('background');
+  }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification, terminalTitle]);
   const {
     handleBackgroundSession
   } = useSessionBackgrounding({
@@ -2901,7 +3094,7 @@ export function REPL({
       void removeTranscriptMessage(tombstonedMessage.uuid);
     }, setStreamingThinking, undefined, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
-  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker) => {
+  const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, queryGeneration: number, turnBudget: QueryTurnBudget, effort?: EffortValue, queryLifecycle?: QueryLifecycleOperationTracker, requestOnlyMessages: MessageType[] = [], interruptionCorrectionQueryId?: string, onModelRequestStart?: () => void): Promise<QueryTerminal | undefined> => {
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -3011,6 +3204,13 @@ export function REPL({
         effortValue: effort
       });
     }
+    // Set blue/cyan spinner color for ultracode mode so the thinking
+    // indicator is visually distinct from regular thinking/ultrathink.
+    const effectiveEffort = effort ?? store.getState().effortValue;
+    if (getDisplayedEffortLevel(mainLoopModelParam, effectiveEffort) === 'ultracode') {
+      setSpinnerColor('ultracode');
+      setSpinnerShimmerColor('ultracodeShimmer');
+    }
     queryCheckpoint('query_context_loading_start');
     const [, , defaultSystemPrompt, baseUserContext, systemContext] = await Promise.all([
       // IMPORTANT: do this after setMessages() above, to avoid UI jank
@@ -3038,8 +3238,19 @@ export function REPL({
     resetTurnToolDuration();
     resetTurnClassifierDuration();
     let expectedAutoCompactTracking = queryAutoCompactTracking;
-    for await (const event of query({
+    const queryGenerator = query({
       messages: messagesIncludingNewMessages,
+      requestOnlyMessages,
+      onModelRequestStart: interruptionCorrectionQueryId
+        ? () => {
+            interruptionCorrectionTracker.bindModelTurn({
+              shouldQuery,
+              isInterruptionCorrectionEligible: true,
+              queryId: interruptionCorrectionQueryId,
+            })
+            onModelRequestStart?.()
+          }
+        : undefined,
       systemPrompt,
       userContext,
       systemContext,
@@ -3047,15 +3258,30 @@ export function REPL({
       toolUseContext,
       querySource: getQuerySourceForREPL(),
       fallbackModel,
+      turnBudget,
       autoCompactTracking: queryAutoCompactTracking,
       onAutoCompactTrackingChange: tracking => {
         if (setAutoCompactTrackingForSessionIfUnchanged(querySessionId, expectedAutoCompactTracking, tracking)) {
           expectedAutoCompactTracking = tracking;
         }
       }
-    })) {
-      queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
-      onQueryEvent(event);
+    });
+    let queryTerminal: QueryTerminal;
+    let generatorDone = false;
+    try {
+      while (true) {
+        const next = await queryGenerator.next();
+        if (next.done) {
+          generatorDone = true;
+          queryTerminal = next.value;
+          break;
+        }
+        const event = next.value;
+        queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
+        onQueryEvent(event);
+      }
+    } finally {
+      if (!generatorDone) await queryGenerator.return(undefined as never);
     }
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {
@@ -3072,8 +3298,9 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
-  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard]);
-  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
+    return queryTerminal;
+  }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, setAutoCompactTrackingForSessionIfUnchanged, queryGuard, interruptionCorrectionTracker]);
+  const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue, isInterruptionCorrectionEligible = false, onModelRequestStart?: () => void): Promise<void | false> => {
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
       const teamName = getTeamName();
@@ -3089,6 +3316,16 @@ export function REPL({
     // Returns null if already running — no separate check-then-set.
     const lifecycleTracker = queryLifecycleTrackerRef.current;
     const querySource = getQuerySourceForREPL();
+    if (backgroundHandoffPreparing) {
+      logEvent('tengu_concurrent_onquery_detected', {});
+      newMessages.filter((m): m is UserMessage => m.type === 'user' && !m.isMeta).map(_ => getContentText(_.message.content)).filter(_ => _ !== null).forEach((msg, i) => {
+        enqueue(buildConcurrentRequeuedPrompt(msg, isInterruptionCorrectionEligible));
+        if (i === 0) {
+          logEvent('tengu_concurrent_onquery_enqueued', {});
+        }
+      });
+      return false;
+    }
     const startResult = queryGuard.tryStart({
       queryId: randomUUID(),
       querySource,
@@ -3102,22 +3339,33 @@ export function REPL({
       // (e.g. expanded skill content, tick prompts) that should not be
       // replayed as user-visible text.
       newMessages.filter((m): m is UserMessage => m.type === 'user' && !m.isMeta).map(_ => getContentText(_.message.content)).filter(_ => _ !== null).forEach((msg, i) => {
-        enqueue({
-          value: msg,
-          mode: 'prompt'
-        });
+        enqueue(buildConcurrentRequeuedPrompt(msg, isInterruptionCorrectionEligible));
         if (i === 0) {
           logEvent('tengu_concurrent_onquery_enqueued', {});
         }
       });
-      return;
+      return false;
     }
     lifecycleTracker.clear();
     const thisGeneration = startResult.generation;
+    backgroundHandoffStartedRef.current = false;
+    const turnBudgetHandoff = createForegroundTurnBudgetHandoff(
+      resolveReplMaxTurnsForSession(maxTurnsProp, {
+        isRemoteSession,
+        directConnectConfig,
+        sshSession,
+      }),
+    );
+    const turnBudget = turnBudgetHandoff.budget;
+    foregroundTurnBudgetRef.current = turnBudgetHandoff;
     const queryContext = startResult.context;
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);
     let didThrow = false;
+    let queryTerminal: QueryTerminal | undefined;
+    let preflightVetoed = false;
+    let modelTurnStarted = false;
+    let hasInterruptionCorrectionRequestOnlyMessage = false;
     try {
       // isLoading is derived from queryGuard — tryStart() above already
       // transitioned dispatching→running, so no setter call needed here.
@@ -3129,8 +3377,19 @@ export function REPL({
       // Idempotent with respect to the end-of-turn reset — double-reset
       // is a no-op.
       resetCurrentTurn();
-      setMessages(oldMessages => [...oldMessages, ...newMessages]);
+      const {
+        persistentMessages,
+        persistentNewMessages,
+        requestOnlyMessages
+      } = buildInterruptionCorrectionMessageViews(messagesRef.current, newMessages);
+      hasInterruptionCorrectionRequestOnlyMessage = requestOnlyMessages.length > 0;
+      setMessages(persistentMessages);
       responseLengthRef.current = 0;
+      setReducedMotionResponseLength(0);
+      if (reducedMotionResponseLengthTimerRef.current) {
+        clearTimeout(reducedMotionResponseLengthTimerRef.current);
+        reducedMotionResponseLengthTimerRef.current = null;
+      }
       if (feature('TOKEN_BUDGET')) {
         const parsedBudget = input ? parseTokenBudget(input) : null;
         snapshotOutputTokensForTurn(parsedBudget ?? getCurrentTurnTokenBudget());
@@ -3140,28 +3399,62 @@ export function REPL({
       lastFlushedStreamingVisibleRef.current = null;
       setStreamingText(null);
 
-      // messagesRef is updated synchronously by the setMessages wrapper
-      // above, so it already includes newMessages from the append at the
-      // top of this try block.  No reconstruction needed, no waiting for
-      // React's scheduler (previously cost 20-56ms per prompt; the 56ms
-      // case was a GC pause caught during the await).
-      const latestMessages = messagesRef.current;
+      // Request-only context is passed separately to query(), so compaction,
+      // tools, transcript logging, later turns, and resume never persist it.
+      const latestMessages = persistentMessages;
       if (input) {
-        await mrOnBeforeQuery(input, latestMessages, newMessages.length);
+        await mrOnBeforeQuery(input, latestMessages, persistentNewMessages.length);
       }
 
       // Pass full conversation history to callback
       if (onBeforeQueryCallback && input) {
         const shouldProceed = await onBeforeQueryCallback(input, latestMessages);
         if (!shouldProceed) {
-          return;
+          // No provider request owns this reminder when preflight vetoes
+          // the turn. Return false so handlePromptSubmit restores it for
+          // the next eligible correction prompt.
+          preflightVetoed = true;
         }
       }
-      await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, effort, lifecycleTracker);
+      if (!preflightVetoed) {
+        modelTurnStarted = true;
+        queryTerminal = await onQueryImpl(latestMessages, persistentNewMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, thisGeneration, turnBudget, effort, lifecycleTracker, requestOnlyMessages, isInterruptionCorrectionEligible ? queryContext.queryId : undefined, onModelRequestStart);
+      }
+      if (preflightVetoed) {
+        return false;
+      }
     } catch (error) {
       didThrow = true;
+      // A preflight failure happens before any provider request owns this
+      // request-only reminder, so keep it for the next eligible correction.
+      if (!modelTurnStarted && hasInterruptionCorrectionRequestOnlyMessage) {
+        interruptionCorrectionTracker.restoreReminder();
+      }
       throw error;
     } finally {
+      // The ref is only an ownership marker for the currently foregrounded
+      // prompt. A background handoff already captured the budget object, so
+      // clear the ref on every terminal path without disturbing a newer query.
+      const shouldContinueBackground =
+        shouldContinueBackgroundAfterForegroundQuery({
+          didThrow,
+          preflightVetoed,
+          abortReason: abortController.signal.reason,
+          queryTerminal,
+        });
+      if (shouldContinueBackground) {
+        const deferredCap = computeDeferredMaxTurnsCapForBackgroundHandoff(abortController.signal.reason, queryTerminal, turnBudget.maxTurns, turnBudget.turnsStarted);
+        if (deferredCap) {
+          turnBudgetHandoff.deferredMaxTurnsCap = deferredCap;
+          turnBudgetHandoff.settledTranscriptTailUuid =
+            messagesRef.current.at(-1)?.uuid ?? null;
+        }
+      }
+      releaseForegroundTurnBudget(foregroundTurnBudgetRef, backgroundHandoffStartedRef, turnBudgetHandoff, shouldContinueBackground);
+      // A provider response can hand off to tools before the assistant turn
+      // finishes. Keep correction ownership through that work (and retries),
+      // then clear it only when this query reaches its terminal cleanup.
+      interruptionCorrectionTracker.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();
@@ -3185,6 +3478,7 @@ export function REPL({
       // running→idle. Returns false if a newer query owns the guard
       // (cancel+resubmit race where the stale finally fires as a microtask).
       if (queryGuard.end(thisGeneration, terminalReason, abortReason)) {
+        clearQueryProfile();
         logCompletedLifecycle(completedContext);
         lifecycleTracker.clear();
         setLastQueryCompletionTime(Date.now());
@@ -3271,15 +3565,19 @@ export function REPL({
         // reads false at the idle prompt. Without this, the stale non-aborted
         // controller makes ctrl+c fire onCancel() (aborting nothing) instead of
         // propagating to the double-press exit flow.
-        setAbortController(null);
+        setAbortController(current =>
+          current === abortController ? null : current,
+        );
       } else {
         const guardCompletedContext = queryGuard.lastContext;
         if ((guardCompletedContext?.terminalReason === 'query-timeout' || guardCompletedContext?.terminalReason === 'hard-max-query-timeout') && guardCompletedContext.queryGeneration === thisGeneration) {
           logCompletedLifecycle(guardCompletedContext);
           setLastQueryCompletionTime(Date.now());
           lifecycleTracker.clear();
+          clearQueryProfile();
         } else if (!queryGuard.isActive) {
           lifecycleTracker.clear();
+          clearQueryProfile();
         }
       }
 
@@ -3306,12 +3604,14 @@ export function REPL({
             // The submit is being undone — undo its history entry too,
             // otherwise Up-arrow shows the restored text twice.
             removeLastFromHistory();
-            restoreMessageSyncRef.current(lastUserMsg);
+            restoreMessageSyncRef.current(lastUserMsg, {
+              preserveInterruptionCorrectionReminder: true
+            });
           }
         }
       }
     }
-  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete]);
+  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, maxTurnsProp, isRemoteSession, directConnectConfig, sshSession, backgroundHandoffPreparing]);
 
   // Handle initial message (from CLI args or plan mode exit with context clear)
   // This effect runs when isLoading becomes false and there's a pending message
@@ -3401,6 +3701,8 @@ export function REPL({
           setCursorOffset: () => { },
           clearBuffer: () => { },
           resetHistory: () => { }
+        }, undefined, {
+          allowInterruptionCorrection: false
         });
       } else {
         // Plan messages or complex content (images, etc.) - send directly to model
@@ -3429,7 +3731,10 @@ export function REPL({
   }, options?: {
     fromKeybinding?: boolean;
     slashCommandOverride?: Command;
+    allowInterruptionCorrection?: boolean;
+    inputModeOverride?: PromptInputMode;
   }) => {
+    const effectiveInputMode = options?.inputModeOverride ?? inputMode;
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
     repinScroll();
@@ -3599,12 +3904,12 @@ export function REPL({
     // Skip history for keybinding-triggered commands (user didn't type the command).
     if (!options?.fromKeybinding) {
       addToHistory({
-        display: speculationAccept ? input : prependModeCharacterToInput(input, inputMode),
+        display: speculationAccept ? input : prependModeCharacterToInput(input, effectiveInputMode),
         pastedContents: speculationAccept ? {} : pastedContents
       });
       // Add the just-submitted command to the front of the ghost-text
       // cache so it's suggested immediately (not after the 60s TTL).
-      if (inputMode === 'bash') {
+      if (effectiveInputMode === 'bash') {
         prependToShellHistoryCache(input.trim());
       }
     }
@@ -3643,13 +3948,20 @@ export function REPL({
       setInputMode('prompt');
       setIDESelection(undefined);
       setSubmitCount(_ => _ + 1);
+      if (isBuddyEnabled() && !isSlashCommand && effectiveInputMode === 'prompt') {
+        // Change token for the companion's signature action (one Enter = one
+        // shot; queued messages intentionally don't re-fire on dequeue).
+        // Real prompts only — slash commands and bash lines aren't "sending
+        // a message" and shouldn't launch projectiles.
+        setAppState(prev => ({ ...prev, companionShotAt: Date.now() }));
+      }
       helpers.clearBuffer();
       tipPickedThisTurnRef.current = false;
 
       // Show the placeholder in the same React batch as setInputValue('').
       // Skip for slash/bash (they have their own echo), speculation and remote
       // mode (both setMessages directly with no gap to bridge).
-      if (!isSlashCommand && inputMode === 'prompt' && !speculationAccept && !activeRemote.isRemoteMode) {
+      if (!isSlashCommand && effectiveInputMode === 'prompt' && !speculationAccept && !activeRemote.isRemoteMode) {
         setUserInputOnProcessing(input);
         // showSpinner includes userInputOnProcessing, so the spinner appears
         // on this render. Reset timing refs now (before queryGuard.reserve()
@@ -3776,7 +4088,7 @@ export function REPL({
       helpers,
       queryGuard,
       isExternalLoading,
-      mode: inputMode,
+      mode: effectiveInputMode,
       commands,
       onInputChange: setInputValue,
       setPastedContents,
@@ -3797,6 +4109,9 @@ export function REPL({
       addNotification,
       setMessages,
       slashCommandOverride: options?.slashCommandOverride,
+      allowInterruptionCorrection: options?.allowInterruptionCorrection,
+      takeInterruptionCorrectionReminder,
+      restoreInterruptionCorrectionReminder,
       // Read via ref so streamMode can be dropped from onSubmit deps —
       // handlePromptSubmit only uses it for debug log + telemetry event.
       streamMode: streamModeRef.current,
@@ -3827,7 +4142,7 @@ export function REPL({
     // messages array in downstream closures (PromptInput, handleAutoRunIssue).
     // Heap analysis showed ~9 REPL scopes and ~15 messages array versions
     // accumulating after #20174/#20175, all traced to this dep.
-    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll]);
+    mainLoopModel, pastedContents, ideSelection, setUserInputOnProcessing, setAbortController, addNotification, onQuery, stashedPrompt, setStashedPrompt, setAppState, onBeforeQuery, canUseTool, remoteSession, setMessages, awaitPendingHooks, repinScroll, takeInterruptionCorrectionReminder, restoreInterruptionCorrectionReminder]);
 
   // Callback for when user submits input while viewing a teammate's transcript
   const onAgentSubmit = useCallback(async (input: string, task: InProcessTeammateTaskState | LocalAgentTaskState, helpers: PromptInputHelpers) => {
@@ -3931,17 +4246,20 @@ export function REPL({
   // Does NOT touch the prompt input. Index is computed from messagesRef (always
   // fresh via the setMessages wrapper) so callers don't need to worry about
   // stale closures.
-  const rewindConversationTo = useCallback((message: UserMessage) => {
+  const rewindConversationTo = useCallback((message: UserMessage, {
+    preserveInterruptionCorrectionReminder = false
+  }: {
+    preserveInterruptionCorrectionReminder?: boolean;
+  } = {}) => {
     const prev = messagesRef.current;
-    const messageIndex = prev.lastIndexOf(message);
-    if (messageIndex === -1) return;
+    const messageIndex = applyInterruptionCorrectionAutoRestore(prev, message, setMessages, interruptionCorrectionTracker, preserveInterruptionCorrectionReminder);
+    if (messageIndex === null) return;
     logEvent('tengu_conversation_rewind', {
       preRewindMessageCount: prev.length,
       postRewindMessageCount: messageIndex,
       messagesRemoved: prev.length - messageIndex,
       rewindToMessageIndex: messageIndex
     });
-    setMessages(prev.slice(0, messageIndex));
     resetAutoCompactTracking();
     // Careful, this has to happen after setMessages
     setConversationId(randomUUID());
@@ -3980,13 +4298,15 @@ export function REPL({
         generationRequestId: null
       }
     }));
-  }, [setMessages, resetAutoCompactTracking, setAppState]);
+  }, [setMessages, resetAutoCompactTracking, setAppState, interruptionCorrectionTracker, setConversationId]);
 
   // Synchronous rewind + input population. Used directly by auto-restore on
   // interrupt (so React batches with the abort's setMessages → single render,
   // no flicker). MessageSelector wraps this in setImmediate via handleRestoreMessage.
-  const restoreMessageSync = useCallback((message: UserMessage) => {
-    rewindConversationTo(message);
+  const restoreMessageSync = useCallback((message: UserMessage, options?: {
+    preserveInterruptionCorrectionReminder?: boolean;
+  }) => {
+    rewindConversationTo(message, options);
     const r = textForResubmit(message);
     if (r) {
       setInputValue(r.text);
@@ -4012,7 +4332,7 @@ export function REPL({
         setPastedContents(newPastedContents);
       }
     }
-  }, [rewindConversationTo, setInputValue]);
+  }, [rewindConversationTo, setInputValue, setInputMode]);
   restoreMessageSyncRef.current = restoreMessageSync;
 
   // MessageSelector path: defer via setImmediate so the "Interrupted" message
@@ -4162,9 +4482,11 @@ export function REPL({
       canUseTool,
       addNotification,
       setMessages,
+      takeInterruptionCorrectionReminder,
+      restoreInterruptionCorrectionReminder,
       queuedCommands
     });
-  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery]);
+  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery, takeInterruptionCorrectionReminder, restoreInterruptionCorrectionReminder]);
   useQueueProcessor({
     executeQueuedInput,
     hasActiveLocalJsxUI: isShowingLocalJSXCommand,
@@ -4817,7 +5139,7 @@ export function REPL({
         </Box>}
         {feature('WEB_BROWSER_TOOL') ? WebBrowserPanelModule && <WebBrowserPanelModule.WebBrowserPanel /> : null}
         <Box flexGrow={1} />
-        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix ?? activeToolSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
+        {showSpinner && <SpinnerWithVerb mode={streamMode} spinnerTip={spinnerTip} responseLengthRef={responseLengthRef} responseLength={reducedMotion ? reducedMotionResponseLength : undefined} overrideMessage={spinnerMessage} spinnerSuffix={stopHookSpinnerSuffix ?? activeToolSpinnerSuffix} verbose={verbose} loadingStartTimeRef={loadingStartTimeRef} totalPausedMsRef={totalPausedMsRef} pauseStartTimeRef={pauseStartTimeRef} overrideColor={spinnerColor} overrideShimmerColor={spinnerShimmerColor} hasActiveTools={inProgressToolUseIDs.size > 0} leaderIsIdle={!isLoading} />}
         {/* Permanently mounted: it observes the isLoading transition to flash
             `✓ Done` for ~1.5s. Suppressed wherever another element owns the
             row or the user's attention. */}
@@ -5141,10 +5463,10 @@ export function REPL({
             {/* Frustration-triggered transcript sharing prompt */}
             {frustrationDetection.state !== 'closed' && <FeedbackSurvey state={frustrationDetection.state} lastResponse={null} handleSelect={() => { }} handleTranscriptSelect={frustrationDetection.handleTranscriptSelect} inputValue={inputValue} setInputValue={setInputValue} />}
             {showIssueFlagBanner && <IssueFlagBanner />}
-            { }
+            {isBuddyEnabled() && companionVisible && !companionNarrow && <CompanionActionFX />}
             <PromptInput debug={debug} ideSelection={ideSelection} isLocalJSXCommandActive={isShowingLocalJSXCommand} getToolUseContext={getToolUseContext} toolPermissionContext={toolPermissionContext} setToolPermissionContext={setToolPermissionContext} apiKeyStatus={apiKeyStatus} commands={renderCommands} agents={agentDefinitions.activeAgents} isLoading={isLoading} onExit={handleExit} verbose={verbose} messages={messages} onAutoUpdaterResult={setAutoUpdaterResult} autoUpdaterResult={autoUpdaterResult} input={inputValue} onInputChange={setInputValue} mode={inputMode} onModeChange={setInputMode} stashedPrompt={stashedPrompt} setStashedPrompt={setStashedPrompt} submitCount={submitCount} onShowMessageSelector={handleShowMessageSelector} onMessageActionsEnter={
               // Works during isLoading — edit cancels first; uuid selection survives appends.
-              feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? enterMessageActions : undefined} mcpClients={mcpClients} pastedContents={pastedContents} setPastedContents={setPastedContents} vimMode={vimMode} setVimMode={setVimMode} showBashesDialog={showBashesDialog} setShowBashesDialog={setShowBashesDialog} onSubmit={onSubmit} onAgentSubmit={onAgentSubmit} isSearchingHistory={isSearchingHistory} setIsSearchingHistory={setIsSearchingHistory} helpOpen={isHelpOpen} setHelpOpen={setIsHelpOpen} insertTextRef={feature('VOICE_MODE') ? insertTextRef : undefined} voiceInterimRange={voice.interimRange} />
+              feature('MESSAGE_ACTIONS') && isFullscreenEnvEnabled() && !disableMessageActions ? enterMessageActions : undefined} mcpClients={mcpClients} pastedContents={pastedContents} setPastedContents={setPastedContents} vimMode={vimMode} setVimMode={setVimMode} showBashesDialog={showBashesDialog} setShowBashesDialog={setShowBashesDialog} onSubmit={onSubmit} onAgentSubmit={onAgentSubmit} isSearchingHistory={isSearchingHistory} setIsSearchingHistory={setIsSearchingHistory} helpOpen={isHelpOpen} setHelpOpen={setIsHelpOpen} insertTextRef={feature('VOICE_MODE') ? insertTextRef : undefined} voiceInterimRange={voice.interimRange} ultracodeActive={isUltracode} />
             <SessionBackgroundHint onBackgroundSession={handleBackgroundSession} isLoading={isLoading} />
           </>}
           {cursor &&

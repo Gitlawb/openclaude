@@ -28,6 +28,13 @@ export const docsNav: DocsNavGroup[] = [
       { title: 'Skills', href: '/docs/skills/' },
     ],
   },
+  {
+    group: 'more',
+    items: [
+      { title: "What's new", href: '/changelog/' },
+      { title: 'Buddy', href: '/buddy/' },
+    ],
+  },
 ]
 
 export const docsPages: DocsNavItem[] = docsNav.flatMap(g => g.items)

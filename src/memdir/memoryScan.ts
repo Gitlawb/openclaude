@@ -77,21 +77,26 @@ async function scanMemoryFilesWithDependencies(
 ): Promise<MemoryHeader[]> {
   try {
     signal.throwIfAborted()
+    const controller = new AbortController()
+    const internalSignal = controller.signal
+    signal.addEventListener('abort', () => controller.abort(), { once: true })
+
     const topHeaders: RankedMemoryHeader[] = []
     const fileIterator = walkMarkdownFiles(
       memoryDir,
-      signal,
+      internalSignal,
       deps,
     )[Symbol.asyncIterator]()
     let nextOrder = 0
 
     const workers = Array.from({ length: HEADER_READ_CONCURRENCY }, async () => {
-      while (!signal.aborted) {
+      while (!internalSignal.aborted) {
         let next: IteratorResult<string>
         try {
           next = await fileIterator.next()
         } catch (error) {
-          if (signal.aborted) return
+          if (internalSignal.aborted) return
+          controller.abort()
           throw error
         }
         if (next.done) return
@@ -101,19 +106,19 @@ async function scanMemoryFilesWithDependencies(
           const header = await readMemoryHeader(
             memoryDir,
             next.value,
-            signal,
+            internalSignal,
             deps,
           )
-          if (signal.aborted) return
+          if (internalSignal.aborted) return
           insertNewestHeader(topHeaders, { header, order })
         } catch {
-          if (signal.aborted) return
+          if (internalSignal.aborted) return
         }
       }
     })
 
     await Promise.all(workers)
-    return signal.aborted ? [] : topHeaders.map(entry => entry.header)
+    return internalSignal.aborted ? [] : topHeaders.map(entry => entry.header)
   } catch {
     return []
   }

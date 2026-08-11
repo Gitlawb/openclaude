@@ -98,6 +98,8 @@ async function importFreshEffortModule(options: {
       effort.getDefaultEffortForModel(model, reasoningContext),
     resolveAppliedEffort: (model: string, appStateEffortValue: unknown) =>
       effort.resolveAppliedEffort(model, appStateEffortValue, reasoningContext),
+    clampUltracodeEffort: (appStateEffortValue: unknown, model: string) =>
+      effort.clampUltracodeEffort(appStateEffortValue, model, reasoningContext),
     modelSupportsShimReasoningEffort: (
       model: string,
       thinkingRequestFormat?: unknown,
@@ -143,6 +145,115 @@ test('gpt-5.4 on the OpenAI provider still supports effort selection', async () 
     'high',
     'xhigh',
   ])
+})
+
+test('gpt-5.6 on an Azure custom-route base carries its default high effort from metadata', async () => {
+  // Azure (and regional *.api.openai.com) bases resolve to route 'custom',
+  // whose catalog is empty; the openai-catalog fallback must supply gpt-5.6's
+  // advertised default 'high' instead of the legacy undefined. FAILS pre-fix
+  // (getDefaultEffortForModel returns undefined on route 'custom').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://myres.openai.azure.com/openai/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel, getAvailableEffortLevels } =
+      await importFreshEffortModule({
+        provider: 'openai',
+        supportsCodexReasoningEffort: true,
+      })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+    expect(getAvailableEffortLevels('gpt-5.6-sol')).toContain('xhigh')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('gpt-5.6 on a regional OpenAI base carries its default high effort from metadata', async () => {
+  // eu.api.openai.com is an OpenAI-controlled surface (endsWith '.api.openai.com')
+  // that still resolves to route 'custom'; the gated fallback must fire.
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://eu.api.openai.com/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBe('high')
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('gpt-5.6 on an arbitrary OpenAI-compatible gateway does NOT get an injected default effort', async () => {
+  // A gateway base resolves to route 'custom' too, but is not a verified
+  // OpenAI/Azure surface — the fallback must NOT fire, so gpt-5.6 stays on
+  // legacy controls (no injected reasoning_effort default). FAILS pre-fix
+  // (the ungated round-3 fallback returned 'high').
+  const snapshot = {
+    CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
+  }
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_AZURE_STYLE
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+  process.env.OPENAI_API_KEY = 'test-key'
+
+  try {
+    const { getDefaultEffortForModel } = await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: true,
+    })
+
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).not.toBe('high')
+    expect(getDefaultEffortForModel('gpt-5.6-sol')).toBeUndefined()
+  } finally {
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
 })
 
 test('gpt-5.3-codex-spark stays without effort controls', async () => {
@@ -245,9 +356,9 @@ test('xhigh does not appear in available levels for non-supporting models', asyn
   ])
   expect(getAvailableEffortLevels('claude-haiku-4-5')).toEqual([])
 
-  // Has xhigh AND max (opus-4-8)
+  // Has xhigh AND max AND ultracode (opus-4-8 on firstParty)
   const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
-  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
 })
 
 test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async () => {
@@ -297,12 +408,74 @@ test('xhigh clamps to high on non-supporting models so stale settings.json value
   expect(resolveAppliedEffort('claude-opus-4-8', 'xhigh')).toBe('xhigh')
 })
 
+test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable model', async () => {
+  const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  // ultracode isn't selectable off firstParty, so it clamps — but to xhigh
+  // (the model is xhigh-capable), matching resolveAppliedEffort's mapping
+  // rather than the old hardcoded 'max'.
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe('xhigh')
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe(
+    resolveAppliedEffort('claude-opus-4-8', 'ultracode'),
+  )
+  expect(clampUltracodeEffort('max', 'claude-opus-4-8')).toBe('max')
+  expect(clampUltracodeEffort('high', 'claude-opus-4-8')).toBe('high')
+  expect(clampUltracodeEffort(undefined, 'claude-opus-4-8')).toBeUndefined()
+})
+
+test('clampUltracodeEffort: clamps to high on firstParty non-xhigh model', async () => {
+  const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  // Not xhigh-capable -> clamp to high, the same level the env/app-state path
+  // (resolveAppliedEffort) sends for ultracode. Previously this returned 'max',
+  // so the two paths disagreed on max-capable-but-not-xhigh models.
+  expect(clampUltracodeEffort('ultracode', 'claude-sonnet-4-6')).toBe('high')
+  expect(clampUltracodeEffort('ultracode', 'claude-sonnet-4-6')).toBe(
+    resolveAppliedEffort('claude-sonnet-4-6', 'ultracode'),
+  )
+})
+
+test('clampUltracodeEffort: preserves ultracode on firstParty + xhigh-capable model', async () => {
+  const { clampUltracodeEffort } = await importFreshEffortModule({
+    provider: 'firstParty' as unknown as 'openai',
+    supportsCodexReasoningEffort: false,
+  })
+
+  expect(clampUltracodeEffort('ultracode', 'claude-opus-4-8')).toBe('ultracode')
+})
+
+test('parseFrontmatterEffortValue: rejects ultracode but passes other levels/integers through', async () => {
+  const { parseFrontmatterEffortValue } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
+
+  // ultracode is session-only; frontmatter cannot grant its permission, so reject it
+  expect(parseFrontmatterEffortValue('ultracode')).toBeUndefined()
+  expect(parseFrontmatterEffortValue('ULTRACODE')).toBeUndefined()
+  // every other valid level still parses
+  expect(parseFrontmatterEffortValue('low')).toBe('low')
+  expect(parseFrontmatterEffortValue('medium')).toBe('medium')
+  expect(parseFrontmatterEffortValue('high')).toBe('high')
+  expect(parseFrontmatterEffortValue('xhigh')).toBe('xhigh')
+  expect(parseFrontmatterEffortValue('max')).toBe('max')
+  expect(parseFrontmatterEffortValue(42)).toBe(42)
+  // genuinely invalid values still return undefined
+  expect(parseFrontmatterEffortValue('nonsense')).toBeUndefined()
+  expect(parseFrontmatterEffortValue(undefined)).toBeUndefined()
+})
+
 test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provider (OpenCode native route)', async () => {
-  const { modelUsesOpenAIEffort, getAvailableEffortLevels } =
-    await importFreshEffortModule({
-      provider: 'openai',
-      supportsCodexReasoningEffort: true,
-    })
+  const { modelUsesOpenAIEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+  })
 
   // Native Claude/Gemini on OpenCode use Anthropic/Google format, not OpenAI
   expect(modelUsesOpenAIEffort('claude-opus-4-8')).toBe(false)
@@ -310,11 +483,6 @@ test('modelUsesOpenAIEffort: Claude/Gemini are excluded even on the openai provi
   expect(modelUsesOpenAIEffort('gemini-3-flash')).toBe(false)
   // Real OpenAI-shaped models still classify as OpenAI
   expect(modelUsesOpenAIEffort('gpt-5.4')).toBe(true)
-
-  // And the picker excludes xhigh for OpenCode Claude on openai provider
-  const opusLevels = getAvailableEffortLevels('claude-opus-4-8')
-  // Standard branch: no OPENAI_EFFORT_LEVELS, just the supported standard levels
-  expect(opusLevels).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
 })
 
 test('supportsReasoning-only catalog entries do not enable effort or wire mutation', async () => {
@@ -414,6 +582,7 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
   const kimiCodeGateway = (await import('../integrations/gateways/kimi-code.js')).default
 
   expect(moonshotVendor.catalog?.models?.map(model => model.id)).toEqual([
+    'k3',
     'kimi-k2.7-code',
     'kimi-k2.6',
     'kimi-k2.5',
@@ -466,6 +635,37 @@ test('Moonshot direct and Kimi Code catalogs expose verified reasoning controls'
     routeId: 'moonshot',
     catalogEntries: moonshotVendor.catalog?.models ?? [],
   })
+
+  expect(resolveModelReasoningControl('k3')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'high', 'max'],
+    defaultLevel: 'max',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('k3')).toEqual(['low', 'high', 'max'])
+  expect(resolveAppliedEffort('k3', undefined)).toBe('max')
+  expect(resolveAppliedEffort('k3', 'low')).toBe('low')
+  expect(resolveAppliedEffort('k3', 'xhigh')).toBe('max')
+
+  const { resolveAppliedEffort: resolveHicapAppliedEffort } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+      routeId: 'hicap',
+      catalogEntries: [{
+        id: 'hicap-claude-opus-4.8',
+        apiName: 'claude-opus-4.8',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+          wireFormat: 'reasoning_effort',
+        },
+      }],
+    })
+  expect(resolveHicapAppliedEffort('claude-opus-4.8', 'xhigh')).toBe('xhigh')
 
   expect(resolveModelReasoningControl('kimi-k2.7-code')).toMatchObject({
     supportsReasoning: true,
@@ -541,10 +741,10 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     supportsReasoning: true,
     controllable: true,
     source: 'metadata',
-    levels: ['low', 'medium', 'high', 'xhigh'],
-    wireFormat: 'reasoning_effort',
+    levels: ['high', 'xhigh'],
+    wireFormat: 'zai_compatible',
   })
-  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['low', 'medium', 'high', 'xhigh'])
+  expect(getAvailableEffortLevels('glm-5.2')).toEqual(['high', 'xhigh'])
   expect(resolveAppliedEffort('glm-5.2', 'xhigh')).toBe('xhigh')
 
   const verifiedAtlasReasoningModels = [
@@ -561,13 +761,6 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     'openai/gpt-5.4',
     'google/gemini-3.5-flash',
     'google/gemini-3.1-pro-preview',
-    'zai-org/glm-5.2',
-    'zai-org/glm-5.1',
-    'zai-org/glm-5',
-    'zai-org/glm-5-turbo',
-    'zai-org/glm-5v-turbo',
-    'zai-org/glm-4.7',
-    'zai-org/GLM-4.6',
     'minimaxai/minimax-m3',
     'minimaxai/minimax-m2.7',
     'minimaxai/minimax-m2.5',
@@ -591,6 +784,28 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
       wireFormat: 'reasoning_effort',
     })
     expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('xhigh')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  const verifiedAtlasZaiGlmModels = [
+    'zai-org/glm-5.2',
+    'zai-org/glm-5.1',
+    'zai-org/glm-5',
+    'zai-org/glm-5-turbo',
+    'zai-org/glm-5v-turbo',
+    'zai-org/glm-4.7',
+    'zai-org/GLM-4.6',
+  ]
+  for (const model of verifiedAtlasZaiGlmModels) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['high', 'xhigh'],
+      wireFormat: 'zai_compatible',
+    })
+    expect(getAvailableEffortLevels(model)).toEqual(['high', 'xhigh'])
     expect(resolveAppliedEffort(model, 'xhigh')).toBe('xhigh')
     expect(resolveAppliedEffort(model, 'max')).toBe('high')
   }

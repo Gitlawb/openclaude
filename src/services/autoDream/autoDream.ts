@@ -25,6 +25,7 @@ import type { ToolUseContext } from '../../Tool.js'
 import { logEvent } from '../analytics/index.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { isAutoMemoryEnabled, getAutoMemPath } from '../../memdir/paths.js'
+import { isMemoryWriteApprovalRequired } from '../../utils/governancePolicy.js'
 import { isAutoDreamEnabled } from './config.js'
 import { getProjectDir } from '../../utils/sessionStorage.js'
 import {
@@ -96,6 +97,7 @@ function isGateOpen(): boolean {
   if (getKairosActive()) return false // KAIROS mode uses disk-skill dream
   if (getIsRemoteMode()) return false
   if (!isAutoMemoryEnabled()) return false
+  if (isMemoryWriteApprovalRequired()) return false
   return isAutoDreamEnabled()
 }
 

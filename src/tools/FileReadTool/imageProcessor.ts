@@ -40,7 +40,9 @@ let imageCreatorModule: { default: SharpCreator } | null = null
  */
 export class ImageProcessorUnavailableError extends Error {
   constructor() {
-    super('No image processor available (sharp is not installed)')
+    super(
+      'Image support is not installed. Install `sharp` (add `-g` if you installed the CLI globally) to enable reading and processing images.',
+    )
     this.name = 'ImageProcessorUnavailableError'
   }
 }

@@ -5,6 +5,7 @@ import { tryParseShellCommand } from '../../utils/bash/shellQuote.js'
 import { getCwd } from '../../utils/cwd.js'
 import type { PermissionResult } from '../../utils/permissions/PermissionResult.js'
 import type { BashTool } from './BashTool.js'
+import type { LegacyShellParseAnalysis } from './bashCommandAnalysis.js'
 import { checkReadOnlyConstraints } from './readOnlyValidation.js'
 import { checkDangerousRemovalPaths } from './pathValidation.js'
 
@@ -55,14 +56,30 @@ function isAcceptEditsReadOnlyCommand(
   )
 }
 
-function hasShellRedirection(cmd: string): boolean {
-  const parsed = tryParseShellCommand(cmd, env => `$${env}`)
-  if (!parsed.success) {
+function hasShellRedirection(
+  cmd: string,
+  legacyParse?: LegacyShellParseAnalysis,
+): boolean {
+  const parsed =
+    legacyParse === undefined || legacyParse.kind === 'not-run'
+      ? tryParseShellCommand(cmd, env => `$${env}`)
+      : legacyParse
+
+  const tokens =
+    'success' in parsed
+      ? parsed.success
+        ? parsed.tokens
+        : null
+      : parsed.kind === 'ok'
+        ? parsed.tokens
+        : null
+
+  if (tokens === null) {
     // Fail closed: unparseable commands should go through the normal prompt flow.
     return true
   }
 
-  return parsed.tokens.some(
+  return tokens.some(
     token =>
       typeof token === 'object' &&
       token !== null &&
@@ -77,6 +94,7 @@ function validateCommandForMode(
   cmd: string,
   toolPermissionContext: ToolPermissionContext,
   originalInput: string,
+  legacyParse?: LegacyShellParseAnalysis,
 ): PermissionResult {
   const trimmedCmd = cmd.trim()
   const [baseCmd] = trimmedCmd.split(/\s+/)
@@ -121,7 +139,7 @@ function validateCommandForMode(
     toolPermissionContext.mode === 'acceptEdits' &&
     isAcceptEditsReadOnlyCommand(baseCmd)
   ) {
-    if (hasShellRedirection(originalInput)) {
+    if (hasShellRedirection(originalInput, legacyParse)) {
       return {
         behavior: 'passthrough',
         message:
@@ -132,6 +150,7 @@ function validateCommandForMode(
     const readOnlyResult = checkReadOnlyConstraints(
       { command: cmd } as z.infer<typeof BashTool.inputSchema>,
       false,
+      legacyParse,
     )
     if (readOnlyResult.behavior === 'allow') {
       return {
@@ -168,6 +187,7 @@ function validateCommandForMode(
 export function checkPermissionMode(
   input: z.infer<typeof BashTool.inputSchema>,
   toolPermissionContext: ToolPermissionContext,
+  legacyParse?: LegacyShellParseAnalysis,
 ): PermissionResult {
   // Skip if in bypass mode (handled elsewhere)
   if (
@@ -192,7 +212,14 @@ export function checkPermissionMode(
 
   // Check each subcommand
   for (const cmd of commands) {
-    const result = validateCommandForMode(cmd, toolPermissionContext, input.command)
+    const commandLegacyParse =
+      commands.length === 1 && cmd === input.command ? legacyParse : undefined
+    const result = validateCommandForMode(
+      cmd,
+      toolPermissionContext,
+      input.command,
+      commandLegacyParse,
+    )
 
     // If any command triggers mode-specific behavior, return that result
     if (result.behavior !== 'passthrough') {

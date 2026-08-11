@@ -45,13 +45,29 @@ import {
 import { sleep } from './sleep.js'
 import { isInITerm2 } from './swarm/backends/detection.js'
 
+/** @private exported for testing only */
+export const _testDeps = {
+  getPlatform: () => getPlatform(),
+  getInitialSettings: () => getInitialSettings(),
+  execFileNoThrowWithCwd: (
+    exe: string,
+    args: string[],
+    opts?: Parameters<typeof execFileNoThrowWithCwd>[2],
+  ) => execFileNoThrowWithCwd(exe, args, opts),
+  mkdir: (path: string, opts?: Parameters<typeof mkdir>[1]) => mkdir(path, opts),
+  readWorktreeHeadSha: (path: string) => readWorktreeHeadSha(path),
+  resolveGitDir: (path: string) => resolveGitDir(path),
+  resolveRef: (gitDir: string, ref: string) => resolveRef(gitDir, ref),
+  getDefaultBranch: () => getDefaultBranch(),
+}
+
 const VALID_WORKTREE_SLUG_SEGMENT = /^[a-zA-Z0-9._-]+$/
 const MAX_WORKTREE_SLUG_LENGTH = 64
 
 /**
  * Validates a worktree slug to prevent path traversal and directory escape.
  *
- * The slug is joined into `.claude/worktrees/<slug>` via path.join, which
+ * The slug is joined into `.openclaude/worktrees/<slug>` via path.join, which
  * normalizes `..` segments — so `../../../target` would escape the worktrees
  * directory. Similarly, an absolute path (leading `/` or `C:\`) would discard
  * the prefix entirely.
@@ -232,14 +248,14 @@ const GIT_NO_PROMPT_ENV = {
 }
 
 function worktreesDir(repoRoot: string): string {
-  return join(repoRoot, '.claude', 'worktrees')
+  return join(repoRoot, '.openclaude', 'worktrees')
 }
 
 // Flatten nested slugs (`user/feature` → `user+feature`) for both the branch
 // name and the directory path. Nesting in either location is unsafe:
 //   - git refs: `worktree-user` (file) vs `worktree-user/feature` (needs dir)
 //     is a D/F conflict that git rejects.
-//   - directory: `.claude/worktrees/user/feature/` lives inside the `user`
+//   - directory: `.openclaude/worktrees/user/feature/` lives inside the `user`
 //     worktree; `git worktree remove` on the parent deletes children with
 //     uncommitted work.
 // `+` is valid in git branch names and filesystem paths but NOT in the
@@ -277,6 +293,48 @@ function worktreePathFor(repoRoot: string, slug: string): string {
 }
 
 /**
+ * Git for Windows keeps long-path support opt-in, even on Windows versions
+ * that support extended-length paths. Worktrees add a few directory segments
+ * to every checked-out file, so a repository that works at its root can still
+ * fail while `git worktree add` is checking it out.
+ *
+ * This is a repository-local setting: it affects only Git operations in this
+ * repository and is required before creating the worktree, not after Git has
+ * already attempted the checkout.
+ */
+async function autoConfigureLongPathsForWorktrees(repoRoot: string): Promise<void> {
+  if (_testDeps.getPlatform() !== 'windows') {
+    return
+  }
+
+  const settings = _testDeps.getInitialSettings().worktree
+  if (settings?.autoConfigureLongPaths === false) {
+    return
+  }
+
+  const { code, stderr } = await _testDeps.execFileNoThrowWithCwd(
+    gitExe(),
+    ['config', '--local', 'core.longpaths', 'true'],
+    { cwd: repoRoot },
+  )
+  if (code !== 0) {
+    logForDebugging(
+      `Could not enable Git long-path support before creating worktree: ${stderr.trim() || `exit code ${code}`}`,
+      { level: 'warn' },
+    )
+  }
+}
+
+export function buildWorktreeCreationFailureMessage(stderr: string): string {
+  const detail = stderr.trim() || 'no error detail'
+  const longPathHint =
+    _testDeps.getPlatform() === 'windows' && /filename too long/i.test(stderr)
+      ? ' Git rejected a long path; run `git config --local core.longpaths true` in the main repository and retry.'
+      : ''
+  return `Failed to create worktree: ${detail}${longPathHint}`
+}
+
+/**
  * Creates a new git worktree for the given slug, or resumes it if it already exists.
  * Named worktrees reuse the same path across invocations, so the existence check
  * prevents unconditionally running `git fetch` (which can hang waiting for credentials)
@@ -294,7 +352,7 @@ async function getOrCreateWorktree(
   // Read the .git pointer file directly (no subprocess, no upward walk) — a
   // subprocess `rev-parse HEAD` burns ~15ms on spawn overhead even for a 2ms
   // task, and the await yield lets background spawnSyncs pile on (seen at 55ms).
-  const existingHead = await readWorktreeHeadSha(worktreePath)
+  const existingHead = await _testDeps.readWorktreeHeadSha(worktreePath)
   if (existingHead) {
     return {
       worktreePath,
@@ -305,7 +363,7 @@ async function getOrCreateWorktree(
   }
 
   return withGitWorktreeMutationLock(repoRoot, async () => {
-    const lockedExistingHead = await readWorktreeHeadSha(worktreePath)
+    const lockedExistingHead = await _testDeps.readWorktreeHeadSha(worktreePath)
     if (lockedExistingHead) {
       return {
         worktreePath,
@@ -316,7 +374,8 @@ async function getOrCreateWorktree(
     }
 
     // New worktree: fetch base branch then add
-    await mkdir(worktreesDir(repoRoot), { recursive: true })
+    await _testDeps.mkdir(worktreesDir(repoRoot), { recursive: true })
+    await autoConfigureLongPathsForWorktrees(repoRoot)
 
     const fetchEnv = { ...process.env, ...GIT_NO_PROMPT_ENV }
 
@@ -324,7 +383,7 @@ async function getOrCreateWorktree(
     let baseSha: string | null = null
     if (options?.prNumber) {
       const { code: prFetchCode, stderr: prFetchStderr } =
-        await execFileNoThrowWithCwd(
+        await _testDeps.execFileNoThrowWithCwd(
           gitExe(),
           ['fetch', 'origin', `pull/${options.prNumber}/head`],
           { cwd: repoRoot, stdin: 'ignore', env: fetchEnv },
@@ -349,18 +408,18 @@ async function getOrCreateWorktree(
       // resolveRef reads the loose/packed ref directly; when it succeeds we
       // already have the SHA, so the later rev-parse is skipped entirely.
       const [defaultBranch, gitDir] = await Promise.all([
-        getDefaultBranch(),
-        resolveGitDir(repoRoot),
+        _testDeps.getDefaultBranch(),
+        _testDeps.resolveGitDir(repoRoot),
       ])
       const originRef = `origin/${defaultBranch}`
       const originSha = gitDir
-        ? await resolveRef(gitDir, `refs/remotes/origin/${defaultBranch}`)
+        ? await _testDeps.resolveRef(gitDir, `refs/remotes/origin/${defaultBranch}`)
         : null
       if (originSha) {
         baseBranch = originRef
         baseSha = originSha
       } else {
-        const { code: fetchCode } = await execFileNoThrowWithCwd(
+        const { code: fetchCode } = await _testDeps.execFileNoThrowWithCwd(
           gitExe(),
           ['fetch', 'origin', defaultBranch],
           { cwd: repoRoot, stdin: 'ignore', env: fetchEnv },
@@ -372,7 +431,7 @@ async function getOrCreateWorktree(
     // For the fetch/PR-fetch paths we still need the SHA — the fs-only resolveRef
     // above only covers the "origin/<branch> already exists locally" case.
     if (!baseSha) {
-      const { stdout, stderr, code: shaCode } = await execFileNoThrowWithCwd(
+      const { stdout, stderr, code: shaCode } = await _testDeps.execFileNoThrowWithCwd(
         gitExe(),
         ['rev-parse', baseBranch],
         { cwd: repoRoot },
@@ -385,7 +444,7 @@ async function getOrCreateWorktree(
       baseSha = stdout.trim()
     }
 
-    const sparsePaths = getInitialSettings().worktree?.sparsePaths
+    const sparsePaths = _testDeps.getInitialSettings().worktree?.sparsePaths
     const addArgs = ['worktree', 'add']
     if (sparsePaths?.length) {
       addArgs.push('--no-checkout')
@@ -395,9 +454,25 @@ async function getOrCreateWorktree(
     addArgs.push('-B', worktreeBranch, worktreePath, baseBranch)
 
     const { code: createCode, stderr: createStderr } =
-      await execFileNoThrowWithCwd(gitExe(), addArgs, { cwd: repoRoot })
+      await _testDeps.execFileNoThrowWithCwd(gitExe(), addArgs, { cwd: repoRoot })
     if (createCode !== 0) {
-      throw new Error(`Failed to create worktree: ${createStderr}`)
+      // `git worktree add` creates and registers the worktree before checking
+      // out its files. If checkout fails (for example, due to a Windows path
+      // limit), leaving it in place makes the fast-resume path treat the
+      // incomplete worktree as healthy on the next attempt.
+      const { code: cleanupCode, stderr: cleanupStderr } =
+        await _testDeps.execFileNoThrowWithCwd(
+          gitExe(),
+          ['worktree', 'remove', '--force', worktreePath],
+          { cwd: repoRoot },
+        )
+      if (cleanupCode !== 0) {
+        logForDebugging(
+          `Could not remove incomplete worktree after creation failure: ${cleanupStderr.trim() || `exit code ${cleanupCode}`}`,
+          { level: 'warn' },
+        )
+      }
+      throw new Error(buildWorktreeCreationFailureMessage(createStderr))
     }
 
     if (sparsePaths?.length) {
@@ -406,7 +481,7 @@ async function getOrCreateWorktree(
       // fast-resume (rev-parse HEAD) would succeed and present a broken worktree
       // as "resumed". Tear it down before propagating the error.
       const tearDown = async (msg: string): Promise<never> => {
-        await execFileNoThrowWithCwd(
+        await _testDeps.execFileNoThrowWithCwd(
           gitExe(),
           ['worktree', 'remove', '--force', worktreePath],
           { cwd: repoRoot },
@@ -414,21 +489,29 @@ async function getOrCreateWorktree(
         throw new Error(msg)
       }
       const { code: sparseCode, stderr: sparseErr } =
-        await execFileNoThrowWithCwd(
+        await _testDeps.execFileNoThrowWithCwd(
           gitExe(),
           ['sparse-checkout', 'set', '--cone', '--', ...sparsePaths],
           { cwd: worktreePath },
         )
       if (sparseCode !== 0) {
-        await tearDown(`Failed to configure sparse-checkout: ${sparseErr}`)
+        await tearDown(
+          buildWorktreeCreationFailureMessage(
+            `Failed to configure sparse-checkout: ${sparseErr}`,
+          ),
+        )
       }
-      const { code: coCode, stderr: coErr } = await execFileNoThrowWithCwd(
+      const { code: coCode, stderr: coErr } = await _testDeps.execFileNoThrowWithCwd(
         gitExe(),
         ['checkout', 'HEAD'],
         { cwd: worktreePath },
       )
       if (coCode !== 0) {
-        await tearDown(`Failed to checkout sparse worktree: ${coErr}`)
+        await tearDown(
+          buildWorktreeCreationFailureMessage(
+            `Failed to checkout sparse worktree: ${coErr}`,
+          ),
+        )
       }
     }
 
@@ -579,7 +662,7 @@ async function performPostCreationSetup(
   repoRoot: string,
   worktreePath: string,
 ): Promise<void> {
-  // Copy settings.local.json to the worktree's .claude directory
+  // Copy settings.local.json to the worktree's .openclaude directory
   // This propagates local settings (which may contain secrets) to the worktree
   const localSettingsRelativePath =
     getRelativeSettingsFilePathForSource('localSettings')
@@ -979,14 +1062,16 @@ export async function createAgentWorktree(
 }> {
   validateWorktreeSlug(slug)
 
-  // Resolve the parent session's working directory once. Defaults to the
-  // ambient session cwd; callers (and tests) may pin it explicitly so both the
-  // canonical-root and parent-HEAD lookups below stay consistent.
   const sessionCwd = options?.cwd ?? getCwd()
 
-  // Try hook-based worktree creation first (allows user-configured VCS)
+  // Try hook-based worktree creation first (allows user-configured VCS).
+  // Forward sessionCwd so hooks operating from a multi-repo parent can target
+  // the selected child repository (#2052). Hook failure remains terminal here —
+  // AgentTool decides whether to fall back to a cwd override.
   if (hasWorktreeCreateHook()) {
-    const hookResult = await executeWorktreeCreateHook(slug)
+    const hookResult = await executeWorktreeCreateHook(slug, {
+      cwd: sessionCwd,
+    })
     logForDebugging(
       `Created hook-based agent worktree at: ${hookResult.worktreePath}`,
     )
@@ -996,8 +1081,8 @@ export async function createAgentWorktree(
 
   // Fall back to git worktree
   // findCanonicalGitRoot (not findGitRoot) so agent worktrees always land in
-  // the main repo's .claude/worktrees/ even when spawned from inside a session
-  // worktree — otherwise they nest at <worktree>/.claude/worktrees/ and the
+  // the main repo's .openclaude/worktrees/ even when spawned from inside a session
+  // worktree — otherwise they nest at <worktree>/.openclaude/worktrees/ and the
   // periodic cleanup (which scans the canonical root) never finds them.
   const gitRoot = findCanonicalGitRoot(sessionCwd)
   if (!gitRoot) {
@@ -1610,4 +1695,10 @@ export async function execIntoTmuxWorktree(args: string[]): Promise<{
   }
 
   return { handled: true }
+}
+
+/** @private exported for testing only */
+export const _test = {
+  getOrCreateWorktree,
+  autoConfigureLongPathsForWorktrees,
 }

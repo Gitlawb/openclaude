@@ -53,6 +53,7 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'MISTRAL_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
@@ -160,7 +161,7 @@ export function resolveAgentModelProvider(
  * sent literally and failing with a provider "model not found". A real model id
  * (a configured agentModels key for the active provider) passes through as-is.
  */
-function resolveModelOnlyModel(
+export function resolveModelOnlyModel(
   model: string,
   parentModel: string,
   permissionMode?: PermissionMode,
