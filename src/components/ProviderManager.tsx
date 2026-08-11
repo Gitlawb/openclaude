@@ -13,6 +13,7 @@ import {
   clearCodexCredentials,
   readCodexCredentialsAsync,
 } from '../utils/codexCredentials.js'
+import { getClaudeAIOAuthTokensAsync } from '../utils/auth.js'
 import { isBareMode, isEnvTruthy } from '../utils/envUtils.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from '../utils/anthropicBaseUrl.js'
 import {
@@ -813,7 +814,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const [isGithubCredentialSourceResolved, setIsGithubCredentialSourceResolved] =
     React.useState(() => initialHasGithubCredential || initialIsGithubActive)
   const githubRefreshEpochRef = React.useRef(0)
+  const claudeAiOAuthRefreshEpochRef = React.useRef(0)
   const codexRefreshEpochRef = React.useRef(0)
+  const [hasClaudeAiOAuthCredentials, setHasClaudeAiOAuthCredentials] =
+    React.useState(false)
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
   )
@@ -1022,6 +1026,24 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })()
   }, [])
 
+  const refreshClaudeAiOAuthCredentialState = React.useCallback((): void => {
+    if (isBareMode()) {
+      claudeAiOAuthRefreshEpochRef.current += 1
+      setHasClaudeAiOAuthCredentials(false)
+      return
+    }
+
+    const refreshEpoch = ++claudeAiOAuthRefreshEpochRef.current
+    void (async () => {
+      const tokens = await getClaudeAIOAuthTokensAsync()
+      if (refreshEpoch !== claudeAiOAuthRefreshEpochRef.current) {
+        return
+      }
+
+      setHasClaudeAiOAuthCredentials(Boolean(tokens?.accessToken))
+    })()
+  }, [])
+
   const refreshCodexOAuthCredentialState = React.useCallback((): void => {
     if (isBareMode()) {
       codexRefreshEpochRef.current += 1
@@ -1079,15 +1101,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   React.useEffect(() => {
     refreshGithubProviderState()
+    refreshClaudeAiOAuthCredentialState()
     refreshCodexOAuthCredentialState()
     refreshXaiOAuthCredentialState()
 
     return () => {
       githubRefreshEpochRef.current += 1
+      claudeAiOAuthRefreshEpochRef.current += 1
       codexRefreshEpochRef.current += 1
       xaiRefreshEpochRef.current += 1
     }
   }, [
+    refreshClaudeAiOAuthCredentialState,
     refreshCodexOAuthCredentialState,
     refreshGithubProviderState,
     refreshXaiOAuthCredentialState,
@@ -1207,6 +1232,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       setProfiles(nextProfiles)
       setActiveProfileId(getActiveProviderProfile()?.id)
       refreshGithubProviderState()
+      refreshClaudeAiOAuthCredentialState()
       refreshCodexOAuthCredentialState()
       isRefreshingRef.current = false
     })
@@ -2107,6 +2133,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       }
     })
 
+    if (hasClaudeAiOAuthCredentials) {
+      const anthropicIndex = options.findIndex(
+        option => option.value === 'anthropic',
+      )
+      options.splice(anthropicIndex >= 0 ? anthropicIndex + 1 : options.length, 0, {
+        value: ANTHROPIC_DEFAULT_PROFILE_ID,
+        label: 'Claude Code (OAuth)',
+        description: 'Use your authenticated Claude Code subscription',
+      })
+    }
+
     // Insert after DeepSeek so the OAuth options keep their established
     // position in the picker regardless of how the preset list grows; if
     // the anchor ever disappears, append instead of floating to the top.
@@ -2162,6 +2199,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           onChange={(value: string) => {
             if (value === 'skip') {
               closeWithCancelled('Provider setup skipped')
+              return
+            }
+            if (value === ANTHROPIC_DEFAULT_PROFILE_ID) {
+              void activateSelectedProvider(value)
               return
             }
             if (value === 'codex-oauth') {

@@ -191,6 +191,28 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   }
 }
 
+const CURRENT_ANTHROPIC_MODEL_OPTIONS: ModelOption[] = [
+  {
+    value: 'claude-fable-5',
+    label: 'Fable 5',
+    description: 'Claude Fable 5',
+  },
+  {
+    value: 'claude-opus-5',
+    label: 'Opus 5',
+    description: 'Claude Opus 5',
+  },
+  {
+    value: 'claude-sonnet-5',
+    label: 'Sonnet 5',
+    description: 'Claude Sonnet 5',
+  },
+]
+
+function getCurrentAnthropicModelOptions(): ModelOption[] {
+  return CURRENT_ANTHROPIC_MODEL_OPTIONS.map(option => ({ ...option }))
+}
+
 function getCustomSonnetOption(): ModelOption | undefined {
   const is3P = getAPIProvider() !== 'firstParty'
   const customSonnetModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
@@ -642,7 +664,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   if (isClaudeAISubscriber()) {
     if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
       // Max and Team Premium users: Opus is default, show Sonnet as alternative
-      const premiumOptions = [getDefaultOptionForUser(fastMode)]
+      const premiumOptions = [
+        getDefaultOptionForUser(fastMode),
+        ...getCurrentAnthropicModelOptions(),
+      ]
       if (!isOpus1mMergeEnabled() && checkOpus1mAccess()) {
         premiumOptions.push(getMaxOpus46_1MOption(fastMode))
       }
@@ -658,7 +683,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
 
     // Pro/Team Standard/Enterprise users: Sonnet is default, show Opus as alternative
-    const standardOptions = [getDefaultOptionForUser(fastMode)]
+    const standardOptions = [
+      getDefaultOptionForUser(fastMode),
+      ...getCurrentAnthropicModelOptions(),
+    ]
     if (checkSonnet1mAccess()) {
       standardOptions.push(getMaxSonnet46_1MOption())
     }
@@ -705,9 +733,12 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     ]
   }
 
-  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
+  // PAYG 1P API: Default + current canonical models + legacy/1M choices
   if (getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
-    const payg1POptions = [getDefaultOptionForUser(fastMode)]
+    const payg1POptions = [
+      getDefaultOptionForUser(fastMode),
+      ...getCurrentAnthropicModelOptions(),
+    ]
     if (checkSonnet1mAccess()) {
       payg1POptions.push(getSonnet46_1MOption())
     }

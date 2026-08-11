@@ -169,10 +169,15 @@ mock.module('./providers.js', () => ({
     activeProfilesOverride
       ? 'openai'
       : realProviders.getAPIProviderForStatsig(),
-  isFirstPartyAnthropicBaseUrl: (...args: Parameters<typeof realProviders.isFirstPartyAnthropicBaseUrl>) =>
-    activeProfilesOverride
-      ? false
-      : realProviders.isFirstPartyAnthropicBaseUrl(...args),
+  isFirstPartyAnthropicBaseUrl: (...args: Parameters<typeof realProviders.isFirstPartyAnthropicBaseUrl>) => {
+    if (activeApiProviderOverride === 'firstParty') {
+      return true
+    }
+    if (activeProfilesOverride) {
+      return false
+    }
+    return realProviders.isFirstPartyAnthropicBaseUrl(...args)
+  },
   isGithubNativeAnthropicMode: (...args: Parameters<typeof realProviders.isGithubNativeAnthropicMode>) =>
     activeProfilesOverride
       ? false
@@ -707,6 +712,34 @@ test('getModelOptionsBase: NVIDIA NIM catalog branch appends inactive profile op
         .map(o => o.switchToProfileId),
     ).toContain('profile_remote')
   })
+})
+
+test('getModelOptionsBase: first-party Anthropic API branch exposes current models', async () => {
+  activeApiProviderOverride = 'firstParty'
+  const { getModelOptions } = await importFreshModelOptionsModule({})
+
+  expect(getModelOptions(false).map(option => option.value)).toEqual(
+    expect.arrayContaining([
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'haiku',
+      'claude-fable-5',
+    ]),
+  )
+})
+
+test('getModelOptionsBase: Claude subscriber branch exposes current Anthropic models', async () => {
+  activeSubscriberOverride = {}
+  const { getModelOptions } = await importFreshModelOptionsModule({})
+
+  expect(getModelOptions(false).map(option => option.value)).toEqual(
+    expect.arrayContaining([
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'haiku',
+      'claude-fable-5',
+    ]),
+  )
 })
 
 test('getModelOptionsBase: Claude subscriber branch appends inactive profile options', async () => {

@@ -127,6 +127,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'ApiSmart',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -188,14 +189,17 @@ function createDeferred<T>(): {
 
 function mockProviderProfilesModule(options?: {
   addProviderProfile?: (...args: unknown[]) => unknown
+  clearActiveProviderProfile?: (...args: unknown[]) => unknown
   getActiveProviderProfile?: () => unknown
   getProviderProfiles?: () => unknown[]
   updateProviderProfile?: (...args: unknown[]) => unknown
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
   mock.module('../utils/providerProfiles.js', () => ({
+    ANTHROPIC_DEFAULT_PROFILE_ID: '__anthropic_default__',
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
+    clearActiveProviderProfile: options?.clearActiveProviderProfile ?? (() => null),
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
     getProviderPresetDefaults: (preset: string) => {
@@ -318,6 +322,7 @@ function mockProviderManagerDependencies(
   githubAsyncRead: () => Promise<string | undefined>,
   options?: {
     addProviderProfile?: (...args: any[]) => unknown
+    clearActiveProviderProfile?: (...args: any[]) => unknown
     applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
     getActiveProviderProfile?: () => unknown
@@ -343,6 +348,7 @@ function mockProviderManagerDependencies(
     }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
+    claudeAiOAuthAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
@@ -373,6 +379,7 @@ function mockProviderManagerDependencies(
 ): void {
   mockProviderProfilesModule({
     addProviderProfile: options?.addProviderProfile,
+    clearActiveProviderProfile: options?.clearActiveProviderProfile,
     getActiveProviderProfile: options?.getActiveProviderProfile,
     getProviderProfiles: options?.getProviderProfiles,
     updateProviderProfile: options?.updateProviderProfile,
@@ -411,6 +418,11 @@ function mockProviderManagerDependencies(
     hydrateGithubModelsTokenFromSecureStorage: () => {},
     readGithubModelsToken: githubSyncRead,
     readGithubModelsTokenAsync: githubAsyncRead,
+  }))
+
+  mock.module('../utils/auth.js', () => ({
+    getClaudeAIOAuthTokensAsync:
+      options?.claudeAiOAuthAsyncRead ?? (async () => null),
   }))
 
   mock.module('../utils/codexCredentials.js', () => ({
@@ -2595,6 +2607,121 @@ test('ProviderManager resolves Codex OAuth state from async storage without sync
   expect(output).toContain('Log out Codex OAuth')
   expect(codexSyncRead).not.toHaveBeenCalled()
   expect(codexAsyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager exposes authenticated Claude Code OAuth separately from Anthropic API key setup', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const githubSyncRead = mock(() => undefined)
+  const githubAsyncRead = mock(async () => undefined)
+
+  mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+    claudeAiOAuthAsyncRead: async () => ({
+      accessToken: 'stored-oauth-token',
+      refreshToken: 'stored-refresh-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: ['user:inference'],
+      subscriptionType: 'pro',
+      rateLimitTier: null,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const output = await renderProviderManagerFrame(ProviderManager, {
+    mode: 'first-run',
+    waitForOutput: frame =>
+      frame.includes('Set up provider') && frame.includes('Claude Code (OAuth)'),
+  })
+
+  expect(output).toContain('Anthropic')
+  expect(output).toContain('Native Claude API (x-api-key auth)')
+  expect(output).toContain('Claude Code (OAuth)')
+  expect(output).toContain('Use your authenticated Claude Code subscription')
+})
+
+test('ProviderManager activates Claude Code OAuth without starting Anthropic API key setup', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const addProviderProfile = mock(() => {
+    throw new Error('Claude Code OAuth must not create a provider profile')
+  })
+  const clearActiveProviderProfile = mock(() => null)
+  const onDone = mock(() => {})
+
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    claudeAiOAuthAsyncRead: async () => ({
+      accessToken: 'stored-oauth-token',
+      refreshToken: 'stored-refresh-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: ['user:inference'],
+      subscriptionType: 'pro',
+      rateLimitTier: null,
+    }),
+    addProviderProfile,
+    clearActiveProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {
+    mode: 'first-run',
+    onDone,
+  })
+
+  try {
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Claude Code (OAuth)'),
+    )
+    for (let i = 0; i < 3; i++) {
+      mounted.stdin.write('j')
+      await Bun.sleep(25)
+    }
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => onDone.mock.calls.length > 0)
+
+    expect(onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'activated',
+        activeProviderName: 'Anthropic (built-in)',
+      }),
+    )
+    expect(clearActiveProviderProfile).toHaveBeenCalled()
+    expect(addProviderProfile).not.toHaveBeenCalled()
+    expect(mounted.getOutput()).not.toContain('Enter ANTHROPIC_API_KEY')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager hides Claude Code OAuth in bare mode', async () => {
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+
+  const claudeAiOAuthAsyncRead = mock(async () => ({
+    accessToken: 'stored-oauth-token',
+  }))
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    claudeAiOAuthAsyncRead,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const output = await renderProviderManagerFrame(ProviderManager, {
+    mode: 'first-run',
+    waitForOutput: frame =>
+      frame.includes('Set up provider') && frame.includes('Anthropic'),
+  })
+
+  expect(output).not.toContain('Claude Code (OAuth)')
+  expect(claudeAiOAuthAsyncRead).not.toHaveBeenCalled()
 })
 
 test('ProviderManager hides Codex OAuth setup in bare mode', async () => {
