@@ -27,6 +27,8 @@ When `AIMLAPI_API_KEY` supplies the credential, OpenClaude uses its runtime valu
 
 Checkout progress is durable, not just kept for the current session: the payment identity and any issued key are persisted to disk, so a restart resumes the same checkout too. Retrying an ambiguous payment or exchange failure resumes the original partner session instead of creating a second checkout, and if a prior run already paid and exchanged the key, the next run finishes the profile write instead of re-provisioning.
 
+The key exchange itself is one-shot: it cannot be retried. If payment succeeds and a key is issued but the local recovery receipt for it cannot be saved (for example a locked or read-only config directory), both the CLI and the interactive flow stop rather than risk losing that key silently. The error names the issued key id — open <https://aimlapi.com/app> and rotate that key to recover access, then configure the new key manually.
+
 The base URL (`https://api.aimlapi.com/v1`) and default model (`gpt-4o`) are filled in automatically. Switch models any time with `/model`; only chat-capable models from the AI/ML API catalog are listed.
 
 ## Option 2 - CLI (`openclaude aimlapi topup`)

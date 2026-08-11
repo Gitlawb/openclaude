@@ -504,9 +504,18 @@ test('a receipt-write failure right after a successful exchange stops the flow i
     throw new Error(`Unexpected request: ${url}`)
   }) as unknown as typeof fetch
 
-  await expect(
-    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
-  ).rejects.toThrow(/recovery receipt could not be saved/i)
+  const error = await runAimlapiTopup({
+    email: 'user@example.com',
+    amountUsd: '25',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+  expect(error).toBeInstanceOf(Error)
+  const message = (error as Error).message
+  expect(message).toMatch(/recovery receipt could not be saved/i)
+  // The issued key id is the recovery handle this error exists to surface —
+  // without it, the dashboard-rotation guidance has nothing to point the user
+  // at, so the message must name it, not just describe the failure generically.
+  expect(message).toContain('exchanged-id')
 
   // Never reached the profile write: the flow stopped, rather than risking a
   // silent loss if that write had also failed or the process had exited

@@ -2586,11 +2586,19 @@ test('ProviderManager stops before the profile write when the post-exchange rece
 
     // Must stop with a clear, actionable error — not silently proceed to the
     // profile write with no durable receipt to fall back on if that write
-    // also fails or the app is closed before it runs.
-    await waitForFrameOutput(mounted.getOutput, frame =>
+    // also fails or the app is closed before it runs. The issued key id is
+    // the recovery handle this error exists to surface, so it must be named,
+    // not just a generic failure description.
+    const errorFrame = await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('could not be saved'),
     )
+    expect(errorFrame).toContain('exchanged-id')
     expect(addProviderProfile).not.toHaveBeenCalled()
+
+    // The screen stays interactive (usable) after the error: a retry reaches
+    // the amount-submission path again rather than the app being stuck.
+    mounted.stdin.write('\r')
+    await waitForCondition(() => provisionAimlapiKey.mock.calls.length === 2)
   } finally {
     await mounted.dispose()
   }
