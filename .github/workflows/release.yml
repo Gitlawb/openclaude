@@ -83,15 +83,24 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # This must be separate from release-please: after a tag/release exists, a
+  # transient PR API failure must not suppress npm or Docker publishing.
+  prepare-web-release:
+    name: Prepare Release Please PR for web sync
+    needs: release-please
+    if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
       # release-please can leave an existing PR non-draft after updating it.
-      # Re-draft immediately in this write-capable job before validate/push run.
       - name: Keep Release Please PR draft after updates
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
           RELEASE_REPO_OWNER: ${{ github.repository_owner }}
-          RELEASE_PR_JSON: ${{ steps.release.outputs.pr }}
+          RELEASE_PR_JSON: ${{ needs.release-please.outputs.release_pr }}
         run: |
           set -euo pipefail
 
@@ -162,8 +171,8 @@ jobs:
   # Sync failure must not block npm/docker after a release/tag is created.
   validate-web-release:
     name: Validate web release entry
-    needs: release-please
-    if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' }}
+    needs: [release-please, prepare-web-release]
+    if: ${{ github.repository == 'Gitlawb/openclaude' && needs.release-please.result == 'success' && needs.prepare-web-release.result == 'success' }}
     runs-on: ubuntu-latest
     concurrency:
       group: sync-web-release-${{ github.ref }}
@@ -309,17 +318,24 @@ jobs:
           # Run trusted main scripts against the pending bot PR's release inputs.
           # Do not execute package.json/scripts from the bot PR head.
           git fetch --no-tags origin "$RELEASE_BASE_BRANCH" "$RELEASE_PR_HEAD_SHA"
-          expected_release_files="$(printf '%s\n' \
-            .release-please-manifest.json \
-            CHANGELOG.md \
-            package.json \
-            | sort)"
-          actual_release_files="$(git diff --name-only "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" | sort)"
-          if [ "$actual_release_files" != "$expected_release_files" ]; then
+          unexpected_release_files="$(git diff --name-only "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" \
+            | grep -Fvx \
+              -e .release-please-manifest.json \
+              -e CHANGELOG.md \
+              -e package.json \
+              -e web/src/data/releases.ts \
+              || true)"
+          if [ -n "$unexpected_release_files" ]; then
             echo "Release Please PR changed files outside its release-input contract" >&2
-            diff -u <(printf '%s\n' "$expected_release_files") <(printf '%s\n' "$actual_release_files") || true
+            printf '%s\n' "$unexpected_release_files" >&2
             exit 1
           fi
+          for required_release_file in .release-please-manifest.json CHANGELOG.md package.json; do
+            if git diff --quiet "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" -- "$required_release_file"; then
+              echo "Release Please PR is missing required release input $required_release_file" >&2
+              exit 1
+            fi
+          done
 
           mkdir -p .release-sync-input
           git show "${RELEASE_PR_HEAD_SHA}:package.json" > .release-sync-input/package.json
@@ -523,11 +539,32 @@ jobs:
             fi
           fi
 
-          if ! git diff --quiet -- web/src/data/releases.ts; then
+          current_sha="$(jq -r .headRefOid <<<"$current")"
+          validated_release_blob="$(git hash-object .release-sync-artifact/releases.ts)"
+          already_synchronized=false
+          if [ "$current_sha" != "$RELEASE_PR_HEAD_SHA" ]; then
+            git fetch --no-tags origin "$current_sha"
+            if ! git diff --quiet "$RELEASE_PR_HEAD_SHA" "$current_sha" -- . ':(exclude)web/src/data/releases.ts'; then
+              echo "release PR head changed outside the validated release artifact" >&2
+              jq . <<<"$current" >&2
+              exit 1
+            fi
+            remote_release_blob="$(gh api "repos/${GITHUB_REPOSITORY}/contents/web/src/data/releases.ts?ref=${current_sha}" --jq .sha)"
+            if [ "$remote_release_blob" != "$validated_release_blob" ]; then
+              echo "release PR head changed to an unvalidated release entry" >&2
+              jq . <<<"$current" >&2
+              exit 1
+            fi
+            already_synchronized=true
+          fi
+
+          if [ "$already_synchronized" = "false" ] && ! git diff --quiet -- web/src/data/releases.ts; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/src/data/releases.ts
             git commit -m "chore(web): sync releases.ts from release-please changelog"
+          elif [ "$already_synchronized" = "true" ]; then
+            echo "release PR already has the validated releases.ts artifact"
           else
             echo "release PR already has the validated releases.ts artifact"
           fi
@@ -538,9 +575,10 @@ jobs:
             exit 1
           fi
 
-          current_sha="$(jq -r .headRefOid <<<"$current")"
           local_sha="$(git rev-parse HEAD)"
-          if [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
+          if [ "$already_synchronized" = "true" ]; then
+            local_sha="$current_sha"
+          elif [ "$current_sha" = "$RELEASE_PR_HEAD_SHA" ]; then
             auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
             if ! GIT_CONFIG_COUNT=1 \
               GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
