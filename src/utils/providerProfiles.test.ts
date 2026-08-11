@@ -867,6 +867,74 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
   })
 
+  test('keyless ApiSmart profile resolves APISMART_API_KEY without persisting it', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: 'https://gw.apismart.ai/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.APISMART_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('keyless ApiSmart profile without a base URL resolves the ambient key as canonical', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: undefined,
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.APISMART_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('keyless custom ApiSmart profile preserves route identity without forwarding the ambient key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+    process.env.OPENAI_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: 'https://proxy.example.com/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('non-canonical ApiSmart host path withholds the dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({ baseUrl: 'https://gw.apismart.ai/staging/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/staging/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  })
+
   test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
     'addProviderProfile drops placeholder ApiSmart credential %s',
     async placeholder => {

@@ -25,7 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
-  isApismartBaseUrl,
+  isCanonicalApismartInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -660,7 +660,13 @@ export function buildApismartProfileEnv(options: {
   const configuredBaseUrl =
     sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
     sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
-  if (configuredBaseUrl && !isApismartBaseUrl(configuredBaseUrl)) {
+  // Only the documented `/v1` inference URL may carry the dedicated key.
+  // Host-only or path-suffixed ApiSmart URLs fall through to the generic
+  // OpenAI path (same canonical gate AIMLAPI uses for ambient forwarding).
+  if (
+    configuredBaseUrl &&
+    !isCanonicalApismartInferenceBaseUrl(configuredBaseUrl)
+  ) {
     return null
   }
 
@@ -2075,7 +2081,7 @@ export async function buildLaunchEnv(options: {
   const isNoncanonicalApismartLaunch =
     effectiveOpenAIRouteId === 'apismart' &&
     !!env.OPENAI_BASE_URL?.trim() &&
-    !isApismartBaseUrl(env.OPENAI_BASE_URL)
+    !isCanonicalApismartInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
     isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
@@ -2151,14 +2157,21 @@ export async function buildLaunchEnv(options: {
     const withholdAmbientApismartKey =
       dedicatedKey === 'APISMART_API_KEY' &&
       !!dedicatedBaseUrl &&
-      !isApismartBaseUrl(dedicatedBaseUrl)
+      !isCanonicalApismartInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
       withholdAmbientAimlapiKey || withholdAmbientApismartKey
+    // ApiSmart is dedicatedCredentialsOnly: relaunch must recover
+    // APISMART_API_KEY from a usable mirrored OPENAI_API_KEY the same way
+    // AIMLAPI recovers AIMLAPI_API_KEY, or the shim authenticates with nothing.
+    const backfillDedicatedFromOpenAI =
+      (dedicatedKey === 'AIMLAPI_API_KEY' ||
+        dedicatedKey === 'APISMART_API_KEY') &&
+      openAICredential?.kind === 'usable'
+        ? sanitizeApiKey(openAICredential.value)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
-      : (dedicatedKey === 'AIMLAPI_API_KEY' && openAICredential?.kind === 'usable'
-          ? sanitizeApiKey(openAICredential.value)
-          : undefined) ||
+      : backfillDedicatedFromOpenAI ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey])
     if (dedicatedValue) {

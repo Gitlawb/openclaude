@@ -278,6 +278,34 @@ test('openai launch preserves persisted ApiSmart dedicated credentials across re
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
 })
 
+test('openai launch backfills APISMART_API_KEY from a legacy OpenAI-shaped ApiSmart profile', async () => {
+  // Pre-dedicated-key persisted envs only stored OPENAI_API_KEY. ApiSmart is
+  // dedicatedCredentialsOnly, so relaunch must recover APISMART_API_KEY from
+  // that mirrored value or the shim authenticates with nothing.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+  assert.equal(env.OPENAI_API_KEY, 'apismart-secret-key')
+  assert.equal(env.APISMART_API_KEY, 'apismart-secret-key')
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    'apismart-secret-key',
+  )
+})
+
 test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
   const env = buildApismartProfileEnv({
     apiKey: 'apismart-secret-key',
@@ -299,6 +327,23 @@ test('buildApismartProfileEnv refuses to copy the dedicated credential to a cust
   })
 
   assert.equal(env, null)
+})
+
+test('buildApismartProfileEnv refuses non-canonical ApiSmart paths', () => {
+  assert.equal(
+    buildApismartProfileEnv({
+      apiKey: 'apismart-secret-key',
+      baseUrl: 'https://gw.apismart.ai/staging/v1',
+    }),
+    null,
+  )
+  assert.equal(
+    buildApismartProfileEnv({
+      apiKey: 'apismart-secret-key',
+      baseUrl: 'https://gw.apismart.ai',
+    }),
+    null,
+  )
 })
 
 test('openai launch withholds ambient ApiSmart credentials from a keyless proxy profile on restart', async () => {

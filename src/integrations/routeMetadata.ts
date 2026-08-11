@@ -403,6 +403,13 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * Host-scoped ApiSmart route match. Used for env-only conflict detection and
+ * base-URL route identity (including `/v1/chat/completions` path suffixes that
+ * still target the ApiSmart host). Credential forwarding and ambient-key
+ * withholding use {@link isCanonicalApismartInferenceBaseUrl} instead — same
+ * split AIMLAPI uses between host match and canonical inference URL.
+ */
 export function isApismartBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {
@@ -415,6 +422,38 @@ export function isApismartBaseUrl(value: string | undefined): boolean {
       parsed.protocol === 'https:' &&
       !parsed.port &&
       parsed.hostname.toLowerCase() === 'gw.apismart.ai'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Exact documented ApiSmart inference endpoint (`https://gw.apismart.ai/v1`).
+ * Path suffixes (`/v1/models`), alternate versions (`/v2`), and host-only URLs
+ * are not canonical — forwarding dedicated credentials there would send the
+ * key to the wrong request/discovery path.
+ */
+const APISMART_CANONICAL_INFERENCE_BASE_URL = 'https://gw.apismart.ai/v1'
+
+export function isCanonicalApismartInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(APISMART_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
     )
   } catch {
     return false

@@ -54,7 +54,7 @@ import {
   getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
-  isApismartBaseUrl,
+  isCanonicalApismartInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -155,7 +155,10 @@ function isClinePassProfile(profile: ProviderProfile): boolean {
 
 function isApismartProfile(profile: ProviderProfile): boolean {
   const baseUrl = profile.baseUrl?.trim()
-  return !baseUrl || isApismartBaseUrl(baseUrl)
+  // Missing base URL resolves to the ApiSmart default, which is canonical.
+  // Only the documented `/v1` inference URL may carry the dedicated key —
+  // host-only or path-suffixed ApiSmart URLs are treated as retargeted.
+  return !baseUrl || isCanonicalApismartInferenceBaseUrl(baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -1086,6 +1089,18 @@ export function applyProviderProfileToProcessEnv(
     // OPENAI_API_KEY on relaunch (AIMLAPI parity).
     if (route.routeId === 'apismart') {
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
+      // Keyless canonical ApiSmart profiles resolve ambient dedicated
+      // credentials the same way AIMLAPI does. Proxy / non-canonical hosts
+      // must not receive the ambient key.
+      if (isApismartProfile(profile)) {
+        const ambientApismartKey =
+          trimOrUndefined(process.env.APISMART_API_KEY) ??
+          trimOrUndefined(process.env.OPENAI_API_KEY)
+        openAIProfileEnv.OPENAI_API_KEY =
+          openAIProfileEnv.OPENAI_API_KEY ?? ambientApismartKey
+        openAIProfileEnv.APISMART_API_KEY =
+          openAIProfileEnv.APISMART_API_KEY ?? ambientApismartKey
+      }
     }
     if (route.gatewayId === 'nvidia-nim') {
       openAIProfileEnv.NVIDIA_NIM = '1'

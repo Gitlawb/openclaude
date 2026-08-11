@@ -29,7 +29,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isApismartBaseUrl } from '../integrations/routeMetadata.js'
+import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
@@ -648,10 +648,11 @@ export function applyProviderFlag(
       // DedicatedCredentialsOnly: only APISMART_API_KEY authenticates this
       // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
       // and clear any stale generic key so another provider's credential is
-      // never forwarded to ApiSmart.
+      // never forwarded to ApiSmart. Only the documented `/v1` inference URL
+      // is eligible for mirroring (AIMLAPI canonical-host parity).
       if (
         hasUsableOpenAICredential(process.env.APISMART_API_KEY) &&
-        isApismartBaseUrl(getConfiguredOpenAIBaseUrl())
+        isCanonicalApismartInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
       ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
       } else {
