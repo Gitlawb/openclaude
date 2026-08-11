@@ -452,6 +452,8 @@ export function isCanonicalApismartInferenceBaseUrl(
     return (
       candidate.protocol === 'https:' &&
       !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
       candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
       normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
     )

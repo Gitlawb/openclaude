@@ -191,6 +191,16 @@ describe('applyProviderFlag - anthropic', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBe('first-party-key')
   })
+
+  test('does not leave ApiSmart env-only selection active', () => {
+    process.env.APISMART_API_KEY = 'apismart-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyProviderFlag('anthropic', [])
+
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_MODEL).toBeUndefined()
+  })
 })
 
 describe('applyProviderFlag - custom Anthropic-compatible', () => {
@@ -288,6 +298,16 @@ describe('applyProviderFlag - openai', () => {
   test('sets OPENAI_MODEL when --model is provided', () => {
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+  })
+
+  test('does not leave ApiSmart env-only selection active', () => {
+    process.env.APISMART_API_KEY = 'apismart-key'
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_MODEL).toBeUndefined()
   })
 })
 

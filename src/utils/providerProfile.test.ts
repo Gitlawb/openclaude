@@ -278,6 +278,22 @@ test('openai launch preserves persisted ApiSmart dedicated credentials across re
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
 })
 
+test('openai launch prefers dedicated ApiSmart credentials over a legacy generic mirror', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'legacy-generic-key',
+      APISMART_API_KEY: 'dedicated-key',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.APISMART_API_KEY, 'dedicated-key')
+})
+
 test('openai launch backfills APISMART_API_KEY from a legacy OpenAI-shaped ApiSmart profile', async () => {
   // Pre-dedicated-key persisted envs only stored OPENAI_API_KEY. ApiSmart is
   // dedicatedCredentialsOnly, so relaunch must recover APISMART_API_KEY from

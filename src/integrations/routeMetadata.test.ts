@@ -369,6 +369,12 @@ test('isCanonicalApismartInferenceBaseUrl requires the exact /v1 inference path'
   expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/')).toBe(
     true,
   )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1?x=1')).toBe(
+    false,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1#fragment')).toBe(
+    false,
+  )
   expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai')).toBe(
     false,
   )

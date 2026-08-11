@@ -2182,9 +2182,9 @@ export async function buildLaunchEnv(options: {
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
-        backfillLegacyApismartProfileKey ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
-        sanitizeApiKey(persistedEnv[dedicatedKey])
+        sanitizeApiKey(persistedEnv[dedicatedKey]) ||
+        backfillLegacyApismartProfileKey
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }

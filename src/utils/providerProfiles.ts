@@ -1093,7 +1093,7 @@ export function applyProviderProfileToProcessEnv(
       // credentials the same way AIMLAPI does. Proxy / non-canonical hosts
       // must not receive the ambient key.
       if (isApismartProfile(profile)) {
-        const ambientApismartKey = trimOrUndefined(process.env.APISMART_API_KEY)
+        const ambientApismartKey = sanitizeApiKey(process.env.APISMART_API_KEY)
         openAIProfileEnv.OPENAI_API_KEY =
           openAIProfileEnv.OPENAI_API_KEY ?? ambientApismartKey
         openAIProfileEnv.APISMART_API_KEY =

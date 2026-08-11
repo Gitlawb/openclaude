@@ -407,6 +407,11 @@ export function applyProviderFlag(
       if (hadCustomAnthropicEndpoint) {
         delete process.env.ANTHROPIC_API_KEY
       }
+      // `--provider anthropic` is an explicit selection even though the
+      // default provider has no positive mode flag. Do not let a dedicated
+      // OpenAI-compatible env-only route override it later in startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
@@ -449,6 +454,10 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // An explicit generic OpenAI selection must not be reclassified as a
+      // dedicated env-only gateway during client startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
       if (model) process.env.OPENAI_MODEL = model
       break
 
