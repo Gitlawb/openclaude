@@ -417,3 +417,24 @@ test('rejects disallowed routed provider models before spawning a teammate', asy
   )
   expect(spawnTeammate).not.toHaveBeenCalled()
 })
+
+test('rejects built-in agents from being spawned as teammates', async () => {
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  const builtinAgent = {
+    agentType: 'code-reviewer',
+    source: 'built-in',
+    getSystemPrompt: () => 'review code',
+  } as unknown as AgentDefinition
+
+  await expect(
+    callTeammateAgentTool(
+      AgentTool,
+      { subagent_type: 'code-reviewer' },
+      { activeAgents: [builtinAgent] },
+    ),
+  ).rejects.toThrow(
+    "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
+  )
+  expect(spawnTeammate).not.toHaveBeenCalled()
+})

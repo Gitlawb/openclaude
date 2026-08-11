@@ -35,95 +35,79 @@ import type { ToolUseContext } from 'src/Tool.js'
 
 // ── Shared env snapshot ────────────────────────────────────────
 
-const originalEnv = {
-  HOME: process.env.HOME,
-  OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
-  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
-  EMBEDDED_SEARCH_TOOLS: process.env.EMBEDDED_SEARCH_TOOLS,
-  CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT,
-  CLAUDE_CODE_USE_NATIVE_FILE_SEARCH:
-    process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH,
-}
+let originalEnv: Record<string, string | undefined> = {}
 
-function restoreEnv(key: keyof typeof originalEnv): void {
+function restoreEnv(key: string): void {
+  if (!originalEnv || !(key in originalEnv)) return
   const val = originalEnv[key]
   if (val === undefined) delete process.env[key]
   else process.env[key] = val
 }
 
 function restoreAllEnv(): void {
-  for (const key of Object.keys(originalEnv) as Array<
-    keyof typeof originalEnv
-  >) {
+  if (!originalEnv) return
+  for (const key of Object.keys(originalEnv)) {
     restoreEnv(key)
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────
+describe('code-reviewer built-in agent', () => {
+  let agent: BuiltInAgentDefinition
+  let dir: string
+  let previousOverride: ReturnType<typeof getClaudeConfigHomeDirOverrideForTesting>
+  let previousSettingSources: ReturnType<typeof getAllowedSettingSources>
 
-/**
- * Resolve the code-reviewer built-in agent with full isolation.
- * Sets up a temporary config dir and restores env/caches on completion.
- */
-async function loadCodeReviewerAgent(): Promise<BuiltInAgentDefinition> {
-  const dir = await mkdtemp(join(tmpdir(), 'openclaude-reviewer-test-'))
-  const configDir = join(dir, '.openclaude')
+  beforeAll(async () => {
+    await acquireSharedMutationLock('codeReviewerAgent.test.ts')
+    
+    originalEnv = {
+      HOME: process.env.HOME,
+      OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
+      CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+      EMBEDDED_SEARCH_TOOLS: process.env.EMBEDDED_SEARCH_TOOLS,
+      CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT,
+      CLAUDE_CODE_USE_NATIVE_FILE_SEARCH: process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH,
+    }
+    previousOverride = getClaudeConfigHomeDirOverrideForTesting()
+    previousSettingSources = getAllowedSettingSources()
 
-  const previousOverride = getClaudeConfigHomeDirOverrideForTesting()
-  const previousSettingSources = getAllowedSettingSources()
-  setClaudeConfigHomeDirForTesting(configDir)
-  process.env.HOME = dir
-  process.env.OPENCLAUDE_CONFIG_DIR = configDir
-  process.env.CLAUDE_CONFIG_DIR = configDir
-  process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH = '1'
-  setAllowedSettingSources([...SETTING_SOURCES])
-  getClaudeConfigHomeDir.cache?.clear?.()
-  resetSettingsCache()
-  clearAgentDefinitionsCache()
-  loadMarkdownFilesForSubdir.cache.clear?.()
+    dir = await mkdtemp(join(tmpdir(), 'openclaude-reviewer-test-'))
+    const configDir = join(dir, '.openclaude')
 
-  try {
+    setClaudeConfigHomeDirForTesting(configDir)
+    process.env.HOME = dir
+    process.env.OPENCLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH = '1'
+    setAllowedSettingSources([...SETTING_SOURCES])
+    getClaudeConfigHomeDir.cache?.clear?.()
+    resetSettingsCache()
+    clearAgentDefinitionsCache()
+    loadMarkdownFilesForSubdir.cache.clear?.()
+
     const { activeAgents } = await getAgentDefinitionsWithOverrides(dir)
     const found = activeAgents.find((a) => a.agentType === 'code-reviewer')
     if (!found || found.source !== 'built-in') {
       throw new Error('code-reviewer agent not found in built-in agents')
     }
-    return found as BuiltInAgentDefinition
-  } finally {
-    restoreAllEnv()
-    setClaudeConfigHomeDirForTesting(previousOverride)
-    getClaudeConfigHomeDir.cache?.clear?.()
-    setAllowedSettingSources(previousSettingSources)
-    resetSettingsCache()
-    clearAgentDefinitionsCache()
-    loadMarkdownFilesForSubdir.cache.clear?.()
-    await rm(dir, { recursive: true, force: true })
-  }
-}
-
-// ── Main suite ─────────────────────────────────────────────────
-
-describe('code-reviewer built-in agent', () => {
-  let agent: BuiltInAgentDefinition
-
-  beforeAll(async () => {
-    await acquireSharedMutationLock('codeReviewerAgent.test.ts')
+    agent = found as BuiltInAgentDefinition
   })
 
-  afterAll(() => {
-    releaseSharedMutationLock()
-  })
-
-  beforeEach(async () => {
-    agent = await loadCodeReviewerAgent()
-  })
-
-  afterEach(() => {
-    // Defensive cleanup in case loadCodeReviewerAgent threw after
-    // partial env mutation.
-    restoreAllEnv()
-    clearAgentDefinitionsCache()
-    loadMarkdownFilesForSubdir.cache.clear?.()
+  afterAll(async () => {
+    try {
+      restoreAllEnv()
+      setClaudeConfigHomeDirForTesting(previousOverride)
+      getClaudeConfigHomeDir.cache?.clear?.()
+      setAllowedSettingSources(previousSettingSources)
+      resetSettingsCache()
+      clearAgentDefinitionsCache()
+      loadMarkdownFilesForSubdir.cache.clear?.()
+      if (dir) {
+        await rm(dir, { recursive: true, force: true })
+      }
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   // ── Definition ────────────────────────────────────────────────

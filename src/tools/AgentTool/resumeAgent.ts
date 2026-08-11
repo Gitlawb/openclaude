@@ -121,7 +121,10 @@ export async function resumeAgentBackground({
     const found = toolUseContext.options.agentDefinitions.activeAgents.find(
       a => a.agentType === meta.agentType,
     )
-    selectedAgent = found ?? GENERAL_PURPOSE_AGENT
+    if (!found) {
+      throw new Error(`Cannot resume agent: type '${meta.agentType}' is unavailable or disabled in the current session.`)
+    }
+    selectedAgent = found
   } else {
     selectedAgent = GENERAL_PURPOSE_AGENT
   }
