@@ -558,6 +558,11 @@ export const MAX_TRANSCRIPT_READ_BYTES = 50 * 1024 * 1024
 // tail small so oversized sessions avoid a large synchronous startup read.
 export const OMISSION_REBUILD_TAIL_BYTES = 2 * 1024 * 1024
 
+// Live omission map must stay bounded: only withheld UUIDs that can still
+// be selected as a local parent need to remain. Excess oldest keys are
+// evicted and must never be emitted as a remote parentUuid.
+export const MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE = 64
+
 // In-memory map of agentId → subdirectory for grouping related subagent
 // transcripts (e.g. workflow runs write to subagents/workflows/<runId>/).
 // Populated before the agent runs; consulted by getAgentTranscriptPath.
@@ -942,6 +947,8 @@ class Project {
    * persistToRemote calls can reparent instead of dangling.
    */
   private remoteEgressOmittedParents = new Map<UUID, UUID | null>()
+  private evictedRemoteEgressOmissions = new Set<UUID>()
+  private lastRemoteEgressUuid: UUID | null = null
 
   constructor() {}
 
@@ -954,6 +961,8 @@ class Project {
     this.activeDrain = null
     this.writeQueues = new Map()
     this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
+    this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
     this.pendingDirectAppends = new Map()
@@ -1277,18 +1286,19 @@ class Project {
    * withheld entry can reparent instead of dangling on CCR / session-ingress.
    *
    * Reads the full file when under OMISSION_REBUILD_TAIL_BYTES. For larger
-   * sessions (can reach GBs), performs a bounded tail read of that same
-   * budget so recent omission ancestry is still available for post-resume
-   * reparenting — never abandons the map as empty solely due to size.
+   * sessions (can reach GBs), starts with a bounded tail read of that same
+   * budget, then walks earlier windows until every tail/chain-tip parent
+   * resolves to a known egressed ancestor (or file start). Metadata-only
+   * tails must not leave the map empty and dangle the first post-resume
+   * append on a withheld parentUuid.
    */
   rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
     this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
     const path = this.sessionFile
     if (!path) return
-    const content = readTranscriptContentForOmissionRebuild(path)
-    if (content === null) return
-    ingestRemoteEgressOmissionsFromTranscriptContent(
-      content,
+    ingestRemoteEgressOmissionsFromTranscriptFile(
+      path,
       this.remoteEgressOmittedParents,
     )
   }
@@ -1297,6 +1307,8 @@ class Project {
     this.sessionFile = null
     this.pendingEntries = []
     this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
+    this.lastRemoteEgressUuid = null
   }
 
   /**
@@ -1971,11 +1983,28 @@ class Project {
             // buildConversationChain do not stop at a missing parentUuid.
             if (isTranscriptMessage(entry)) {
               if (isSafeForExternalEgress(entry)) {
-                const remoteEntry = projectTranscriptParentForExternalEgress(
+                const originalParentUuid = entry.parentUuid ?? null
+                let remoteEntry = projectTranscriptParentForExternalEgress(
                   entry,
                   this.remoteEgressOmittedParents,
                 )
+                if (
+                  originalParentUuid &&
+                  this.evictedRemoteEgressOmissions.has(originalParentUuid)
+                ) {
+                  remoteEntry = {
+                    ...entry,
+                    parentUuid: this.lastRemoteEgressUuid,
+                  }
+                }
                 await this.persistToRemote(sessionId, remoteEntry)
+                if (remoteEntry.uuid) {
+                  this.lastRemoteEgressUuid = remoteEntry.uuid
+                }
+                pruneRemoteEgressOmissionsAfterProjection(
+                  this.remoteEgressOmittedParents,
+                  originalParentUuid,
+                )
               } else if (this.hasActiveRemoteEgressSink()) {
                 // Only grow the map when a remote sink can consume reparents.
                 // Resume rebuild (adoptResumedSessionFile) still hydrates from
@@ -1984,6 +2013,10 @@ class Project {
                   this.remoteEgressOmittedParents,
                   entry.uuid,
                   entry.parentUuid,
+                )
+                boundRemoteEgressOmissionMap(
+                  this.remoteEgressOmittedParents,
+                  this.evictedRemoteEgressOmissions,
                 )
               }
             }
@@ -3633,7 +3666,12 @@ function appendEntryToFile(
 function ingestRemoteEgressOmissionsFromTranscriptContent(
   content: string,
   omittedParents: Map<UUID, UUID | null>,
-): void {
+  extras?: {
+    egressed?: Set<UUID>
+    parentRefs?: Set<UUID>
+  },
+): boolean {
+  let sawTranscript = false
   for (const line of content.split('\n')) {
     if (!line.trim()) continue
     let parsed: unknown
@@ -3644,6 +3682,7 @@ function ingestRemoteEgressOmissionsFromTranscriptContent(
     }
     if (!isTranscriptMessage(parsed as Entry)) continue
     const entry = parsed as TranscriptMessage
+    sawTranscript = true
     // Always apply current external egress policy. hook_additional_context is
     // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
     // allows local persistence — local save ≠ upload consent.
@@ -3653,78 +3692,159 @@ function ingestRemoteEgressOmissionsFromTranscriptContent(
         entry.uuid,
         entry.parentUuid ?? null,
       )
+    } else if (extras?.egressed && entry.uuid) {
+      extras.egressed.add(entry.uuid)
+    }
+    if (extras?.parentRefs && entry.parentUuid) {
+      extras.parentRefs.add(entry.parentUuid)
     }
   }
+  return sawTranscript
+}
+
+function isOmissionAncestryClosed(
+  referencedParents: Set<UUID>,
+  omittedParents: Map<UUID, UUID | null>,
+  egressed: Set<UUID>,
+): boolean {
+  for (const parent of referencedParents) {
+    let current: UUID | null = parent
+    const seen = new Set<UUID>()
+    while (current && omittedParents.has(current) && !seen.has(current)) {
+      seen.add(current)
+      current = omittedParents.get(current) ?? null
+    }
+    if (current !== null && !egressed.has(current)) {
+      return false
+    }
+  }
+  return true
+}
+
+function readTranscriptRangeForOmissionRebuild(
+  fd: number,
+  start: number,
+  end: number,
+): { content: string; nextEnd: number } {
+  const readSize = end - start
+  if (readSize <= 0) {
+    return { content: '', nextEnd: start }
+  }
+  const buf = Buffer.allocUnsafe(readSize)
+  const bytesRead = readSync(fd, buf, 0, readSize, start)
+  let content = buf.toString('utf8', 0, bytesRead)
+  const previousByte = Buffer.alloc(1)
+  const startsAtLineBoundary =
+    start === 0 ||
+    (readSync(fd, previousByte, 0, 1, start - 1) === 1 &&
+      previousByte[0] === 0x0a)
+  let nextEnd = start
+  if (!startsAtLineBoundary) {
+    const nl = content.indexOf('\n')
+    if (nl < 0) {
+      return { content: '', nextEnd: start }
+    }
+    nextEnd = start + nl + 1
+    content = content.slice(nl + 1)
+  }
+  return { content, nextEnd }
 }
 
 /**
- * Load transcript text for omission-map rebuild. Full file when under
- * OMISSION_REBUILD_TAIL_BYTES; otherwise a bounded tail of that budget
- * (skipping a leading partial line) so huge sessions still recover recent
- * withheld ancestry without OOM.
+ * Rebuild the omission map from disk. Start at the tail
+ * (OMISSION_REBUILD_TAIL_BYTES). If the tail is metadata-only or any
+ * chain-tip parent is still unresolved, walk earlier windows of the same
+ * budget until ancestry closes or MAX_TRANSCRIPT_READ_BYTES is scanned.
  */
-function readTranscriptContentForOmissionRebuild(
+function ingestRemoteEgressOmissionsFromTranscriptFile(
   fullPath: string,
-): string | null {
+  omittedParents: Map<UUID, UUID | null>,
+): void {
   let fd: number | undefined
   try {
     fd = openSync(fullPath, 'r')
     const size = fstatSync(fd).size
-    if (size === 0) return ''
-    if (size <= OMISSION_REBUILD_TAIL_BYTES) {
-      // Reuse the open fd — a second open via readFileSync can race with
-      // concurrent writers and can fail on Windows while this handle is live.
-      const buffer = Buffer.allocUnsafe(size)
-      let offset = 0
-      while (offset < size) {
-        const bytesRead = readSync(fd, buffer, offset, size - offset, offset)
-        if (bytesRead === 0) {
-          break
-        }
-        offset += bytesRead
+    if (size === 0) return
+
+    const egressed = new Set<UUID>()
+    const referencedParents = new Set<UUID>()
+    let sawTranscript = false
+    let cursor = size
+    let scanned = 0
+
+    while (cursor > 0 && scanned < MAX_TRANSCRIPT_READ_BYTES) {
+      const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
+      const { content, nextEnd } = readTranscriptRangeForOmissionRebuild(
+        fd,
+        start,
+        cursor,
+      )
+      scanned += cursor - start
+      const collectRefs = !sawTranscript
+      const chunkSaw = ingestRemoteEgressOmissionsFromTranscriptContent(
+        content,
+        omittedParents,
+        {
+          egressed,
+          parentRefs: collectRefs ? referencedParents : undefined,
+        },
+      )
+      if (chunkSaw) {
+        sawTranscript = true
       }
-      return buffer.toString('utf8', 0, offset)
-    }
-    const readSize = Math.min(OMISSION_REBUILD_TAIL_BYTES, size)
-    const start = size - readSize
-    const buf = Buffer.allocUnsafe(readSize)
-    const bytesRead = readSync(fd, buf, 0, readSize, start)
-    let content = buf.toString('utf8', 0, bytesRead)
-    // Only drop a leading fragment when the window starts mid-line. If the
-    // first byte is already a line boundary (start===0 or previous byte is
-    // \n), slicing at the first newline would discard a complete JSONL record.
-    const previousByte = Buffer.alloc(1)
-    const startsAtLineBoundary =
-      start === 0 ||
-      (readSync(fd, previousByte, 0, 1, start - 1) === 1 &&
-        previousByte[0] === 0x0a)
-    if (!startsAtLineBoundary) {
-      const nl = content.indexOf('\n')
-      if (nl < 0) {
-        logForDebugging(
-          'Bounded remote egress omission rebuild: no complete line in tail ' +
-            `window (${size} bytes)`,
-          { level: 'warn' },
+      if (
+        sawTranscript &&
+        isOmissionAncestryClosed(
+          referencedParents,
+          omittedParents,
+          egressed,
         )
-        return ''
+      ) {
+        return
       }
-      content = content.slice(nl + 1)
+      if (nextEnd < cursor) {
+        cursor = nextEnd
+      } else if (start < cursor) {
+        cursor = start
+      } else {
+        break
+      }
     }
-    logForDebugging(
-      'Bounded remote egress omission rebuild from last ' +
-        `${readSize} bytes of ${size}-byte session file`,
-    )
-    return content
   } catch {
-    return null
+    return
   } finally {
     if (fd !== undefined) {
       try {
         closeSync(fd)
       } catch {
-        // closeSync can throw; preserve null/content return
+        // closeSync can throw; preserve empty-map rebuild
       }
     }
+  }
+}
+
+function boundRemoteEgressOmissionMap(
+  omittedParents: Map<UUID, UUID | null>,
+  evicted: Set<UUID>,
+): void {
+  while (omittedParents.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = omittedParents.keys().next().value
+    if (oldest === undefined) break
+    omittedParents.delete(oldest)
+    evicted.add(oldest)
+  }
+}
+
+function pruneRemoteEgressOmissionsAfterProjection(
+  omittedParents: Map<UUID, UUID | null>,
+  originalParentUuid: UUID | null,
+): void {
+  if (!originalParentUuid || !omittedParents.has(originalParentUuid)) {
+    return
+  }
+  for (const key of [...omittedParents.keys()]) {
+    omittedParents.delete(key)
+    if (key === originalParentUuid) break
   }
 }
 

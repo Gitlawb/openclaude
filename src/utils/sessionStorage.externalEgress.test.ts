@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { UUID } from 'crypto'
 import { mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,6 +7,10 @@ import {
   isSessionPersistenceDisabled,
   setSessionPersistenceDisabled,
 } from '../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import type { Message } from '../types/message.js'
 import {
   clearSessionMessagesCache,
@@ -17,6 +21,7 @@ import {
   getRemoteEgressOmittedParentsForTesting,
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
+  MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
   OMISSION_REBUILD_TAIL_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
@@ -37,7 +42,12 @@ const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
 // persistence on cannot leak enabled writes into later suites (order-safe).
 const originalSessionPersistenceDisabled = isSessionPersistenceDisabled()
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('utils/sessionStorage.externalEgress.test.ts')
+})
+
 afterEach(() => {
+  try {
   if (originalUserType === undefined) {
     delete process.env.USER_TYPE
   } else {
@@ -71,6 +81,9 @@ afterEach(() => {
   setSessionPersistenceDisabled(originalSessionPersistenceDisabled)
   resetProjectForTesting()
   clearSessionMessagesCache()
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('sessionPersistenceDisabled suite isolation', () => {
@@ -447,6 +460,79 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  test('ancestry-closure rebuild walks past a metadata-only tail larger than OMISSION_REBUILD_TAIL_BYTES', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(
+      join(tmpdir(), 'openclaude-egress-rebuild-ancestry-'),
+    )
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(30)
+    const listingUuid = id(31)
+    const afterUuid = id(32)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      const prefix =
+        [
+          JSON.stringify(user(userUuid, null, 'ancestry resume turn')),
+          JSON.stringify(
+            listing(listingUuid, userUuid, 'skill_listing', 'ANCESTRY-LEAK'),
+          ),
+        ].join('\n') + '\n'
+      // Many ~1KB non-transcript lines — not one huge line — so the default
+      // tail window is metadata-only and the chain tip sits earlier.
+      const snapshotPad = 's'.repeat(900)
+      const snapshotLines: string[] = []
+      let snapshotBytes = 0
+      let i = 0
+      while (snapshotBytes <= OMISSION_REBUILD_TAIL_BYTES) {
+        const line =
+          JSON.stringify({
+            type: 'file-history-snapshot',
+            messageId: id(2000 + i),
+            snapshot: { pad: snapshotPad, i },
+            isSnapshotUpdate: false,
+          }) + '\n'
+        snapshotLines.push(line)
+        snapshotBytes += Buffer.byteLength(line)
+        i += 1
+      }
+      await writeFile(path, prefix + snapshotLines.join(''))
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+      rebuildRemoteEgressOmittedParentsForTesting()
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(listingUuid)).toBe(true)
+      expect(map.get(listingUuid)).toBe(userUuid)
+
+      const afterMsg = {
+        type: 'user',
+        uuid: afterUuid,
+        parentUuid: listingUuid,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'first post-resume' },
+      } as unknown as Message
+      await recordTranscript([afterMsg], undefined, listingUuid)
+      await flushSessionStorage()
+
+      const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
+      expect(remoteAfter).toBeDefined()
+      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('ANCESTRY-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('appendEntry remote egress gate', () => {
@@ -519,7 +605,7 @@ describe('appendEntry remote egress gate', () => {
       await flushSessionStorage()
 
       const map = getRemoteEgressOmittedParentsForTesting()
-      expect(map.has(hookUuid)).toBe(true)
+      expect(map.has(hookUuid)).toBe(false)
 
       const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
       expect(remoteAfter).toBeDefined()
@@ -580,6 +666,92 @@ describe('appendEntry remote egress gate', () => {
 
       const map = getRemoteEgressOmittedParentsForTesting()
       expect(map.has(hookUuid)).toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('bounds live omission map and still reparents the next safe entry', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-bound-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(100)
+    const firstListing = id(101)
+    const lastListing = id(100 + MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 16)
+    const afterUuid = id(200)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      const listings: Message[] = []
+      let parent: UUID = userUuid
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 16; n++) {
+        const uuid = id(101 + n)
+        listings.push({
+          type: 'attachment',
+          uuid,
+          parentUuid: parent,
+          timestamp: `2026-08-11T00:${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}.000Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: `BOUND-LEAK-${n}`,
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: `BOUND-LEAK-${n}`,
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message)
+        parent = uuid
+      }
+      await recordTranscript(listings, undefined, userUuid)
+      await flushSessionStorage()
+
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.size).toBeLessThanOrEqual(MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+      expect(map.has(firstListing)).toBe(false)
+      expect(map.has(lastListing)).toBe(true)
+
+      const afterMsg = {
+        type: 'user',
+        uuid: afterUuid,
+        parentUuid: lastListing,
+        timestamp: '2026-08-11T00:01:00.000Z',
+        message: { role: 'user', content: 'after bound listings' },
+      } as unknown as Message
+      await recordTranscript([afterMsg], undefined, lastListing)
+      await flushSessionStorage()
+
+      const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
+      expect(remoteAfter).toBeDefined()
+      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('BOUND-LEAK')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
