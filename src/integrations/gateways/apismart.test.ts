@@ -5,18 +5,13 @@ import apismart from './apismart.js'
 const mapModel = apismart.catalog?.discovery?.mapModel
 
 describe('apismart gateway', () => {
-  test('uses the standard OpenAI-compatible gateway contract', () => {
+  test('uses hybrid discovery with dedicated credentials', () => {
     expect(apismart.id).toBe('apismart')
     expect(apismart.catalog?.source).toBe('hybrid')
     expect(apismart.catalog?.discovery?.kind).toBe('openai-compatible')
     expect(apismart.catalog?.discovery?.requiresAuth).toBe(true)
-    expect(apismart.setup.dedicatedCredentialsOnly).toBeUndefined()
+    expect(apismart.setup.dedicatedCredentialsOnly).toBe(true)
     expect(apismart.setup.credentialEnvVars).toEqual(['APISMART_API_KEY'])
-    expect((apismart.validation as { credentialEnvVars?: string[] }).credentialEnvVars).toEqual([
-      'APISMART_API_KEY',
-      'OPENAI_API_KEYS',
-      'OPENAI_API_KEY',
-    ])
     expect(apismart.defaultBaseUrl).toBe('https://gw.apismart.ai/v1')
     expect(apismart.defaultModel).toBe('DEEPSEEK_V4_FLASH')
     expect(mapModel).toBeDefined()

@@ -18,6 +18,7 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  APISMART_API_KEY: process.env.APISMART_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -59,6 +60,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
+  delete process.env.APISMART_API_KEY
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -93,6 +95,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_API_KEY')
     restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
+    restoreEnvValue('APISMART_API_KEY')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -110,6 +113,27 @@ afterEach(() => {
 })
 
 describe('discoverModelsForRoute', () => {
+  test('does not send an ApiSmart key to an overridden discovery URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.APISMART_API_KEY = 'apismart-secret'
+    let authorization: string | null | undefined
+    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    await discoverModelsForRoute('apismart', {
+      baseUrl: 'https://proxy.example/v1',
+      forceRefresh: true,
+    })
+
+    expect(authorization).not.toBe('Bearer apismart-secret')
+  })
+
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 

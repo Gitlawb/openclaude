@@ -314,6 +314,123 @@ test('resolveProviderRequest uses ClinePass model when no explicit base URL is s
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
 
+test('resolveProviderRequest honors an explicit ClinePass endpoint over an ambient ApiSmart key', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+      OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
+test('resolveProviderRequest uses APISMART_MODEL when APISMART_API_KEY is present', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+    },
+  })
+
+  expect(request.requestedModel).toBe('KIMI_K3')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest falls back to OPENAI_MODEL for ApiSmart when APISMART_MODEL is unset', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      OPENAI_MODEL: 'GLM_5.2',
+    },
+  })
+
+  expect(request.requestedModel).toBe('GLM_5.2')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest treats blank APISMART_MODEL as unset for ApiSmart', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: '   ',
+      OPENAI_MODEL: 'QWEN_3_7_MAX',
+    },
+  })
+
+  expect(request.requestedModel).toBe('QWEN_3_7_MAX')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest uses the ApiSmart route default when no model env is set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+    },
+  })
+
+  expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest ignores APISMART_MODEL without APISMART_API_KEY', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
+test('resolveProviderRequest ignores placeholder ApiSmart credentials', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'SUA_CHAVE',
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
+test('resolveProviderRequest prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+      CLINE_API_KEY: 'cline-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('KIMI_K3')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest ignores ApiSmart model when explicit OPENAI_BASE_URL points elsewhere', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
 test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
   const sol = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv: {} })
   expect(sol.resolvedModel).toBe('gpt-5.6-sol')

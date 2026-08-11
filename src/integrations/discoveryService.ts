@@ -15,6 +15,7 @@ import type {
 import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
+  isCanonicalApismartInferenceBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
 } from './routeMetadata.js'
@@ -152,9 +153,20 @@ function getRouteBaseUrl(
 
 function getRouteDiscoveryApiKey(
   routeId: string,
-  options?: { apiKey?: string },
+  options?: { baseUrl?: string; apiKey?: string },
 ): string | undefined {
   if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
+    return undefined
+  }
+
+  const baseUrl = getRouteBaseUrl(routeId, options)
+  // ApiSmart's dedicated token must never be used for an overridden discovery
+  // URL. Apply the same exact inference-endpoint boundary used by requests and
+  // profiles before considering either a caller-provided or ambient key.
+  if (
+    routeId === 'apismart' &&
+    !isCanonicalApismartInferenceBaseUrl(baseUrl)
+  ) {
     return undefined
   }
 
@@ -170,6 +182,7 @@ function getRouteDiscoveryApiKey(
   return firstUsableCredential(
     resolveRouteCredentialValue({
       routeId,
+      baseUrl,
       processEnv: process.env,
     }),
   )

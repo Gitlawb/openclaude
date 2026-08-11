@@ -755,6 +755,22 @@ test('env-only MiniMax fallback ignores non-MiniMax base overrides', async () =>
   expect(process.env.OPENAI_MODEL).toBe('MiniMax-M2.7')
 })
 
+test('env-only ApiSmart setup withholds its key from a noncanonical same-host URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.APISMART_API_KEY = 'apismart-test-key'
+  process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai/v1/models'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'DEEPSEEK_V4_FLASH' })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1/models')
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
 test('routes env-only AI/ML API requests through the OpenAI-compatible shim despite an ambient OpenAI key', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined

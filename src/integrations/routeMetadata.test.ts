@@ -6,6 +6,8 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isApismartBaseUrl,
+  isCanonicalApismartInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
@@ -221,16 +223,12 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       ATLAS_CLOUD_API_KEY: 'atlas-key',
     }),
   ).toBe('atlas-key')
-  expect(getRouteCredentialEnvVars('apismart')).toEqual([
-    'APISMART_API_KEY',
-    'OPENAI_API_KEYS',
-    'OPENAI_API_KEY',
-  ])
+  expect(getRouteCredentialEnvVars('apismart')).toEqual(['APISMART_API_KEY'])
   expect(
     getRouteCredentialValue('apismart', {
       OPENAI_API_KEY: 'sk-openai-generic',
     }),
-  ).toBe('sk-openai-generic')
+  ).toBeUndefined()
   expect(
     getRouteCredentialValue('apismart', {
       OPENAI_API_KEY: 'sk-openai-generic',
@@ -307,6 +305,32 @@ test('route credential discovery ignores mixed placeholder OpenAI pools before s
   ).toBe('sk-openai-single')
 })
 
+test('ApiSmart dedicated credential is limited to the canonical inference base URL', () => {
+  const processEnv = { APISMART_API_KEY: 'apismart-secret' }
+
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v1',
+      processEnv,
+    }),
+  ).toBe('apismart-secret')
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v1/models',
+      processEnv,
+    }),
+  ).toBeUndefined()
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v2',
+      processEnv,
+    }),
+  ).toBeUndefined()
+})
+
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
@@ -328,6 +352,38 @@ test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1/chat/completions')).toBe(
     'apismart',
   )
+})
+
+test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
+  expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
+  expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
+  expect(isApismartBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(false)
+  expect(resolveRouteIdFromBaseUrl('http://gw.apismart.ai/v1')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(null)
+})
+
+test('isCanonicalApismartInferenceBaseUrl requires the exact /v1 inference path', () => {
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1')).toBe(
+    true,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/')).toBe(
+    true,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai')).toBe(
+    false,
+  )
+  expect(
+    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/models'),
+  ).toBe(false)
+  expect(
+    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/staging/v1'),
+  ).toBe(false)
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v2')).toBe(
+    false,
+  )
+  // Host-scoped route match still accepts path suffixes for identity.
+  expect(isApismartBaseUrl('https://gw.apismart.ai/v1/models')).toBe(true)
+  expect(isApismartBaseUrl('https://gw.apismart.ai')).toBe(true)
 })
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
@@ -463,7 +519,6 @@ test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML 
   ).toBe('aimlapi')
 })
 
-/*
 test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmart', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -605,7 +660,6 @@ test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with Api
     }),
   ).toBe('apismart')
 })
-*/
 
 test('resolveActiveRouteIdFromEnv does not infer AI/ML API with a conflicting OpenAI base URL', () => {
   expect(

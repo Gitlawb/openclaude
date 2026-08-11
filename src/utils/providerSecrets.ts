@@ -90,7 +90,14 @@ export function sanitizeApiKey(
   if (!key) return undefined
   const trimmed = key.trim()
   if (!trimmed) return undefined
-  if (['sua_chave', 'null', 'undefined'].includes(trimmed.toLowerCase())) {
+  const normalized = trimmed.toLowerCase()
+  // Keep profile/env sanitization aligned with credentialPool placeholders so
+  // template values like SUA_CHAVE / null / undefined never persist as keys.
+  if (
+    normalized === 'sua_chave' ||
+    normalized === 'null' ||
+    normalized === 'undefined'
+  ) {
     return undefined
   }
   return key
