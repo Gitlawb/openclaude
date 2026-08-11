@@ -38,7 +38,7 @@ const toc = [
         {group.items
           .filter(item => item.href !== '/docs/')
           .map(item => (
-            <li><a href={item.href}>{item.title}</a></li>
+            <li><a href={item.href} rel={item.newTab ? 'noopener' : undefined} target={item.newTab ? '_blank' : undefined}>{item.title}</a></li>
           ))}
       </ul>
     </>
