@@ -633,6 +633,7 @@ export function applyProviderFlag(
       // contract as env-only setup and saved profiles. ApiSmart does not
       // support alternate API formats or custom auth headers.
       clearUnsupportedOpenAIShimSettings('apismart')
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
       applyOpenAIBaseUrlDefault(
         provider,
         defaultBaseUrl ?? 'https://gw.apismart.ai/v1',

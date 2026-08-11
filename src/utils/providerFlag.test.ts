@@ -1043,6 +1043,15 @@ describe('applyProviderFlag - apismart', () => {
     expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
   })
 
+  test('clears inherited Anthropic custom headers', () => {
+    process.env.APISMART_API_KEY = 'apismart-secret-key'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: proxy-secret'
+
+    applyProviderFlag('apismart', [])
+
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
   test('uses APISMART_MODEL from env when --model is not provided', () => {
     process.env.APISMART_API_KEY = 'apismart-secret-key'
     process.env.APISMART_MODEL = 'KIMI_K3'

@@ -408,6 +408,7 @@ function applyApismartEnvOnlyDefaults(): void {
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
 function usableProviderConfigEnvValue(
