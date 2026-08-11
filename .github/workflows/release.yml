@@ -36,26 +36,36 @@ jobs:
           set -euo pipefail
 
           expected_prefix="release-please--branches--${RELEASE_BASE_BRANCH}--components--"
-          matches="$(gh pr list \
-            --state open \
-            --base "$RELEASE_BASE_BRANCH" \
-            --limit 50 \
-            --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository \
-            | jq -c \
+          matches="$(gh api --paginate --method GET "repos/${GH_REPO}/pulls" \
+            -f state=open \
+            -f base="$RELEASE_BASE_BRANCH" \
+            -f per_page=100 \
+            | jq -s -c \
               --arg prefix "$expected_prefix" \
               --arg owner "$RELEASE_REPO_OWNER" \
               --arg base "$RELEASE_BASE_BRANCH" '
                 [
-                  .[]
+                  add[]
                   | select(
-                      .state == "OPEN"
-                      and (.author.login == "app/github-actions" or .author.login == "github-actions[bot]")
-                      and .baseRefName == $base
-                      and (.headRefName | startswith($prefix))
-                      and (.headRefOid | length) > 0
-                      and .headRepositoryOwner.login == $owner
-                      and .isCrossRepository == false
+                      .state == "open"
+                      and (.user.login == "app/github-actions" or .user.login == "github-actions[bot]")
+                      and .base.ref == $base
+                      and (.head.ref | startswith($prefix))
+                      and (.head.sha | length) > 0
+                      and .head.repo.owner.login == $owner
+                      and .head.repo.full_name == .base.repo.full_name
                     )
+                  | {
+                      number,
+                      state: (.state | ascii_upcase),
+                      isDraft: .draft,
+                      author: { login: .user.login },
+                      baseRefName: .base.ref,
+                      headRefName: .head.ref,
+                      headRefOid: .head.sha,
+                      headRepositoryOwner: { login: .head.repo.owner.login },
+                      isCrossRepository: false
+                    }
                 ]
               ')"
           match_count="$(jq length <<<"$matches")"
@@ -123,26 +133,36 @@ jobs:
           fi
 
           if [ -z "$release_pr" ]; then
-            matches="$(gh pr list \
-              --state open \
-              --base "$RELEASE_BASE_BRANCH" \
-              --limit 50 \
-              --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository \
-              | jq -c \
+            matches="$(gh api --paginate --method GET "repos/${GH_REPO}/pulls" \
+              -f state=open \
+              -f base="$RELEASE_BASE_BRANCH" \
+              -f per_page=100 \
+              | jq -s -c \
                 --arg prefix "$expected_prefix" \
                 --arg owner "$RELEASE_REPO_OWNER" \
                 --arg base "$RELEASE_BASE_BRANCH" '
                   [
-                    .[]
+                    add[]
                     | select(
-                        .state == "OPEN"
-                        and (.author.login == "app/github-actions" or .author.login == "github-actions[bot]")
-                        and .baseRefName == $base
-                        and (.headRefName | startswith($prefix))
-                        and (.headRefOid | length) > 0
-                        and .headRepositoryOwner.login == $owner
-                        and .isCrossRepository == false
+                        .state == "open"
+                        and (.user.login == "app/github-actions" or .user.login == "github-actions[bot]")
+                        and .base.ref == $base
+                        and (.head.ref | startswith($prefix))
+                        and (.head.sha | length) > 0
+                        and .head.repo.owner.login == $owner
+                        and .head.repo.full_name == .base.repo.full_name
                       )
+                    | {
+                        number,
+                        state: (.state | ascii_upcase),
+                        isDraft: .draft,
+                        author: { login: .user.login },
+                        baseRefName: .base.ref,
+                        headRefName: .head.ref,
+                        headRefOid: .head.sha,
+                        headRepositoryOwner: { login: .head.repo.owner.login },
+                        isCrossRepository: false
+                      }
                   ]
                 ')"
             if [ "$(jq length <<<"$matches")" -eq 0 ]; then
@@ -222,26 +242,36 @@ jobs:
             # Discover by bot branch prefix, not only the label, so a stripped
             # label cannot leave a ready bot PR unvalidated. Ignore mislabeled
             # non-bot PRs instead of failing the release pipeline.
-            gh pr list \
-              --state open \
-              --base "$RELEASE_BASE_BRANCH" \
-              --limit 50 \
-              --json number,state,isDraft,author,baseRefName,headRefName,headRefOid,headRepositoryOwner,isCrossRepository \
-              | jq -c \
+            gh api --paginate --method GET "repos/${GH_REPO}/pulls" \
+              -f state=open \
+              -f base="$RELEASE_BASE_BRANCH" \
+              -f per_page=100 \
+              | jq -s -c \
                 --arg prefix "$expected_prefix" \
                 --arg owner "$RELEASE_REPO_OWNER" \
                 --arg base "$RELEASE_BASE_BRANCH" '
                   [
-                    .[]
+                    add[]
                     | select(
-                        .state == "OPEN"
-                        and (.author.login == "app/github-actions" or .author.login == "github-actions[bot]")
-                        and .baseRefName == $base
-                        and (.headRefName | startswith($prefix))
-                        and (.headRefOid | length) > 0
-                        and .headRepositoryOwner.login == $owner
-                        and .isCrossRepository == false
+                        .state == "open"
+                        and (.user.login == "app/github-actions" or .user.login == "github-actions[bot]")
+                        and .base.ref == $base
+                        and (.head.ref | startswith($prefix))
+                        and (.head.sha | length) > 0
+                        and .head.repo.owner.login == $owner
+                        and .head.repo.full_name == .base.repo.full_name
                       )
+                    | {
+                        number,
+                        state: (.state | ascii_upcase),
+                        isDraft: .draft,
+                        author: { login: .user.login },
+                        baseRefName: .base.ref,
+                        headRefName: .head.ref,
+                        headRefOid: .head.sha,
+                        headRepositoryOwner: { login: .head.repo.owner.login },
+                        isCrossRepository: false
+                      }
                   ]
                 '
           }
