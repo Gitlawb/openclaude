@@ -2534,6 +2534,68 @@ test('ProviderManager drops a retained checkout when the onboarding email change
   }
 })
 
+test('ProviderManager stops before the profile write when the post-exchange receipt save fails', async () => {
+  delete process.env.AIMLAPI_EMAIL
+  const beginAimlapiEmailOnboarding = mock(async () => ({
+    action: 'new-account' as const,
+    sessionToken: 'account-session',
+  }))
+  const provisionAimlapiKey = mock(async (options: any) => {
+    options.onSession?.('checkout-session')
+    return {
+      apiKey: 'exchanged-key',
+      apiKeyId: 'exchanged-id',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+  // The exchange committed server-side (provisionAimlapiKey above already
+  // returned the key), but the local recovery receipt for it fails to save —
+  // e.g. a contended lock or a permission/I/O error.
+  const saveAimlapiTopupStateAsync = mock(async () => {
+    throw new Error('EACCES: permission denied')
+  })
+  const addProviderProfile = mock((payload: any) => ({ id: 'aimlapi_profile', ...payload }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    provisionAimlapiKey,
+    saveAimlapiTopupStateAsync,
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Step 1 of 2: Default model'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('I am a new user'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('user@example.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    // Must stop with a clear, actionable error — not silently proceed to the
+    // profile write with no durable receipt to fall back on if that write
+    // also fails or the app is closed before it runs.
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('could not be saved'),
+    )
+    expect(addProviderProfile).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager carries a confirmed email-switch abandonment into the atomic claim even when the pre-clear never lands', async () => {
   delete process.env.AIMLAPI_EMAIL
   let accountSequence = 0

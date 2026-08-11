@@ -410,22 +410,26 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
 
   // Persist the provisioned key (and its model) as recoverable before the
   // profile write, so an interruption or a failed write resumes the write
-  // instead of stranding a paid, one-shot-exchanged key.
+  // instead of stranding a paid, one-shot-exchanged key. This receipt is the
+  // ONLY durable record of that key until the profile write below lands, and
+  // /exchange cannot be retried to recover it — so unlike the earlier,
+  // genuinely-optional resume-aid saves, a failure here must stop the flow
+  // rather than risk losing the key silently if the profile write also fails
+  // or the process is interrupted before it runs. saveAimlapiTopupState
+  // already retries internally on lock contention (withStateLock, up to
+  // LOCK_TIMEOUT_MS), so a failure this deep signals a real problem, not a
+  // transient blip an outer retry would likely fix.
   checkoutState.apiKey = provisioned.apiKey
   checkoutState.apiKeyId = provisioned.apiKeyId
   checkoutState.model = provisioned.model
   checkoutState.settled = true
   try {
     saveAimlapiTopupState({ ...intent, ...checkoutState })
-  } catch {
-    // Best-effort, like the earlier saves: the payment already settled and the
-    // key is already exchanged, so a receipt-write failure (lock/permission/IO)
-    // must not throw before the profile write below — that write is the only copy
-    // the user actually needs.
-    console.warn(
-      chalk.dim(
-        '    note: could not record the local recovery receipt; the provider profile below is the key copy that matters.',
-      ),
+  } catch (error) {
+    throw new Error(
+      `Payment succeeded and a key was issued (id ${provisioned.apiKeyId}), but the local ` +
+        `recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
+        `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
     )
   }
 

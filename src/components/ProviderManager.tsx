@@ -3476,6 +3476,15 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // Record the settled receipt BEFORE the profile write, so an interruption
         // or a failed save resumes with the paid key instead of stranding a
         // one-shot exchanged credential in resolveTopupSession (mirrors the CLI).
+        // This receipt is the ONLY durable record of that key until the profile
+        // write below lands, and /exchange cannot be retried to recover it — so
+        // a failure here must stop the flow (caught by this function's own
+        // catch below, which reports the error and returns to the amount
+        // screen) rather than risk losing the key silently if the profile write
+        // also fails or the app is closed before it runs.
+        // saveAimlapiTopupStateAsync already retries internally on lock
+        // contention (withStateLockAsync, up to LOCK_TIMEOUT_ASYNC_MS), so a
+        // failure this deep signals a real problem, not a transient blip.
         checkoutState.apiKey = provisioned.apiKey
         checkoutState.apiKeyId = provisioned.apiKeyId
         checkoutState.model = provisioned.model
@@ -3494,10 +3503,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             ...checkoutState,
             ...(aimlapiExistingUsesEnv ? { apiKey: undefined, apiKeyId: undefined } : {}),
           })
-        } catch {
-          // Best effort: the payment already cleared, so a receipt-write failure
-          // (lock contention, full/read-only disk) must not divert the flow into
-          // the top-up error path — the profile write is what the user needs.
+        } catch (error) {
+          throw new Error(
+            `Payment succeeded and a key was issued (id ${provisioned.apiKeyId}), but the ` +
+              `local recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
+              `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
+          )
         }
         // A payment just cleared, so the done screen should report the top-up
         // regardless of whether we route through the model picker first.

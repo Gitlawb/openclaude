@@ -451,6 +451,69 @@ test('a successful exchange persists the settled receipt before returning it', a
   expect(saved?.apiKeyId).toBe('exchanged_id')
 })
 
+test('a receipt-write failure right after a successful exchange stops the flow instead of stranding the key', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+
+  // A file (not a directory) at the path the config dir is switched to right
+  // as the exchange settles — forces the post-exchange receipt save's own
+  // mkdirSync (ensureOwnerOnlyDir) to fail with ENOTDIR deterministically and
+  // portably, simulating a real lock/permission/IO-class failure without
+  // relying on OS-specific permission semantics.
+  const brokenParent = join(configDirectory, 'not-a-directory')
+  writeFileSync(brokenParent, '')
+  const brokenConfigDir = join(brokenParent, 'nested')
+
+  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-up' })
+    if (url.endsWith('/passwordless')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v3/partner-checkout/sessions') && init?.method === 'POST') {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'pending_auth' })
+    }
+    if (url.endsWith('/pay')) {
+      return Response.json({
+        checkout: { providerSessionId: 'provider', payUrl: 'https://checkout.test/pay' },
+        partnerCheckout: {
+          id: 'sess_test',
+          partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+          partnerName: null,
+          userId: null,
+          amountUsdMinor: null,
+          issuedKeyId: null,
+          returnUrl: null,
+          sessionToken: 'checkout-session',
+          status: 'pending_payment',
+        },
+      })
+    }
+    if (url.endsWith('/v3/partner-checkout/sessions/checkout-session')) {
+      return sessionJson({ sessionToken: 'checkout-session', status: 'paid' })
+    }
+    if (url.endsWith('/exchange')) {
+      // The exchange itself succeeds — the key is minted server-side — but the
+      // config dir is switched to a broken path right before returning, so
+      // the receipt-write that follows fails deterministically.
+      setClaudeConfigHomeDirForTesting(brokenConfigDir)
+      return Response.json({ apiKey: 'exchanged-key', apiKeyId: 'exchanged-id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  await expect(
+    runAimlapiTopup({ email: 'user@example.com', amountUsd: '25', noOpen: true }),
+  ).rejects.toThrow(/recovery receipt could not be saved/i)
+
+  // Never reached the profile write: the flow stopped, rather than risking a
+  // silent loss if that write had also failed or the process had exited
+  // right after.
+  expect(lastSavedProfileEnv).toBeUndefined()
+})
+
 test('a sibling that cleared the checkout aborts instead of paying twice', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
   temporaryDirectories.push(configDirectory)
