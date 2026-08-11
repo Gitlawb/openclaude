@@ -311,6 +311,7 @@ jobs:
         if: ${{ steps.release-pr.outputs.found == 'true' }}
         env:
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_EVENT_SHA: ${{ github.sha }}
           RELEASE_PR_BRANCH: ${{ steps.release-pr.outputs.branch }}
           RELEASE_PR_HEAD_SHA: ${{ steps.release-pr.outputs.head_sha }}
           RELEASE_PR_NUMBER: ${{ steps.release-pr.outputs.number }}
@@ -320,7 +321,19 @@ jobs:
           # Run trusted main scripts against the pending bot PR's release inputs.
           # Do not execute package.json/scripts from the bot PR head.
           git fetch --no-tags origin "$RELEASE_BASE_BRANCH" "$RELEASE_PR_HEAD_SHA"
-          unexpected_release_files="$(git diff --name-only "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" \
+          release_base_sha="$(git rev-parse "origin/$RELEASE_BASE_BRANCH")"
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_EVENT_SHA" ] \
+            || [ "$release_base_sha" != "$RELEASE_EVENT_SHA" ]; then
+            echo "main advanced during release synchronization; a newer workflow run must validate the new base" >&2
+            echo "event=$RELEASE_EVENT_SHA current=$release_base_sha" >&2
+            exit 1
+          fi
+          if [ "$(git merge-base "$release_base_sha" "$RELEASE_PR_HEAD_SHA")" != "$release_base_sha" ]; then
+            echo "Release Please PR is not based on the validated main commit" >&2
+            exit 1
+          fi
+
+          unexpected_release_files="$(git diff --name-only "$release_base_sha...$RELEASE_PR_HEAD_SHA" \
             | grep -Fvx \
               -e .release-please-manifest.json \
               -e CHANGELOG.md \
@@ -333,8 +346,15 @@ jobs:
             exit 1
           fi
           for required_release_file in .release-please-manifest.json CHANGELOG.md package.json; do
-            if git diff --quiet "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" -- "$required_release_file"; then
+            if git diff --quiet "$release_base_sha...$RELEASE_PR_HEAD_SHA" -- "$required_release_file"; then
               echo "Release Please PR is missing required release input $required_release_file" >&2
+              exit 1
+            fi
+          done
+          for release_file in .release-please-manifest.json CHANGELOG.md package.json web/src/data/releases.ts; do
+            tree_entry="$(git ls-tree "$RELEASE_PR_HEAD_SHA" -- "$release_file")"
+            if [[ "$tree_entry" != "100644 blob "*$'\t'"$release_file" ]]; then
+              echo "Release Please file must remain a regular non-executable blob: $release_file" >&2
               exit 1
             fi
           done
@@ -372,7 +392,7 @@ jobs:
             import { assertVersionAdvances } from "./scripts/sync-web-release-entry"
             assertVersionAdvances(process.env.BASE_VERSION!, process.env.NEXT_VERSION!)
           '
-          if ! git diff --quiet "origin/$RELEASE_BASE_BRANCH...$RELEASE_PR_HEAD_SHA" -- web/src/data/releases.ts; then
+          if ! git diff --quiet "$release_base_sha...$RELEASE_PR_HEAD_SHA" -- web/src/data/releases.ts; then
             if ! bun -e '
               import { hasGeneratedTopEntry } from "./scripts/sync-web-release-entry"
               const releases = await Bun.file(".release-sync-input/releases.ts").text()
@@ -398,22 +418,23 @@ jobs:
           # repo's standard gates against the synchronized commit before ready.
           bun run typecheck
           bun run typecheck:type-tests
-          bun run security:pr-scan -- --base "origin/$RELEASE_BASE_BRANCH" --head HEAD
-          git diff --check "origin/$RELEASE_BASE_BRANCH"...HEAD
+          bun run security:pr-scan -- --base "$release_base_sha" --head HEAD
+          git diff --check "$release_base_sha"...HEAD
           bun install --cwd web --frozen-lockfile
           bun run web:typecheck
           bun run web:build
 
-          mkdir -p .release-sync-artifact
-          cp web/src/data/releases.ts .release-sync-artifact/releases.ts
+          mkdir -p release-sync-artifact
+          cp web/src/data/releases.ts release-sync-artifact/releases.ts
           releases_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
           jq -n \
             --arg number "$RELEASE_PR_NUMBER" \
             --arg branch "$RELEASE_PR_BRANCH" \
+            --arg base_sha "$release_base_sha" \
             --arg head_sha "$RELEASE_PR_HEAD_SHA" \
             --arg releases_sha256 "$releases_sha256" \
-            '{ number: $number, branch: $branch, head_sha: $head_sha, releases_sha256: $releases_sha256 }' \
-            > .release-sync-artifact/metadata.json
+            '{ number: $number, branch: $branch, base_sha: $base_sha, head_sha: $head_sha, releases_sha256: $releases_sha256 }' \
+            > release-sync-artifact/metadata.json
 
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "sync validation left uncommitted tracked changes" >&2
@@ -429,7 +450,7 @@ jobs:
           # retried: run_attempt changes on a retry, while this validated head
           # remains the push job's immutable input.
           name: web-release-sync-${{ github.run_id }}-${{ steps.release-pr.outputs.head_sha }}
-          path: .release-sync-artifact/
+          path: release-sync-artifact/
           if-no-files-found: error
           # A full validation rerun for the same head replaces its prior artifact.
           overwrite: true
@@ -458,7 +479,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: web-release-sync-${{ github.run_id }}-${{ needs.validate-web-release.outputs.head_sha }}
-          path: .release-sync-artifact
+          path: release-sync-artifact
 
       - name: Apply validated releases.ts and push
         id: push-sync
@@ -472,11 +493,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          metadata_path=.release-sync-artifact/metadata.json
+          metadata_path=release-sync-artifact/metadata.json
           if ! jq -e '
             type == "object"
             and (.number | type == "string" and length > 0)
             and (.branch | type == "string" and length > 0)
+            and (.base_sha | type == "string" and test("^[0-9a-f]{40}$"))
             and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
             and (.releases_sha256 | type == "string" and test("^[0-9a-f]{64}$"))
           ' "$metadata_path" >/dev/null; then
@@ -485,6 +507,7 @@ jobs:
           fi
           number="$(jq -r .number "$metadata_path")"
           branch="$(jq -r .branch "$metadata_path")"
+          base_sha="$(jq -r .base_sha "$metadata_path")"
           head_sha="$(jq -r .head_sha "$metadata_path")"
           releases_sha256="$(jq -r .releases_sha256 "$metadata_path")"
           if [ "${number}" != "$RELEASE_PR_NUMBER" ] \
@@ -496,9 +519,17 @@ jobs:
           fi
 
           expected_sha256="$releases_sha256"
-          actual_sha256="$(sha256sum .release-sync-artifact/releases.ts | awk '{print $1}')"
+          actual_sha256="$(sha256sum release-sync-artifact/releases.ts | awk '{print $1}')"
           if [ "$actual_sha256" != "$expected_sha256" ]; then
             echo "validated releases.ts digest mismatch" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin "$RELEASE_BASE_BRANCH"
+          current_base_sha="$(git rev-parse "origin/$RELEASE_BASE_BRANCH")"
+          if [ "$current_base_sha" != "$base_sha" ]; then
+            echo "main advanced after web-release validation; refusing to push a stale artifact" >&2
+            echo "validated=$base_sha current=$current_base_sha" >&2
             exit 1
           fi
 
@@ -526,7 +557,7 @@ jobs:
           fi
 
           current_sha="$(jq -r .headRefOid <<<"$current")"
-          validated_release_blob="$(git hash-object .release-sync-artifact/releases.ts)"
+          validated_release_blob="$(git hash-object release-sync-artifact/releases.ts)"
           already_synchronized=false
           if [ "$current_sha" != "$RELEASE_PR_HEAD_SHA" ]; then
             git fetch --no-tags origin "$current_sha"
@@ -551,7 +582,7 @@ jobs:
             echo "release PR already has the validated releases.ts artifact"
           else
             # Apply only the validated file — do not execute PR-head scripts here.
-            cp .release-sync-artifact/releases.ts web/src/data/releases.ts
+            cp release-sync-artifact/releases.ts web/src/data/releases.ts
             applied_sha256="$(sha256sum web/src/data/releases.ts | awk '{print $1}')"
             if [ "$applied_sha256" != "$expected_sha256" ]; then
               echo "failed to apply validated releases.ts" >&2
@@ -604,6 +635,7 @@ jobs:
           fi
 
           echo "head_sha=$local_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       - name: Mark synchronized release PR ready for review
         if: ${{ steps.push-sync.outcome == 'success' }}
@@ -613,12 +645,15 @@ jobs:
           RELEASE_PR_NUMBER: ${{ needs.validate-web-release.outputs.number }}
           RELEASE_PR_BRANCH: ${{ needs.validate-web-release.outputs.branch }}
           RELEASE_BASE_BRANCH: ${{ github.ref_name }}
+          VALIDATED_BASE_SHA: ${{ steps.push-sync.outputs.base_sha }}
           VALIDATED_HEAD_SHA: ${{ steps.push-sync.outputs.head_sha }}
         run: |
           set -euo pipefail
 
+          current_base_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${RELEASE_BASE_BRANCH}" --jq .object.sha)"
           current="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
-          if [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
+          if [ "$current_base_sha" != "$VALIDATED_BASE_SHA" ] \
+            || [ "$(jq -r .state <<<"$current")" != "OPEN" ] \
             || [ "$(jq -r .baseRefName <<<"$current")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$current")" != "$RELEASE_PR_BRANCH" ] \
             || [ "$(jq -r .headRefOid <<<"$current")" != "$VALIDATED_HEAD_SHA" ]; then
@@ -634,8 +669,10 @@ jobs:
             gh pr ready "$RELEASE_PR_NUMBER"
           fi
 
+          final_base_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${RELEASE_BASE_BRANCH}" --jq .object.sha)"
           final="$(gh pr view "$RELEASE_PR_NUMBER" --json state,isDraft,baseRefName,headRefName,headRefOid)"
-          if [ "$(jq -r .state <<<"$final")" != "OPEN" ] \
+          if [ "$final_base_sha" != "$VALIDATED_BASE_SHA" ] \
+            || [ "$(jq -r .state <<<"$final")" != "OPEN" ] \
             || [ "$(jq -r .isDraft <<<"$final")" != "false" ] \
             || [ "$(jq -r .baseRefName <<<"$final")" != "$RELEASE_BASE_BRANCH" ] \
             || [ "$(jq -r .headRefName <<<"$final")" != "$RELEASE_PR_BRANCH" ] \
