@@ -1493,6 +1493,67 @@ test('ProviderManager reconciles a stale settled receipt for this credential whe
   }
 }, 10_000)
 
+test('ProviderManager waits for stale-receipt reconciliation before showing the model picker', async () => {
+  const profile = {
+    id: 'aimlapi_existing',
+    provider: 'aimlapi',
+    name: 'aimlapi.com',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'old-model',
+    apiKey: 'saved-key',
+    apiFormat: 'chat_completions',
+  }
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 25,
+    lowBalance: false,
+    lowBalanceThreshold: 20,
+  }))
+  // Held open deliberately: reconciliation must be awaited (not fired and
+  // forgotten) before the flow moves on, so a genuinely new settlement for
+  // this same by-key credential landing in this window can never be raced
+  // by a still-in-flight reconcile call from an earlier, unrelated entry.
+  let releaseReconcile: (() => void) | undefined
+  const reconcileSettledAimlapiTopupStateAsync = mock(
+    () => new Promise<void>(resolve => { releaseReconcile = resolve }),
+  )
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    getProviderProfiles: () => [profile],
+    getActiveProviderProfile: () => profile,
+    validateAimlapiApiKey,
+    reconcileSettledAimlapiTopupStateAsync,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('aimlapi.com account is already configured'),
+    )
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => reconcileSettledAimlapiTopupStateAsync.mock.calls.length > 0)
+    // Reconcile is still pending: the model picker must not have appeared yet.
+    await Bun.sleep(50)
+    expect(stripAnsi(extractLastFrame(mounted.getOutput()))).not.toContain(
+      'Create provider profile',
+    )
+
+    releaseReconcile?.()
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') && frame.includes('Default model'),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+}, 10_000)
+
 test('ProviderManager completes (not strands) a settled by-key top-up when Esc is pressed at the post-payment model picker', async () => {
   const profile = {
     id: 'aimlapi_existing',

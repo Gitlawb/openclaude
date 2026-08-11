@@ -63,8 +63,9 @@ export function registerAimlapiCommand(
     .option(
       '--code-stdin',
       'Read the 6-digit code for an existing account from stdin (one line) instead of ' +
-        '--code — the recommended noninteractive mechanism, since it never touches argv ' +
-        'or shell history',
+        '--code, so it never appears in this process\'s argv/`ps` output. Whether it also ' +
+        'avoids shell history depends on how you feed stdin (e.g. a file avoids it; ' +
+        '`echo code | ...` does not).',
     )
     .option(
       '--amount <usd>',

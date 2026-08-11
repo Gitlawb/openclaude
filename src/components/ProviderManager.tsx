@@ -3030,9 +3030,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           // differently-amounted top-up. Nothing new is being paid for here —
           // the balance just confirmed above already reflects it — so clearing
           // that leftover marker is safe and unblocks a future top-up.
-          void reconcileSettledAimlapiTopupStateAsync(apiKey, aimlapiExistingUsesEnv).catch(
+          //
+          // Awaited (not fire-and-forget): a by-key top-up reuses this same
+          // apiKey, so a genuinely NEW settlement for this credential landing
+          // between this call and the user's next action here could otherwise
+          // be swept up by a still-in-flight reconcile from THIS call. Waiting
+          // for it to finish under its own lock before moving on keeps the two
+          // from interleaving.
+          await reconcileSettledAimlapiTopupStateAsync(apiKey, aimlapiExistingUsesEnv).catch(
             () => {},
           )
+          if (controller.signal.aborted) return
           setCursorOffset(draft.model.length)
           setScreen('preset-model')
         }
