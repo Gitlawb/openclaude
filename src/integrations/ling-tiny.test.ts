@@ -7,10 +7,12 @@ import {
 } from './index.js'
 import { resolveModelRuntimeLimits } from './runtimeMetadata.js'
 
-// Both sides of the Ling Tiny availability window (availableUntil on the
-// gitlawb-opengateway catalog entry, mirroring the gateway's
-// LING_TINY_FREE_END_ISO = 2026-08-13T10:00:00Z).
+// All three sides of the Ling Tiny availability window (availableUntil on
+// the gitlawb-opengateway catalog entry, mirroring the gateway's
+// LING_TINY_FREE_END_ISO = 2026-08-13T10:00:00Z). The cutoff itself is
+// exclusive: at exactly the cutoff instant the entry is already gone.
 const DURING_WINDOW = new Date('2026-08-12T00:00:00Z')
+const AT_CUTOFF = new Date('2026-08-13T10:00:00Z')
 const AFTER_WINDOW = new Date('2026-08-13T10:00:01Z')
 
 describe('Ling 3.0 Tiny :free descriptor', () => {
@@ -60,8 +62,11 @@ describe('Ling 3.0 Tiny :free descriptor', () => {
     const during = getCatalogEntriesForRoute('gitlawb-opengateway', DURING_WINDOW)
     expect(during.some(e => e.id === 'opengateway-ling-3.0-tiny-free')).toBe(true)
 
-    // Boundary: at/after the cutoff the picker must not offer the id the
-    // gateway now rejects — the entry disappears without a client release.
+    // Boundary: at exactly the cutoff instant — and any time after — the
+    // picker must not offer the id the gateway now rejects; the entry
+    // disappears without a client release.
+    const atCutoff = getCatalogEntriesForRoute('gitlawb-opengateway', AT_CUTOFF)
+    expect(atCutoff.some(e => e.id === 'opengateway-ling-3.0-tiny-free')).toBe(false)
     const after = getCatalogEntriesForRoute('gitlawb-opengateway', AFTER_WINDOW)
     expect(after.some(e => e.id === 'opengateway-ling-3.0-tiny-free')).toBe(false)
 
