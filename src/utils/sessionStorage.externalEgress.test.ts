@@ -41,9 +41,12 @@ const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
 // Snapshot/restore sessionPersistenceDisabled so append tests that force
 // persistence on cannot leak enabled writes into later suites (order-safe).
 const originalSessionPersistenceDisabled = isSessionPersistenceDisabled()
+let ownsSharedMutationLock = false
 
 beforeEach(async () => {
+  ownsSharedMutationLock = false
   await acquireSharedMutationLock('utils/sessionStorage.externalEgress.test.ts')
+  ownsSharedMutationLock = true
 })
 
 afterEach(() => {
@@ -82,7 +85,10 @@ afterEach(() => {
   resetProjectForTesting()
   clearSessionMessagesCache()
   } finally {
-    releaseSharedMutationLock()
+    if (ownsSharedMutationLock) {
+      ownsSharedMutationLock = false
+      releaseSharedMutationLock()
+    }
   }
 })
 

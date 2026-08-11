@@ -947,6 +947,8 @@ class Project {
    * persistToRemote calls can reparent instead of dangling.
    */
   private remoteEgressOmittedParents = new Map<UUID, UUID | null>()
+  // Bounded with the same policy as remoteEgressOmittedParents: only recent
+  // evictions can still appear as an incoming parentUuid.
   private evictedRemoteEgressOmissions = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
 
@@ -3832,6 +3834,11 @@ function boundRemoteEgressOmissionMap(
     if (oldest === undefined) break
     omittedParents.delete(oldest)
     evicted.add(oldest)
+  }
+  while (evicted.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = evicted.values().next().value
+    if (oldest === undefined) break
+    evicted.delete(oldest)
   }
 }
 
