@@ -12,6 +12,12 @@ import {
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+import { ensureIntegrationsLoaded } from './index.js'
+import { _clearRegistryForTesting, registerGateway } from './registry.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway', () => {
   // Workers AI lives on api.cloudflare.com.
@@ -740,4 +746,61 @@ test('resolveActiveRouteIdFromEnv does not infer Near AI with explicit provider 
       CLAUDE_CODE_USE_GEMINI: '1',
     }),
   ).toBe('gemini')
+})
+
+test('getRouteDefaultModel skips hidden and expired catalog entries in the fallback', async () => {
+  // Self-contained registry mutation (same lock + clear + reload pattern as
+  // registry.test.ts) so the synthetic gateway never leaks into other tests.
+  await acquireSharedMutationLock('integrations/routeMetadata.test.ts')
+  try {
+    _clearRegistryForTesting()
+    registerGateway({
+      id: 'gw-default-fallback',
+      label: 'gw-default-fallback',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: { kind: 'openai-compatible' },
+      // No defaultModel on the descriptor → the catalog fallback path runs.
+      catalog: {
+        source: 'static',
+        models: [
+          // Marked default, but hidden — must be skipped.
+          { id: 'hidden-default', apiName: 'model-hidden', default: true, hidden: true },
+          // availableUntil already past its cutoff — must be skipped.
+          {
+            id: 'expired',
+            apiName: 'model-expired',
+            availableUntil: '2020-01-01T00:00:00Z',
+          },
+          { id: 'valid', apiName: 'model-valid' },
+        ],
+      },
+    })
+    expect(getRouteDefaultModel('gw-default-fallback')).toBe('model-valid')
+
+    // Every entry filtered out → no implicit default at all, rather than an
+    // id the route would reject.
+    _clearRegistryForTesting()
+    registerGateway({
+      id: 'gw-default-fallback-empty',
+      label: 'gw-default-fallback-empty',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'static',
+        models: [
+          { id: 'hidden-only', apiName: 'model-hidden', hidden: true },
+          {
+            id: 'expired-only',
+            apiName: 'model-expired',
+            availableUntil: '2020-01-01T00:00:00Z',
+          },
+        ],
+      },
+    })
+    expect(getRouteDefaultModel('gw-default-fallback-empty')).toBeUndefined()
+  } finally {
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+    releaseSharedMutationLock()
+  }
 })
