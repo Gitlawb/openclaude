@@ -116,8 +116,10 @@ describe('discoverModelsForRoute', () => {
   test('does not send an ApiSmart key to an overridden discovery URL', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
     process.env.APISMART_API_KEY = 'apismart-secret'
+    let didFetch = false
     let authorization: string | null | undefined
     setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      didFetch = true
       authorization = new Headers(init?.headers).get('authorization')
       return Promise.resolve(
         new Response(JSON.stringify({ data: [] }), {
@@ -131,6 +133,7 @@ describe('discoverModelsForRoute', () => {
       forceRefresh: true,
     })
 
+    expect(didFetch).toBe(true)
     expect(authorization).not.toBe('Bearer apismart-secret')
   })
 

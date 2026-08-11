@@ -365,6 +365,16 @@ test('resolveProviderRequest treats blank APISMART_MODEL as unset for ApiSmart',
   expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
 })
 
+test.each(['null', 'undefined', ' NULL '])(
+  'resolveProviderRequest treats placeholder APISMART_MODEL %s as unset',
+  APISMART_MODEL => {
+    const request = resolveProviderRequest({
+      processEnv: { APISMART_API_KEY: 'apismart-key', APISMART_MODEL },
+    })
+    expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
+  },
+)
+
 test('resolveProviderRequest uses the ApiSmart route default when no model env is set', () => {
   const request = resolveProviderRequest({
     processEnv: {
