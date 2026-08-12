@@ -1,5 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
-import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
@@ -12,6 +12,7 @@ import {
 import { createOpenAIShimClient, hasMistralApiHost } from '../openaiShim.ts'
 import { formatRetryAfterHint, sleepMs } from './requestExecutor.js'
 import * as realGithubModelsCredentials from '../../../utils/githubModelsCredentials.js'
+import * as xaiCredentials from '../../../utils/xaiCredentials.js'
 
 type FetchType = typeof globalThis.fetch
 
@@ -53,6 +54,7 @@ const originalEnv = {
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
+  XAI_API_KEY: process.env.XAI_API_KEY,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   CLAUDE_STREAM_IDLE_TIMEOUT_MS: process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS,
@@ -435,6 +437,45 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
+test('uses stored xAI OAuth credentials only for the canonical HTTPS API endpoint', async () => {
+  const resolveToken = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+    'oauth-token',
+  )
+  const cases = [
+    { baseUrl: 'https://api.x.ai/v1', sendsOAuth: true },
+    { baseUrl: 'http://api.x.ai/v1', sendsOAuth: false },
+    { baseUrl: 'https://proxy.example/v1', sendsOAuth: false },
+  ]
+
+  try {
+    for (const { baseUrl, sendsOAuth } of cases) {
+      process.env.OPENAI_BASE_URL = baseUrl
+      delete process.env.OPENAI_API_KEY
+      let headers: Headers | undefined
+      globalThis.fetch = (async (_input, init) => {
+        headers = new Headers(init?.headers)
+        return makeChatCompletionResponse('grok-4.6')
+      }) as unknown as FetchType
+
+      const client = createOpenAIShimClient({}) as OpenAIShimClient
+      await client.beta.messages.create({
+        model: 'grok-4.6',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 32,
+        stream: false,
+      })
+
+      expect(headers?.get('authorization')).toBe(
+        sendsOAuth ? 'Bearer oauth-token' : null,
+      )
+      expect(headers?.has('x-grok-conv-id')).toBe(sendsOAuth)
+    }
+    expect(resolveToken).toHaveBeenCalledTimes(1)
+  } finally {
+    resolveToken.mockRestore()
+  }
+})
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.test.ts')
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
@@ -474,6 +515,7 @@ beforeEach(async () => {
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.OPENCODE_API_KEY
+  delete process.env.XAI_API_KEY
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   delete process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
@@ -520,6 +562,7 @@ afterEach(() => {
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
+    restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
     restoreEnv('CLAUDE_STREAM_IDLE_TIMEOUT_MS', originalEnv.CLAUDE_STREAM_IDLE_TIMEOUT_MS)
