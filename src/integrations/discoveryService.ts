@@ -16,7 +16,7 @@ import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
   isCanonicalApismartInferenceBaseUrl,
-  isCanonicalXaiInferenceBaseUrl,
+  isXaiBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
 } from './routeMetadata.js'
@@ -33,9 +33,9 @@ import {
 } from '../utils/providerDiscovery.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
+import { resolveXaiAccessToken } from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
-import { resolveXaiAccessToken } from '../utils/xaiCredentials.js'
 
 export type RouteDiscoveryResult = {
   routeId: string
@@ -210,11 +210,21 @@ function getRouteDiscoveryApiKey(
   )
 }
 
-async function withXaiDiscoveryCredentials<T extends { apiKey?: string; baseUrl?: string; headers?: Record<string, string> }>(routeId: string, options?: T): Promise<T> {
+async function withXaiDiscoveryCredentials<
+  T extends { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
+>(routeId: string, options?: T): Promise<T> {
   const next = { ...(options ?? {}) } as T
-  if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai' || !isCanonicalXaiInferenceBaseUrl(getRouteBaseUrl(routeId, next))) return next
+  if (getRouteDiscoveryApiKey(routeId, next)) {
+    return next
+  }
+  const baseUrl = getRouteBaseUrl(routeId, next)
+  if (routeId !== 'xai' && !isXaiBaseUrl(baseUrl)) {
+    return next
+  }
   const token = firstUsableCredential(await resolveXaiAccessToken())
-  if (token) next.apiKey = token
+  if (token) {
+    next.apiKey = token
+  }
   return next
 }
 

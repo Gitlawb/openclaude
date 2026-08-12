@@ -19,7 +19,7 @@ import {
 } from './registry.js'
 import {
   getRouteDescriptor,
-  isCanonicalXaiInferenceBaseUrl,
+  isXaiBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -27,8 +27,8 @@ import {
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
-import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import { readXaiCredentials } from '../utils/xaiCredentials.js'
+import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
 function resolveRouteOpenAIShimConfig(
@@ -457,9 +457,15 @@ function findCachedCatalogEntryForApiName(
 
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   let apiKey = firstUsableCredential(
-    resolveRouteCredentialValue({ routeId, baseUrl, processEnv: runtimeEnv }),
+    resolveRouteCredentialValue({
+      routeId,
+      baseUrl,
+      processEnv: runtimeEnv,
+    }),
   )
-  if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
+  // Mirror picker/discovery OAuth injection so hybrid cache partitions match
+  // for xAI sessions that have a stored token but no env API key.
+  if (!apiKey && (routeId === 'xai' || isXaiBaseUrl(baseUrl))) {
     apiKey = firstUsableCredential(readXaiCredentials()?.accessToken)
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
