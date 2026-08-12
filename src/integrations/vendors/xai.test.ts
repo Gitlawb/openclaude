@@ -80,7 +80,9 @@ describe('xAI vendor hybrid catalog', () => {
   test('drops inactive entries, missing ids, and non-positive context limits', () => {
     if (!mapModel) throw new Error('mapModel missing')
     expect(mapModel(shape('grok-4.6', { active: false }))).toBeNull()
+    expect(mapModel(null)).toBeNull()
     expect(mapModel({})).toBeNull()
+    expect(mapModel({ id: 1 })).toBeNull()
     expect(mapModel({ id: '' })).toBeNull()
     expect(mapModel(shape('grok-4.7', { context_length: 0 }))).toEqual({
       id: 'grok-4.7',

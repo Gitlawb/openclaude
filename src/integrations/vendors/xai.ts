@@ -156,12 +156,15 @@ export default defineVendor({
     discovery: {
       kind: 'openai-compatible',
       mapModel(raw: unknown) {
+        if (!raw || typeof raw !== 'object') {
+          return null
+        }
         const model = raw as {
           id?: string
           active?: boolean
           context_length?: number
         }
-        const id = model.id?.trim()
+        const id = typeof model.id === 'string' ? model.id.trim() : ''
         if (!id || model.active === false) {
           return null
         }
