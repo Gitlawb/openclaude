@@ -15,11 +15,12 @@
 
 import { dirname, join } from 'path'
 import { logForDebugging } from '../debug.js'
-import { errorMessage, isENOENT, toError } from '../errors.js'
+import { errorMessage, getErrnoCode, isENOENT, toError } from '../errors.js'
 import { writeFileSyncAndFlush_DEPRECATED } from '../file.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { logError } from '../log.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
+import { stableStringify } from '../stableStringify.js'
 import { getPluginsDirectory } from './pluginDirectories.js'
 import {
   type InstalledPlugin,
@@ -191,8 +192,7 @@ export function migrateToSinglePluginFile(): void {
       level: 'error',
     })
     logError(toError(error))
-    // Mark as completed to avoid retrying failed migration
-    migrationCompleted = true
+    throw error
   }
 }
 
@@ -552,7 +552,7 @@ export function compareAndSwapPluginInstallation(
       entry => entry.scope === scope && entry.projectPath === projectPath,
     )
     const current = index >= 0 ? installations[index] : undefined
-    if (JSON.stringify(current) !== JSON.stringify(expected)) {
+    if (stableStringify(current) !== stableStringify(expected)) {
       return { changed: false, value: false }
     }
     if (replacement) {
@@ -791,23 +791,63 @@ export function resetInMemoryState(): void {
  *
  * @returns Promise that resolves when initialization is complete
  */
-export async function initializeVersionedPlugins(): Promise<void> {
+type InitializeVersionedPluginsDependencies = {
+  migrateSingle?: typeof migrateToSinglePluginFile
+  migrateEnabled?: typeof migrateFromEnabledPlugins
+  getInMemory?: typeof getInMemoryInstalledPlugins
+  retryDelaysMs?: readonly number[]
+  sleep?: (delayMs: number) => Promise<void>
+}
+
+async function retryPluginRegistryContention<T>(
+  operation: () => T | Promise<T>,
+  delaysMs: readonly number[],
+  sleep: (delayMs: number) => Promise<void>,
+): Promise<T> {
+  for (const delayMs of delaysMs) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (getErrnoCode(error) !== 'ELOCKED') throw error
+      await sleep(delayMs)
+    }
+  }
+  return operation()
+}
+
+export async function initializeVersionedPlugins(
+  dependencies: InitializeVersionedPluginsDependencies = {},
+): Promise<void> {
+  const retryDelaysMs = dependencies.retryDelaysMs ?? [10, 25, 50, 100, 200]
+  const sleep =
+    dependencies.sleep ??
+    (delayMs => new Promise(resolve => setTimeout(resolve, delayMs)))
+
   // Step 1: Migrate to single file format (consolidates V1/V2 files, cleans up legacy cache)
-  migrateToSinglePluginFile()
+  await retryPluginRegistryContention(
+    dependencies.migrateSingle ?? migrateToSinglePluginFile,
+    retryDelaysMs,
+    sleep,
+  )
 
   // Step 2: Sync enabledPlugins from settings.json to installed_plugins.json
   // This must complete before CLI exits (especially in headless mode)
   try {
-    await migrateFromEnabledPlugins()
+    await retryPluginRegistryContention(
+      dependencies.migrateEnabled ?? migrateFromEnabledPlugins,
+      retryDelaysMs,
+      sleep,
+    )
   } catch (error) {
     logError(error)
+    if (getErrnoCode(error) === 'ELOCKED') throw error
   }
 
   // Step 3: Initialize in-memory session state
   // Calling getInMemoryInstalledPlugins triggers:
   // 1. Loading from disk
   // 2. Caching in inMemoryInstalledPlugins for session state
-  const data = getInMemoryInstalledPlugins()
+  const data = (dependencies.getInMemory ?? getInMemoryInstalledPlugins)()
   logForDebugging(
     `Initialized versioned plugins system with ${Object.keys(data.plugins).length} plugins`,
   )

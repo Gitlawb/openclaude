@@ -326,8 +326,8 @@ function buildErrorRows(failedMarketplaces: Array<{
  */
 function removeExtraMarketplace(name: string, sources: Array<{
   source: EditableSettingSource;
-}>): boolean {
-  let committed = true;
+}>): string | null {
+  let failure: string | null = null;
   for (const {
     source
   } of sources) {
@@ -347,9 +347,11 @@ function removeExtraMarketplace(name: string, sources: Array<{
       }
       return Object.keys(updates).length > 0 ? updates : SETTINGS_UPDATE_NO_CHANGE;
     });
-    if (!wasSettingsUpdateApplied(result)) committed = false;
+    if (!wasSettingsUpdateApplied(result) && failure === null) {
+      failure = result.error?.message ?? 'settings were not written';
+    }
   }
-  return committed;
+  return failure;
 }
 function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
   const $ = _c(26);
@@ -441,8 +443,9 @@ function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
       case "remove-extra-marketplace":
         {
           const scopes = action.sources.map(_temp8).join(", ");
-          if (!removeExtraMarketplace(action.name, action.sources)) {
-            setActionMessage(`${figures.cross} Failed to update settings; retry removal`);
+          const failure = removeExtraMarketplace(action.name, action.sources);
+          if (failure) {
+            setActionMessage(`${figures.cross} Failed to update settings: ${failure}`);
             break bb77;
           }
           clearAllCaches();

@@ -13,6 +13,7 @@ import {
   clearInstalledPluginsCache,
   compareAndSwapPluginInstallation,
   getInstalledPluginsFilePath,
+  initializeVersionedPlugins,
   loadInstalledPluginsV2,
   removeInstalledPlugin,
   removeAllPluginsForMarketplace,
@@ -150,6 +151,28 @@ test('compare-and-swap preserves a concurrently replaced installation', () => {
   })
 })
 
+test('compare-and-swap accepts an equivalent installation with reordered keys', () => {
+  const pluginId = 'ordered@community'
+  addPluginInstallation(pluginId, 'user', join(tempRoot!, 'v1'), {
+    version: '1.0.0',
+    installedAt: '2026-08-11T00:00:00.000Z',
+  })
+  const current = loadInstalledPluginsV2().plugins[pluginId]![0]!
+  const reordered = Object.fromEntries(
+    Object.entries(current).reverse(),
+  ) as typeof current
+
+  expect(
+    compareAndSwapPluginInstallation(
+      pluginId,
+      'user',
+      undefined,
+      reordered,
+      undefined,
+    ),
+  ).toBe(true)
+})
+
 test('legacy registry writers preserve peer entries and return an exact mutation token', () => {
   const first = addInstalledPlugin('one@community', {
     version: '1.0.0',
@@ -182,4 +205,51 @@ test('legacy registry writers preserve peer entries and return an exact mutation
     installPath: join(tempRoot!, 'two-v1'),
     version: '1.0.0',
   })
+})
+
+test('plugin initialization retries lock contention before taking its session snapshot', async () => {
+  let migrationAttempts = 0
+  let snapshotCalls = 0
+  const lockError = (): Error & { code: string } =>
+    Object.assign(new Error('registry is locked'), { code: 'ELOCKED' })
+
+  await initializeVersionedPlugins({
+    migrateSingle: () => {
+      migrationAttempts++
+      if (migrationAttempts < 3) throw lockError()
+    },
+    migrateEnabled: async () => undefined,
+    getInMemory: () => {
+      snapshotCalls++
+      return { version: 2, plugins: {} }
+    },
+    retryDelaysMs: [0, 0],
+    sleep: async () => undefined,
+  })
+
+  expect(migrationAttempts).toBe(3)
+  expect(snapshotCalls).toBe(1)
+})
+
+test('plugin initialization never snapshots after persistent lock contention', async () => {
+  let snapshotCalls = 0
+  const lockError = Object.assign(new Error('registry is locked'), {
+    code: 'ELOCKED',
+  })
+
+  await expect(
+    initializeVersionedPlugins({
+      migrateSingle: () => {
+        throw lockError
+      },
+      migrateEnabled: async () => undefined,
+      getInMemory: () => {
+        snapshotCalls++
+        return { version: 2, plugins: {} }
+      },
+      retryDelaysMs: [0, 0],
+      sleep: async () => undefined,
+    }),
+  ).rejects.toThrow('registry is locked')
+  expect(snapshotCalls).toBe(0)
 })

@@ -143,11 +143,18 @@ export function isPluginEnabledAtProjectScope(pluginId: string): boolean {
 export type PluginOperationResult = {
   success: boolean
   message: string
+  failureKind?: 'not-installed' | 'wrong-scope' | 'settings-write' | 'cleanup'
   pluginId?: string
   pluginName?: string
   scope?: PluginScope
   /** Plugins that declare this plugin as a dependency (warning on uninstall/disable) */
   reverseDependents?: string[]
+}
+
+export function shouldRemoveFailedPluginFromSettings(
+  result: PluginOperationResult,
+): boolean {
+  return !result.success && result.failureKind === 'not-installed'
 }
 
 /**
@@ -465,6 +472,7 @@ export async function uninstallPluginOp(
     if (!resolved) {
       return {
         success: false,
+        failureKind: 'not-installed',
         message: `Plugin "${plugin}" not found in installed plugins`,
       }
     }
@@ -489,16 +497,19 @@ export async function uninstallPluginOp(
       if (actualScope === 'project') {
         return {
           success: false,
+          failureKind: 'wrong-scope',
           message: `Plugin "${plugin}" is enabled at project scope (.openclaude/settings.json, shared with your team). To disable just for you: claude plugin disable ${plugin} --scope local`,
         }
       }
       return {
         success: false,
+        failureKind: 'wrong-scope',
         message: `Plugin "${plugin}" is installed in ${actualScope} scope, not ${scope}. Use --scope ${actualScope} to uninstall.`,
       }
     }
     return {
       success: false,
+      failureKind: 'not-installed',
       message: `Plugin "${plugin}" is not installed in ${scope} scope. Use --scope to specify the correct scope.`,
     }
   }
@@ -521,6 +532,7 @@ export async function uninstallPluginOp(
   if (!wasSettingsUpdateCommitted(settingsResult)) {
     return {
       success: false,
+      failureKind: 'settings-write',
       message: `Failed to uninstall plugin: ${settingsResult.error?.message ?? 'settings were not written'}`,
     }
   }
@@ -543,6 +555,7 @@ export async function uninstallPluginOp(
   } catch (error) {
     return {
       success: false,
+      failureKind: 'cleanup',
       message: `Plugin settings were disabled, but final cleanup could not complete; the installation remains registered for retry: ${error instanceof Error ? error.message : String(error)}`,
     }
   }

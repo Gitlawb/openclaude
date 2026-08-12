@@ -23,14 +23,14 @@ import {
   type SessionExternalMetadata,
 } from '../utils/sessionState.js'
 import {
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 import type { SettingsJson } from '../utils/settings/types.js'
 import type { AppState } from './AppStateStore.js'
 
 type OnChangeAppStateDependencies = {
-  updateUserSettings?: typeof updateSettingsForSource
+  updateUserSettings?: typeof updateSettingsForSourceWithResult
   setModelOverride?: typeof setMainLoopModelOverride
   persistProfileModel?: typeof persistActiveProviderProfileModel
 }
@@ -65,9 +65,9 @@ export function withPrecommittedModelStateUpdate<T>(
 export function commitModelStateUpdate<T>(
   model: string | null,
   updateState: () => T,
-  updateUserSettings: typeof updateSettingsForSource = updateSettingsForSource,
+  updateUserSettings: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
   additionalSettings: SettingsJson = {},
-): ReturnType<typeof updateSettingsForSource> {
+): ReturnType<typeof updateSettingsForSourceWithResult> {
   const result = updateUserSettings('userSettings', {
     ...additionalSettings,
     model: model ?? undefined,
@@ -106,7 +106,7 @@ export function onChangeAppState({
   oldState: AppState
 }, dependencies?: OnChangeAppStateDependencies): AppState | void {
   const updateUserSettings =
-    dependencies?.updateUserSettings ?? updateSettingsForSource
+    dependencies?.updateUserSettings ?? updateSettingsForSourceWithResult
   const setModelOverride =
     dependencies?.setModelOverride ?? setMainLoopModelOverride
   const persistProfileModel =

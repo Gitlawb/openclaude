@@ -28,11 +28,14 @@ const configDir = realpathSync(
 const settingsPath = join(configDir, 'settings.json')
 const originalTarget = join(configDir, 'settings-original.json')
 const replacementTarget = join(configDir, 'settings-replacement.json')
+const cyclePeer = join(configDir, 'settings-cycle-peer.json')
 const original = `${JSON.stringify({ env: { ORIGINAL: '1' } }, null, 2)}\n`
 const replacement = `${JSON.stringify({ env: { REPLACEMENT: '1' } }, null, 2)}\n`
 const requestedMode = process.argv[2]
 const mode =
-  requestedMode === 'after-write' || requestedMode === 'physical-before-write'
+  requestedMode === 'after-write' ||
+  requestedMode === 'after-write-cycle' ||
+  requestedMode === 'physical-before-write'
     ? requestedMode
     : 'before-write'
 
@@ -70,14 +73,19 @@ try {
         return release
       },
     }))
-  } else if (mode === 'after-write') {
+  } else if (mode === 'after-write' || mode === 'after-write-cycle') {
     const realWrite = fileUtils.writeFileSyncAndFlush_DEPRECATED
     mock.module('../../utils/file.js', () => ({
       ...fileUtils,
       writeFileSyncAndFlush_DEPRECATED(...args: Parameters<typeof realWrite>) {
         realWrite(...args)
         unlinkSync(settingsPath)
-        symlinkSync(replacementTarget, settingsPath)
+        if (mode === 'after-write-cycle') {
+          symlinkSync(cyclePeer, settingsPath)
+          symlinkSync(settingsPath, cyclePeer)
+        } else {
+          symlinkSync(replacementTarget, settingsPath)
+        }
       },
     }))
   } else {
@@ -92,12 +100,13 @@ try {
     }))
   }
 
-  const { updateSettingsForSource, wasSettingsUpdateCommitted } = await import(
+  const { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } = await import(
     '../../utils/settings/settings.js'
   )
-  const result = updateSettingsForSource('userSettings', {
-    env: { MUST_NOT_LAND: 'true' },
-  })
+  const result = updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    () => ({ env: { MUST_NOT_LAND: 'true' } }),
+  )
 
   output = {
     skipped: false,

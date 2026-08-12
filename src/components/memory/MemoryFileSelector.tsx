@@ -21,7 +21,7 @@ import { getClaudeConfigHomeDir } from '../../utils/envUtils.js';
 import { getDisplayPath } from '../../utils/file.js';
 import { formatRelativeTimeAgo } from '../../utils/format.js';
 import { projectIsInGitRepo } from '../../utils/memory/versions.js';
-import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { Select } from '../CustomSelect/index.js';
 import { ListItem } from '../design-system/ListItem.js';
 import { getProjectMemoryPathForSelector } from './memoryFileSelectorPaths.js';
@@ -209,7 +209,7 @@ export function MemoryFileSelector(t0) {
     t5 = function handleToggleAutoMemory() {
       setSaveError(null);
       const newValue = !autoMemoryOn;
-      const result = updateSettingsForSource("userSettings", {
+      const result = updateSettingsForSourceWithResult("userSettings", {
         autoMemoryEnabled: newValue
       });
       if (!wasSettingsUpdateCommitted(result)) {
@@ -232,7 +232,7 @@ export function MemoryFileSelector(t0) {
     t6 = function handleToggleAutoDream() {
       setSaveError(null);
       const newValue_0 = !autoDreamOn;
-      const result_0 = updateSettingsForSource("userSettings", {
+      const result_0 = updateSettingsForSourceWithResult("userSettings", {
         autoDreamEnabled: newValue_0
       });
       if (!wasSettingsUpdateCommitted(result_0)) {

@@ -7,10 +7,8 @@ import {
 import {
   SETTINGS_UPDATE_NO_CHANGE,
   getSettingsForSource,
-  updateSettingsForSourceWithFreshSettings,
   updateSettingsForSourceWithFreshSettingsOrNoop,
   wasSettingsUpdateApplied,
-  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 import type {
@@ -165,7 +163,7 @@ export function deletePermissionRuleFromSettings(
 
   try {
     let removed = false
-    const result = updateSettingsForSourceWithFreshSettings(
+    const result = updateSettingsForSourceWithFreshSettingsOrNoop(
       rule.source,
       freshSettings => {
         const freshRules = freshSettings.permissions?.[rule.ruleBehavior] ?? []
@@ -173,6 +171,7 @@ export function deletePermissionRuleFromSettings(
           raw => normalizeEntry(raw) !== ruleString,
         )
         removed = filteredRules.length !== freshRules.length
+        if (!removed) return SETTINGS_UPDATE_NO_CHANGE
         return {
           permissions: {
             [rule.ruleBehavior]: filteredRules,
@@ -180,7 +179,7 @@ export function deletePermissionRuleFromSettings(
         }
       },
     )
-    if (!wasSettingsUpdateCommitted(result)) {
+    if (!wasSettingsUpdateApplied(result)) {
       // Error already logged inside updateSettingsForSource
       return false
     }

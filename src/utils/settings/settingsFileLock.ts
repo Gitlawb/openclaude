@@ -551,19 +551,77 @@ function quarantineSettingsLock(
   }
 }
 
+/**
+ * Quarantine the exact directory acquired by this process when publishing its
+ * owner token fails. The owner file may be partial or malformed, so identity
+ * and the absence of recovery metadata are the only trustworthy predicates.
+ */
+function quarantineAbortedSettingsLock(
+  lockPath: string,
+  identity: LockIdentity,
+): QuarantinedSettingsLock | null {
+  const fs = getFsImplementation()
+  const recoveryPath = join(lockPath, 'recovery.json')
+  if (
+    !lockIdentityMatches(readLockIdentity(lockPath), identity) ||
+    !pathIsAbsent(recoveryPath)
+  ) {
+    return null
+  }
+
+  const cleanupPath = join(
+    dirname(lockPath),
+    `.openclaude-settings-aborted-${randomUUID()}`,
+  )
+  try {
+    fs.renameSync(lockPath, cleanupPath)
+  } catch (error) {
+    if (getErrnoCode(error) === 'ENOENT') return null
+    throw error
+  }
+
+  const cleanupRecoveryPath = join(cleanupPath, 'recovery.json')
+  if (
+    !lockIdentityMatches(readLockIdentity(cleanupPath), identity) ||
+    !pathIsAbsent(cleanupRecoveryPath)
+  ) {
+    try {
+      if (pathIsAbsent(lockPath)) fs.renameSync(cleanupPath, lockPath)
+    } catch {
+      // Preserve the ownership error below.
+    }
+    throw new SettingsFileLockOwnershipError(
+      'Settings lock ownership changed during aborted acquisition',
+    )
+  }
+
+  return {
+    lockPath: cleanupPath,
+    ownerPath: join(cleanupPath, 'owner.json'),
+    recoveryPath: cleanupRecoveryPath,
+  }
+}
+
 function cleanupQuarantinedSettingsLock(
   quarantined: QuarantinedSettingsLock,
-  owner: SettingsLockOwner | null,
-  recoveryOwner: SettingsLockOwner | null,
 ): void {
   const fs = getFsImplementation()
+  for (const metadataPath of [
+    quarantined.ownerPath,
+    quarantined.recoveryPath,
+  ]) {
+    try {
+      fs.unlinkSync(metadataPath)
+    } catch (error) {
+      if (getErrnoCode(error) !== 'ENOENT') {
+        logForDebugging(
+          `Failed to clean quarantined settings lock metadata: ${error}`,
+          { level: 'error' },
+        )
+      }
+    }
+  }
   try {
-    if (owner) {
-      fs.unlinkSync(quarantined.ownerPath)
-    }
-    if (recoveryOwner) {
-      fs.unlinkSync(quarantined.recoveryPath)
-    }
     fs.rmdirSync(quarantined.lockPath)
   } catch (error) {
     // The canonical lock path is already free. A uniquely named cleanup
@@ -589,7 +647,7 @@ function quarantineRecoveredLock(
   )
   if (!quarantined) return false
 
-  cleanupQuarantinedSettingsLock(quarantined, owner, recoveryOwner)
+  cleanupQuarantinedSettingsLock(quarantined)
   locallyAbandonedSettingsLocks.delete(lockPath)
   return true
 }
@@ -682,7 +740,7 @@ function removeDeadOwnerLock(
       'recovered',
     )
     if (!quarantined) return false
-    cleanupQuarantinedSettingsLock(quarantined, owner, null)
+    cleanupQuarantinedSettingsLock(quarantined)
     locallyAbandonedSettingsLocks.delete(lockPath)
     return true
   } finally {
@@ -792,16 +850,9 @@ function acquireSettingsFileLock(filePath: string): {
   } catch (error) {
     let quarantined: QuarantinedSettingsLock | null = null
     try {
-      quarantined =
-        ownerWritten && identity
-          ? quarantineSettingsLock(
-              lockPath,
-              identity,
-              owner,
-              null,
-              'aborted',
-            )
-          : null
+      quarantined = identity
+        ? quarantineAbortedSettingsLock(lockPath, identity)
+        : null
     } catch {
       // Preserve the owner-write/stat failure.
     }
@@ -812,7 +863,7 @@ function acquireSettingsFileLock(filePath: string): {
       // Preserve the owner-write/stat failure.
     }
     if (quarantined) {
-      cleanupQuarantinedSettingsLock(quarantined, owner, null)
+      cleanupQuarantinedSettingsLock(quarantined)
     } else if (
       ownerWritten &&
       identity &&
@@ -825,7 +876,15 @@ function acquireSettingsFileLock(filePath: string): {
   }
 
   const assertOwned = (): void => {
-    if (resolveSettingsFileTarget(filePath) !== targetPath) {
+    let currentTarget: string
+    try {
+      currentTarget = resolveSettingsFileTarget(filePath)
+    } catch (error) {
+      throw new SettingsFileLockOwnershipError(
+        `Settings file target changed during update: ${toError(error).message}`,
+      )
+    }
+    if (currentTarget !== targetPath) {
       throw new SettingsFileLockOwnershipError(
         'Settings file target changed during update',
       )
@@ -884,7 +943,7 @@ function acquireSettingsFileLock(filePath: string): {
         unlockError = toError(error)
       }
       if (quarantined) {
-        cleanupQuarantinedSettingsLock(quarantined, owner, null)
+        cleanupQuarantinedSettingsLock(quarantined)
       } else if (
         ownershipError &&
         identity &&

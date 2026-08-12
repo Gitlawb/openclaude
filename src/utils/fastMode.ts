@@ -31,7 +31,7 @@ import { isEssentialTrafficOnly } from './privacyLevel.js'
 import {
   getInitialSettings,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from './settings/settings.js'
 import { createSignal } from './signal.js'
@@ -244,13 +244,54 @@ export function clearFastModeCooldown(): void {
   runtimeState = { status: 'active' }
 }
 
+export type FastModeModelRestore = {
+  persistedModel: string | undefined
+  liveModel: string | null
+}
+
+let fastModeModelRestore: FastModeModelRestore | null = null
+
+export function getFastModeModelRestore(): FastModeModelRestore | null {
+  return fastModeModelRestore
+}
+
+export function setFastModeModelRestore(
+  restore: FastModeModelRestore | null,
+): void {
+  fastModeModelRestore = restore
+}
+
+export function clearFastModeModelRestore(): void {
+  fastModeModelRestore = null
+}
+
+/**
+ * Keep the same-session restore point aligned when a user deliberately picks
+ * another model while fast mode is active. If the selection disables fast
+ * mode, the stale restore point must not survive into a later toggle.
+ */
+export function syncFastModeModelRestoreAfterSelection(
+  model: string | null,
+  fastModeRemainsEnabled: boolean,
+): void {
+  if (!fastModeRemainsEnabled) {
+    clearFastModeModelRestore()
+    return
+  }
+  if (!fastModeModelRestore) return
+  setFastModeModelRestore({
+    persistedModel: model ?? undefined,
+    liveModel: model,
+  })
+}
+
 /**
  * Called when the API rejects a fast mode request (e.g., 400 "Fast mode is
  * not enabled for your organization"). Permanently disables fast mode using
  * the same flow as when the prefetch discovers the org has it disabled.
  */
 export function handleFastModeRejectedByAPI(
-  persist: typeof updateSettingsForSource = updateSettingsForSource,
+  persist: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
 ): void {
   if (orgStatus.status === 'disabled') {
     return
@@ -279,6 +320,7 @@ export function handleFastModeRejectedByAPI(
 // (overage billing) is not available. Distinct from org-level disabling.
 const overageRejection = createSignal<[message: string]>()
 export const onFastModeOverageRejection = overageRejection.subscribe
+let overagePreferenceCleanupPending = false
 
 function getOverageDisabledMessage(reason: string | null): string {
   switch (reason) {
@@ -312,7 +354,28 @@ function isOutOfCreditsReason(reason: string | null): boolean {
  * is not available. Permanently disables fast mode (unless the user has
  * ran out of credits) and notifies with a reason-specific message.
  */
-export function handleFastModeOverageRejection(reason: string | null): void {
+export function persistOverageDisabledFastModePreferenceIfNeeded(
+  persist: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
+): void {
+  if (!overagePreferenceCleanupPending) return
+  const result = persist('userSettings', { fastMode: undefined })
+  overagePreferenceCleanupPending = !wasSettingsUpdateCommitted(result)
+  if (!overagePreferenceCleanupPending) {
+    saveGlobalConfig(current => ({
+      ...current,
+      penguinModeOrgEnabled: false,
+    }))
+  }
+}
+
+export function clearFastModeOveragePreferenceCleanup(): void {
+  overagePreferenceCleanupPending = false
+}
+
+export function handleFastModeOverageRejection(
+  reason: string | null,
+  persist: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
+): void {
   const message = getOverageDisabledMessage(reason)
   logForDebugging(
     `Fast mode overage rejection: ${reason ?? 'unknown'} — ${message}`,
@@ -323,16 +386,22 @@ export function handleFastModeOverageRejection(reason: string | null): void {
   })
   // Disable fast mode permanently unless the user has ran out of credits
   if (!isOutOfCreditsReason(reason)) {
-    const result = updateSettingsForSource('userSettings', { fastMode: undefined })
+    const result = persist('userSettings', { fastMode: undefined })
     if (wasSettingsUpdateCommitted(result)) {
+      overagePreferenceCleanupPending = false
       saveGlobalConfig(current => ({
         ...current,
         penguinModeOrgEnabled: false,
       }))
     } else {
+      overagePreferenceCleanupPending = true
       logForDebugging('Could not persist the overage-rejected fast mode preference', {
         level: 'warn',
       })
+      overageRejection.emit(
+        'Could not save the disabled Fast mode preference · retrying',
+      )
+      return
     }
   }
   overageRejection.emit(message)
@@ -385,7 +454,7 @@ let orgDisablePreferenceCleanupPending = false
 export function persistOrgDisabledFastModePreferenceIfNeeded(
   enabled: boolean,
   previousEnabled: boolean | undefined,
-  persist: typeof updateSettingsForSource = updateSettingsForSource,
+  persist: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
 ): void {
   if (enabled) {
     // A pending retry represents an earlier disabled response. Once the
@@ -448,6 +517,8 @@ export function resolveFastModeStatusFromCache(): void {
   if (!isFastModeEnabled()) {
     return
   }
+
+  persistOverageDisabledFastModePreferenceIfNeeded()
   if (orgStatus.status !== 'pending') {
     return
   }
@@ -459,12 +530,14 @@ export function resolveFastModeStatusFromCache(): void {
 }
 
 export async function prefetchFastModeStatus(): Promise<void> {
-  // Skip network requests if nonessential traffic is disabled
-  if (isEssentialTrafficOnly()) {
+  if (!isFastModeEnabled()) {
     return
   }
 
-  if (!isFastModeEnabled()) {
+  persistOverageDisabledFastModePreferenceIfNeeded()
+
+  // Skip network requests if nonessential traffic is disabled
+  if (isEssentialTrafficOnly()) {
     return
   }
 

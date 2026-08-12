@@ -12,7 +12,7 @@ import {
 } from '../utils/model/model.js'
 import { validateModel } from '../utils/model/validateModel.js'
 import {
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
@@ -45,7 +45,7 @@ const call: LocalCommandCall = async (args, context) => {
 
   if (arg === 'unset' || arg === 'off') {
     const prev = context.getAppState().advisorModel
-    const result = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       advisorModel: undefined,
     })
     if (!wasSettingsUpdateCommitted(result)) {
@@ -85,7 +85,7 @@ const call: LocalCommandCall = async (args, context) => {
     }
   }
 
-  const result = updateSettingsForSource('userSettings', {
+  const result = updateSettingsForSourceWithResult('userSettings', {
     advisorModel: normalizedModel,
   })
   if (!wasSettingsUpdateCommitted(result)) {

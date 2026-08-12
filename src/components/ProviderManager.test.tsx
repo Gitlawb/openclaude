@@ -139,6 +139,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'ApiSmart',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -410,6 +411,7 @@ function mockProviderManagerDependencies(
       error: Error | null
       written: boolean
     }
+    getSettings?: () => Record<string, unknown>
   },
 ): void {
   let persistedAimlapiTopup: Record<string, unknown> | undefined
@@ -511,7 +513,22 @@ function mockProviderManagerDependencies(
   providerManagerSettingsMockActive = true
   mock.module('../utils/settings/settings.js', () => ({
     ...actualSettingsModule,
-    updateSettingsForSource: updateSettingsForTest,
+    getSettings_DEPRECATED: () =>
+      providerManagerSettingsMockActive
+        ? (options?.getSettings?.() ?? {})
+        : actualSettingsModule.getSettings_DEPRECATED(),
+    updateSettingsForSource: (
+      ...args: Parameters<SettingsModule['updateSettingsForSource']>
+    ) =>
+      providerManagerSettingsMockActive
+        ? updateSettingsForTest(...args)
+        : actualSettingsModule.updateSettingsForSource(...args),
+    updateSettingsForSourceWithResult: (
+      ...args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>
+    ) =>
+      providerManagerSettingsMockActive
+        ? updateSettingsForTest(...args)
+        : actualSettingsModule.updateSettingsForSourceWithResult(...args),
     updateSettingsForSourceWithFreshSettings: (
       source: string,
       createPatch: (settings: Record<string, unknown>) => Record<string, unknown>,
@@ -6046,6 +6063,7 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
     mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
       getProviderProfiles: () => [],
       getActiveProviderProfile: () => null,
+      getSettings: () => ({ model: 'github:copilot' }),
       updateSettingsForSource,
     })
 
@@ -6145,6 +6163,13 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
 })
 
 test('ProviderManager keeps GitHub credentials when the provider settings removal is rejected', async () => {
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
   delete process.env.GITHUB_TOKEN
   delete process.env.GH_TOKEN
@@ -6197,5 +6222,9 @@ test('ProviderManager keeps GitHub credentials when the provider settings remova
     expect(clearGithubModelsToken).not.toHaveBeenCalled()
   } finally {
     await mounted.dispose()
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
   }
 })

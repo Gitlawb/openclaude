@@ -1924,6 +1924,9 @@ function runHeadlessStreaming(
         for (const source of userSettingsResult.settingsSourcesWritten) {
           settingsChangeDetector.notifyChange(source)
         }
+        if (!userSettingsResult.complete) {
+          return
+        }
       }
 
       const pluginsInstalled = await installPluginsForHeadless()

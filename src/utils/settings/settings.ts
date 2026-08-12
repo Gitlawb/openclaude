@@ -433,6 +433,18 @@ export function getPolicySettingsOrigin():
 export function updateSettingsForSource(
   source: EditableSettingSource,
   settings: SettingsJson,
+): { error: Error | null } {
+  const result = updateSettingsForSourceWithResult(source, settings)
+  return { error: result.error }
+}
+
+/**
+ * Rich settings-write result for callers that must advance runtime state only
+ * after the requested bytes are known to have committed.
+ */
+export function updateSettingsForSourceWithResult(
+  source: EditableSettingSource,
+  settings: SettingsJson,
 ): SettingsWriteResult {
   return updateSettingsForSourceWithFreshSettings(source, () => settings)
 }
@@ -528,6 +540,7 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
   let committed = false
   let unchanged = false
   let noChangeRequested = false
+  let callbackError: Error | null = null
   try {
     withSettingsFileLockSync(
       filePath,
@@ -569,35 +582,23 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
           }
         }
 
-        const settings = createSettingsPatch(
-          structuredClone(existingSettings || {}),
-        )
+        let settings: SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE
+        try {
+          settings = createSettingsPatch(
+            structuredClone(existingSettings || {}),
+          )
+        } catch (error) {
+          callbackError =
+            error instanceof Error ? error : new Error(String(error))
+          throw callbackError
+        }
         if (settings === SETTINGS_UPDATE_NO_CHANGE) {
           noChangeRequested = true
           return
         }
-        const updatedSettings = mergeWith(
+        const updatedSettings = applySettingsPatch(
           existingSettings || {},
           settings,
-          (
-            _objValue: unknown,
-            srcValue: unknown,
-            key: string | number | symbol,
-            object: Record<string | number | symbol, unknown>,
-          ) => {
-            // Handle undefined as deletion
-            if (srcValue === undefined && object && typeof key === 'string') {
-              delete object[key]
-              return undefined
-            }
-            // For arrays, always replace with the provided array
-            // This puts the responsibility on the caller to compute the desired final state
-            if (Array.isArray(srcValue)) {
-              return srcValue
-            }
-            // For non-arrays, let lodash handle the default merge behavior
-            return undefined
-          },
         )
 
         assertOwned()
@@ -630,9 +631,8 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
   } catch (e) {
     committed =
       written && !(e instanceof SettingsFileLockOwnershipError)
-    const error = new Error(
-      `Failed to update settings at ${filePath}: ${e}`,
-    )
+    const error =
+      callbackError ?? new Error(`Failed to update settings at ${filePath}: ${e}`)
     logError(error)
     return {
       error,
@@ -657,6 +657,32 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
     committed,
     ...(unchanged ? { unchanged: true } : {}),
   }
+}
+
+/** Apply a settings patch with the same deletion and array semantics as disk writes. */
+export function applySettingsPatch(
+  existingSettings: SettingsJson,
+  settings: SettingsJson,
+): SettingsJson {
+  return mergeWith(
+    structuredClone(existingSettings),
+    settings,
+    (
+      _objValue: unknown,
+      srcValue: unknown,
+      key: string | number | symbol,
+      object: Record<string | number | symbol, unknown>,
+    ) => {
+      if (srcValue === undefined && object && typeof key === 'string') {
+        delete object[key]
+        return undefined
+      }
+      if (Array.isArray(srcValue)) {
+        return srcValue
+      }
+      return undefined
+    },
+  )
 }
 
 /**

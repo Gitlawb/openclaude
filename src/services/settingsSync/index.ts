@@ -535,12 +535,16 @@ async function applyRemoteEntriesToLocal(
   let applyFailed = false
   let memoryWritten = false
 
-  // Rejects oversized content and records the apply as failed
-  // (defense-in-depth, matches backend limit).
-  const rejectIfOversized = (content: string): boolean => {
+  // Rejects oversized content (defense-in-depth, matches backend limit).
+  // Only settings-file failures make startup settings incomplete; memory sync
+  // remains best-effort as it was before the transaction result was added.
+  const rejectIfOversized = (
+    content: string,
+    affectsSettingsCompletion: boolean,
+  ): boolean => {
     const sizeBytes = Buffer.byteLength(content, 'utf8')
     if (sizeBytes > MAX_FILE_SIZE_BYTES) {
-      applyFailed = true
+      if (affectsSettingsCompletion) applyFailed = true
       logForDiagnosticsNoPII('info', 'settings_sync_file_too_large', {
         sizeBytes,
         maxBytes: MAX_FILE_SIZE_BYTES,
@@ -554,7 +558,7 @@ async function applyRemoteEntriesToLocal(
   const userSettingsContent = entries[SYNC_KEYS.USER_SETTINGS]
   if (userSettingsContent) {
     const userSettingsPath = getSettingsFilePathForSource('userSettings')
-    if (userSettingsPath && !rejectIfOversized(userSettingsContent)) {
+    if (userSettingsPath && !rejectIfOversized(userSettingsContent, true)) {
       const result = writeSettingsFileForSync(
         userSettingsPath,
         userSettingsContent,
@@ -573,12 +577,10 @@ async function applyRemoteEntriesToLocal(
   const userMemoryContent = entries[SYNC_KEYS.USER_MEMORY]
   if (userMemoryContent) {
     const userMemoryPath = getMemoryPath('User')
-    if (!rejectIfOversized(userMemoryContent)) {
+    if (!rejectIfOversized(userMemoryContent, false)) {
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
         memoryWritten = true
-      } else {
-        applyFailed = true
       }
     }
   }
@@ -591,7 +593,7 @@ async function applyRemoteEntriesToLocal(
       const localSettingsPath = getSettingsFilePathForSource('localSettings')
       if (
         localSettingsPath &&
-        !rejectIfOversized(projectSettingsContent)
+        !rejectIfOversized(projectSettingsContent, true)
       ) {
         const result = writeSettingsFileForSync(
           localSettingsPath,
@@ -611,12 +613,10 @@ async function applyRemoteEntriesToLocal(
     const projectMemoryContent = entries[projectMemoryKey]
     if (projectMemoryContent) {
       const localMemoryPath = getMemoryPath('Local')
-      if (!rejectIfOversized(projectMemoryContent)) {
+      if (!rejectIfOversized(projectMemoryContent, false)) {
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
           memoryWritten = true
-        } else {
-          applyFailed = true
         }
       }
     }

@@ -8,6 +8,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { createWaitForCondition } from '../test/waitForCondition.js'
 import * as settingsModule from '../utils/settings/settings.js'
 import * as customSelectModule from './CustomSelect/index.js'
 import * as selectMultiModule from './CustomSelect/SelectMulti.js'
@@ -26,14 +27,7 @@ let approvalSelectProps: ApprovalSelectProps | undefined
 let multiselectProps: MultiselectProps | undefined
 let updateSettingsSpy: ReturnType<typeof spyOn>
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 1_000
-  while (Date.now() < deadline) {
-    if (predicate()) return
-    await Bun.sleep(10)
-  }
-  throw new Error('Timed out waiting for MCP server dialog test condition')
-}
+const waitFor = createWaitForCondition('MCP server dialog test condition')
 
 function createOutput(): {
   stdout: PassThrough

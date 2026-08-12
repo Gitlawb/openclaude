@@ -31,6 +31,7 @@ function makeStdio() {
     stdin,
     stdout,
     getOutput: () => stripAnsi(output),
+    getOutputLength: () => output.length,
   }
 }
 
@@ -62,7 +63,7 @@ test('keeps the dialog open and displays a rejected settings update', async () =
     new Error('ELOCKED'),
   )
   const onComplete = mock(() => {})
-  const { stdin, stdout, getOutput } = makeStdio()
+  const { stdin, stdout, getOutput, getOutputLength } = makeStdio()
   const instance = await render(
     <AppStateProvider initialState={getDefaultAppState()}>
       <KeybindingSetup>
@@ -81,11 +82,13 @@ test('keeps the dialog open and displays a rejected settings update', async () =
 
   try {
     await waitForCondition(() => getOutput().includes('Configure Mode'))
-    await Bun.sleep(50)
-    stdin.write('\u001b[B')
-    await Bun.sleep(50)
-    stdin.write('\u001b[B')
-    await Bun.sleep(50)
+    const sendAndWaitForRender = async (input: string): Promise<void> => {
+      const priorLength = getOutputLength()
+      stdin.write(input)
+      await waitForCondition(() => getOutputLength() > priorLength)
+    }
+    await sendAndWaitForRender('\u001b[B')
+    await sendAndWaitForRender('\u001b[B')
     stdin.write('\r')
     await waitForCondition(() => setSandboxSettings.mock.calls.length === 1)
     await waitForCondition(() =>

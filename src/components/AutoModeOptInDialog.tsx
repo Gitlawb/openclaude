@@ -2,7 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Link, Text } from '../ink.js';
-import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
 import { Dialog } from './design-system/Dialog.js';
 
@@ -38,7 +38,7 @@ export function AutoModeOptInDialog(t0: Props) {
         case "accept":
           {
             logEvent("tengu_auto_mode_opt_in_dialog_accept", {});
-            const result = updateSettingsForSource("userSettings", {
+            const result = updateSettingsForSourceWithResult("userSettings", {
               skipAutoPermissionPrompt: true
             });
             if (wasSettingsUpdateCommitted(result)) {
@@ -51,7 +51,7 @@ export function AutoModeOptInDialog(t0: Props) {
         case "accept-default":
           {
             logEvent("tengu_auto_mode_opt_in_dialog_accept_default", {});
-            const result_0 = updateSettingsForSource("userSettings", {
+            const result_0 = updateSettingsForSourceWithResult("userSettings", {
               skipAutoPermissionPrompt: true,
               permissions: {
                 defaultMode: "auto"

@@ -20,7 +20,7 @@ import {
 } from '../../services/mcp/xaaIdpLogin.js'
 import { errorMessage } from '../../utils/errors.js'
 import {
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 
@@ -47,7 +47,7 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
     .action(options => {
       // Validate everything BEFORE any writes. An exit(1) mid-write leaves
       // settings configured but keychain missing — confusing state.
-      // updateSettingsForSource doesn't schema-check on write; a non-URL
+      // updateSettingsForSourceWithResult doesn't schema-check on write; a non-URL
       // issuer lands on disk and then poisons the whole userSettings source
       // on next launch (SettingsSchema .url() fails → parseSettingsFile
       // returns { settings: null }, dropping everything, not just xaaIdp).
@@ -106,7 +106,7 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       // callbackPort MUST be present (even as undefined) — mergeWith deep-merges
       // and only deletes on explicit `undefined`, not on absent key. A conditional
       // spread would leak a prior fixed port into a new IdP's config.
-      const result = updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSourceWithResult('userSettings', {
         xaaIdp: {
           issuer: options.issuer,
           clientId: options.clientId,
@@ -251,9 +251,9 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
     .action(() => {
       // Read issuer first so we can clear the right keychain slots.
       const idp = getXaaIdpSettings()
-      // updateSettingsForSource uses mergeWith: set to undefined (not delete)
+      // updateSettingsForSourceWithResult uses mergeWith: set to undefined (not delete)
       // to signal key removal.
-      const result = updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSourceWithResult('userSettings', {
         xaaIdp: undefined,
       })
       if (!wasSettingsUpdateCommitted(result)) {

@@ -71,6 +71,7 @@ import {
 } from './providerCustomHeaders.js'
 import { sanitizeApiKey } from './providerSecrets.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
+import { stableStringify } from './stableStringify.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -876,6 +877,10 @@ export function clearActiveProviderProfile(
   options?: ProfileFileLocation,
 ): boolean {
   const hadActiveProfile = getActiveProviderProfile() !== undefined
+  const previousConfig = getGlobalConfig()
+  const previousActiveProviderProfileId =
+    previousConfig.activeProviderProfileId
+  const previousModelOptions = previousConfig.openaiAdditionalModelOptionsCache
 
   saveGlobalConfig(config => ({
     ...config,
@@ -883,15 +888,51 @@ export function clearActiveProviderProfile(
     openaiAdditionalModelOptionsCache: [],
   }))
 
+  const committedConfig = getGlobalConfig()
   if (
-    getGlobalConfig().activeProviderProfileId !==
-    ANTHROPIC_DEFAULT_PROFILE_ID
+    committedConfig.activeProviderProfileId !==
+      ANTHROPIC_DEFAULT_PROFILE_ID ||
+    stableStringify(committedConfig.openaiAdditionalModelOptionsCache) !== '[]'
   ) {
     throw new Error('Global provider profile selection was not saved')
   }
 
+  try {
+    // Delete only after the global selection is durably committed. Otherwise a
+    // failed global write could destroy the only valid startup profile file.
+    deleteProfileFile(options)
+  } catch (error) {
+    try {
+      saveGlobalConfig(current =>
+        current.activeProviderProfileId === ANTHROPIC_DEFAULT_PROFILE_ID &&
+        stableStringify(current.openaiAdditionalModelOptionsCache) === '[]'
+          ? {
+              ...current,
+              activeProviderProfileId: previousActiveProviderProfileId,
+              openaiAdditionalModelOptionsCache: previousModelOptions,
+            }
+          : current,
+      )
+    } catch (rollbackError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; global provider selection rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+      )
+    }
+    const restoredConfig = getGlobalConfig()
+    const rollbackSucceeded =
+      restoredConfig.activeProviderProfileId ===
+        previousActiveProviderProfileId &&
+      stableStringify(restoredConfig.openaiAdditionalModelOptionsCache) ===
+        stableStringify(previousModelOptions)
+    if (!rollbackSucceeded) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; global provider selection rollback failed`,
+      )
+    }
+    throw error
+  }
+
   clearProviderProfileEnvFromProcessEnv()
-  deleteProfileFile(options)
 
   return hadActiveProfile
 }
@@ -1260,7 +1301,7 @@ export function addProviderProfile(
 
   if (
     !getProviderProfiles().some(
-      candidate => JSON.stringify(candidate) === JSON.stringify(profile),
+      candidate => stableStringify(candidate) === stableStringify(profile),
     )
   ) {
     return null
@@ -1274,7 +1315,7 @@ export function addProviderProfile(
       saveGlobalConfig(latest => {
         const latestProfiles = getProviderProfiles(latest)
         const stillOurProfile = latestProfiles.some(
-          candidate => JSON.stringify(candidate) === JSON.stringify(profile),
+          candidate => stableStringify(candidate) === stableStringify(profile),
         )
         if (!stillOurProfile) return latest
         return {
@@ -1359,7 +1400,8 @@ export function updateProviderProfile(
 
   if (
     !getProviderProfiles().some(
-      candidate => JSON.stringify(candidate) === JSON.stringify(updatedProfile),
+      candidate =>
+        stableStringify(candidate) === stableStringify(updatedProfile),
     )
   ) {
     return null
@@ -1375,7 +1417,8 @@ export function updateProviderProfile(
         const index = latestProfiles.findIndex(profile => profile.id === profileId)
         if (
           index < 0 ||
-          JSON.stringify(latestProfiles[index]) !== JSON.stringify(updatedProfile)
+          stableStringify(latestProfiles[index]) !==
+            stableStringify(updatedProfile)
         ) {
           return latest
         }
@@ -1871,11 +1914,11 @@ export function setActiveProviderProfile(
     const persistedConfig = getGlobalConfig()
     if (
       persistedConfig.activeProviderProfileId !== profileId ||
-      JSON.stringify(persistedConfig.openaiAdditionalModelOptionsCache) !==
-        JSON.stringify(profileModelOptions) ||
-      JSON.stringify(
+      stableStringify(persistedConfig.openaiAdditionalModelOptionsCache) !==
+        stableStringify(profileModelOptions) ||
+      stableStringify(
         persistedConfig.openaiAdditionalModelOptionsCacheByProfile?.[profileId],
-      ) !== JSON.stringify(profileModelOptions)
+      ) !== stableStringify(profileModelOptions)
     ) {
       throw new Error('Global provider profile selection was not saved')
     }
@@ -1972,7 +2015,7 @@ export function deleteProviderProfile(profileId: string): {
     } catch (error) {
       if (previousConfig && committedDeletion) {
         saveGlobalConfig(current =>
-          JSON.stringify(current) === JSON.stringify(committedDeletion)
+          stableStringify(current) === stableStringify(committedDeletion)
             ? previousConfig!
             : current,
         )

@@ -96,7 +96,10 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
-import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
+import {
+  getDefaultFirstPartyMainLoopModelSetting,
+  getDefaultMainLoopModelSetting,
+} from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
   clearHydratedGithubModelsTokenFromEnv,
@@ -113,10 +116,16 @@ import {
   rankOllamaModels,
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
-import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
+import {
+  clearStartupProviderOverrides,
+  type StartupProviderOverrideRollback,
+} from '../utils/providerStartupOverrides.js'
 import { redactSensitiveInfo, redactUrlForDisplay } from '../utils/redaction.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
-import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js'
+import {
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
+} from '../utils/settings/settings.js'
 import {
   commitModelSettingsTransition,
   rollbackModelSettingsTransition,
@@ -1454,6 +1463,25 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     )
   }
 
+  function clearStartupProviderOverrideWithTransition(
+    model: string | null,
+  ): {
+    error: string | null
+    transition?: ModelSettingsTransition
+    rollbackGlobalConfig?: StartupProviderOverrideRollback
+  } {
+    let transition: ModelSettingsTransition | undefined
+    let rollbackGlobalConfig: StartupProviderOverrideRollback | undefined
+    const error = clearStartupProviderOverrides({
+      model,
+      onCommittedTransition(currentTransition, currentGlobalRollback) {
+        transition = currentTransition
+        rollbackGlobalConfig = currentGlobalRollback
+      },
+    })
+    return { error, transition, rollbackGlobalConfig }
+  }
+
   function rollbackProviderModel(
     transition: ModelSettingsTransition,
   ): string | null {
@@ -1557,7 +1585,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       // Defer sync I/O to next microtask - UI renders loading state first.
       // setActiveProviderProfile(), activateGithubProvider(), and
       // clearStartupProviderOverrideFromUserSettings() all perform sync file writes
-      // (saveGlobalConfig, saveProfileFile, updateSettingsForSource) which can
+      // (saveGlobalConfig, saveProfileFile, updateSettingsForSourceWithResult) which can
       // block the main thread on Windows (antivirus, disk cache, NTFS metadata).
       await new Promise<void>(resolve => queueMicrotask(resolve))
 
@@ -1594,11 +1622,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       if (profileId === ANTHROPIC_DEFAULT_PROFILE_ID) {
         providerLabel = ANTHROPIC_PROVIDER_LABEL
         const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
-        const settingsOverrideError =
-          clearStartupProviderOverrideFromUserSettings(anthropicModel)
-        if (settingsOverrideError) {
+        const settingsOverride =
+          clearStartupProviderOverrideWithTransition(anthropicModel)
+        if (settingsOverride.error) {
           setErrorMessage(
-            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${settingsOverrideError}`,
+            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${settingsOverride.error}`,
           )
           setIsActivating(false)
           returnToMenu()
@@ -1611,8 +1639,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         try {
           clearActiveProviderProfile()
         } catch (error) {
+          const rollbackError = settingsOverride.transition
+            ? rollbackProviderModel(settingsOverride.transition)
+            : null
+          const globalRollbackError =
+            settingsOverride.rollbackGlobalConfig?.() ?? null
+          const detail = error instanceof Error ? error.message : String(error)
           setErrorMessage(
-            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${error instanceof Error ? error.message : String(error)}`,
+            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${detail}` +
+              (rollbackError ? `; model rollback failed: ${rollbackError}` : '') +
+              (globalRollbackError
+                ? `; global override rollback failed: ${globalRollbackError}`
+                : ''),
           )
           setIsActivating(false)
           returnToMenu()
@@ -1794,7 +1832,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function activateGithubProvider(): string | null {
-    const result = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       model: GITHUB_PROVIDER_DEFAULT_MODEL,
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
@@ -1870,8 +1908,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     const fallbackProfile = getActiveProviderProfile()
     const replacementModel = fallbackProfile
       ? getPrimaryModel(fallbackProfile.model)
-      : getDefaultMainLoopModelSetting()
-    const result = updateSettingsForSource('userSettings', {
+      : getDefaultFirstPartyMainLoopModelSetting()
+    const result = updateSettingsForSourceWithResult('userSettings', {
       model: replacementModel ?? undefined,
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,

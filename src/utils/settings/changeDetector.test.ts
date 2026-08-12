@@ -468,6 +468,63 @@ describe('settings change detector symlink target refresh', () => {
     expect(executeConfigChangeHooks).not.toHaveBeenCalled()
   })
 
+  test('retains watcher bookkeeping when unwatch rejects during a retarget', async () => {
+    const detector = await importFreshModule()
+    await detector.resetForTesting({ settingsDebounce: 5 })
+    const logicalPath = pathsBySource.userSettings!
+    const logicalDir = normalize('/tmp/openclaude/user')
+    const firstPhysicalPath = normalize('/tmp/openclaude/first/settings.json')
+    const firstPhysicalDir = normalize('/tmp/openclaude/first')
+    const nextPhysicalPath = normalize('/tmp/openclaude/next/settings.json')
+    const nextPhysicalDir = normalize('/tmp/openclaude/next')
+    let physicalPath = firstPhysicalPath
+    const harness = createWatcherHarness()
+
+    detector._setDependenciesForTesting({
+      clearInternalWrites: mock(() => {}),
+      consumeInternalWrite,
+      executeConfigChangeHooks,
+      getSettingsFilePathForSource: (source: SettingSource) =>
+        source === 'userSettings' ? logicalPath : null,
+      hasBlockingResult: (results: { blocked: boolean }[]) =>
+        results.some(result => result.blocked),
+      realpath: mock(async () => physicalPath),
+      resetSettingsCache,
+      resolveSettingsFileTarget: () => physicalPath,
+      stat: mock(async (path: string) => {
+        const normalizedPath = normalize(path)
+        if (
+          normalizedPath === logicalDir ||
+          normalizedPath === firstPhysicalDir ||
+          normalizedPath === nextPhysicalDir
+        ) {
+          return { isDirectory: () => true, isFile: () => false }
+        }
+        if (normalizedPath === logicalPath) {
+          return { isDirectory: () => false, isFile: () => true }
+        }
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+      }),
+      watch: harness.watch,
+    })
+
+    await detector.initialize()
+    harness.unwatch.mockImplementationOnce(async () => {
+      throw new Error('unwatch failed')
+    })
+
+    physicalPath = nextPhysicalPath
+    harness.handlers.get('change')?.(logicalPath)
+    await waitForCondition(() => harness.unwatch.mock.calls.length === 1)
+
+    physicalPath = firstPhysicalPath
+    harness.handlers.get('change')?.(logicalPath)
+    await waitForCondition(() => harness.unwatch.mock.calls.length === 2)
+
+    expect(harness.add).toHaveBeenCalledWith(nextPhysicalDir)
+    expect(harness.add).not.toHaveBeenCalledWith(firstPhysicalDir)
+  })
+
   test('does not suppress an external symlink retarget with a stale logical write marker', async () => {
     const detector = await importFreshModule()
     await detector.resetForTesting({ settingsDebounce: 5 })

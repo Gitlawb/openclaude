@@ -46,8 +46,10 @@ test('rollback preserves a newer writer that superseded the attempted model', ()
   })
   settings.model = 'newer-model'
 
+  let updateCalls = 0
   const rollback = rollbackModelSettingsTransition(committed.transition!, {
     updateFreshOrNoop: (_source, update) => {
+      updateCalls++
       const patch = update(structuredClone(settings))
       expect(typeof patch).toBe('symbol')
       return { error: null, written: false, unchanged: true }
@@ -55,7 +57,80 @@ test('rollback preserves a newer writer that superseded the attempted model', ()
   })
 
   expect(rollback).toEqual({ status: 'superseded' })
+  expect(updateCalls).toBe(1)
   expect(settings.model).toBe('newer-model')
+})
+
+test('rollback treats reordered object settings as the same attempted value', () => {
+  let settings: SettingsJson = {
+    env: { FIRST: '1', SECOND: '2' },
+  }
+  const committed = commitSettingsTransition(
+    { env: { FIRST: 'next', SECOND: 'next' } },
+    {
+      updateFresh: (_source, update) => {
+        settings = { ...settings, ...update(structuredClone(settings)) }
+        return { error: null, written: true, committed: true }
+      },
+    },
+  )
+  settings.env = { SECOND: 'next', FIRST: 'next' }
+
+  const rollback = rollbackModelSettingsTransition(committed.transition!, {
+    updateFreshOrNoop: (_source, update) => {
+      const patch = update(structuredClone(settings))
+      if (typeof patch === 'symbol') {
+        return { error: null, written: false, unchanged: true }
+      }
+      settings = { ...settings, ...patch }
+      return { error: null, written: true, committed: true }
+    },
+  })
+
+  expect(rollback).toEqual({ status: 'restored' })
+  expect(settings.env).toEqual({ FIRST: '1', SECOND: '2' })
+})
+
+test('rollback compares the full post-merge value for sparse nested patches', () => {
+  let settings: SettingsJson = {
+    env: { KEEP: '1', REMOVE: 'stale' },
+    model: 'previous-model',
+  }
+  const committed = commitSettingsTransition(
+    { env: { REMOVE: undefined }, model: 'next-model' } as unknown as SettingsJson,
+    {
+      updateFresh: (_source, update) => {
+        update(structuredClone(settings))
+        settings = { env: { KEEP: '1' }, model: 'next-model' }
+        return { error: null, written: true, committed: true }
+      },
+    },
+  )
+
+  expect(committed.transition?.attempted).toEqual({
+    env: { KEEP: '1' },
+    model: 'next-model',
+  })
+
+  const rollback = rollbackModelSettingsTransition(committed.transition!, {
+    updateFreshOrNoop: (_source, update) => {
+      const patch = update(structuredClone(settings))
+      if (typeof patch === 'symbol') {
+        return { error: null, written: false, unchanged: true }
+      }
+      settings = {
+        env: { KEEP: '1', REMOVE: 'stale' },
+        model: 'previous-model',
+      }
+      return { error: null, written: true, committed: true }
+    },
+  })
+
+  expect(rollback).toEqual({ status: 'restored' })
+  expect(settings).toEqual({
+    env: { KEEP: '1', REMOVE: 'stale' },
+    model: 'previous-model',
+  })
 })
 
 test('rollback reports when restoring the previous model was rejected', () => {

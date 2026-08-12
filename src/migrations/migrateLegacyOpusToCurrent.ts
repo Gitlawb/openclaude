@@ -7,7 +7,7 @@ import { isLegacyModelRemapEnabled } from '../utils/model/model.js'
 import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from '../utils/model/providers.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
@@ -46,7 +46,7 @@ export function migrateLegacyOpusToCurrent(): void {
     return
   }
 
-  const result = updateSettingsForSource('userSettings', { model: 'opus' })
+  const result = updateSettingsForSourceWithResult('userSettings', { model: 'opus' })
   if (!wasSettingsUpdateCommitted(result)) return
   saveGlobalConfig(current => ({
     ...current,

@@ -1725,6 +1725,39 @@ describe('clearActiveProviderProfile', () => {
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
+
+  test('does not change global or live provider state when startup profile cleanup fails', async () => {
+    const { clearActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const profilePath = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-profile-directory-'),
+    )
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = 'saved_deepseek'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_deepseek' })],
+      activeProviderProfileId: 'saved_deepseek',
+      openaiAdditionalModelOptionsCache: [
+        { value: 'deepseek-v4', label: 'DeepSeek V4', description: 'saved' },
+      ],
+    }))
+
+    try {
+      expect(() => clearActiveProviderProfile({ filePath: profilePath })).toThrow()
+      expect(mockConfigState.activeProviderProfileId).toBe('saved_deepseek')
+      expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+        { value: 'deepseek-v4', label: 'DeepSeek V4', description: 'saved' },
+      ])
+      expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+      expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com')
+    } finally {
+      rmSync(profilePath, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Anthropic sentinel survives profile management (#1426)', () => {

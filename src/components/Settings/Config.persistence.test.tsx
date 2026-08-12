@@ -24,7 +24,7 @@ let actualSettingsModule: SettingsModule | undefined
 let persistError: Error | null = null
 let persistWritten = false
 let updateSettingsForTest = mock(
-  (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+  (..._args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>) => ({
     error: persistError,
     written: persistWritten,
   }),
@@ -37,7 +37,7 @@ let completeModelSelection:
       effortValue: 'high'
       previousEffortLevel: 'low'
       wroteEffort: true
-    }) => void)
+    }) => string | undefined)
   | undefined
 
 const initialSettings: SettingsJson = {
@@ -50,6 +50,10 @@ const initialSettings: SettingsJson = {
 }
 const emptyMemoryFiles = Promise.resolve([])
 
+const actualFastModeModule = await import(
+  `../../utils/fastMode.ts?configPersistenceFastModeActual=${Date.now()}-${Math.random()}`
+)
+
 async function installMocks(): Promise<void> {
   actualSettingsModule ??= await import(
     `../../utils/settings/settings.ts?configPersistenceActual=${Date.now()}-${Math.random()}`
@@ -60,20 +64,26 @@ async function installMocks(): Promise<void> {
     getSettingsForSource: () => initialSettings,
     updateSettingsForSource: (
       ...args: Parameters<SettingsModule['updateSettingsForSource']>
+    ) => ({ error: updateSettingsForTest(...args).error }),
+    updateSettingsForSourceWithResult: (
+      ...args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>
     ) => updateSettingsForTest(...args),
     updateSettingsForSourceWithFreshSettings: (
-      source: Parameters<SettingsModule['updateSettingsForSource']>[0],
+      source: Parameters<SettingsModule['updateSettingsForSourceWithResult']>[0],
       update: (settings: SettingsJson) => SettingsJson,
     ) => {
       const patch = update(structuredClone(freshUserSettings))
       const result = updateSettingsForTest(source, patch)
       if (result.written) {
-        freshUserSettings = { ...freshUserSettings, ...patch }
+        freshUserSettings = actualSettingsModule!.applySettingsPatch(
+          freshUserSettings,
+          patch,
+        )
       }
       return result
     },
     updateSettingsForSourceWithFreshSettingsOrNoop: (
-      source: Parameters<SettingsModule['updateSettingsForSource']>[0],
+      source: Parameters<SettingsModule['updateSettingsForSourceWithResult']>[0],
       update: (settings: SettingsJson) => SettingsJson | symbol,
     ) => {
       const patch = update(structuredClone(freshUserSettings))
@@ -82,7 +92,10 @@ async function installMocks(): Promise<void> {
       }
       const result = updateSettingsForTest(source, patch)
       if (result.written) {
-        freshUserSettings = { ...freshUserSettings, ...patch }
+        freshUserSettings = actualSettingsModule!.applySettingsPatch(
+          freshUserSettings,
+          patch,
+        )
       }
       return result
     },
@@ -178,7 +191,7 @@ beforeEach(async () => {
   completeOutputStyle = undefined
   completeModelSelection = undefined
   updateSettingsForTest = mock(
-    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+    (..._args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>) => ({
       error: persistError,
       written: persistWritten,
     }),
@@ -189,6 +202,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    actualFastModeModule.clearFastModeModelRestore()
     mock.restore()
   } finally {
     releaseSharedMutationLock()
@@ -196,6 +210,7 @@ afterEach(() => {
 })
 
 test('failed toggle persistence leaves displayed and dirty state unchanged', async () => {
+  persistError = new Error('settings file is locked')
   const { Config } = await import(`./Config.js?toggleFailure=${Date.now()}`)
   const { stdin, stdout, getFrame } = makeStdio()
   const onClose = mock(() => {})
@@ -224,9 +239,11 @@ test('failed toggle persistence leaves displayed and dirty state unchanged', asy
     await waitForCondition(() => !getFrame().includes('Type to filter'))
     stdin.write(' ')
     await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() => getFrame().includes('settings file is locked'))
 
     expect(getFrame()).toContain('Show tips')
     expect(getFrame()).toContain('true')
+    expect(getFrame()).toContain('Could not save setting')
 
     stdin.write('\u001b')
     await waitForCondition(() => onClose.mock.calls.length === 1)
@@ -357,6 +374,7 @@ test('failed submenu persistence keeps the submenu open and retryable', async ()
     await waitForCondition(() => completeOutputStyle !== undefined)
 
     completeOutputStyle?.('Explanatory')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
     expect(updateSettingsForTest).toHaveBeenCalledTimes(1)
     expect(setTabsHidden.mock.calls).toEqual([[true]])
     expect(getFrame()).toContain('Test output style picker')
@@ -414,10 +432,15 @@ test('failed model persistence keeps the model submenu open and retryable', asyn
       previousEffortLevel: 'low' as const,
       wroteEffort: true as const,
     }
-    completeModelSelection?.('claude-opus-4-5', undefined, undefined, persistence)
+    const modelError = completeModelSelection?.(
+      'claude-opus-4-5',
+      undefined,
+      undefined,
+      persistence,
+    )
     await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
-    await waitForCondition(() =>
-      getFrame().includes('Could not save model and effort preference'),
+    expect(modelError).toContain(
+      'Could not save model and effort preference: settings were not written',
     )
     expect(getFrame()).toContain('Test model picker')
     expect(setTabsHidden.mock.calls).toEqual([[true]])
@@ -491,6 +514,260 @@ test('failed rollback keeps Config open and retries on the next Escape', async (
     expect(updateSettingsForTest).toHaveBeenCalledTimes(
       successfulRollbackWriteCount,
     )
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('fast mode round trip restores the persisted and live model', async () => {
+  persistWritten = true
+  const previousModel = 'claude-sonnet-4-6'
+  const fastModeModel = 'claude-opus-4-6'
+  freshUserSettings = { ...initialSettings, model: previousModel }
+  mock.module('../../utils/fastMode.js', () => ({
+    ...actualFastModeModule,
+    isFastModeEnabled: () => true,
+    isFastModeAvailable: () => true,
+    getFastModeModel: () => fastModeModel,
+    clearFastModeCooldown: () => {},
+  }))
+
+  const { Config } = await import(`./Config.js?fastModeRoundTrip=${Date.now()}`)
+  const { stdin, stdout, getFrame } = makeStdio()
+  let latestState: ReturnType<typeof getDefaultAppState> = {
+    ...getDefaultAppState(),
+    mainLoopModel: previousModel,
+  }
+  const instance = await render(
+    <AppStateProvider
+      initialState={latestState}
+      onChangeAppState={({ newState }) => {
+        latestState = newState
+      }}
+    >
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={() => {}}
+          setTabsHidden={() => {}}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Type to filter'))
+    stdin.write('Fast mode')
+    await waitForCondition(() => getFrame().includes('⌕ Fast mode'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(
+      () =>
+        latestState.mainLoopModel === fastModeModel &&
+        latestState.fastMode === true,
+    )
+
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+    await waitForCondition(
+      () =>
+        latestState.mainLoopModel === previousModel &&
+        latestState.fastMode === false,
+    )
+
+    expect(updateSettingsForTest.mock.calls).toEqual([
+      ['userSettings', { fastMode: true, model: fastModeModel }],
+      ['userSettings', { fastMode: undefined, model: previousModel }],
+    ])
+    expect(freshUserSettings).toMatchObject({
+      model: previousModel,
+      fastMode: undefined,
+    })
+    expect(getFrame()).toContain('Fast mode')
+    expect(getFrame()).toContain('false')
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('fast mode disable preserves a supported model selected while fast mode is active', async () => {
+  persistWritten = true
+  const previousModel = 'claude-sonnet-4-6'
+  const fastModeModel = 'claude-opus-4-6'
+  const selectedModel = 'claude-opus-4-7'
+  freshUserSettings = { ...initialSettings, model: previousModel }
+  mock.module('../../utils/fastMode.js', () => ({
+    ...actualFastModeModule,
+    isFastModeEnabled: () => true,
+    isFastModeAvailable: () => true,
+    getFastModeModel: () => fastModeModel,
+    clearFastModeCooldown: () => {},
+  }))
+
+  const { Config } = await import(
+    `./Config.js?fastModeModelSelection=${Date.now()}`
+  )
+  const { stdin, stdout, getFrame } = makeStdio()
+  let latestState: ReturnType<typeof getDefaultAppState> = {
+    ...getDefaultAppState(),
+    mainLoopModel: previousModel,
+  }
+  const instance = await render(
+    <AppStateProvider
+      initialState={latestState}
+      onChangeAppState={({ newState }) => {
+        latestState = newState
+      }}
+    >
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={() => {}}
+          setTabsHidden={() => {}}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Type to filter'))
+    stdin.write('Fast mode')
+    await waitForCondition(() => getFrame().includes('⌕ Fast mode'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(
+      () =>
+        latestState.mainLoopModel === fastModeModel &&
+        latestState.fastMode === true,
+    )
+
+    stdin.write('M')
+    await waitForCondition(() => getFrame().includes('⌕ M'))
+    stdin.write('odel')
+    await waitForCondition(() => getFrame().includes('⌕ Model'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+    stdin.write(' ')
+    await waitForCondition(() => completeModelSelection !== undefined)
+    completeModelSelection?.(selectedModel, undefined)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+    await waitForCondition(() => latestState.mainLoopModel === selectedModel)
+
+    stdin.write('F')
+    await waitForCondition(() => getFrame().includes('⌕ F'))
+    stdin.write('ast mode')
+    await waitForCondition(() => getFrame().includes('⌕ Fast mode'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 3)
+    await waitForCondition(() => latestState.fastMode === false)
+
+    expect(updateSettingsForTest.mock.calls).toEqual([
+      ['userSettings', { fastMode: true, model: fastModeModel }],
+      ['userSettings', { model: selectedModel }],
+      ['userSettings', { fastMode: undefined, model: selectedModel }],
+    ])
+    expect(freshUserSettings).toMatchObject({
+      model: selectedModel,
+      fastMode: undefined,
+    })
+    expect(latestState.mainLoopModel).toBe(selectedModel)
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('failed fast mode disable keeps the fast model and latch active', async () => {
+  persistWritten = true
+  const previousModel = 'claude-sonnet-4-6'
+  const fastModeModel = 'claude-opus-4-6'
+  freshUserSettings = { ...initialSettings, model: previousModel }
+  mock.module('../../utils/fastMode.js', () => ({
+    ...actualFastModeModule,
+    isFastModeEnabled: () => true,
+    isFastModeAvailable: () => true,
+    getFastModeModel: () => fastModeModel,
+    clearFastModeCooldown: () => {},
+  }))
+
+  const { Config } = await import(`./Config.js?fastModeDisableFailure=${Date.now()}`)
+  const { stdin, stdout, getFrame } = makeStdio()
+  let latestState: ReturnType<typeof getDefaultAppState> = {
+    ...getDefaultAppState(),
+    mainLoopModel: previousModel,
+  }
+  const instance = await render(
+    <AppStateProvider
+      initialState={latestState}
+      onChangeAppState={({ newState }) => {
+        latestState = newState
+      }}
+    >
+      <KeybindingSetup>
+        <Config
+          context={context}
+          onClose={() => {}}
+          setTabsHidden={() => {}}
+        />
+      </KeybindingSetup>
+    </AppStateProvider>,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+    },
+  )
+
+  try {
+    await waitForCondition(() => getFrame().includes('Type to filter'))
+    stdin.write('Fast mode')
+    await waitForCondition(() => getFrame().includes('⌕ Fast mode'))
+    stdin.write('\r')
+    await waitForCondition(() => !getFrame().includes('Type to filter'))
+
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(
+      () =>
+        latestState.mainLoopModel === fastModeModel &&
+        latestState.fastMode === true,
+    )
+
+    persistError = new Error('settings file is locked')
+    persistWritten = false
+    stdin.write(' ')
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+
+    expect(updateSettingsForTest.mock.calls[1]).toEqual([
+      'userSettings',
+      { fastMode: undefined, model: previousModel },
+    ])
+    expect(latestState.mainLoopModel).toBe(fastModeModel)
+    expect(latestState.fastMode).toBe(true)
+    expect(getFrame()).toContain('true')
   } finally {
     instance.unmount()
     stdin.end()

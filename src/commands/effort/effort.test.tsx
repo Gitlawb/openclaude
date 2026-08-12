@@ -52,6 +52,7 @@ async function importFreshEffortCommandModule(
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettings,
     updateSettingsForSource: () => writeResult,
+    updateSettingsForSourceWithResult: () => writeResult,
   }))
   mock.module('../../utils/auth.js', () => ({
     ...actualAuth,

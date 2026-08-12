@@ -52,6 +52,7 @@ import {
   isFastModeAvailable,
   isFastModeEnabled,
   isFastModeSupportedByModel,
+  syncFastModeModelRestoreAfterSelection,
 } from '../../utils/fastMode.js'
 import { MODEL_ALIASES } from '../../utils/model/aliases.js'
 import {
@@ -89,7 +90,7 @@ import { parseModelList } from '../../utils/providerModels.js'
 import { withPrecommittedModelStateUpdate } from '../../state/onChangeAppState.js'
 import {
   getInitialSettings,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 import {
@@ -136,7 +137,7 @@ function persistModelSelection(
   model: string | null,
   additionalSettings: SettingsJson = {},
 ): string | null {
-  const result = updateSettingsForSource('userSettings', {
+  const result = updateSettingsForSourceWithResult('userSettings', {
     ...additionalSettings,
     model: model ?? undefined,
   })
@@ -870,6 +871,10 @@ function ModelPickerWrapper({
       }
       const crossProfileFastModeOn =
         (isFastMode ?? false) && fastModeSupportedNow && !shouldTurnFastModeOff
+      syncFastModeModelRestoreAfterSelection(
+        switchTarget.model,
+        crossProfileFastModeOn,
+      )
       if (shouldTurnFastModeOff) {
         switchMessage += ' · Fast mode OFF'
       } else if (crossProfileFastModeOn) {
@@ -910,6 +915,10 @@ function ModelPickerWrapper({
     if (isFastModeEnabled()) {
       clearFastModeCooldown()
     }
+    syncFastModeModelRestoreAfterSelection(
+      model,
+      fastModeResult !== 'off' && Boolean(isFastMode),
+    )
 
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1205,6 +1214,10 @@ function SetModelAndClose({
         isFastModeEnabled() &&
         !isFastModeSupportedByModel(modelValue) &&
         Boolean(isFastMode)
+      syncFastModeModelRestoreAfterSelection(
+        modelValue,
+        Boolean(isFastMode) && !shouldTurnFastModeOff,
+      )
       withPrecommittedModelStateUpdate(modelValue, () => {
         setAppState(prev => ({
           ...prev,

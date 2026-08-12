@@ -85,7 +85,7 @@ test('bypass-permission migration keeps the legacy flag after a rejected write',
     settingsModule,
     'hasSkipDangerousModePermissionPrompt',
   ).mockReturnValue(false)
-  spyOn(settingsModule, 'updateSettingsForSource').mockReturnValue({
+  spyOn(settingsModule, 'updateSettingsForSourceWithResult').mockReturnValue({
     error: new Error('settings locked'),
     written: false,
   })

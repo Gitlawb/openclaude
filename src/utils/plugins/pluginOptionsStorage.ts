@@ -20,7 +20,7 @@ import { getSecureStorage } from '../secureStorage/index.js'
 import {
   SETTINGS_UPDATE_NO_CHANGE,
   getSettings_DEPRECATED,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   updateSettingsForSourceWithFreshSettingsOrNoop,
   wasSettingsUpdateApplied,
   wasSettingsUpdateCommitted,
@@ -95,6 +95,10 @@ export function savePluginOptions(
   pluginId: string,
   values: PluginOptionValues,
   schema: PluginOptionSchema,
+  dependencies?: {
+    updateUserSettings?: typeof updateSettingsForSourceWithResult
+    secureStorage?: ReturnType<typeof getSecureStorage>
+  },
 ): void {
   const nonSensitive: PluginOptionValues = {}
   const sensitive: Record<string, string> = {}
@@ -115,7 +119,7 @@ export function savePluginOptions(
 
   // secureStorage FIRST — if keychain fails, throw before touching
   // settings.json so old plaintext (if any) stays as fallback.
-  const storage = getSecureStorage()
+  const storage = dependencies?.secureStorage ?? getSecureStorage()
   const existingInSecureStorage =
     storage.read()?.pluginSecrets?.[pluginId] ?? undefined
   const secureScrubbed = existingInSecureStorage
@@ -165,7 +169,7 @@ export function savePluginOptions(
     const scrubbed = Object.fromEntries(
       [...sensitiveKeysInThisSave].map(k => [k, undefined]),
     ) as Record<string, undefined>
-    const result = updateSettingsForSource('userSettings', {
+    const result = (dependencies?.updateUserSettings ?? updateSettingsForSourceWithResult)('userSettings', {
       pluginConfigs: {
         [pluginId]: {
           options: {
@@ -213,7 +217,7 @@ export function deletePluginOptions(
   // Settings side — also wipes the legacy mcpServers sub-key (same story:
   // orphaned on uninstall, never cleaned up before this PR).
   //
-  // Use `undefined` (not `delete`) because `updateSettingsForSource` merges
+  // Use `undefined` (not `delete`) because `updateSettingsForSourceWithResult` merges
   // via `mergeWith` — absent keys are ignored, only `undefined` triggers
   // removal. Cast is deliberate (CLAUDE.md's 10% case): adding z.undefined()
   // to the schema instead (like enabledPlugins:466 does) leaks
@@ -248,6 +252,7 @@ export function deletePluginOptions(
     )
     return { success: false, error }
   }
+  clearPluginOptionsCache()
 
   // Secure storage side — delete both the top-level pluginSecrets[pluginId]
   // and any per-server composite keys `${pluginId}/${server}` (from

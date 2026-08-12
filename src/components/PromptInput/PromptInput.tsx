@@ -65,7 +65,7 @@ import type { EffortLevel } from '../../utils/effort.js';
 import { env } from '../../utils/env.js';
 import { errorMessage } from '../../utils/errors.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
-import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
+import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel, syncFastModeModelRestoreAfterSelection } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
 import { extractDraggedFilePaths } from '../../utils/dragDropPaths.js';
@@ -2108,18 +2108,11 @@ function PromptInput({
     }, undefined, persistence?.settingsPatch);
     if (!wasSettingsUpdateCommitted(modelUpdate)) {
       const detail = modelUpdate.error?.message ?? 'settings were not written';
-      addNotification({
-        key: 'model-switch-failed',
-        jsx: <Text color="error">
-            Could not save model selection: {detail}
-          </Text>,
-        priority: 'immediate',
-        timeoutMs: 5000
-      });
       return `Could not save model and effort preference: ${detail}`;
     }
     setShowModelPicker(false);
     const effectiveFastMode = (isFastMode ?? false) && !wasFastModeDisabled;
+    syncFastModeModelRestoreAfterSelection(model, effectiveFastMode);
     let message = `Model set to ${modelDisplayString(model)}`;
     if (isBilledAsExtraUsage(model, effectiveFastMode, isOpus1mMergeEnabled())) {
       message += ' · Billed as extra usage';

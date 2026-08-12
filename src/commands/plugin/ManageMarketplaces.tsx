@@ -19,7 +19,7 @@ import { loadKnownMarketplacesConfig, refreshMarketplace, removeMarketplaceSourc
 import { updatePluginsForMarketplaces } from '../../utils/plugins/pluginAutoupdate.js';
 import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { isMarketplaceAutoUpdate } from '../../utils/plugins/schemas.js';
-import { updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { plural } from '../../utils/stringUtils.js';
 import type { ViewState } from './types.js';
 type Props = {
@@ -203,11 +203,12 @@ export function ManageMarketplaces({
               // Mark as disabled/uninstalled
               newEnabledPlugins[pluginId] = false;
             }
-            const result = updateSettingsForSource('userSettings', {
+            const result = updateSettingsForSourceWithResult('userSettings', {
               enabledPlugins: newEnabledPlugins
             });
             if (!wasSettingsUpdateCommitted(result)) {
-              throw result.error ?? new Error('Settings update was not written');
+              setProcessError(result.error?.message ?? 'Settings update was not written');
+              return;
             }
           }
 

@@ -38,7 +38,7 @@ import { useTabHeaderFocus } from '../design-system/Tabs.js';
 import { useIsInsideModal } from '../../context/modalContext.js';
 import { SearchBox } from '../SearchBox.js';
 import { isSupportedTerminal, hasAccessToIDEExtensionDiffFeature } from '../../utils/ide.js';
-import { getInitialSettings, getSettingsForSource, updateSettingsForSource, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+import { getInitialSettings, getSettingsForSource, updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import type { SettingsJson } from '../../utils/settings/types.js';
 import { commitModelSettingsTransition, commitSettingsTransition, mergeSettingsTransitions, rollbackModelSettingsTransition, type ModelSettingsTransition } from '../../utils/settings/modelTransition.js';
 import { getUserMsgOptIn, setUserMsgOptIn } from '../../bootstrap/state.js';
@@ -51,7 +51,7 @@ import { getCliTeammateModeOverride, clearCliTeammateModeOverride } from '../../
 import { getHardcodedTeammateModelFallback } from '../../utils/swarm/teammateModel.js';
 import { useSearchInput } from '../../hooks/useSearchInput.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
-import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeEnabled, getFastModeModel, isFastModeSupportedByModel } from '../../utils/fastMode.js';
+import { clearFastModeCooldown, clearFastModeOveragePreferenceCleanup, FAST_MODE_MODEL_DISPLAY, getFastModeModel, getFastModeModelRestore, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel, setFastModeModelRestore } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { getDefaultPermissionModeOptions } from '../../utils/permissions/defaultPermissionModeOptions.js';
 type Props = {
@@ -88,10 +88,6 @@ type Setting = (SettingBase & {
   type: 'managedEnum';
 });
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
-function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
-  const result = updateSettingsForSource(source, settings);
-  return wasSettingsUpdateCommitted(result);
-}
 export function Config({
   onClose,
   context,
@@ -150,7 +146,7 @@ export function Config({
   const initialThinkingEnabled = React.useRef(thinkingEnabled);
   // Per-source settings snapshots for revert-on-escape. getInitialSettings()
   // returns merged-across-sources which can't tell us what to delete vs
-  // restore; per-source snapshots + updateSettingsForSource's
+  // restore; per-source snapshots + updateSettingsForSourceWithResult's
   // undefined-deletes-key semantics can. Lazy-init via useState (no setter) to
   // avoid reading settings files on every render — useRef evaluates its arg
   // eagerly even though only the first result is kept.
@@ -185,9 +181,20 @@ export function Config({
   // opening-then-closing doesn't trigger redundant disk writes.
   const isDirty = React.useRef(false);
   const settingsRollbackTransition = React.useRef<ModelSettingsTransition | null>(null);
+  const initialFastModeRestoreModel = React.useRef(getFastModeModelRestore());
+  const fastModeRestoreModel = React.useRef(initialFastModeRestoreModel.current);
   const [showThinkingWarning, setShowThinkingWarning] = useState(false);
   const [showSubmenu, setShowSubmenu] = useState<SubMenu | null>(null);
   const [revertError, setRevertError] = useState<string | null>(null);
+  function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
+    const result = updateSettingsForSourceWithResult(source, settings);
+    if (!wasSettingsUpdateCommitted(result)) {
+      setRevertError(`Could not save setting: ${result.error?.message ?? 'settings were not written'}`);
+      return false;
+    }
+    setRevertError(result.error ? `Setting was saved, but cleanup failed: ${result.error.message}` : null);
+    return true;
+  }
   const {
     query: searchQuery,
     setQuery: setSearchQuery,
@@ -230,10 +237,16 @@ export function Config({
     const modelTransition = commitModelSettingsTransition(value, persistence?.settingsPatch);
     if (!wasSettingsUpdateCommitted(modelTransition.result)) {
       const error = `Could not save model and effort preference: ${modelTransition.result.error?.message ?? 'settings were not written'}`;
-      setRevertError(error);
       return { success: false, error };
     }
     settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, modelTransition.transition!);
+    if (fastModeRestoreModel.current) {
+      fastModeRestoreModel.current = {
+        persistedModel: value ?? undefined,
+        liveModel: value
+      };
+      setFastModeModelRestore(fastModeRestoreModel.current);
+    }
     withPrecommittedModelStateUpdate(value, () => {
       setAppState(prev => ({
         ...prev,
@@ -519,14 +532,25 @@ export function Config({
     type: 'boolean' as const,
     onChange(enabled_0: boolean) {
       const fastModeModel = getFastModeModel();
+      const restoreModel = fastModeRestoreModel.current;
       const transition = commitSettingsTransition({
         fastMode: enabled_0 ? true : undefined,
-        ...(enabled_0 ? { model: fastModeModel } : {})
+        ...(enabled_0 ? { model: fastModeModel } : restoreModel ? { model: restoreModel.persistedModel } : {})
       });
-      if (!wasSettingsUpdateCommitted(transition.result)) return false;
+      if (!wasSettingsUpdateCommitted(transition.result)) {
+        setRevertError(`Could not save Fast mode: ${transition.result.error?.message ?? 'settings were not written'}`);
+        return false;
+      }
+      setRevertError(null);
       settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, transition.transition!);
       clearFastModeCooldown();
       if (enabled_0) {
+        clearFastModeOveragePreferenceCleanup();
+        fastModeRestoreModel.current = {
+          persistedModel: transition.transition!.previous.model,
+          liveModel: mainLoopModel
+        };
+        setFastModeModelRestore(fastModeRestoreModel.current);
         withPrecommittedModelStateUpdate(fastModeModel, () => {
           setAppState(prev_7 => ({
             ...prev_7,
@@ -541,14 +565,25 @@ export function Config({
           'Fast mode': 'ON'
         }));
       } else {
-        setAppState(prev_9 => ({
-          ...prev_9,
-          fastMode: false
-        }));
+        const restoredModel = restoreModel?.liveModel ?? null;
+        const updateState = () => setAppState(prev_9 => ({
+            ...prev_9,
+            ...(restoreModel ? {
+              mainLoopModel: restoredModel,
+              mainLoopModelForSession: null
+            } : {}),
+            fastMode: false
+          }));
+        if (restoreModel) withPrecommittedModelStateUpdate(restoredModel, updateState);else updateState();
         setChanges(prev_10 => ({
           ...prev_10,
+          ...(restoreModel ? {
+            model: modelDisplayString(restoredModel)
+          } : {}),
           'Fast mode': 'OFF'
         }));
+        fastModeRestoreModel.current = null;
+        setFastModeModelRestore(null);
       }
     }
   }] : []), ...(getFeatureValue_CACHED_MAY_BE_STALE('tengu_chomp_inflection', false) ? [{
@@ -1397,16 +1432,16 @@ export function Config({
       }
     }
     // Settings files: restore each key Config may have touched. undefined
-    // deletes the key (updateSettingsForSource customizer at settings.ts:368).
+    // deletes the key (updateSettingsForSourceWithResult customizer at settings.ts:368).
     const il = initialLocalSettings;
-    const localRollback = updateSettingsForSource('localSettings', {
+    const localRollback = updateSettingsForSourceWithResult('localSettings', {
       spinnerTipsEnabled: il?.spinnerTipsEnabled,
       prefersReducedMotion: il?.prefersReducedMotion,
       defaultView: il?.defaultView,
       outputStyle: il?.outputStyle
     });
     const iu = initialUserSettings;
-    const userRollback = updateSettingsForSource('userSettings', {
+    const userRollback = updateSettingsForSourceWithResult('userSettings', {
       alwaysThinkingEnabled: iu?.alwaysThinkingEnabled,
       promptSuggestionEnabled: iu?.promptSuggestionEnabled,
       autoUpdatesChannel: iu?.autoUpdatesChannel,
@@ -1434,9 +1469,9 @@ export function Config({
     const fastModeRestored = transitionRestored && expectedSettings !== null && 'fastMode' in expectedSettings.attempted;
     if (
       [localRollback, userRollback].some(result => !wasSettingsUpdateCommitted(result)) ||
-      settingsRollback.status === 'failed'
+      settingsRollback.status !== 'restored'
     ) {
-      setRevertError('Could not restore settings. Press Esc to retry. Press Enter to close.');
+      setRevertError(settingsRollback.status === 'superseded' ? 'Settings changed in another process and were not overwritten. Press Enter to close.' : 'Could not restore settings. Press Esc to retry. Press Enter to close.');
       return false;
     }
     setRevertError(null);
@@ -1474,6 +1509,8 @@ export function Config({
     if (getUserMsgOptIn() !== initialUserMsgOptIn) {
       setUserMsgOptIn(initialUserMsgOptIn);
     }
+    fastModeRestoreModel.current = initialFastModeRestoreModel.current;
+    setFastModeModelRestore(initialFastModeRestoreModel.current);
     return true;
   }, [themeSetting, setTheme, initialLocalSettings, initialUserSettings, initialAppState, initialUserMsgOptIn, setAppState]);
 

@@ -3,7 +3,7 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logError } from '../utils/log.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 /**
@@ -28,7 +28,7 @@ export function migrateAutoUpdatesToSettings(): void {
 
     // Always set DISABLE_AUTOUPDATER to preserve user intent
     // We need to overwrite even if it exists, to ensure the migration is complete
-    const result = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         DISABLE_AUTOUPDATER: '1',
       },

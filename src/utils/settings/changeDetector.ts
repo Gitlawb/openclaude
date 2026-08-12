@@ -458,10 +458,8 @@ async function refreshPhysicalSettingsTargetsNow(
   }
   for (const dir of [...activeWatchDirectories]) {
     if (desiredDirectories.has(dir)) continue
-    // Forget bookkeeping before unwatch so a partial unwatch followed by a
-    // rejection cannot prevent a later target refresh from adding it again.
-    activeWatchDirectories.delete(dir)
     await watcher.unwatch(dir)
+    activeWatchDirectories.delete(dir)
   }
   return targetChanged
 }

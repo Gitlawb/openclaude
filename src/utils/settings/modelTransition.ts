@@ -1,4 +1,6 @@
+import { stableStringify } from '../stableStringify.js'
 import {
+  applySettingsPatch,
   SETTINGS_UPDATE_NO_CHANGE,
   type SettingsWriteResult,
   updateSettingsForSourceWithFreshSettings,
@@ -24,7 +26,7 @@ type ModelSettingsTransitionDependencies = {
 }
 
 function sameSettingValue(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+  return stableStringify(left) === stableStringify(right)
 }
 
 /**
@@ -43,8 +45,12 @@ export function commitSettingsTransition(
   const result = (
     dependencies.updateFresh ?? updateSettingsForSourceWithFreshSettings
   )('userSettings', freshSettings => {
+    const mergedSettings = applySettingsPatch(freshSettings, attempted)
+    const attemptedKeys = Object.keys(attempted) as Array<keyof SettingsJson>
     transition = {
-      attempted: structuredClone(attempted),
+      attempted: Object.fromEntries(
+        attemptedKeys.map(key => [key, structuredClone(mergedSettings[key])]),
+      ) as SettingsJson,
       previous: structuredClone(freshSettings),
     }
     return attempted

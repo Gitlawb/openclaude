@@ -8,7 +8,7 @@ import type {
 import { logForDebugging } from '../debug.js'
 import type { EditableSettingSource } from '../settings/constants.js'
 import {
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   updateSettingsForSourceWithFreshSettings,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
@@ -326,7 +326,7 @@ export function persistPermissionUpdate(update: PermissionUpdate): boolean {
         `Persisting mode '${update.mode}' to ${update.destination}`,
       )
       return wasSettingsUpdateCommitted(
-        updateSettingsForSource(update.destination, {
+        updateSettingsForSourceWithResult(update.destination, {
           permissions: {
             defaultMode: update.mode,
           },
@@ -340,7 +340,7 @@ export function persistPermissionUpdate(update: PermissionUpdate): boolean {
       )
       const ruleStrings = update.rules.map(permissionRuleValueToString)
       return wasSettingsUpdateCommitted(
-        updateSettingsForSource(update.destination, {
+        updateSettingsForSourceWithResult(update.destination, {
           permissions: {
             [update.behavior]: ruleStrings,
           },

@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterAll, expect, mock, test } from 'bun:test'
+import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -21,7 +21,7 @@ const actualSettings = await import(
 type SettingsModule = typeof import('../utils/settings/settings.js')
 let colorModuleUnavailableReason: string | null = 'env'
 let updateSettingsForTest = mock(
-  (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+  (..._args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>) => ({
     error: null as Error | null,
     written: true,
   }),
@@ -31,6 +31,9 @@ mock.module('../utils/settings/settings.js', () => ({
   ...actualSettings,
   updateSettingsForSource: (
     ...args: Parameters<SettingsModule['updateSettingsForSource']>
+  ) => ({ error: updateSettingsForTest(...args).error }),
+  updateSettingsForSourceWithResult: (
+    ...args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>
   ) => updateSettingsForTest(...args),
 }))
 
@@ -45,6 +48,16 @@ mock.module('./StructuredDiff/colorDiff.js', () => ({
   getColorModuleUnavailableReason: () => colorModuleUnavailableReason,
   getSyntaxTheme: () => null,
 }))
+
+beforeEach(() => {
+  colorModuleUnavailableReason = 'env'
+  updateSettingsForTest = mock(
+    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
+      error: null,
+      written: true,
+    }),
+  )
+})
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -276,6 +289,7 @@ test('advances syntax state when bytes landed before a release error', async () 
     await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
     stdin.write('\x14')
     await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() => observedSyntaxDisabled)
 
     expect(updateSettingsForTest).toHaveBeenCalledWith('userSettings', {
       syntaxHighlightingDisabled: true,

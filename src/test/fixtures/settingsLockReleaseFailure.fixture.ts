@@ -92,16 +92,16 @@ setFsImplementation({
   },
 })
 
-const { updateSettingsForSource } = await import(
+const { updateSettingsForSourceWithResult } = await import(
   '../../utils/settings/settings.js'
 )
 try {
-  const first = updateSettingsForSource('userSettings', {
+  const first = updateSettingsForSourceWithResult('userSettings', {
     env: { FIRST_ATTEMPT: mode },
   })
 
   setOriginalFsImplementation()
-  const retry = updateSettingsForSource('userSettings', {
+  const retry = updateSettingsForSourceWithResult('userSettings', {
     env: { RETRY_AFTER_RELEASE: mode },
   })
 

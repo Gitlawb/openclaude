@@ -44,7 +44,7 @@ import {
   getInitialSettings,
   getSettingsFilePathForSource,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   updateSettingsForSourceWithFreshSettings,
   updateSettingsForSourceWithFreshSettingsOrNoop,
   wasSettingsUpdateApplied,
@@ -87,6 +87,10 @@ import {
 } from './pluginDirectories.js'
 import { parsePluginIdentifier } from './pluginIdentifier.js'
 import { deletePluginOptions } from './pluginOptionsStorage.js'
+import {
+  resolvePathWithinBase,
+  validatePathWithinBase,
+} from './pathConfinement.js'
 import {
   isLocalMarketplaceSource,
   type KnownMarketplace,
@@ -306,8 +310,8 @@ export function saveMarketplaceToSettings(
     | 'userSettings'
     | 'projectSettings'
     | 'localSettings' = 'userSettings',
-): ReturnType<typeof updateSettingsForSource> {
-  return updateSettingsForSource(settingSource, {
+): ReturnType<typeof updateSettingsForSourceWithResult> {
+  return updateSettingsForSourceWithResult(settingSource, {
     extraKnownMarketplaces: { [name]: entry },
   })
 }
@@ -2046,13 +2050,54 @@ export async function addMarketplaceSource(
  * @param name - The marketplace name to remove
  * @throws If marketplace with given name is not found
  */
-export async function removeMarketplaceSource(name: string): Promise<void> {
+type MarketplaceRemovalDependencies = {
+  getCleanupSnapshot?: typeof getMarketplacePluginCleanupSnapshot
+  deleteOptions?: typeof deletePluginOptions
+  orphanVersion?: typeof markPluginVersionOrphaned
+  deleteData?: typeof deletePluginDataDir
+  removePlugins?: typeof removeAllPluginsForMarketplace
+}
+
+export async function removeMarketplaceSource(
+  name: string,
+  dependencies: MarketplaceRemovalDependencies = {},
+): Promise<void> {
+  // Older persisted configs may predate MarketplaceNameSchema. Reject path-like
+  // keys before reading config or resolving cache targets so a crafted name
+  // cannot traverse through a symlinked cache parent during removal.
+  if (
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('..') ||
+    name === '.'
+  ) {
+    throw new Error(
+      `Invalid marketplace name '${name}': path separators, ".." sequences, and "." are not allowed`,
+    )
+  }
+
+  const getCleanupSnapshot =
+    dependencies.getCleanupSnapshot ?? getMarketplacePluginCleanupSnapshot
   const config = await loadKnownMarketplacesConfig()
-  const cleanupSnapshot = getMarketplacePluginCleanupSnapshot(name)
+  const cleanupSnapshot = getCleanupSnapshot(name)
   const entry = config[name]
 
   if (!entry && cleanupSnapshot.pluginIds.length === 0) {
     throw new Error(`Marketplace '${name}' not found`)
+  }
+
+  // Resolve every cache-owned deletion target before mutating settings or the
+  // plugin registry. Local file/directory sources point at user-owned paths and
+  // must never be deleted by marketplace removal.
+  const cacheDir = getMarketplacesCacheDir()
+  const jsonCachePath = resolvePathWithinBase(cacheDir, `${name}.json`)
+  let cachePath: string | null = null
+  if (!entry || !isLocalMarketplaceSource(entry.source)) {
+    const configuredPath = entry?.installLocation ?? name.toLowerCase()
+    const resolvedPath = resolvePathWithinBase(cacheDir, configuredPath)
+    cachePath = existsSync(resolvedPath)
+      ? validatePathWithinBase(cacheDir, configuredPath)
+      : resolvedPath
   }
 
   // Seed-registered marketplaces are admin-baked into the container — removing
@@ -2089,6 +2134,7 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
     const result = updateSettingsForSourceWithFreshSettingsOrNoop(
       source,
       freshSettings => {
+        needsUpdate = false
         const updates: SettingsJson = {}
         if (freshSettings.extraKnownMarketplaces?.[name]) {
           updates.extraKnownMarketplaces = {
@@ -2131,7 +2177,7 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
   let currentSnapshot = cleanupSnapshot
   while (currentSnapshot.pluginIds.length > 0) {
     for (const pluginId of currentSnapshot.pluginIds) {
-      const cleanup = deletePluginOptions(pluginId)
+      const cleanup = (dependencies.deleteOptions ?? deletePluginOptions)(pluginId)
       if (!cleanup.success) {
         throw new Error(
           `Stored options for '${pluginId}' could not be cleared: ${cleanup.error ?? 'cleanup did not complete'}`,
@@ -2139,23 +2185,24 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
       }
     }
     for (const installPath of currentSnapshot.orphanedPaths) {
-      await markPluginVersionOrphaned(installPath)
+      await (dependencies.orphanVersion ?? markPluginVersionOrphaned)(installPath)
     }
     for (const pluginId of currentSnapshot.pluginIds) {
-      await deletePluginDataDir(pluginId, { throwOnError: true })
+      await (dependencies.deleteData ?? deletePluginDataDir)(pluginId, { throwOnError: true })
     }
 
-    removeAllPluginsForMarketplace(name, {
+    ;(dependencies.removePlugins ?? removeAllPluginsForMarketplace)(name, {
       pluginIds: currentSnapshot.pluginIds,
     })
-    currentSnapshot = getMarketplacePluginCleanupSnapshot(name)
+    const nextSnapshot = getCleanupSnapshot(name)
+    assertMarketplaceCleanupProgress(currentSnapshot, nextSnapshot)
+    currentSnapshot = nextSnapshot
   }
 
   const fs = getFsImplementation()
-  const cacheDir = getMarketplacesCacheDir()
-  const cachePath = entry?.installLocation ?? join(cacheDir, name.toLowerCase())
-  await fs.rm(cachePath, { recursive: true, force: true })
-  const jsonCachePath = join(cacheDir, `${name}.json`)
+  if (cachePath) {
+    await fs.rm(cachePath, { recursive: true, force: true })
+  }
   await fs.rm(jsonCachePath, { force: true })
 
   // Retain the exact installLocation until the final registry snapshot and
@@ -2167,6 +2214,17 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
   }
 
   logForDebugging(`Removed marketplace source: ${name}`)
+}
+
+function assertMarketplaceCleanupProgress(
+  current: { pluginIds: string[] },
+  next: { pluginIds: string[] },
+): void {
+  if (next.pluginIds.length >= current.pluginIds.length) {
+    throw new Error(
+      'Marketplace plugin cleanup made no progress; retry removal after concurrent plugin changes settle',
+    )
+  }
 }
 
 /**

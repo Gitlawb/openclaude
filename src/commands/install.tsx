@@ -11,7 +11,7 @@ import { env } from '../utils/env.js';
 import { errorMessage } from '../utils/errors.js';
 import { hasNativeDistribution } from '../utils/nativeDistribution.js';
 import { checkInstall, cleanupNpmInstallations, cleanupShellAliases, installLatest, repairNativeLauncher } from '../utils/nativeInstaller/index.js';
-import { getInitialSettings, updateSettingsForSource, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
+import { getInitialSettings, updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 interface InstallProps {
   onDone: (result: string, options?: {
     display?: CommandResultDisplay;
@@ -194,7 +194,7 @@ export function Install({
         let channelSettingsWarning: string | null = null;
         // If user explicitly specified a channel, save it to settings
         if (target === 'latest' || target === 'stable') {
-          const settingsResult = updateSettingsForSource('userSettings', {
+          const settingsResult = updateSettingsForSourceWithResult('userSettings', {
             autoUpdatesChannel: target
           });
           if (wasSettingsUpdateCommitted(settingsResult)) {

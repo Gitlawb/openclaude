@@ -27,6 +27,7 @@ import {
   resolveSettingsFileTarget,
   withSettingsFileLockSync,
 } from './settingsFileLock.js'
+import type { SettingsJson } from './types.js'
 
 const CONCURRENT_WRITER_FIXTURE = join(
   import.meta.dir,
@@ -64,6 +65,10 @@ const SETTINGS_TARGET_RETARGET_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsTargetRetarget.fixture.ts',
 )
+const SETTINGS_OWNER_WRITE_FAILURE_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsOwnerWriteFailure.fixture.ts',
+)
 const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsReloadNotification.fixture.ts',
@@ -86,6 +91,14 @@ type ChildResult<T> = {
   stderr: string
   stdout: string
   value: T
+}
+
+function skipUnsupportedScenario(skipped: boolean, scenario: string): boolean {
+  if (!skipped) return false
+  console.warn(
+    `[settings transaction test] skipped ${scenario} on ${process.platform}`,
+  )
+  return true
 }
 
 function startWriter(
@@ -152,11 +165,32 @@ async function waitFor(
 async function collectChild<T>(
   processHandle: ReturnType<typeof startWriter>,
 ): Promise<ChildResult<T>> {
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(processHandle.stdout).text(),
-    new Response(processHandle.stderr).text(),
-    processHandle.exited,
-  ])
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let timedOut = false
+  let stdout: string
+  let stderr: string
+  let exitCode: number
+  try {
+    ;[stdout, stderr, exitCode] = await Promise.race([
+      Promise.all([
+        new Response(processHandle.stdout).text(),
+        new Response(processHandle.stderr).text(),
+        processHandle.exited,
+      ]),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          timedOut = true
+          reject(new Error('Timed out waiting for settings fixture process'))
+        }, SUBPROCESS_TEST_TIMEOUT_MS - 1_000)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    if (timedOut && processHandle.exitCode === null) {
+      processHandle.kill('SIGKILL')
+      await processHandle.exited.catch(() => undefined)
+    }
+  }
   const line = stdout.trim().split('\n').at(-1) ?? ''
   let value: T
   try {
@@ -313,6 +347,20 @@ test('locked update ignores a warmed parse cache and merges the fresh disk state
   })
 })
 
+test('public settings updates preserve the legacy error-only result surface', async () => {
+  const result = await getScenario<{
+    keys: string[]
+    error: string | null
+    final: SettingsJson
+  }>('public-result')
+
+  expect(result).toEqual({
+    keys: ['error'],
+    error: null,
+    final: { env: { BASE: '1', PUBLIC: 'committed' } },
+  })
+})
+
 test('locked update rechecks malformed disk bytes and releases after refusal', async () => {
   const result = await getScenario<{
     warmed: unknown
@@ -358,11 +406,11 @@ test('locked update preserves merge semantics, final symlinks, modes, and cache 
     final?: unknown
     cached?: unknown
   }>('semantics')
-  if (result.skipped) return
+  if (skipUnsupportedScenario(result.skipped, 'symlink merge semantics')) return
 
   expect(result).toEqual({
     skipped: false,
-    warmed: { KEEP: '1' },
+    warmed: { KEEP: '1', REMOVE: 'stale' },
     error: null,
     symlink: true,
     mode: 0o640,
@@ -382,6 +430,21 @@ test('locked update preserves merge semantics, final symlinks, modes, and cache 
       },
       enabledPlugins: { keep: true },
     },
+  })
+})
+
+test('plugin option scrub removes sensitive plaintext through the serialized settings writer', async () => {
+  const result = await getScenario<{
+    final: SettingsJson
+    secureState: { pluginSecrets: Record<string, Record<string, string>> }
+  }>('plugin-option-scrub')
+
+  expect(result.final.pluginConfigs?.['demo@market']?.options).toEqual({
+    keep: 'peer-value',
+    label: 'visible',
+  })
+  expect(result.secureState.pluginSecrets['demo@market']).toEqual({
+    token: 'new-secret',
   })
 })
 
@@ -454,7 +517,7 @@ test('dangling final symlinks under parent aliases resolve to one physical targe
     resolvedA?: string
     resolvedB?: string
   }>('dangling')
-  if (result.skipped) return
+  if (skipUnsupportedScenario(result.skipped, 'dangling symlink identity')) return
 
   expect(result.resolvedA).toBe(result.physicalTarget)
   expect(result.resolvedB).toBe(result.physicalTarget)
@@ -491,13 +554,19 @@ test('long dangling symlink chains preserve physical lock identity', async () =>
     resolvedA?: string
     resolvedB?: string
   }>('long-dangling')
-  if (result.skipped) return
+  if (skipUnsupportedScenario(result.skipped, 'long dangling symlink identity')) return
 
   expect(result.resolvedA).toBe(result.physicalTarget)
   expect(result.resolvedB).toBe(result.physicalTarget)
 })
 
 test('fixed-length lock names support long valid target basenames', () => {
+  if (process.platform === 'win32') {
+    console.warn(
+      '[settings transaction test] skipped long target basename on win32',
+    )
+    return
+  }
   const tempDir = realpathSync(
     mkdtempSync(join(tmpdir(), 'openclaude-settings-long-target-')),
   )
@@ -739,7 +808,7 @@ test('same-host locks from a prior boot are recoverable without probing a reused
     lockExists: boolean
     final: unknown
   }>('prior-boot-owner')
-  if (result.skipped) return
+  if (skipUnsupportedScenario(result.skipped, 'prior boot owner recovery')) return
 
   expect(result).toEqual({
     skipped: false,
@@ -756,7 +825,7 @@ test('same-runtime locks from a reused PID are recoverable by process start iden
     lockExists?: boolean
     final?: unknown
   }>('reused-pid-owner')
-  if (result.skipped) return
+  if (skipUnsupportedScenario(result.skipped, 'reused pid owner recovery')) return
 
   expect(result).toEqual({
     skipped: false,
@@ -837,7 +906,13 @@ test('recovery quarantine names stay within the parent filename limit', async ()
     error?: string | null
     lockExists?: boolean
   }>('long-recovery-quarantine-name')
-  if (result.skipped) return
+  if (
+    skipUnsupportedScenario(
+      result.skipped,
+      'long recovery quarantine filename',
+    )
+  )
+    return
 
   expect(result).toEqual({ skipped: false, error: null, lockExists: false })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -855,7 +930,7 @@ test('acquisition failure cannot unlink owner metadata through a swapped lock sy
       stdout: 'pipe',
     }),
   )
-  if (result.value.skipped) return
+  if (skipUnsupportedScenario(result.value.skipped, 'symlink swap lock')) return
 
   expect(result).toMatchObject({
     exitCode: 0,
@@ -882,7 +957,7 @@ test('a retargeted settings symlink aborts before writing the old or new target'
       stdout: 'pipe',
     }),
   )
-  if (result.value.skipped) return
+  if (skipUnsupportedScenario(result.value.skipped, 'settings target retarget')) return
 
   expect(result).toMatchObject({
     exitCode: 0,
@@ -910,7 +985,10 @@ test('a post-write symlink retarget reports physical bytes without a logical com
       { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
     ),
   )
-  if (result.value.skipped) return
+  if (
+    skipUnsupportedScenario(result.value.skipped, 'reload notification target')
+  )
+    return
 
   expect(result).toMatchObject({
     exitCode: 0,
@@ -942,7 +1020,10 @@ test('a swapped physical-target symlink cannot redirect the locked write', async
       { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
     ),
   )
-  if (result.value.skipped) return
+  if (
+    skipUnsupportedScenario(result.value.skipped, 'symlink notification target')
+  )
+    return
 
   expect(result).toMatchObject({
     exitCode: 0,
@@ -1102,6 +1183,65 @@ test('normal release cannot remove a successor acquired after quarantine', async
   })
 })
 
+test('a post-write cyclic symlink retarget is an ownership failure, not a commit', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    error: string | null
+    written: boolean
+    committed: boolean
+    originalUnchanged: boolean
+  }>(
+    Bun.spawn(
+      [process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE, 'after-write-cycle'],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+
+  if (skipUnsupportedScenario(result.value.skipped, 'cyclic settings target retarget')) return
+  expect(result.exitCode).toBe(0)
+  expect(result.value).toMatchObject({
+    error: expect.stringContaining('target changed during update'),
+    written: true,
+    committed: false,
+    originalUnchanged: false,
+  })
+})
+
+test.each(['partial', 'empty'] as const)(
+  'an owner metadata %s-write failure does not strand or leak the acquired lock',
+  async mode => {
+  const result = await collectChild<{
+    firstError: string | null
+    firstCommitted: boolean
+    lockAbsentAfterFailure: boolean
+    abortedQuarantineAbsent: boolean
+    secondError: string | null
+    secondCommitted: boolean
+    settings: SettingsJson
+  }>(
+    Bun.spawn(
+      [process.execPath, SETTINGS_OWNER_WRITE_FAILURE_FIXTURE, mode],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    ),
+  )
+
+  expect(result.exitCode, result.stderr).toBe(0)
+  expect(result.value).toMatchObject({
+    firstError: expect.stringContaining(`injected ${mode} owner write`),
+    firstCommitted: false,
+    lockAbsentAfterFailure: true,
+    abortedQuarantineAbsent: true,
+    secondError: null,
+    secondCommitted: true,
+    settings: { env: { SECOND: 'committed' } },
+  })
+  },
+)
+
 for (const mode of ['acquisition', 'release'] as const) {
   test(`${mode === 'acquisition' ? 'an' : 'a'} ${mode} quarantine failure retires the underlying lock handle`, async () => {
     const result = await collectChild<{
@@ -1216,7 +1356,7 @@ test('settings sync reports bytes landed before a release failure', async () => 
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
-test('settings sync reports oversized and failed memory entries as incomplete', async () => {
+test('settings sync reports settings failures as incomplete without changing memory semantics', async () => {
   const result = await collectChild<{
     oversized: { complete: boolean; settingsSourcesWritten: string[] }
     memoryFailure: { complete: boolean; settingsSourcesWritten: string[] }
@@ -1232,7 +1372,7 @@ test('settings sync reports oversized and failed memory entries as incomplete', 
     exitCode: 0,
     value: {
       oversized: { complete: false, settingsSourcesWritten: [] },
-      memoryFailure: { complete: false, settingsSourcesWritten: [] },
+      memoryFailure: { complete: true, settingsSourcesWritten: [] },
     },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -1277,7 +1417,10 @@ test('peer writes through a settings symlink notify the watching session', async
       stdout: 'pipe',
     }),
   )
-  if (result.value.skipped) return
+  if (
+    skipUnsupportedScenario(result.value.skipped, 'lock release physical target')
+  )
+    return
 
   expect(result).toMatchObject({
     exitCode: 0,

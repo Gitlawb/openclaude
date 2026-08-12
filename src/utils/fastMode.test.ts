@@ -259,6 +259,33 @@ describe('isFastModeSupportedByModel — Opus model gate (#1769)', () => {
 })
 
 describe('fastMode ant-only fallback cleanup', () => {
+  test('overage rejection reports an uncommitted preference and retries it', async () => {
+    const {
+      handleFastModeOverageRejection,
+      onFastModeOverageRejection,
+      persistOverageDisabledFastModePreferenceIfNeeded,
+    } = await importFreshFastModeModule()
+    const messages: string[] = []
+    const unsubscribe = onFastModeOverageRejection(message => {
+      messages.push(message)
+    })
+    const persist = mock()
+      .mockReturnValueOnce({ error: new Error('lock busy'), written: false })
+      .mockReturnValueOnce({ error: null, written: true })
+
+    try {
+      handleFastModeOverageRejection('member_level_disabled', persist)
+      persistOverageDisabledFastModePreferenceIfNeeded(persist)
+
+      expect(persist).toHaveBeenCalledTimes(2)
+      expect(messages).toEqual([
+        'Could not save the disabled Fast mode preference · retrying',
+      ])
+    } finally {
+      unsubscribe()
+    }
+  })
+
   test('API rejection carries a failed cleanup into the next status retry', async () => {
     const {
       handleFastModeRejectedByAPI,
@@ -301,6 +328,27 @@ describe('fastMode ant-only fallback cleanup', () => {
     persistOrgDisabledFastModePreferenceIfNeeded(true, false, persist)
 
     expect(persist).toHaveBeenCalledTimes(1)
+  })
+
+  test('model selections refresh or clear the same-session restore point', async () => {
+    const {
+      getFastModeModelRestore,
+      setFastModeModelRestore,
+      syncFastModeModelRestoreAfterSelection,
+    } = await importFreshFastModeModule()
+
+    setFastModeModelRestore({
+      persistedModel: 'claude-sonnet-4-6',
+      liveModel: 'claude-sonnet-4-6',
+    })
+    syncFastModeModelRestoreAfterSelection('claude-opus-4-7', true)
+    expect(getFastModeModelRestore()).toEqual({
+      persistedModel: 'claude-opus-4-7',
+      liveModel: 'claude-opus-4-7',
+    })
+
+    syncFastModeModelRestoreAfterSelection('claude-haiku-4-5', false)
+    expect(getFastModeModelRestore()).toBeNull()
   })
 
   test('resolveFastModeStatusFromCache does not force-enable from USER_TYPE=ant', async () => {

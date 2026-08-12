@@ -16,7 +16,7 @@ import { logError } from '../log.js'
 import { getSecureStorage } from '../secureStorage/index.js'
 import {
   getSettings_DEPRECATED,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
@@ -282,7 +282,7 @@ export function saveMcpServerUserConfig(
     // AFTER the secureStorage write succeeded, so the scrub can't leave you
     // with zero copies of the secret.
     //
-    // updateSettingsForSource does mergeWith(diskSettings, ourSettings, ...)
+    // updateSettingsForSourceWithResult does mergeWith(diskSettings, ourSettings, ...)
     // which PRESERVES destination keys absent from source — so simply omitting
     // sensitive keys doesn't scrub them, the disk copy merges back in. Instead:
     // set each sensitive key to explicit `undefined` — mergeWith (with the
@@ -292,14 +292,14 @@ export function saveMcpServerUserConfig(
       sensitiveKeysInThisSave.size > 0
     ) {
       // Build the scrub-via-undefined map. The UserConfigValues type doesn't
-      // include undefined, but updateSettingsForSource's mergeWith customizer
+      // include undefined, but updateSettingsForSourceWithResult's mergeWith customizer
       // needs explicit undefined to delete — cast is deliberate internal
       // plumbing (same rationale as deletePluginOptions in
       // pluginOptionsStorage.ts:184, see CLAUDE.md's 10% case).
       const scrubbed = Object.fromEntries(
         [...sensitiveKeysInThisSave].map(k => [k, undefined]),
       ) as Record<string, undefined>
-      const result = updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSourceWithResult('userSettings', {
         pluginConfigs: {
           [pluginId]: {
             mcpServers: {

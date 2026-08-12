@@ -5,7 +5,7 @@ import { logError } from '../utils/log.js'
 import { getAutoModeEnabledState } from '../utils/permissions/permissionSetup.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
@@ -35,7 +35,7 @@ export function resetAutoModeOptInForDefaultOffer(): void {
         user?.skipAutoPermissionPrompt &&
         user?.permissions?.defaultMode !== 'auto'
       ) {
-        const result = updateSettingsForSource('userSettings', {
+        const result = updateSettingsForSourceWithResult('userSettings', {
           skipAutoPermissionPrompt: undefined,
         })
         if (!wasSettingsUpdateCommitted(result)) return

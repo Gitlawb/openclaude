@@ -24,6 +24,13 @@ describe('dangerousModePromptRuntime', () => {
         updates.push({ source, settings })
         return { error: null, written: writeCommitted }
       },
+      updateSettingsForSourceWithResult: (
+        source: string,
+        settings: Record<string, unknown>,
+      ) => {
+        updates.push({ source, settings })
+        return { error: null, written: writeCommitted }
+      },
       wasSettingsUpdateCommitted: (result: {
         written: boolean
         committed?: boolean

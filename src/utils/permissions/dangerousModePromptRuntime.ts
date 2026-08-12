@@ -1,7 +1,7 @@
 import {
   hasSkipDangerousModePermissionPrompt,
   hasSkipFullAccessModePermissionPrompt,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { PermissionMode } from './PermissionMode.js'
@@ -33,7 +33,7 @@ export function getStartupDangerousPermissionPromptState({
 export function persistDangerousModeAcceptance(
   mode: DangerousPermissionMode,
 ): string | null {
-  const result = updateSettingsForSource(
+  const result = updateSettingsForSourceWithResult(
     'userSettings',
     getDangerousModeAcceptanceUpdate(mode),
   )

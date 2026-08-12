@@ -118,4 +118,88 @@ describe('clearStartupProviderOverrides', () => {
     ).toBe('Global config update was not applied')
   })
 
+  test('reports a global config save that returns stale provider overrides', async () => {
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+    const stale = { env: { CLAUDE_CODE_USE_OPENAI: '1' } }
+
+    expect(
+      clearStartupProviderOverrides({
+        updateUserSettings: mock(() => ({ error: null, written: true })),
+        saveConfig: mock(updater => {
+          updater(stale)
+          return stale
+        }),
+      }),
+    ).toBe('Global config update was not applied')
+  })
+
+  test('exposes the committed settings transition for a later activation rollback', async () => {
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+    const transition = {
+      attempted: { model: 'claude-opus-4-6' },
+      previous: { model: 'gpt-5-mini' },
+    }
+    const onCommittedTransition = mock(() => {})
+
+    expect(
+      clearStartupProviderOverrides({
+        model: 'claude-opus-4-6',
+        commitTransition: mock(() => ({
+          result: { error: null, written: true, committed: true },
+          transition,
+        })),
+        saveConfig: mock(updater => updater({ env: {} })),
+        onCommittedTransition,
+      }),
+    ).toBeNull()
+    expect(onCommittedTransition).toHaveBeenCalledWith(
+      transition,
+      expect.any(Function),
+    )
+  })
+
+  test('restores cleared global overrides after a later activation failure', async () => {
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+    let config: GlobalConfigWithEnv = {
+      env: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.example.test/v1',
+        KEEP_ME: '1',
+      },
+    }
+    const saveConfig = mock(
+      (updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv) => {
+        config = updater(config)
+        return config
+      },
+    )
+    let rollbackGlobalConfig: (() => string | null) | undefined
+
+    expect(
+      clearStartupProviderOverrides({
+        commitTransition: mock(() => ({
+          result: { error: null, written: true, committed: true },
+          transition: {
+            attempted: { model: 'claude-sonnet-4-6' },
+            previous: { model: 'gpt-5-mini' },
+          },
+        })),
+        saveConfig,
+        onCommittedTransition(_transition, rollback) {
+          rollbackGlobalConfig = rollback
+        },
+      }),
+    ).toBeNull()
+    expect(config.env).toEqual({ KEEP_ME: '1' })
+
+    expect(rollbackGlobalConfig?.()).toBeNull()
+    expect(config.env).toEqual({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.example.test/v1',
+      KEEP_ME: '1',
+    })
+  })
 })

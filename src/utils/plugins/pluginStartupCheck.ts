@@ -5,7 +5,7 @@ import type { SettingSource } from '../settings/constants.js'
 import {
   getInitialSettings,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
   wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { getAddDirEnabledPlugins } from './addDirPluginSettings.js'
@@ -273,7 +273,7 @@ type InstallSelectedPluginsDependencies = {
   cacheAndRegisterPlugin: typeof cacheAndRegisterPlugin
   registerPluginInstallation: typeof registerPluginInstallation
   validatePathWithinBase: typeof validatePathWithinBase
-  updateSettingsForSource: typeof updateSettingsForSource
+  updateSettingsForSource: typeof updateSettingsForSourceWithResult
   compareAndSwapPluginInstallation: typeof compareAndSwapPluginInstallation
 }
 
@@ -293,7 +293,7 @@ export async function installSelectedPlugins(
     cacheAndRegisterPlugin,
     registerPluginInstallation,
     validatePathWithinBase,
-    updateSettingsForSource,
+    updateSettingsForSource: updateSettingsForSourceWithResult,
     compareAndSwapPluginInstallation,
   },
 ): Promise<PluginInstallResult> {

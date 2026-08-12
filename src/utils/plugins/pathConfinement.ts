@@ -1,8 +1,8 @@
 import { realpathSync } from 'fs'
 import { resolve, sep } from 'path'
 
-/** Resolve an existing relative path and require its canonical target to stay in base. */
-export function validatePathWithinBase(
+/** Resolve a path lexically and require it to stay within the base directory. */
+export function resolvePathWithinBase(
   basePath: string,
   relativePath: string,
 ): string {
@@ -19,6 +19,15 @@ export function validatePathWithinBase(
       `Path traversal detected: "${relativePath}" would escape the base directory`,
     )
   }
+  return resolvedPath
+}
+
+/** Resolve an existing relative path and require its canonical target to stay in base. */
+export function validatePathWithinBase(
+  basePath: string,
+  relativePath: string,
+): string {
+  const resolvedPath = resolvePathWithinBase(basePath, relativePath)
 
   const canonicalBase = realpathSync(basePath)
   const canonicalPath = realpathSync(resolvedPath)

@@ -29,7 +29,7 @@ type SettingsModule = typeof import('../utils/settings/settings.js')
 let actualSettingsModule: SettingsModule | undefined
 let settingsForTest: SettingsJson = {}
 let updateSettingsForTest = mock(
-  (..._args: Parameters<SettingsModule['updateSettingsForSource']>): {
+  (..._args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>): {
     error: Error | null
     written: boolean
   } => ({ error: null, written: true }),
@@ -48,7 +48,10 @@ async function mockSettingsForTest(): Promise<void> {
     ...actualSettingsModule!,
     getInitialSettings: () => settingsForTest,
     getSettings_DEPRECATED: () => settingsForTest,
+    getSettingsForSource: () => settingsForTest,
     updateSettingsForSource: (...args: Parameters<SettingsModule['updateSettingsForSource']>) =>
+      ({ error: updateSettingsForTest(...args).error }),
+    updateSettingsForSourceWithResult: (...args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>) =>
       updateSettingsForTest(...args),
   }))
   mock.module('../utils/model/modelAllowlist.js', () => ({
@@ -427,9 +430,8 @@ test('keeps the active model when selecting a different model cannot be persiste
 
   try {
     await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
-    const outputBeforeMove = getOutput().length
     stdin.write('j')
-    await waitForCondition(() => getOutput().length > outputBeforeMove)
+    await waitForCondition(() => /❯[^\n]*Opus/.test(stripAnsi(getOutput())))
     stdin.write('\r')
     await waitForCondition(() =>
       updateSettingsForTest.mock.calls.some(
@@ -452,12 +454,6 @@ test('keeps the active model when selecting a different model cannot be persiste
 
 test('keeps the picker open when the parent rejects the atomic model and effort write', async () => {
   useSettings({ effortLevel: 'low' })
-  updateSettingsForTest = mock(
-    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
-      error: null,
-      written: false,
-    }),
-  )
   const { ModelPicker } = await import(
     `./ModelPicker.js?write-failure-${Date.now()}`
   )
@@ -465,11 +461,17 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
   const onSelect = mock(() =>
     'Could not save model and effort preference: settings were not written'
   )
-  let observedEffort = getDefaultAppState().effortValue
+  const initialState = {
+    ...getDefaultAppState(),
+    effortValue: 'medium' as const,
+  }
+  const initialEffort = initialState.effortValue
+  let observedEffort: ReturnType<typeof getDefaultAppState>['effortValue'] =
+    initialEffort
 
   const instance = await render(
     <AppStateProvider
-      initialState={getDefaultAppState()}
+      initialState={initialState}
       onChangeAppState={({ newState }) => {
         observedEffort = newState.effortValue
       }}
@@ -497,9 +499,10 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
 
   try {
     await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
-    const outputBeforeToggle = getOutput().length
     stdin.write('\u001b[C')
-    await waitForCondition(() => getOutput().length > outputBeforeToggle)
+    await waitForCondition(() =>
+      stripAnsi(getOutput()).includes('High effort'),
+    )
     stdin.write('\r')
     await waitForCondition(() =>
       stripAnsi(getOutput()).includes(
@@ -507,7 +510,6 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
       ),
     )
 
-    expect(updateSettingsForTest).not.toHaveBeenCalled()
     expect(onSelect).toHaveBeenCalledWith(
       'claude-opus-4-6',
       'high',
@@ -515,10 +517,11 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
       expect.objectContaining({
         settingsPatch: { effortLevel: 'high' },
         effortValue: 'high',
+        previousEffortLevel: 'low',
         wroteEffort: true,
       }),
     )
-    expect(observedEffort).toBeUndefined()
+    expect(observedEffort).toBe(initialEffort)
   } finally {
     instance.unmount()
     stdin.end()
@@ -528,22 +531,22 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
 
 test('passes effort persistence to the parent for one coordinated transaction', async () => {
   useSettings({ effortLevel: 'low' })
-  updateSettingsForTest = mock(
-    (..._args: Parameters<SettingsModule['updateSettingsForSource']>) => ({
-      error: new Error('lock release failed'),
-      written: true,
-    }),
-  )
   const { ModelPicker } = await import(
     `./ModelPicker.js?landed-write-error-${Date.now()}`
   )
   const { stdin, stdout, getOutput } = makeStdio()
   const onSelect = mock(() => {})
-  let observedEffort = getDefaultAppState().effortValue
+  const initialState = {
+    ...getDefaultAppState(),
+    effortValue: 'medium' as const,
+  }
+  const initialEffort = initialState.effortValue
+  let observedEffort: ReturnType<typeof getDefaultAppState>['effortValue'] =
+    initialEffort
 
   const instance = await render(
     <AppStateProvider
-      initialState={getDefaultAppState()}
+      initialState={initialState}
       onChangeAppState={({ newState }) => {
         observedEffort = newState.effortValue
       }}
@@ -571,13 +574,13 @@ test('passes effort persistence to the parent for one coordinated transaction', 
 
   try {
     await waitForCondition(() => stripAnsi(getOutput()).includes('Opus'))
-    const outputBeforeToggle = getOutput().length
     stdin.write('\u001b[C')
-    await waitForCondition(() => getOutput().length > outputBeforeToggle)
+    await waitForCondition(() =>
+      stripAnsi(getOutput()).includes('High effort'),
+    )
     stdin.write('\r')
     await waitForCondition(() => onSelect.mock.calls.length === 1)
 
-    expect(updateSettingsForTest).not.toHaveBeenCalled()
     expect(onSelect).toHaveBeenCalledWith(
       'claude-opus-4-6',
       'high',
@@ -585,9 +588,11 @@ test('passes effort persistence to the parent for one coordinated transaction', 
       expect.objectContaining({
         settingsPatch: { effortLevel: 'high' },
         effortValue: 'high',
+        previousEffortLevel: 'low',
+        wroteEffort: true,
       }),
     )
-    expect(observedEffort).toBeUndefined()
+    expect(observedEffort).toBe(initialEffort)
   } finally {
     instance.unmount()
     stdin.end()

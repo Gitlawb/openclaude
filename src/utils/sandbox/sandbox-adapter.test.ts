@@ -24,6 +24,7 @@ import {
   getSettingsForSource,
 } from '../settings/settings.js'
 import { resetSettingsCache } from '../settings/settingsCache.js'
+import { getManagedFilePath } from '../settings/managedPath.js'
 import { withSettingsFileLockSync } from '../settings/settingsFileLock.js'
 import type { SettingsJson } from '../settings/types.js'
 import {
@@ -130,6 +131,8 @@ describe('sandbox settings persistence', () => {
 
 describe('convertToSandboxRuntimeConfig', () => {
   let previousConfigDir: string | undefined
+  let previousManagedSettingsPath: string | undefined
+  let previousUserType: string | undefined
   let previousOriginalCwd: string
   let previousCwd: string
   let tempRoot: string
@@ -139,6 +142,8 @@ describe('convertToSandboxRuntimeConfig', () => {
     await acquireSharedMutationLock('utils/sandbox/sandbox-adapter.test.ts')
 
     previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+    previousManagedSettingsPath = process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH
+    previousUserType = process.env.USER_TYPE
     previousOriginalCwd = getOriginalCwd()
     previousCwd = getCwdState()
 
@@ -159,6 +164,17 @@ describe('convertToSandboxRuntimeConfig', () => {
       } else {
         process.env.CLAUDE_CONFIG_DIR = previousConfigDir
       }
+      if (previousManagedSettingsPath === undefined) {
+        delete process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH
+      } else {
+        process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH = previousManagedSettingsPath
+      }
+      if (previousUserType === undefined) {
+        delete process.env.USER_TYPE
+      } else {
+        process.env.USER_TYPE = previousUserType
+      }
+      getManagedFilePath.cache.clear?.()
       setOriginalCwd(previousOriginalCwd)
       setCwdState(previousCwd)
       resetSettingsCache()
@@ -215,5 +231,43 @@ describe('convertToSandboxRuntimeConfig', () => {
         ),
       ).toBe(true)
     }
+  })
+
+  test('session network approvals survive refreshes but are cleared on reset', async () => {
+    expect(
+      SandboxManager.applyNetworkApproval('session-only.example', false),
+    ).toBe(true)
+
+    expect(
+      convertToSandboxRuntimeConfig({} as SettingsJson).network.allowedDomains,
+    ).toContain('session-only.example')
+
+    await SandboxManager.reset()
+    expect(
+      convertToSandboxRuntimeConfig({} as SettingsJson).network.allowedDomains,
+    ).not.toContain('session-only.example')
+  })
+
+  test('managed-only policy rejects a failed durable approval session fallback', async () => {
+    const managedDir = join(tempRoot, 'managed')
+    mkdirSync(managedDir)
+    writeFileSync(
+      join(managedDir, 'managed-settings.json'),
+      `${JSON.stringify({ sandbox: { network: { allowManagedDomainsOnly: true } } })}\n`,
+      'utf8',
+    )
+    process.env.USER_TYPE = 'ant'
+    process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH = managedDir
+    getManagedFilePath.cache.clear?.()
+    resetSettingsCache()
+
+    expect(
+      SandboxManager.applyNetworkApproval('blocked-session.example', false),
+    ).toBe(false)
+    expect(
+      convertToSandboxRuntimeConfig({} as SettingsJson).network.allowedDomains,
+    ).not.toContain('blocked-session.example')
+
+    await SandboxManager.reset()
   })
 })

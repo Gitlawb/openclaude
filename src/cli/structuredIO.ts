@@ -872,10 +872,9 @@ async function executePermissionRequestHooksForSDK(
           const persistence = persistPermissionUpdates(permissionUpdates)
           const appliedUpdates = persistence.appliedUpdates
           if (appliedUpdates.length > 0) {
-            let updatedContext = toolUseContext.getAppState().toolPermissionContext
             // Update permission context via setAppState
             toolUseContext.setAppState(prev => {
-              updatedContext = applyPermissionUpdatesToLiveContext(
+              const updatedContext = applyPermissionUpdatesToLiveContext(
                 prev.toolPermissionContext,
                 appliedUpdates,
               )

@@ -131,6 +131,16 @@ async function mockSettingsForTest(): Promise<void> {
       modelSettingsWrites.push(patch)
       return modelWriteResult
     },
+    updateSettingsForSourceWithResult: (_source: string, patch: SettingsJson) => {
+      if (!modelSettingsMockActive) {
+        return actualSettingsModule!.updateSettingsForSourceWithResult(
+          _source as never,
+          patch,
+        )
+      }
+      modelSettingsWrites.push(patch)
+      return modelWriteResult
+    },
     updateSettingsForSourceWithFreshSettings: (
       _source: string,
       createPatch: (settings: SettingsJson) => SettingsJson,
@@ -3051,12 +3061,14 @@ test('cross-profile /model switch drops latched fast mode before activating an u
   // against the source provider (before activation), otherwise it short-circuits
   // to 'unchanged' once the new provider is active and leaves fastMode latched.
   let targetProfileActivated = false
+  const syncFastModeModelRestoreAfterSelection = mock(() => {})
   mock.module('../../utils/fastMode.js', () => ({
     ...REAL_FAST_MODE_FOR_MODEL_TEST,
     isFastModeEnabled: () => !targetProfileActivated,
     isFastModeSupportedByModel: (m: string | null) => m === 'claude-opus-4-7',
     isFastModeAvailable: () => true,
     clearFastModeCooldown: () => {},
+    syncFastModeModelRestoreAfterSelection,
   }))
   mockProviderProfiles({
     getProviderProfiles: () => [
@@ -3140,6 +3152,10 @@ test('cross-profile /model switch drops latched fast mode before activating an u
       observedStates.some(state => state.fastMode === false),
     )
     expect(observedStates.at(-1)?.fastMode).toBe(false)
+    expect(syncFastModeModelRestoreAfterSelection).toHaveBeenCalledWith(
+      'gpt-5-mini',
+      false,
+    )
   } finally {
     instance.unmount()
     // Restore the real fast-mode module for sibling tests in this file.
@@ -3242,11 +3258,23 @@ test('cross-profile /model switch preserves a newer peer model when provider act
     setActiveProviderProfile,
   } as never)
 
-  freshSettingsUpdateForTest = (_source, createPatch) => {
-    const patch = createPatch({ model: 'peer-model' })
-    expect(patch).toBe(actualSettingsModule!.SETTINGS_UPDATE_NO_CHANGE)
-    return { error: null, written: false, unchanged: true }
+  const transition = {
+    attempted: { model: 'gpt-5-mini' },
+    previous: { model: 'claude-sonnet-4-6' },
   }
+  const rollbackModelSettingsTransition = mock(() => ({
+    status: 'superseded' as const,
+  }))
+  mock.module('../../utils/settings/modelTransition.js', () => ({
+    commitModelSettingsTransition: (model: string) => {
+      modelSettingsWrites.push({ model })
+      return {
+        result: { error: null, written: true },
+        transition,
+      }
+    },
+    rollbackModelSettingsTransition,
+  }))
 
   let capturedOnSelect:
     | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
@@ -3291,6 +3319,7 @@ test('cross-profile /model switch preserves a newer peer model when provider act
     await waitForCondition(() => doneMessages.length > 0)
     expect(modelSettingsWrites).toEqual([{ model: 'gpt-5-mini' }])
     expect(setActiveProviderProfile).toHaveBeenCalledWith('profile_openai')
+    expect(rollbackModelSettingsTransition).toHaveBeenCalledWith(transition)
     expect(doneMessages[0]).toContain(
       'A newer model setting from another writer was preserved.',
     )
