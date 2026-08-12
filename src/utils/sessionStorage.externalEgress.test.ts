@@ -371,9 +371,7 @@ describe('recordExternalEgressOmission / projectTranscriptParentForExternalEgres
       { parentUuid: id(4) as UUID | null },
       map,
     )
-    expect(cyclic.parentUuid === id(4) || cyclic.parentUuid === id(5)).toBe(
-      true,
-    )
+    expect(cyclic.parentUuid).toBeNull()
   })
 })
 

@@ -966,6 +966,10 @@ class Project {
   private remoteEgressKnownOmitted = new Set<UUID>()
   // Negative cache for on-demand walks that returned { found: false }.
   private remoteEgressResolvedMisses = new Set<UUID>()
+  // Positive cache: parent_safe walk results. Distinct from misses so a
+  // later true miss cannot inherit a prior safe verdict, and so incomplete
+  // rebuilds do not re-scan the same safe parent on every append.
+  private remoteEgressConfirmedSafeParents = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
   // True when rebuild could not establish complete ancestor closure
   // (oversized mid-line skip, scan budget exhausted, unresolved tips).
@@ -986,6 +990,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressConfirmedSafeParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
@@ -1330,6 +1335,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressConfirmedSafeParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     const path = this.sessionFile
     if (!path) return
@@ -1354,6 +1360,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressConfirmedSafeParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
   }
@@ -2058,6 +2065,12 @@ class Project {
                         ) ?? null,
                     }
                   } else if (
+                    this.remoteEgressConfirmedSafeParents.has(
+                      originalParentUuid,
+                    )
+                  ) {
+                    parentConfirmedSafe = true
+                  } else if (
                     !this.remoteEgressResolvedMisses.has(originalParentUuid) &&
                     (this.evictedRemoteEgressOmissions.has(
                       originalParentUuid,
@@ -2090,6 +2103,13 @@ class Project {
                         originalParentUuid,
                       )
                       this.remoteEgressKnownOmitted.delete(originalParentUuid)
+                      this.remoteEgressConfirmedSafeParents.add(
+                        originalParentUuid,
+                      )
+                      boundUuidSet(
+                        this.remoteEgressConfirmedSafeParents,
+                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                      )
                     } else if (!queueHasPendingTranscriptAppends(queue)) {
                       // Only cache durable misses — queued parents may land soon.
                       this.remoteEgressResolvedMisses.add(originalParentUuid)
@@ -4198,7 +4218,8 @@ function resolveAncestorFromCompactAncestryNodes(
     }
     current = node.parentUuid
   }
-  return { status: 'resolved', ancestor: current }
+  // Cycle or exhausted unsafe chain: never project a withheld UUID.
+  return { status: 'resolved', ancestor: null }
 }
 
 /**
@@ -6133,6 +6154,9 @@ export function projectTranscriptParentForExternalEgress<
   while (current && omittedParents.has(current) && !seen.has(current)) {
     seen.add(current)
     current = omittedParents.get(current) ?? null
+  }
+  if (current !== null && omittedParents.has(current)) {
+    current = null
   }
   return {
     ...entry,
