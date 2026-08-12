@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { pbkdf2Sync } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -117,13 +117,31 @@ function normalizeDiscoveryCacheHeaders(
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }
 
+const DISCOVERY_CACHE_PARTITION_SALT = 'openclaude:discovery-cache:v1'
+const DISCOVERY_CACHE_PARTITION_ITERATIONS = 120_000
+const DISCOVERY_CACHE_PARTITION_CACHE_LIMIT = 64
+const discoveryCachePartitions = new Map<string, string>()
+
 function hashDiscoveryCachePartition(value: unknown): string {
-  // codeql[js/insufficient-password-hash]: This is a non-reversible cache
-  // namespace fingerprint for high-entropy API credentials, never password storage.
-  return createHash('sha256')
-    .update(JSON.stringify(value))
-    .digest('hex')
-    .slice(0, 16)
+  const serialized = JSON.stringify(value)
+  const cached = discoveryCachePartitions.get(serialized)
+  if (cached) return cached
+
+  // Discovery results can be account-specific, so a credential is used only
+  // to derive an opaque cache namespace. Use a password KDF in case a cache
+  // filename is exposed; never persist the credential itself.
+  const partition = pbkdf2Sync(
+    serialized,
+    DISCOVERY_CACHE_PARTITION_SALT,
+    DISCOVERY_CACHE_PARTITION_ITERATIONS,
+    16,
+    'sha256',
+  ).toString('hex')
+  if (discoveryCachePartitions.size >= DISCOVERY_CACHE_PARTITION_CACHE_LIMIT) {
+    discoveryCachePartitions.delete(discoveryCachePartitions.keys().next().value!)
+  }
+  discoveryCachePartitions.set(serialized, partition)
+  return partition
 }
 
 export function getDiscoveryCacheKey(
