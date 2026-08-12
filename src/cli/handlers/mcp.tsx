@@ -19,11 +19,11 @@ import {
 } from '../../services/mcp/auth.js'
 import { doctorAllServers, doctorServer, type McpDoctorReport, type McpDoctorScopeFilter } from '../../services/mcp/doctor.js';
 import { connectToServer, getMcpServerConnectionBatchSize } from '../../services/mcp/client.js';
-import { addMcpConfig, getAllMcpConfigs, getMcpConfigByName, getMcpConfigsByScope, removeMcpConfig } from '../../services/mcp/config.js';
+import { addMcpConfig, getAllMcpConfigs, getMcpConfigByName, getProjectMcpConfigsFromCwd, removeMcpConfig } from '../../services/mcp/config.js';
 import type { ConfigScope, ScopedMcpServerConfig } from '../../services/mcp/types.js';
 import { describeMcpConfigFilePath, ensureConfigScope, getScopeLabel } from '../../services/mcp/utils.js';
 import { AppStateProvider } from '../../state/AppState.js';
-import { saveCurrentProjectConfig } from '../../utils/config.js';
+import { getCurrentProjectConfig, getGlobalConfig, saveCurrentProjectConfig } from '../../utils/config.js';
 import { isFsInaccessible } from '../../utils/errors.js';
 import { gracefulShutdown } from '../../utils/gracefulShutdown.js';
 import { safeParseJSON } from '../../utils/json.js';
@@ -197,20 +197,18 @@ export async function mcpRemoveHandler(name: string, options: {
       cliOk(`File modified: ${describeMcpConfigFilePath(scope)}`);
     }
 
-    // If no scope specified, check where the server exists. Detect membership
-    // from the parsed scope views for every scope, not just project. These maps
-    // are plain objects from JSON config, so a `!!servers[name]` / `?.[name]`
-    // check treats inherited Object.prototype members ('constructor',
-    // '__proto__', …) as present -- own-property gating fixes that. Reading the
-    // raw `getCurrentProjectConfig()` / `getGlobalConfig()` maps for local/user
-    // had a second problem: a fatally poisoned scope parses to no loadable
-    // servers, yet the raw map still holds the entry, so the handler advertised
-    // the server as living in a scope that removeMcpConfig then refuses with
-    // `Cannot modify … config`. Use the parsed views so detection matches what
-    // is actually removable.
-    const { servers: localServers } = getMcpConfigsByScope('local');
-    const { servers: projectServers } = getMcpConfigsByScope('project');
-    const { servers: userServers } = getMcpConfigsByScope('user');
+    // If no scope specified, check where the server exists. Membership must be
+    // read the same way removeMcpConfig(name, scope) resolves existence: from
+    // the raw, source-filter-independent config for each scope. Using
+    // getMcpConfigsByScope() here would apply the --setting-sources load filter
+    // and report "No MCP server found" for a clean user/local/project entry that
+    // removeMcpConfig still deliberately mutates. These maps are plain objects
+    // from JSON config, so gate every lookup on own-property — a `!!servers[name]`
+    // / `?.[name]` check treats inherited members ('constructor', '__proto__', …)
+    // as present.
+    const localServers = getCurrentProjectConfig().mcpServers ?? {};
+    const userServers = getGlobalConfig().mcpServers ?? {};
+    const { servers: projectServers } = getProjectMcpConfigsFromCwd();
 
     // Count how many scopes contain this server
     const scopes: Array<Exclude<ConfigScope, 'dynamic'>> = [];
