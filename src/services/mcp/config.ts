@@ -1188,7 +1188,8 @@ export async function getClaudeCodeMcpConfigs(
   servers: Record<string, ScopedMcpServerConfig>
   errors: PluginError[]
 }> {
-  const { servers: enterpriseServers } = getMcpConfigsByScope('enterprise')
+  const { servers: enterpriseServers, errors: enterpriseErrors } =
+    getMcpConfigsByScope('enterprise')
 
   // If an enterprise mcp config exists, do not use any others; this has exclusive control over all MCP servers
   // (enterprise customers often do not want their users to be able to add their own MCP servers).
@@ -1203,7 +1204,19 @@ export async function getClaudeCodeMcpConfigs(
       filtered[name] = serverConfig
     }
 
-    return { servers: filtered, errors: [] }
+    // Enterprise mode is fail-closed: a malformed or reserved-name
+    // managed-mcp.json disables every other MCP source and blocks dynamic
+    // configuration. Propagate its parse errors instead of a silent empty list
+    // so startup and the MCP UI can diagnose why no servers loaded.
+    const errors: PluginError[] = enterpriseErrors.map(error => ({
+      type: 'generic-error',
+      source: getEnterpriseMcpFilePath(),
+      error: `Managed MCP config is invalid${
+        error.path ? ` (${error.path})` : ''
+      }: ${error.message}`,
+    }))
+
+    return { servers: filtered, errors }
   }
 
   // Load other scopes — unless the managed policy locks MCP to plugin-only.
