@@ -1468,12 +1468,18 @@ function buildOpenAICompatibleStartupEnv(
   if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
+  // Preserve xAI identity too: an edited xAI profile can target a proxy, but
+  // that must not turn its dedicated API key into a generic proxy credential
+  // after the profile is persisted and relaunched.
+  if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  }
   if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
-    if (isXaiBaseUrl(activeProfile.baseUrl)) {
+    if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
       env.XAI_API_KEY = activeProfile.apiKey
     }
     if (isAimlapiProfile) {

@@ -152,14 +152,16 @@ export function getDiscoveryCacheKey(
   options?: {
     baseUrl?: string
     apiKey?: string
+    cacheKey?: string
     headers?: Record<string, string>
   },
 ): string {
   const discoveryApiKey = getRouteDiscoveryApiKey(routeId, options)
+  const cacheIdentity = options?.cacheKey ?? discoveryApiKey
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
-    apiKeyHash: discoveryApiKey
-      ? hashDiscoveryCachePartition(discoveryApiKey)
+    apiKeyHash: cacheIdentity
+      ? hashDiscoveryCachePartition(cacheIdentity)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
@@ -218,7 +220,7 @@ function getRouteDiscoveryApiKey(
 }
 
 export async function resolveDiscoveryRequestOptions<
-  T extends { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
+  T extends { apiKey?: string; cacheKey?: string; baseUrl?: string; headers?: Record<string, string> },
 >(
   routeId: string,
   options?: T,
@@ -235,18 +237,22 @@ export async function resolveDiscoveryRequestOptions<
   if (!isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     return next
   }
-  // Cache lookup uses the currently stored token as its partition identity.
+  // Cache lookup uses the currently stored credential identity.
   // Refresh only when a network discovery request is actually necessary: a
   // refresh rotates the token and would otherwise turn a fresh cache entry
   // into an avoidable miss.
+  const credentials = readXaiCredentials()
   const token = firstUsableCredential(
     shouldSkipNonessentialDiscoveryTraffic() ||
       resolverOptions?.refreshXaiOAuth === false
-      ? readXaiCredentials()?.accessToken
+      ? credentials?.accessToken
       : await resolveXaiAccessToken(),
   )
   if (token) {
     next.apiKey = token
+    // Access tokens rotate, while refresh tokens and account IDs identify the
+    // same OAuth account. Keep cache partitions stable across token refreshes.
+    next.cacheKey = credentials?.accountId ?? credentials?.refreshToken ?? token
   }
   return next
 }

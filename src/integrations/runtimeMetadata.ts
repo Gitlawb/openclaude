@@ -466,7 +466,22 @@ function findCachedCatalogEntryForApiName(
   // Mirror picker/discovery OAuth injection so hybrid cache partitions match
   // for xAI sessions that have a stored token but no env API key.
   if (!apiKey && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
-    apiKey = firstUsableCredential(readXaiCredentials()?.accessToken)
+    const credentials = readXaiCredentials()
+    apiKey = firstUsableCredential(credentials?.accessToken)
+    const cacheIdentity = credentials?.accountId ?? credentials?.refreshToken ?? apiKey
+    const cacheKey = getDiscoveryCacheKey(routeId, {
+      baseUrl,
+      apiKey,
+      cacheKey: cacheIdentity,
+      headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
+    })
+    const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
+
+    return (
+      cached?.models.find(entry =>
+        matchesCatalogEntryModel(routeId, entry, normalizedModel),
+      ) ?? null
+    )
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,

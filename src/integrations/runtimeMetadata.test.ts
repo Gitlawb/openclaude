@@ -313,6 +313,7 @@ describe('resolveModelRuntimeLimits', () => {
           getDiscoveryCacheKey('xai', {
             baseUrl,
             apiKey: 'oauth-token',
+            cacheKey: 'refresh-token',
           }),
           {
             models: [

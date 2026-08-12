@@ -476,6 +476,49 @@ test('uses stored xAI OAuth credentials only for the canonical HTTPS API endpoin
   }
 })
 
+test('does not send an xAI key mirrored into OPENAI_API_KEY to an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-api-key'
+  process.env.OPENAI_API_KEY = 'xai-api-key'
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_input, init) => {
+    headers = new Headers(init?.headers)
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(headers?.get('authorization')).toBeNull()
+})
+
+test('filters a mirrored xAI key from generic credential pools on an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-api-key'
+  process.env.OPENAI_API_KEY = 'xai-api-key,other-key'
+  process.env.OPENAI_API_KEYS = 'xai-api-key,pooled-key'
+  const authorizations: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    authorizations.push(new Headers(init?.headers).get('authorization') ?? '')
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(authorizations).toEqual(['Bearer pooled-key'])
+})
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.test.ts')
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
