@@ -57,7 +57,7 @@ type RequestExecutorContext = {
     baseUrl: string
     processEnv: NodeJS.ProcessEnv
   }) => string | undefined
-  isXaiBaseUrl: (baseUrl: string) => boolean
+  isCanonicalXaiInferenceBaseUrl: (baseUrl: string) => boolean
   isLongcatBaseUrl: (baseUrl: string) => boolean
   parseCredentialList: (value?: string) => string[]
   resolveXaiAccessToken: () => Promise<string | undefined>
@@ -185,7 +185,7 @@ export async function executeOpenAIRequest(
     filterAnthropicHeaders,
     isGeminiMode,
     resolveRouteCredentialValue,
-    isXaiBaseUrl,
+    isCanonicalXaiInferenceBaseUrl,
     isLongcatBaseUrl,
     parseCredentialList,
     resolveXaiAccessToken,
@@ -253,11 +253,10 @@ export async function executeOpenAIRequest(
     baseUrl: request.baseUrl,
     processEnv: requestProcessEnv,
   })
-  // xAI OAuth: when the active route is xAI and no API key is set, fall
-  // back to a stored OAuth access token (auto-refreshed). The token is
-  // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
-  const isXaiRoute =
-    runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+  // xAI OAuth credentials are valid only for xAI's API host. A route ID may
+  // survive an edited provider profile, so it is not sufficient authorization
+  // to send the stored bearer to the effective request URL.
+  const isXaiRoute = isCanonicalXaiInferenceBaseUrl(request.baseUrl)
   const openAIApiKeysPoolRaw =
     routeAcceptsGenericOpenAICredentials &&
     parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0

@@ -17,11 +17,11 @@ import { filterAvailableCatalogEntries } from '../../integrations/index.js'
 import {
   discoverModelsForRoute,
   getDiscoveryCacheKey,
+  resolveDiscoveryRequestOptions,
 } from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
   isNativeVendorCatalogRoute,
-  isXaiBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -36,7 +36,6 @@ import {
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
 import { firstUsableCredential } from '../../services/api/credentialPool.js'
-import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import type { ProviderProfile } from '../../utils/config.js'
 import type { AppState } from '../../state/AppState.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
@@ -368,7 +367,10 @@ function withInactiveProfileSwitchOptions(
   return additions.length > 0 ? [...options, ...additions] : options
 }
 
-async function getOpenAIDiscoveryRequestOptions(routeId?: string | null): Promise<{
+async function getOpenAIDiscoveryRequestOptions(
+  routeId?: string | null,
+  options?: { refreshXaiOAuth?: boolean },
+): Promise<{
   apiKey?: string
   baseUrl?: string
   headers?: Record<string, string>
@@ -385,15 +387,11 @@ async function getOpenAIDiscoveryRequestOptions(routeId?: string | null): Promis
       processEnv: process.env,
     }),
   )
-  if (!apiKey && (routeId === 'xai' || isXaiBaseUrl(request.baseUrl))) {
-    apiKey = firstUsableCredential(await resolveXaiAccessToken())
-  }
-
-  return {
+  return resolveDiscoveryRequestOptions(routeId ?? 'custom', {
     apiKey,
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
-  }
+  }, options)
 }
 
 // Reconciles fast-mode state when /model picks a new target — both the regular
@@ -506,7 +504,9 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const ttlMs = parseDurationString(catalog.discoveryCacheTtl ?? 0)
-  const discoveryOptions = await getOpenAIDiscoveryRequestOptions(routeId)
+  const discoveryOptions = await getOpenAIDiscoveryRequestOptions(routeId, {
+    refreshXaiOAuth: false,
+  })
   const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
   const cached = await getCachedModels(cacheKey, ttlMs, { includeStale: true })
   const stale = await isCacheStale(cacheKey, ttlMs)

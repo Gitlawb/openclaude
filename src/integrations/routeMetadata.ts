@@ -276,11 +276,20 @@ export function isXaiBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * xAI-specific credentials may only be sent to the documented HTTPS API
+ * origin. Route identity is intentionally more permissive because profiles
+ * can be retargeted, but a retargeted route must not carry a xAI credential.
+ */
 export function isCanonicalXaiInferenceBaseUrl(value: string | undefined): boolean {
   if (!value?.trim()) return true
   try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'api.x.ai'
+    const url = new URL(value)
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'api.x.ai' &&
+      (url.port === '' || url.port === '443')
+    )
   } catch {
     return false
   }
@@ -1019,6 +1028,14 @@ export function resolveRouteCredentialValue(
     routeId === 'apismart' &&
     options?.baseUrl !== undefined &&
     !isCanonicalApismartInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
+
+  if (
+    routeId === 'xai' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalXaiInferenceBaseUrl(options.baseUrl)
   ) {
     return undefined
   }

@@ -16,7 +16,7 @@ import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
   isCanonicalApismartInferenceBaseUrl,
-  isXaiBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
 } from './routeMetadata.js'
@@ -33,7 +33,10 @@ import {
 } from '../utils/providerDiscovery.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
-import { resolveXaiAccessToken } from '../utils/xaiCredentials.js'
+import {
+  readXaiCredentials,
+  resolveXaiAccessToken,
+} from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
@@ -192,6 +195,10 @@ function getRouteDiscoveryApiKey(
     return undefined
   }
 
+  if (routeId === 'xai' && !isCanonicalXaiInferenceBaseUrl(baseUrl)) {
+    return undefined
+  }
+
   if (hasInvalidCredentialPlaceholder(options?.apiKey)) {
     return undefined
   }
@@ -210,18 +217,34 @@ function getRouteDiscoveryApiKey(
   )
 }
 
-async function withXaiDiscoveryCredentials<
+export async function resolveDiscoveryRequestOptions<
   T extends { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
->(routeId: string, options?: T): Promise<T> {
+>(
+  routeId: string,
+  options?: T,
+  resolverOptions?: { refreshXaiOAuth?: boolean },
+): Promise<T> {
   const next = { ...(options ?? {}) } as T
   if (getRouteDiscoveryApiKey(routeId, next)) {
     return next
   }
   const baseUrl = getRouteBaseUrl(routeId, next)
-  if (routeId !== 'xai' && !isXaiBaseUrl(baseUrl)) {
+  // Route identity selects a catalog, but it must never authorize sending a
+  // stored OAuth credential to an overridden endpoint. The xAI OAuth token is
+  // valid only for xAI's API host.
+  if (!isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     return next
   }
-  const token = firstUsableCredential(await resolveXaiAccessToken())
+  // Cache lookup uses the currently stored token as its partition identity.
+  // Refresh only when a network discovery request is actually necessary: a
+  // refresh rotates the token and would otherwise turn a fresh cache entry
+  // into an avoidable miss.
+  const token = firstUsableCredential(
+    shouldSkipNonessentialDiscoveryTraffic() ||
+      resolverOptions?.refreshXaiOAuth === false
+      ? readXaiCredentials()?.accessToken
+      : await resolveXaiAccessToken(),
+  )
   if (token) {
     next.apiKey = token
   }
@@ -397,9 +420,11 @@ export async function discoverModelsForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const discoveryOptions = await withXaiDiscoveryCredentials(routeId, options)
-  const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
-  if (!discoveryOptions.forceRefresh && ttlMs > 0) {
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
+  if (!cachedOptions.forceRefresh && ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
       return {
@@ -440,12 +465,14 @@ export async function discoverModelsForRoute(
   }
 
   try {
+    const discoveryOptions = await resolveDiscoveryRequestOptions(routeId, options)
+    const discoveryCacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
     const discovered = await runDiscovery(routeId, discoveryOptions)
     if (discovered === null) {
       throw new Error(`Discovery failed for route ${routeId}`)
     }
 
-    await setCachedModels(cacheKey, { models: discovered })
+    await setCachedModels(discoveryCacheKey, { models: discovered })
     return {
       routeId,
       models: mergeCatalogEntries(staticEntries, discovered),
@@ -499,8 +526,10 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const discoveryOptions = await withXaiDiscoveryCredentials(routeId, options)
-  const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
   if (ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
@@ -515,7 +544,7 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   return discoverModelsForRoute(routeId, {
-    ...discoveryOptions,
+    ...options,
     forceRefresh: true,
   })
 }

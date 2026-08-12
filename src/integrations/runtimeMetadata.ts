@@ -19,7 +19,7 @@ import {
 } from './registry.js'
 import {
   getRouteDescriptor,
-  isXaiBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -465,7 +465,7 @@ function findCachedCatalogEntryForApiName(
   )
   // Mirror picker/discovery OAuth injection so hybrid cache partitions match
   // for xAI sessions that have a stored token but no env API key.
-  if (!apiKey && (routeId === 'xai' || isXaiBaseUrl(baseUrl))) {
+  if (!apiKey && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     apiKey = firstUsableCredential(readXaiCredentials()?.accessToken)
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
