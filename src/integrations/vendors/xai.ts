@@ -4,7 +4,7 @@ import type { ModelCatalogEntry } from '../descriptors.js'
 // Keep chat/coding Grok IDs from https://api.x.ai/v1/models. Imagine, voice,
 // STT/TTS, and embedding entries are not usable on the OpenClaude chat path.
 const XAI_NON_CHAT_PATTERN =
-  /(imagine|voice|tts|stt|whisper|embed|speech-to-speech|speech-to-text|text-to-speech|multi-agent)/i
+  /(imagine|voice|tts|stt|whisper|embed|speech-to-speech|speech-to-text|text-to-speech)/i
 
 const XAI_CURATED_MODELS: ModelCatalogEntry[] = [
   {
@@ -14,6 +14,7 @@ const XAI_CURATED_MODELS: ModelCatalogEntry[] = [
     label: 'Grok 4.6',
     modelDescriptorId: 'grok-4.6',
     contextWindow: 500_000,
+    maxOutputTokens: 32_768,
     reasoning: {
       mode: 'levels',
       levels: ['low', 'medium', 'high', 'xhigh'],
@@ -156,15 +157,12 @@ export default defineVendor({
     discovery: {
       kind: 'openai-compatible',
       mapModel(raw: unknown) {
-        if (!raw || typeof raw !== 'object') {
-          return null
-        }
         const model = raw as {
           id?: string
           active?: boolean
-          context_length?: number
+          context_window?: number
         }
-        const id = typeof model.id === 'string' ? model.id.trim() : ''
+        const id = model.id?.trim()
         if (!id || model.active === false) {
           return null
         }
@@ -181,8 +179,8 @@ export default defineVendor({
           id,
           apiName: id,
           label: id,
-          ...(isPositiveFiniteNumber(model.context_length)
-            ? { contextWindow: model.context_length }
+          ...(isPositiveFiniteNumber(model.context_window)
+            ? { contextWindow: model.context_window }
             : {}),
         }
       },
