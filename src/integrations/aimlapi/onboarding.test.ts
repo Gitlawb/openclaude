@@ -469,6 +469,29 @@ test('a malformed-JSON sign-in key cache fails closed instead of minting a fresh
   expect(readFileSync(cachePath, 'utf8')).toBe('{ this is not valid json')
 })
 
+test('an array-shaped sign-in key cache fails closed instead of degrading to an empty store', async () => {
+  // Valid JSON, but not an object: typeof [] === 'object' && [] !== null, so
+  // this must be rejected explicitly — otherwise it silently degrades to "no
+  // cached key", authorizing a second, orphan-risking createKey call.
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const cachePath = join(configDirectory, 'aimlapi-signin-key.json')
+  writeFileSync(cachePath, '[1,2,3]')
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  await expect(
+    completeAimlapiCodeSignIn(
+      'user@example.com',
+      '123456',
+      undefined,
+      'https://api.example.test/v1',
+    ),
+  ).rejects.toThrow(/does not match the expected format/)
+
+  expect(keyMints.count).toBe(0)
+  expect(readFileSync(cachePath, 'utf8')).toBe('[1,2,3]')
+})
+
 test('an unreadable sign-in lease file fails closed instead of minting a fresh key', async () => {
   process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
   const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
@@ -525,4 +548,24 @@ test('a malformed-JSON sign-in lease file fails closed instead of minting a fres
 
   expect(keyMints.count).toBe(0)
   expect(readFileSync(leasePath, 'utf8')).toBe('{ this is not valid json')
+})
+
+test('an array-shaped sign-in lease file fails closed instead of degrading to an empty store', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
+  writeFileSync(leasePath, '[1,2,3]')
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  await expect(
+    completeAimlapiCodeSignIn(
+      'user@example.com',
+      '123456',
+      undefined,
+      'https://api.example.test/v1',
+    ),
+  ).rejects.toThrow(/does not match the expected format/)
+
+  expect(keyMints.count).toBe(0)
+  expect(readFileSync(leasePath, 'utf8')).toBe('[1,2,3]')
 })

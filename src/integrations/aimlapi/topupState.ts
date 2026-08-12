@@ -442,7 +442,7 @@ function readJsonObjectFile(path: string, label: string): Record<string, unknown
       { cause: error },
     )
   }
-  if (typeof parsed !== 'object' || parsed === null) {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`The local ${label} at ${path} does not match the expected format.`)
   }
   return parsed as Record<string, unknown>
