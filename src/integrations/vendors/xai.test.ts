@@ -128,11 +128,11 @@ describe('xAI vendor hybrid catalog', () => {
     try {
       delete process.env.XAI_API_KEY
       delete process.env.OPENAI_API_KEY
-      let authHeader: string | null = null
+      const captured: { authorization: string | null } = { authorization: null }
       globalThis.fetch = mock((_input, init) => {
-        authHeader = new Headers(init?.headers as HeadersInit | undefined).get(
-          'Authorization',
-        )
+        captured.authorization = new Headers(
+          init?.headers as HeadersInit | undefined,
+        ).get('Authorization')
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -150,7 +150,7 @@ describe('xAI vendor hybrid catalog', () => {
         `../discoveryService.js?ts=${Date.now()}-${Math.random()}`
       )
       const result = await discoverModelsForRoute('xai', { forceRefresh: true })
-      expect(authHeader).toBe('Bearer oauth-token')
+      expect(captured.authorization).toBe('Bearer oauth-token')
       expect(result?.source).toBe('network')
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.6')
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
