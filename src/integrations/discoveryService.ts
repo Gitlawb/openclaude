@@ -118,6 +118,8 @@ function normalizeDiscoveryCacheHeaders(
 }
 
 function hashDiscoveryCachePartition(value: unknown): string {
+  // codeql[js/insufficient-password-hash]: This is a non-reversible cache
+  // namespace fingerprint for high-entropy API credentials, never password storage.
   return createHash('sha256')
     .update(JSON.stringify(value))
     .digest('hex')
