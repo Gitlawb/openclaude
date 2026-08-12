@@ -14,7 +14,6 @@ const XAI_CURATED_MODELS: ModelCatalogEntry[] = [
     label: 'Grok 4.6',
     modelDescriptorId: 'grok-4.6',
     contextWindow: 500_000,
-    maxOutputTokens: 32_768,
     reasoning: {
       mode: 'levels',
       levels: ['low', 'medium', 'high', 'xhigh'],

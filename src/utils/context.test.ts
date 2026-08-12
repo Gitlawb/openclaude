@@ -526,11 +526,7 @@ test('env-only xAI key uses provider-specific context and output caps before cli
   delete process.env.OPENAI_MODEL
 
   expect(getContextWindowForModel('grok-4.6')).toBe(500_000)
-  expect(getModelMaxOutputTokens('grok-4.6')).toEqual({
-    default: 32_768,
-    upperLimit: 32_768,
-  })
-  expect(getMaxOutputTokensForModel('grok-4.6')).toBe(32_768)
+  expect(getModelMaxOutputTokens('grok-4.6').upperLimit).toBe(500_000)
   expect(getContextWindowForModel('grok-4.5')).toBe(500_000)
   expect(getContextWindowForModel('grok-4.3')).toBe(1_000_000)
   expect(getModelMaxOutputTokens('grok-4.3')).toEqual({

@@ -19,6 +19,7 @@ import {
 } from './registry.js'
 import {
   getRouteDescriptor,
+  isCanonicalXaiInferenceBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -27,6 +28,7 @@ import {
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
+import { readXaiCredentials } from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
 function resolveRouteOpenAIShimConfig(
@@ -454,15 +456,15 @@ function findCachedCatalogEntryForApiName(
   }
 
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
+  let apiKey = firstUsableCredential(
+    resolveRouteCredentialValue({ routeId, baseUrl, processEnv: runtimeEnv }),
+  )
+  if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
+    apiKey = firstUsableCredential(readXaiCredentials()?.accessToken)
+  }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
-    apiKey: firstUsableCredential(
-      resolveRouteCredentialValue({
-        routeId,
-        baseUrl,
-        processEnv: runtimeEnv,
-      }),
-    ),
+    apiKey,
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))

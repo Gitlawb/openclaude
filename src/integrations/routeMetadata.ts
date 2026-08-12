@@ -276,6 +276,16 @@ export function isXaiBaseUrl(value: string | undefined): boolean {
   }
 }
 
+export function isCanonicalXaiInferenceBaseUrl(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'api.x.ai'
+  } catch {
+    return false
+  }
+}
+
 export function isXiaomiMimoBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {

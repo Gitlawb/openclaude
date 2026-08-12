@@ -30,7 +30,6 @@ export default [
       wireFormat: 'reasoning_effort',
     },
     contextWindow: 500_000,
-    maxOutputTokens: 32_768,
   }),
   defineModel({
     id: 'grok-4.5',
