@@ -847,8 +847,10 @@ export function setSessionFileForTesting(path: string): void {
 }
 
 /** @internal Rebuild remote egress omission map from sessionFile (tests). */
-export function rebuildRemoteEgressOmittedParentsForTesting(): void {
-  getProject().rebuildRemoteEgressOmittedParentsFromLocalTranscript()
+export function rebuildRemoteEgressOmittedParentsForTesting(
+  scanBudget?: number,
+): void {
+  getProject().rebuildRemoteEgressOmittedParentsFromLocalTranscript(scanBudget)
 }
 
 /** @internal Snapshot remote egress omission map (tests). */
@@ -1320,7 +1322,9 @@ class Project {
    * tails must not leave the map empty and dangle the first post-resume
    * append on a withheld parentUuid.
    */
-  rebuildRemoteEgressOmittedParentsFromLocalTranscript(): void {
+  rebuildRemoteEgressOmittedParentsFromLocalTranscript(
+    scanBudget?: number,
+  ): void {
     this.remoteEgressOmittedParents.clear()
     this.evictedRemoteEgressOmissions.clear()
     this.remoteEgressCompactAncestry.clear()
@@ -1337,6 +1341,7 @@ class Project {
         compactAncestry: this.remoteEgressCompactAncestry,
         knownOmitted: this.remoteEgressKnownOmitted,
       },
+      scanBudget,
     )
     this.remoteEgressOmissionRebuildIncomplete = !result.complete
   }
@@ -2119,6 +2124,20 @@ class Project {
                   if (remoteEntry.uuid) {
                     this.lastRemoteEgressUuid = remoteEntry.uuid
                   }
+                } else if (entry.uuid) {
+                  // Fail-closed persist still owns this UUID: later children
+                  // must rematch through the map instead of treating B as
+                  // egressed (grandchild C would otherwise dangle on B).
+                  this.remoteEgressOmittedParents.set(
+                    entry.uuid,
+                    this.lastRemoteEgressUuid,
+                  )
+                  boundRemoteEgressOmissionMap(
+                    this.remoteEgressOmittedParents,
+                    this.evictedRemoteEgressOmissions,
+                    this.remoteEgressCompactAncestry,
+                    this.remoteEgressKnownOmitted,
+                  )
                 }
                 // Keep omitted parents in the bounded map so a second branch
                 // child of the same withheld UUID can still reparent. Size is
@@ -3897,11 +3916,12 @@ function readTranscriptRangeForOmissionRebuild(
 
 /**
  * Rebuild the omission map from disk. Start at the tail
- * (OMISSION_REBUILD_TAIL_BYTES). If the tail is metadata-only or any
- * chain-tip parent is still unresolved, walk earlier windows of the same
- * budget until ancestry closes or MAX_TRANSCRIPT_READ_BYTES is scanned.
- * Returns complete=false when ancestry cannot be closed (oversized mid-line
- * skip, scan budget exhausted, or unresolved tips).
+ * (OMISSION_REBUILD_TAIL_BYTES, or scanBudget when smaller). If the tail
+ * is metadata-only or any chain-tip parent is still unresolved, walk
+ * earlier windows of the same budget until ancestry closes or scanBudget
+ * (default MAX_TRANSCRIPT_READ_BYTES) is scanned. Returns complete=false
+ * when ancestry cannot be closed (oversized mid-line skip, scan budget
+ * exhausted, or unresolved tips).
  */
 function ingestRemoteEgressOmissionsFromTranscriptFile(
   fullPath: string,
@@ -3911,6 +3931,7 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     compactAncestry: Map<UUID, UUID | null>
     knownOmitted: Set<UUID>
   },
+  scanBudget: number = MAX_TRANSCRIPT_READ_BYTES,
 ): { complete: boolean } {
   let fd: number | undefined
   try {
@@ -3918,6 +3939,8 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     const size = fstatSync(fd).size
     if (size === 0) return { complete: true }
 
+    const budget = Math.max(1, scanBudget)
+    const windowBytes = Math.min(OMISSION_REBUILD_TAIL_BYTES, budget)
     const egressed = new Set<UUID>()
     const referencedParents = new Set<UUID>()
     let sawTranscript = false
@@ -3926,8 +3949,8 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     let sawUnrecoverableMidLineSkip = false
     let closed = false
 
-    while (cursor > 0 && scanned < MAX_TRANSCRIPT_READ_BYTES) {
-      const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
+    while (cursor > 0 && scanned < budget) {
+      const start = Math.max(0, cursor - windowBytes)
       const { content, nextEnd, skippedMidLine } =
         readTranscriptRangeForOmissionRebuild(fd, start, cursor)
       // Recoverable window alignment (slice to the next newline) is not
@@ -3956,7 +3979,15 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
           boundState.compactAncestry,
           boundState.knownOmitted,
         )
-        boundUuidSet(egressed, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+        boundUuidSetPreserving(
+          egressed,
+          MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          collectOmissionClosureWitnesses(
+            referencedParents,
+            omittedParents,
+            egressed,
+          ),
+        )
         boundUuidSet(referencedParents, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
       }
       if (
@@ -3989,8 +4020,7 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
       )
     }
 
-    const hitScanCap =
-      scanned >= MAX_TRANSCRIPT_READ_BYTES && cursor > 0 && !closed
+    const hitScanCap = scanned >= budget && cursor > 0 && !closed
     const complete =
       (!sawTranscript || closed) &&
       !sawUnrecoverableMidLineSkip &&
@@ -4024,6 +4054,45 @@ function boundUuidSet(ids: Set<UUID>, maxSize: number): void {
     const oldest = ids.values().next().value
     if (oldest === undefined) break
     ids.delete(oldest)
+  }
+}
+
+/** Egressed UUIDs that close a referenced parent walk — keep them at bound. */
+function collectOmissionClosureWitnesses(
+  referencedParents: Set<UUID>,
+  omittedParents: Map<UUID, UUID | null>,
+  egressed: Set<UUID>,
+): Set<UUID> {
+  const preserve = new Set<UUID>()
+  for (const parent of referencedParents) {
+    let current: UUID | null = parent
+    const seen = new Set<UUID>()
+    while (current && omittedParents.has(current) && !seen.has(current)) {
+      seen.add(current)
+      current = omittedParents.get(current) ?? null
+    }
+    if (current !== null && egressed.has(current)) {
+      preserve.add(current)
+    }
+  }
+  return preserve
+}
+
+function boundUuidSetPreserving(
+  ids: Set<UUID>,
+  maxSize: number,
+  preserve: Set<UUID>,
+): void {
+  if (ids.size <= maxSize) return
+  const evict: UUID[] = []
+  for (const id of ids) {
+    if (!preserve.has(id)) evict.push(id)
+  }
+  let extra = ids.size - maxSize
+  for (const id of evict) {
+    if (extra <= 0) break
+    ids.delete(id)
+    extra--
   }
 }
 

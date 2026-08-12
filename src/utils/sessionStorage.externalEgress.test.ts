@@ -23,7 +23,6 @@ import {
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-  MAX_TRANSCRIPT_READ_BYTES,
   OMISSION_REBUILD_TAIL_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
@@ -1380,7 +1379,80 @@ describe('appendEntry remote egress gate', () => {
     }
   })
 
-  test('incomplete rebuild fail-closes an unsafe chain spanning MAX_TRANSCRIPT_READ_BYTES', async () => {
+  test('incomplete persist skip records suppressed UUID so grandchildren rematch', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-grandchild-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(420)
+    const withheldParent = id(421)
+    const midUuid = id(422)
+    const grandchildUuid = id(423)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 4096, 0x78))
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      await rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed before suppressed mid' },
+      } as unknown as Message
+      await recordTranscript([seed], undefined, null)
+      await flushSessionStorage()
+      expect(remotePayloads.find(p => p.uuid === seedUuid)).toBeDefined()
+
+      const mid = {
+        type: 'user',
+        uuid: midUuid,
+        parentUuid: withheldParent,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'mid under withheld parent' },
+      } as unknown as Message
+      await recordTranscript([mid], undefined, withheldParent)
+      await flushSessionStorage()
+
+      expect(remotePayloads.find(p => p.uuid === midUuid)).toBeUndefined()
+      expect(getRemoteEgressOmittedParentsForTesting().has(midUuid)).toBe(true)
+
+      const grandchild = {
+        type: 'user',
+        uuid: grandchildUuid,
+        parentUuid: midUuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        message: { role: 'user', content: 'grandchild of suppressed mid' },
+      } as unknown as Message
+      await recordTranscript([grandchild], undefined, midUuid)
+      await flushSessionStorage()
+
+      const remoteGrandchild = remotePayloads.find(
+        p => p.uuid === grandchildUuid,
+      )
+      expect(remoteGrandchild?.parentUuid).not.toBe(midUuid)
+      expect(getRemoteEgressOmittedParentsForTesting().has(midUuid)).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('incomplete rebuild fail-closes an unsafe chain when the scan budget is exhausted', async () => {
     process.env.USER_TYPE = 'external'
     process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
     process.env.NODE_ENV = 'development'
@@ -1407,7 +1479,8 @@ describe('appendEntry remote egress gate', () => {
             listing(listingO1, userUuid, 'skill_listing', 'SPAN-O1-LEAK'),
           ),
         ].join('\n') + '\n'
-      const padSize = MAX_TRANSCRIPT_READ_BYTES + 1024
+      const scanBudget = 8 * 1024
+      const padSize = scanBudget + 1024
       const line = Buffer.alloc(80, 0x78)
       line[79] = 0x0a
       const pad = Buffer.allocUnsafe(padSize)
@@ -1425,7 +1498,7 @@ describe('appendEntry remote egress gate', () => {
       resetProjectForTesting()
       clearSessionMessagesCache()
       setSessionFileForTesting(path)
-      await rebuildRemoteEgressOmittedParentsForTesting()
+      await rebuildRemoteEgressOmittedParentsForTesting(scanBudget)
       expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
 
       setInternalEventWriter(async (_eventType, payload) => {
@@ -1448,7 +1521,7 @@ describe('appendEntry remote egress gate', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  }, 60000)
+  })
 
   test('compact fallback sees queued writes before flush', async () => {
     process.env.USER_TYPE = 'external'
