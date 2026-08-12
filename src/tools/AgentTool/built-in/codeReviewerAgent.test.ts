@@ -61,7 +61,7 @@ describe('code-reviewer built-in agent', () => {
   beforeAll(async () => {
     await acquireSharedMutationLock('codeReviewerAgent.test.ts')
     lockAcquired = true
-    
+
     originalEnv = {
       HOME: process.env.HOME,
       OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,

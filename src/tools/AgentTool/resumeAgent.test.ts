@@ -41,8 +41,8 @@ beforeEach(() => {
 
 function makeToolUseContext(activeAgents: AgentDefinition[]): ToolUseContext {
   const appState = {
-    toolPermissionContext: { 
-      mode: 'default', 
+    toolPermissionContext: {
+      mode: 'default',
       additionalWorkingDirectories: new Map(),
       alwaysDenyRules: {},
     },
