@@ -23,6 +23,7 @@ import {
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+  MAX_TRANSCRIPT_READ_BYTES,
   OMISSION_REBUILD_TAIL_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
@@ -644,6 +645,84 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
       expect(remoteAfter).toBeDefined()
       expect(remoteAfter?.parentUuid).toBe(userUuid)
       expect(JSON.stringify(remotePayloads)).not.toContain('ANCESTRY-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('ancestry-closure rematches a first post-resume child of O2 when O1 and O2 sit on opposite sides of OMISSION_REBUILD_TAIL_BYTES', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(
+      join(tmpdir(), 'openclaude-egress-rebuild-o1-o2-'),
+    )
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(40)
+    const listingO1 = id(41)
+    const listingO2 = id(42)
+    const afterUuid = id(43)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      const prefix =
+        [
+          JSON.stringify(user(userUuid, null, 'consecutive omission resume')),
+          JSON.stringify(
+            listing(listingO1, userUuid, 'skill_listing', 'O1-LEAK'),
+          ),
+        ].join('\n') + '\n'
+      const snapshotPad = 's'.repeat(900)
+      const snapshotLines: string[] = []
+      let snapshotBytes = 0
+      let i = 0
+      while (snapshotBytes <= OMISSION_REBUILD_TAIL_BYTES) {
+        const line =
+          JSON.stringify({
+            type: 'file-history-snapshot',
+            messageId: id(2100 + i),
+            snapshot: { pad: snapshotPad, i },
+            isSnapshotUpdate: false,
+          }) + '\n'
+        snapshotLines.push(line)
+        snapshotBytes += Buffer.byteLength(line)
+        i += 1
+      }
+      const suffix =
+        JSON.stringify(
+          listing(listingO2, listingO1, 'skill_listing', 'O2-LEAK'),
+        ) + '\n'
+      await writeFile(path, prefix + snapshotLines.join('') + suffix)
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+      rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(false)
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(listingO2)).toBe(true)
+
+      const afterMsg = {
+        type: 'user',
+        uuid: afterUuid,
+        parentUuid: listingO2,
+        timestamp: '2026-08-11T00:00:01.000Z',
+        message: { role: 'user', content: 'first post-resume child of O2' },
+      } as unknown as Message
+      await recordTranscript([afterMsg], undefined, listingO2)
+      await flushSessionStorage()
+
+      const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
+      expect(remoteAfter).toBeDefined()
+      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      const dumped = JSON.stringify(remotePayloads)
+      expect(dumped).not.toContain('O1-LEAK')
+      expect(dumped).not.toContain('O2-LEAK')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -1301,6 +1380,76 @@ describe('appendEntry remote egress gate', () => {
     }
   })
 
+  test('incomplete rebuild fail-closes an unsafe chain spanning MAX_TRANSCRIPT_READ_BYTES', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(
+      join(tmpdir(), 'openclaude-egress-incomplete-span-'),
+    )
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(410)
+    const listingO1 = id(411)
+    const listingO2 = id(412)
+    const childUuid = id(413)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      const prefix =
+        [
+          JSON.stringify(user(userUuid, null, 'scan-cap prefix')),
+          JSON.stringify(
+            listing(listingO1, userUuid, 'skill_listing', 'SPAN-O1-LEAK'),
+          ),
+        ].join('\n') + '\n'
+      const padSize = MAX_TRANSCRIPT_READ_BYTES + 1024
+      const line = Buffer.alloc(80, 0x78)
+      line[79] = 0x0a
+      const pad = Buffer.allocUnsafe(padSize)
+      for (let off = 0; off < padSize; off += 80) {
+        line.copy(pad, off, 0, Math.min(80, padSize - off))
+      }
+      const suffix =
+        JSON.stringify(
+          listing(listingO2, listingO1, 'skill_listing', 'SPAN-O2-LEAK'),
+        ) + '\n'
+      await writeFile(
+        path,
+        Buffer.concat([Buffer.from(prefix, 'utf8'), pad, Buffer.from(suffix)]),
+      )
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      await rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: listingO2,
+        timestamp: '2026-08-11T00:04:10.000Z',
+        message: { role: 'user', content: 'child of O2 past scan cap' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, listingO2)
+      await flushSessionStorage()
+
+      expect(remotePayloads.find(p => p.uuid === childUuid)).toBeUndefined()
+      expect(JSON.stringify(remotePayloads)).not.toContain('SPAN-O1-LEAK')
+      expect(JSON.stringify(remotePayloads)).not.toContain('SPAN-O2-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 60000)
+
   test('compact fallback sees queued writes before flush', async () => {
     process.env.USER_TYPE = 'external'
     process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
@@ -1341,13 +1490,13 @@ describe('appendEntry remote egress gate', () => {
       // without an intermediate flush so the queue still holds parents.
       const batch: Message[] = []
       let parent: UUID = userUuid
-      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 16; n++) {
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE * 2 + 2; n++) {
         const uuid = id(501 + n)
         batch.push({
           type: 'attachment',
           uuid,
           parentUuid: parent,
-          timestamp: `2026-08-11T00:05:${String(n).padStart(2, '0')}.000Z`,
+          timestamp: `2026-08-11T00:05:00.${String(n).padStart(3, '0')}Z`,
           attachment: {
             type: 'hook_additional_context',
             content: 'QUEUED-LEAK',

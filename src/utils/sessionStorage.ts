@@ -2096,16 +2096,24 @@ class Project {
                   }
                 }
                 // Fail closed: do not emit a remote child whose parent still
-                // points at a withheld / incomplete-rebuild UUID.
+                // points at a withheld / incomplete-rebuild UUID. Incomplete
+                // rebuilds skip persist even after a one-hop rematch (O2→O1)
+                // — the rematch target may also be withheld and unseen.
                 const parentStillUnresolved =
                   !!originalParentUuid &&
-                  remoteEntry.parentUuid === originalParentUuid &&
                   !parentConfirmedSafe &&
                   parentMayNeedResolve &&
-                  (this.remoteEgressOmittedParents.has(originalParentUuid) ||
-                    this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
-                    this.remoteEgressKnownOmitted.has(originalParentUuid) ||
-                    this.remoteEgressOmissionRebuildIncomplete)
+                  (this.remoteEgressOmissionRebuildIncomplete ||
+                    (remoteEntry.parentUuid === originalParentUuid &&
+                      (this.remoteEgressOmittedParents.has(
+                        originalParentUuid,
+                      ) ||
+                        this.evictedRemoteEgressOmissions.has(
+                          originalParentUuid,
+                        ) ||
+                        this.remoteEgressKnownOmitted.has(
+                          originalParentUuid,
+                        ))))
                 if (!parentStillUnresolved) {
                   await this.persistToRemote(sessionId, remoteEntry)
                   if (remoteEntry.uuid) {
@@ -3915,15 +3923,17 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     let sawTranscript = false
     let cursor = size
     let scanned = 0
-    let sawMidLineSkip = false
+    let sawUnrecoverableMidLineSkip = false
     let closed = false
 
     while (cursor > 0 && scanned < MAX_TRANSCRIPT_READ_BYTES) {
       const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
       const { content, nextEnd, skippedMidLine } =
         readTranscriptRangeForOmissionRebuild(fd, start, cursor)
-      if (skippedMidLine) {
-        sawMidLineSkip = true
+      // Recoverable window alignment (slice to the next newline) is not
+      // incomplete. Only an oversized line with no newline in the window is.
+      if (skippedMidLine && content.length === 0) {
+        sawUnrecoverableMidLineSkip = true
       }
       scanned += cursor - start
       const collectRefs = !sawTranscript
@@ -3982,7 +3992,9 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     const hitScanCap =
       scanned >= MAX_TRANSCRIPT_READ_BYTES && cursor > 0 && !closed
     const complete =
-      (!sawTranscript || closed) && !sawMidLineSkip && !hitScanCap
+      (!sawTranscript || closed) &&
+      !sawUnrecoverableMidLineSkip &&
+      !hitScanCap
     return { complete }
   } catch {
     return { complete: false }
