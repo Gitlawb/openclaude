@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -17,7 +17,7 @@ function writePage(dist: string, route: string, html: string): void {
 
 /** Build a minimal dist/ that satisfies every verifyDist assertion. */
 function writeValidFixture(dist: string): void {
-  const navLinks = [`<a href="/buddy/">x</a>`, `<a href="${SITE.releasesUrl}" target="_blank">x</a>`].join('')
+  const navLinks = [`<a href="/buddy/">x</a>`, `<a href="${SITE.releasesUrl}" target="_blank" rel="noopener">x</a>`].join('')
   writePage(
     dist,
     '/',
@@ -25,9 +25,9 @@ function writeValidFixture(dist: string): void {
       .map(p => `<a href="${p.url}"><img src="${p.logo}"></a>`)
       .join('')}${community.map(c => `<a href="${c.url}">x</a>`).join('')}</html>`,
   )
-  const sidebar = `${docsPages.map(p => `<a href="${p.href}">x</a>`).join('')}<a href="${SITE.releasesUrl}" target="_blank">x</a>`
+  const sidebar = `${docsPages.map(p => `<a href="${p.href}">x</a>`).join('')}<a href="${SITE.releasesUrl}" target="_blank" rel="noopener">x</a>`
   for (const p of docsPages) writePage(dist, p.href, `<html>${sidebar}</html>`)
-  writePage(dist, '/changelog/', `<html>${SITE.releasesUrl}</html>`)
+  writePage(dist, '/changelog/', `<html><meta http-equiv="refresh" content="0;url=${SITE.releasesUrl}"><meta name="robots" content="noindex">${SITE.releasesUrl}</html>`)
   writePage(
     dist,
     '/buddy/',
@@ -74,7 +74,47 @@ describe('verifyDist', () => {
       const sidebar = docsPages.map(p => `<a href="${p.href}">x</a>`).join('')
       writePage(dist, '/docs/', `<html>${sidebar}</html>`)
     })
-    expect(failures).toContain(`docs release notes link: missing "href=\\"${SITE.releasesUrl}\\""`)
+    expect(failures).toContain('docs release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a landing release link that lost target=_blank', () => {
+    const failures = withFixture(dist => {
+      const index = join(dist, 'index.html')
+      writeFileSync(index, readFileSync(index, 'utf8').replace(' target="_blank" rel="noopener"', ' rel="noopener"'))
+    })
+    expect(failures).toContain('landing release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a docs release link that lost rel=noopener', () => {
+    const failures = withFixture(dist => {
+      const docs = join(dist, 'docs', 'index.html')
+      writeFileSync(docs, readFileSync(docs, 'utf8').replace(' target="_blank" rel="noopener"', ' target="_blank"'))
+    })
+    expect(failures).toContain('docs release notes link: missing safe new-tab release link')
+  })
+
+  test('flags an unsafe release link even when another release link is safe', () => {
+    const failures = withFixture(dist => {
+      const index = join(dist, 'index.html')
+      writeFileSync(index, `${readFileSync(index, 'utf8')}<a href="${SITE.releasesUrl}" target="_blank">x</a>`)
+    })
+    expect(failures).toContain('landing release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a legacy changelog page that lost its redirect', () => {
+    const failures = withFixture(dist => {
+      const changelog = join(dist, 'changelog', 'index.html')
+      writeFileSync(changelog, readFileSync(changelog, 'utf8').replace(`<meta http-equiv="refresh" content="0;url=${SITE.releasesUrl}">`, ''))
+    })
+    expect(failures).toContain(`legacy changelog redirect: missing "<meta http-equiv=\\"refresh\\" content=\\"0;url=${SITE.releasesUrl}\\">"`)
+  })
+
+  test('flags a legacy changelog redirect that lost noindex', () => {
+    const failures = withFixture(dist => {
+      const changelog = join(dist, 'changelog', 'index.html')
+      writeFileSync(changelog, readFileSync(changelog, 'utf8').replace('<meta name="robots" content="noindex">', ''))
+    })
+    expect(failures).toContain('legacy changelog noindex: missing "<meta name=\\"robots\\" content=\\"noindex\\">"')
   })
 
   test('flags a missing sprite asset', () => {

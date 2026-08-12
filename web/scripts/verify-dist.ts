@@ -33,6 +33,12 @@ export function verifyDist(dist: string): string[] {
     if (html !== '' && !html.includes(needle)) failures.push(`${why}: missing ${JSON.stringify(needle)}`)
   }
 
+  function expectReleaseLinks(html: string, why: string): void {
+    const releaseLinks = (html.match(/<a\b[^>]*>/g) ?? []).filter(link => link.includes(`href="${SITE.releasesUrl}"`))
+    if (html !== '' && (releaseLinks.length === 0 || releaseLinks.some(link => !link.includes('target="_blank"') || !link.includes('rel="noopener"'))))
+      failures.push(`${why}: missing safe new-tab release link`)
+  }
+
   const index = page('/')
 
   // ── navigation exposes every docsNav route, in data AND rendered output ──
@@ -43,12 +49,14 @@ export function verifyDist(dist: string): string[] {
   }
   if (!docsPages.some(p => p.href === '/buddy/')) failures.push('docsNav missing /buddy/')
   expect(index, 'href="/buddy/"', 'landing nav link /buddy/')
-  expect(index, `href="${SITE.releasesUrl}"`, 'landing release notes link')
-  expect(docsIndex, `href="${SITE.releasesUrl}"`, 'docs release notes link')
+  expectReleaseLinks(index, 'landing release notes link')
+  expectReleaseLinks(docsIndex, 'docs release notes link')
 
   // ── legacy route continues on the canonical GitHub Releases page ─────────
   const legacyChangelog = page('/changelog/')
   expect(legacyChangelog, SITE.releasesUrl, 'legacy changelog redirect')
+  expect(legacyChangelog, `<meta http-equiv="refresh" content="0;url=${SITE.releasesUrl}">`, 'legacy changelog redirect')
+  expect(legacyChangelog, '<meta name="robots" content="noindex">', 'legacy changelog noindex')
 
   // ── /buddy/: every hero renders with its sprite ──────────────────────────
   const buddy = page('/buddy/')
