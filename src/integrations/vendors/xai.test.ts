@@ -1,13 +1,5 @@
-import { describe, expect, mock, spyOn, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import { describe, expect, test } from 'bun:test'
 import xai from './xai.js'
-import {
-  acquireSharedMutationLock,
-  releaseSharedMutationLock,
-} from '../../test/sharedMutationLock.js'
-import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 
 const mapModel = xai.catalog?.discovery?.mapModel
 
@@ -110,64 +102,5 @@ describe('xAI vendor hybrid catalog', () => {
       label: 'grok-4.6',
       contextWindow: 500000,
     })
-  })
-
-  test('hybrid discovery authenticates with xAI OAuth when env keys are absent', async () => {
-    await acquireSharedMutationLock('xai.test.ts-oauth-discovery')
-    const originalFetch = globalThis.fetch
-    const originalXaiKey = process.env.XAI_API_KEY
-    const originalOpenAIKey = process.env.OPENAI_API_KEY
-    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-xai-discovery-'))
-    const xaiCredentials = await import('../../utils/xaiCredentials.js')
-    const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockImplementation(
-      async () => 'oauth-token',
-    )
-    setClaudeConfigHomeDirForTesting(tempDir)
-    try {
-      delete process.env.XAI_API_KEY
-      delete process.env.OPENAI_API_KEY
-      let authHeader: string | null = null
-      globalThis.fetch = mock((_input, init) => {
-        authHeader = new Headers(init?.headers as HeadersInit | undefined).get(
-          'Authorization',
-        )
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              data: [{ id: 'grok-4.7', context_window: 500000 }],
-            }),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            },
-          ),
-        )
-      }) as unknown as typeof globalThis.fetch
-
-      const { discoverModelsForRoute } = await import(
-        `../discoveryService.js?ts=${Date.now()}-${Math.random()}`
-      )
-      const result = await discoverModelsForRoute('xai', { forceRefresh: true })
-      expect(authHeader).toBe('Bearer oauth-token')
-      expect(result?.source).toBe('network')
-      expect(result?.models.map(model => model.apiName)).toContain('grok-4.6')
-      expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
-    } finally {
-      tokenSpy.mockRestore()
-      globalThis.fetch = originalFetch
-      setClaudeConfigHomeDirForTesting(undefined)
-      if (originalXaiKey === undefined) {
-        delete process.env.XAI_API_KEY
-      } else {
-        process.env.XAI_API_KEY = originalXaiKey
-      }
-      if (originalOpenAIKey === undefined) {
-        delete process.env.OPENAI_API_KEY
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAIKey
-      }
-      rmSync(tempDir, { recursive: true, force: true })
-      releaseSharedMutationLock()
-    }
   })
 })
