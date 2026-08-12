@@ -119,7 +119,7 @@ describe('xAI vendor hybrid catalog', () => {
     const originalOpenAIKey = process.env.OPENAI_API_KEY
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-xai-discovery-'))
     const xaiCredentials = await import('../../utils/xaiCredentials.js')
-    const spy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockImplementation(
+    const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockImplementation(
       async () => 'oauth-token',
     )
     setClaudeConfigHomeDirForTesting(tempDir)
@@ -132,10 +132,15 @@ describe('xAI vendor hybrid catalog', () => {
           'Authorization',
         )
         return Promise.resolve(
-          new Response(JSON.stringify({ data: [{ id: 'grok-4.7' }] }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify({
+              data: [{ id: 'grok-4.7', context_window: 500000 }],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
         )
       }) as unknown as typeof globalThis.fetch
 
@@ -148,7 +153,7 @@ describe('xAI vendor hybrid catalog', () => {
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.6')
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
     } finally {
-      spy.mockRestore()
+      tokenSpy.mockRestore()
       globalThis.fetch = originalFetch
       setClaudeConfigHomeDirForTesting(undefined)
       if (originalXaiKey === undefined) {
