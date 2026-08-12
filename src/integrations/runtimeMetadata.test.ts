@@ -11,28 +11,34 @@ import {
   resolveModelRuntimeLimits,
   resolveOpenAIShimRuntimeContext,
 } from '../integrations/runtimeMetadata'
-import { setCachedModels } from './discoveryCache'
+import { clearDiscoveryCache, setCachedModels } from './discoveryCache'
+import {
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../utils/envUtils'
 import {
   getDiscoveryCacheKey,
   getRouteDiscoveryHeaders,
 } from './discoveryService'
 
-const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
-
+// The discovery cache resolves its path through getClaudeConfigHomeDir(), which
+// deliberately ignores CLAUDE_CONFIG_DIR (OpenClaude config is independent of
+// Claude Code config). Use the explicit test override so these fixtures land in
+// the temp dir instead of the developer's real ~/.openclaude.
 async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
   await acquireSharedMutationLock('integrations/runtimeMetadata.test.ts')
+  const previousOverride = getClaudeConfigHomeDirOverrideForTesting()
   let tempDir: string | null = null
   try {
     tempDir = mkdtempSync(join(tmpdir(), 'openclaude-runtime-metadata-test-'))
-    process.env.CLAUDE_CONFIG_DIR = tempDir
+    setClaudeConfigHomeDirForTesting(tempDir)
     return await fn()
   } finally {
     try {
-      if (originalConfigDir === undefined) {
-        delete process.env.CLAUDE_CONFIG_DIR
-      } else {
-        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
-      }
+      // Drops the module-level sync snapshot so a later suite cannot read this
+      // suite's fixture back out of memory after the temp dir is gone.
+      await clearDiscoveryCache()
+      setClaudeConfigHomeDirForTesting(previousOverride)
       if (tempDir) {
         rmSync(tempDir, { recursive: true, force: true })
       }
@@ -161,6 +167,123 @@ describe('resolveModelRuntimeLimits', () => {
           },
         }).contextWindow,
       ).toBe(2_000_000)
+    })
+  })
+
+  it.each([128_000, 200_000])(
+    'keeps a gateway-advertised %i window for a globally larger known model',
+    async advertised => {
+      // User-reported path: OmniRoute + GPT-5.6 Sol ("gpt sol"), whose gateway
+      // advertised a smaller window than the known descriptor. An advertised
+      // `context_length` is indistinguishable from a real per-deployment cap, so
+      // discovery stays authoritative — budgeting past the endpoint's real limit
+      // would trade an early compact for a mid-session API failure. 128k is
+      // covered explicitly because it is the value gateways most often report as
+      // a flat default.
+      await withTempConfigDir(async () => {
+        const baseUrl = 'http://localhost:20128/v1'
+        await setCachedModels(
+          getDiscoveryCacheKey('custom', {
+            baseUrl,
+          }),
+          {
+            models: [
+              {
+                id: 'gpt-5.6-sol',
+                apiName: 'gpt-5.6-sol',
+                label: 'gpt-5.6-sol',
+                contextWindow: advertised,
+              },
+            ],
+          },
+        )
+
+        expect(
+          resolveModelRuntimeLimits({
+            model: 'gpt-5.6-sol',
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
+            },
+          }).contextWindow,
+        ).toBe(advertised)
+      })
+    },
+  )
+
+  it('lets an exact env override beat a wrong discovery-cache context window', async () => {
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'my-codex-combo',
+              apiName: 'my-codex-combo',
+              label: 'my-codex-combo',
+              contextWindow: 128_000,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'my-codex-combo',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+            CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+              'my-codex-combo': 1_000_000,
+            }),
+          },
+        }).contextWindow,
+      ).toBe(1_000_000)
+    })
+  })
+
+  it('lets env prefix overrides beat discovery for both context and max-output limits', async () => {
+    // CodeRabbit on #2082: exact-key and settings.modelLimits vs discovery are
+    // covered, but not CLAUDE_CODE_OPENAI_* prefix keys. A prefix pin is the
+    // documented way to cover a family of gateway model ids without listing
+    // each one, and must sit above the discovery cache for both limits.
+    await withTempConfigDir(async () => {
+      const baseUrl = 'http://localhost:20128/v1'
+      await setCachedModels(
+        getDiscoveryCacheKey('custom', {
+          baseUrl,
+        }),
+        {
+          models: [
+            {
+              id: 'my-codex-combo-v2',
+              apiName: 'my-codex-combo-v2',
+              label: 'my-codex-combo-v2',
+              contextWindow: 128_000,
+              maxOutputTokens: 8_192,
+            },
+          ],
+        },
+      )
+
+      expect(
+        resolveModelRuntimeLimits({
+          model: 'my-codex-combo-v2',
+          processEnv: {
+            CLAUDE_CODE_USE_OPENAI: '1',
+            OPENAI_BASE_URL: baseUrl,
+            CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+              'my-codex-combo': 1_000_000,
+            }),
+            CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS: JSON.stringify({
+              'my-codex-combo': 32_768,
+            }),
+          },
+        }),
+      ).toEqual({ contextWindow: 1_000_000, maxOutputTokens: 32_768 })
     })
   })
 })
