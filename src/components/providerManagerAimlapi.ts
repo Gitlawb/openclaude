@@ -10,6 +10,7 @@ import {
   topUpAimlapiByApiKey as topUpAimlapiByApiKeyImpl,
   parseAimlapiAmountUsd as parseAimlapiAmountUsdImpl,
   isValidAimlapiEmail as isValidAimlapiEmailImpl,
+  isValidAimlapiSignInCode as isValidAimlapiSignInCodeImpl,
   beginAimlapiEmailOnboarding as beginAimlapiEmailOnboardingImpl,
   completeAimlapiCodeSignIn as completeAimlapiCodeSignInImpl,
   validateAimlapiApiKey as validateAimlapiApiKeyImpl,
@@ -21,6 +22,7 @@ import {
   resetAimlapiCheckoutSessionAsync as resetAimlapiCheckoutSessionAsyncImpl,
   saveAimlapiTopupStateAsync as saveAimlapiTopupStateAsyncImpl,
   reconcileSettledAimlapiTopupStateAsync as reconcileSettledAimlapiTopupStateAsyncImpl,
+  aimlapiByKeyIdentity as aimlapiByKeyIdentityImpl,
   loadAimlapiSignInKey as loadAimlapiSignInKeyImpl,
   saveAimlapiSignInKeyAsync as saveAimlapiSignInKeyAsyncImpl,
   clearAimlapiSignInKeyAsync as clearAimlapiSignInKeyAsyncImpl,
@@ -48,6 +50,9 @@ export const parseAimlapiAmountUsd: typeof parseAimlapiAmountUsdImpl = (...args)
 
 export const isValidAimlapiEmail: typeof isValidAimlapiEmailImpl = (...args) =>
   isValidAimlapiEmailImpl(...args)
+
+export const isValidAimlapiSignInCode: typeof isValidAimlapiSignInCodeImpl = (...args) =>
+  isValidAimlapiSignInCodeImpl(...args)
 
 export const beginAimlapiEmailOnboarding: typeof beginAimlapiEmailOnboardingImpl = (
   ...args
@@ -82,6 +87,9 @@ export const saveAimlapiTopupStateAsync: typeof saveAimlapiTopupStateAsyncImpl =
 export const reconcileSettledAimlapiTopupStateAsync: typeof reconcileSettledAimlapiTopupStateAsyncImpl = (
   ...args
 ) => reconcileSettledAimlapiTopupStateAsyncImpl(...args)
+
+export const aimlapiByKeyIdentity: typeof aimlapiByKeyIdentityImpl = (...args) =>
+  aimlapiByKeyIdentityImpl(...args)
 
 export const loadAimlapiSignInKey: typeof loadAimlapiSignInKeyImpl = (...args) =>
   loadAimlapiSignInKeyImpl(...args)

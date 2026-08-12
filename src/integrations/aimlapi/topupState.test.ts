@@ -16,6 +16,7 @@ import {
   acquireAimlapiExchangeLeaseAsync,
   acquireAimlapiKeyMintLeaseAsync,
   acquireAimlapiSignInKeyLeaseAsync,
+  aimlapiByKeyIdentity,
   commitAimlapiSignInKeyAsync,
   refreshAimlapiExchangeLeaseAsync,
   refreshAimlapiSignInKeyLeaseAsync,
@@ -783,95 +784,132 @@ test('a receipt that fails schema validation fails closed instead of being claim
   )
 })
 
-test('reconcileSettledAimlapiTopupStateAsync clears a stale settled receipt for the same credential', async () => {
+// By-key checkouts (a saved profile or an env-sourced credential) have no
+// passwordless account email to key the intent on, so the intent's `email`
+// field carries a stable, non-secret key fingerprint instead — mirrors
+// ProviderManager's own intentIdentity construction.
+function byKeyIntent(apiKey: string): AimlapiTopupIntent {
+  return { ...intent, email: aimlapiByKeyIdentity(apiKey) }
+}
+
+test('reconcileSettledAimlapiTopupStateAsync clears a stale settled receipt for the same by-key credential', async () => {
   const directory = useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
+  const keyAIntent = byKeyIntent('key-a')
+  const claimed = claimAimlapiTopupState(keyAIntent)
   saveAimlapiTopupState({
-    ...intent,
+    ...keyAIntent,
     paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'paid-session',
-    apiKey: 'existing-key',
+    apiKey: 'key-a',
     apiKeyId: 'existing-id',
     settled: true,
   })
   const statePath = join(directory, 'aimlapi-topup.json')
   expect(existsSync(statePath)).toBe(true)
 
-  await reconcileSettledAimlapiTopupStateAsync('existing-key', false)
+  await reconcileSettledAimlapiTopupStateAsync('key-a')
 
   expect(existsSync(statePath)).toBe(false)
 })
 
-test('reconcileSettledAimlapiTopupStateAsync leaves a receipt for a DIFFERENT credential untouched', async () => {
+test('reconcileSettledAimlapiTopupStateAsync leaves a receipt for a DIFFERENT by-key credential untouched', async () => {
   useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
+  const keyAIntent = byKeyIntent('key-a')
+  const claimed = claimAimlapiTopupState(keyAIntent)
   saveAimlapiTopupState({
-    ...intent,
+    ...keyAIntent,
     paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'paid-session',
-    apiKey: 'existing-key',
+    apiKey: 'key-a',
     apiKeyId: 'existing-id',
     settled: true,
   })
 
-  await reconcileSettledAimlapiTopupStateAsync('some-other-key', false)
+  await reconcileSettledAimlapiTopupStateAsync('key-b')
 
-  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
+  expect(loadAimlapiTopupState(keyAIntent)?.apiKey).toBe('key-a')
 })
 
-test('reconcileSettledAimlapiTopupStateAsync clears a stale settled env-credential receipt (no stored apiKey) when usesEnv is set', async () => {
+test('reconcileSettledAimlapiTopupStateAsync clears a stale settled env-credential receipt (no stored apiKey) by identity', async () => {
   const directory = useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
+  const envKeyAIntent = byKeyIntent('env-key-a')
+  const claimed = claimAimlapiTopupState(envKeyAIntent)
   // Mirrors the aimlapiExistingUsesEnv save branch: settled, but apiKey is
-  // deliberately never persisted for an ambient env credential.
+  // deliberately never persisted for an ambient env credential — only the
+  // key-fingerprint identity in `email` survives to match against.
   saveAimlapiTopupState({
-    ...intent,
+    ...envKeyAIntent,
     paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'paid-session',
     settled: true,
   })
   const statePath = join(directory, 'aimlapi-topup.json')
-  expect(loadAimlapiTopupState(intent)?.apiKey).toBeUndefined()
+  expect(loadAimlapiTopupState(envKeyAIntent)?.apiKey).toBeUndefined()
 
-  await reconcileSettledAimlapiTopupStateAsync('ambient-env-key', true)
+  await reconcileSettledAimlapiTopupStateAsync('env-key-a')
 
   expect(existsSync(statePath)).toBe(false)
 })
 
-test('reconcileSettledAimlapiTopupStateAsync with usesEnv must not clear a receipt that DOES have a stored key', async () => {
+test('reconcileSettledAimlapiTopupStateAsync must not let one env credential clear a DIFFERENT env credential\'s settled receipt', async () => {
+  // Reproduces the exact finding: A pays and settles (interrupted before the
+  // profile write), the user then switches AIMLAPI_API_KEY to a different
+  // credential B and reuses it — B's successful balance check must never be
+  // able to discard A's still-unrecovered receipt just because both are
+  // keyless on disk.
   useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
+  const envKeyAIntent = byKeyIntent('env-key-a')
+  const claimed = claimAimlapiTopupState(envKeyAIntent)
   saveAimlapiTopupState({
-    ...intent,
+    ...envKeyAIntent,
     paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'paid-session',
-    apiKey: 'existing-key',
+    settled: true,
+  })
+
+  await reconcileSettledAimlapiTopupStateAsync('env-key-b')
+
+  const stillThere = loadAimlapiTopupState(envKeyAIntent)
+  expect(stillThere?.settled).toBe(true)
+  expect(stillThere?.resumeSessionToken).toBe('paid-session')
+})
+
+test('reconcileSettledAimlapiTopupStateAsync must not clear a receipt that DOES have a stored key for an unrelated env credential', async () => {
+  useTemporaryConfig()
+  const keyAIntent = byKeyIntent('key-a')
+  const claimed = claimAimlapiTopupState(keyAIntent)
+  saveAimlapiTopupState({
+    ...keyAIntent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+    apiKey: 'key-a',
     apiKeyId: 'existing-id',
     settled: true,
   })
 
   // An unrelated env-credential reuse must not sweep away a real by-key
   // receipt just because it happens to be the only one on disk.
-  await reconcileSettledAimlapiTopupStateAsync('ambient-env-key', true)
+  await reconcileSettledAimlapiTopupStateAsync('ambient-env-key')
 
-  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
+  expect(loadAimlapiTopupState(keyAIntent)?.apiKey).toBe('key-a')
 })
 
 test('reconcileSettledAimlapiTopupStateAsync leaves an unsettled (still in-progress) receipt untouched', async () => {
   useTemporaryConfig()
-  const claimed = claimAimlapiTopupState(intent)
+  const keyAIntent = byKeyIntent('key-a')
+  const claimed = claimAimlapiTopupState(keyAIntent)
   saveAimlapiTopupState({
-    ...intent,
+    ...keyAIntent,
     paymentSessionId: claimed.paymentSessionId,
     resumeSessionToken: 'live-session',
-    apiKey: 'existing-key',
+    apiKey: 'key-a',
     apiKeyId: 'existing-id',
     // Not settled: a checkout may still be open/chargeable for this record.
   })
 
-  await reconcileSettledAimlapiTopupStateAsync('existing-key', false)
+  await reconcileSettledAimlapiTopupStateAsync('key-a')
 
-  expect(loadAimlapiTopupState(intent)?.apiKey).toBe('existing-key')
+  expect(loadAimlapiTopupState(keyAIntent)?.apiKey).toBe('key-a')
 })
 
 test('recordAimlapiSettledKeyAsync persists the key and clears the lease under the CAS', async () => {

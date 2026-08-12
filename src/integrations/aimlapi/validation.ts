@@ -49,3 +49,14 @@ export function isValidAimlapiEmail(value: string): boolean {
   const tld = labels.at(-1) ?? ''
   return labels.length >= 2 && /^[A-Za-z]{2,}$/.test(tld)
 }
+
+/**
+ * The passwordless sign-in code is documented and issued as a 6-digit
+ * numeric string. Rejecting anything else locally — empty, non-numeric,
+ * short, long — avoids an obvious round trip to verifySignInCode for input
+ * that can never succeed, and keeps that contract in one place instead of
+ * being reimplemented (and able to drift) at each entry point.
+ */
+export function isValidAimlapiSignInCode(value: string): boolean {
+  return /^\d{6}$/.test(value.trim())
+}

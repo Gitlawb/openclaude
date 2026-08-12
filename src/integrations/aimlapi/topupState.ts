@@ -1,6 +1,5 @@
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -8,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import { logForDebugging } from '../../utils/debug.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -410,6 +409,46 @@ function isEnoentError(error: unknown): boolean {
 }
 
 /**
+ * Read+parse a JSON object file, matching readAimlapiTopupStateUnlocked's
+ * fail-closed contract: only a genuinely missing file (ENOENT) means "no
+ * record yet" (returns null). A file that exists but cannot be trusted — a
+ * permission/I/O error, invalid JSON, or a top-level value that isn't even a
+ * plausible object — is surfaced as a thrown error instead of silently
+ * treated as empty. Used by the sign-in key cache and its mint lease: an
+ * unreadable/corrupt file there must not be treated as "no cached key, no
+ * live lease", since that would authorize a fresh non-idempotent createKey
+ * call (or a fresh lease acquisition over a possibly-still-live one) on top
+ * of a record this read simply failed to confirm.
+ */
+function readJsonObjectFile(path: string, label: string): Record<string, unknown> | null {
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch (error) {
+    if (isEnoentError(error)) return null
+    throw new Error(
+      `Could not read the local ${label} at ${path}. Resolve the underlying issue and ` +
+        `retry, rather than proceeding as if it were empty.`,
+      { cause: error },
+    )
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    throw new Error(
+      `The local ${label} at ${path} is not valid JSON. Remove or repair it manually ` +
+        `before retrying.`,
+      { cause: error },
+    )
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`The local ${label} at ${path} does not match the expected format.`)
+  }
+  return parsed as Record<string, unknown>
+}
+
+/**
  * Read the stored record. Only a genuinely missing file (ENOENT) means "no
  * state" — an empty slot claimTopupStateOperation may safely write a fresh
  * claim over. A file that exists but cannot be trusted — a permission/I/O
@@ -495,39 +534,52 @@ function toCheckoutState(state: AimlapiPersistedTopup): AimlapiCheckoutState {
 }
 
 /**
+ * Stable, non-secret identity for a by-key checkout intent: a saved-profile
+ * or env-sourced credential has no account email to key the intent on (the
+ * top-up is against the key itself, not a passwordless account), so the
+ * intent's `email` field carries this fingerprint instead. Shared by
+ * ProviderManager's intent construction and reconcileSettledAimlapiTopupStateAsync
+ * so both sides compute the identical value — a second, independently
+ * maintained hash computation could silently drift (a different algorithm,
+ * different trimming) and break the match either by never matching a real
+ * receipt or, worse, by colliding across different keys.
+ */
+export function aimlapiByKeyIdentity(apiKey: string): string {
+  return `key:${createHash('sha256').update(apiKey.trim()).digest('hex')}`
+}
+
+/**
  * Best-effort reconciliation for a settled receipt whose claiming intent this
  * process never saw (e.g. it was left behind by an earlier run that settled a
  * by-key top-up but never reached the profile write — see
  * claimTopupStateOperation's unconditional refusal to overwrite a
  * settled-but-unsaved receipt). Clears the record only when it is settled AND
- * already holds the SAME credential the caller is about to reuse as-is: that
- * is the one case where discarding it loses nothing — the credential's funds
- * are already reflected server-side (the caller just confirmed its balance),
- * and no new payment is being made here to record. Safe no-op otherwise —
- * mismatched, unpaid, or in-progress state is left untouched for its actual
- * owner to resolve.
+ * already belongs to the SAME credential the caller is about to reuse as-is:
+ * that is the one case where discarding it loses nothing — the credential's
+ * funds are already reflected server-side (the caller just confirmed its
+ * balance), and no new payment is being made here to record. Safe no-op
+ * otherwise — mismatched, unpaid, or in-progress state is left untouched for
+ * its actual owner to resolve.
  *
- * An env-sourced credential's settled receipt never stores `apiKey` in the
- * first place (see saveTopupStateOperation's aimlapiExistingUsesEnv branch —
- * the ambient secret is deliberately never written to disk), so comparing it
- * by value can never match and would leave that receipt stranded forever.
- * `usesEnv` switches matching to "settled with no stored key", which an
- * absent apiKey on a settled record can only mean, since a by-key top-up
- * with a real key always stores one.
+ * Matches on the intent's `email` field (see aimlapiByKeyIdentity), not on
+ * the stored `apiKey`: an env-sourced credential's settled receipt never
+ * stores `apiKey` in the first place (see saveTopupStateOperation's
+ * aimlapiExistingUsesEnv branch — the ambient secret is deliberately never
+ * written to disk), so a raw-value comparison could never match it and would
+ * leave it stranded forever. Worse, matching on "settled with no stored key"
+ * alone — the only other signal a keyless receipt offers — cannot tell TWO
+ * different env credentials' keyless receipts apart, and would let checking
+ * credential B's balance delete credential A's still-unrecovered receipt.
+ * The identity fingerprint is present and stable for a by-key receipt
+ * regardless of whether its key ended up stored, so it works for both.
  */
-export function reconcileSettledAimlapiTopupStateAsync(
-  apiKey: string,
-  usesEnv: boolean,
-): Promise<void> {
+export function reconcileSettledAimlapiTopupStateAsync(apiKey: string): Promise<void> {
   const trimmedApiKey = apiKey.trim()
-  if (!usesEnv && !trimmedApiKey) return Promise.resolve()
+  if (!trimmedApiKey) return Promise.resolve()
+  const identity = aimlapiByKeyIdentity(trimmedApiKey)
   return withStateLockAsync(() => {
     const current = readAimlapiTopupStateUnlocked()
-    if (!current?.settled) return
-    const matches = usesEnv
-      ? !current.apiKey?.trim()
-      : current.apiKey?.trim() === trimmedApiKey
-    if (!matches) return
+    if (!current?.settled || current.email !== identity) return
     rmSync(statePath(), { force: true })
   })
 }
@@ -1124,32 +1176,25 @@ function isSignInKeyEntry(value: unknown): value is AimlapiSignInKeyEntry {
 }
 
 function readSignInKeyStoreUnlocked(): AimlapiSignInKeyStore {
-  const path = signInKeyPath()
-  if (!existsSync(path)) return {}
-  try {
-    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (typeof raw !== 'object' || raw === null) return {}
-    const record = raw as Record<string, unknown>
-    // Migrate a pre-collection single-record file `{ email, apiKey, apiKeyId }`.
-    const legacyEmail = record.email
-    if (typeof legacyEmail === 'string' && isSignInKeyEntry(record)) {
-      return {
-        [normalizeEmail(legacyEmail)]: {
-          apiKey: record.apiKey,
-          apiKeyId: record.apiKeyId,
-        },
-      }
+  const record = readJsonObjectFile(signInKeyPath(), 'AI/ML API sign-in key cache')
+  if (!record) return {}
+  // Migrate a pre-collection single-record file `{ email, apiKey, apiKeyId }`.
+  const legacyEmail = record.email
+  if (typeof legacyEmail === 'string' && isSignInKeyEntry(record)) {
+    return {
+      [normalizeEmail(legacyEmail)]: {
+        apiKey: record.apiKey,
+        apiKeyId: record.apiKeyId,
+      },
     }
-    const store: AimlapiSignInKeyStore = {}
-    for (const [email, entry] of Object.entries(record)) {
-      if (email && isSignInKeyEntry(entry)) {
-        store[normalizeEmail(email)] = { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId }
-      }
-    }
-    return store
-  } catch {
-    return {}
   }
+  const store: AimlapiSignInKeyStore = {}
+  for (const [email, entry] of Object.entries(record)) {
+    if (email && isSignInKeyEntry(entry)) {
+      store[normalizeEmail(email)] = { apiKey: entry.apiKey, apiKeyId: entry.apiKeyId }
+    }
+  }
+  return store
 }
 
 export function loadAimlapiSignInKey(
@@ -1317,19 +1362,13 @@ function isSignInLeaseRecord(value: unknown): value is AimlapiSignInLeaseRecord 
 }
 
 function readSignInLeaseStoreUnlocked(): AimlapiSignInLeaseStore {
-  const path = signInLeasePath()
-  if (!existsSync(path)) return {}
-  try {
-    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (typeof raw !== 'object' || raw === null) return {}
-    const store: AimlapiSignInLeaseStore = {}
-    for (const [email, entry] of Object.entries(raw as Record<string, unknown>)) {
-      if (email && isSignInLeaseRecord(entry)) store[normalizeEmail(email)] = entry
-    }
-    return store
-  } catch {
-    return {}
+  const record = readJsonObjectFile(signInLeasePath(), 'AI/ML API sign-in key-mint lease')
+  if (!record) return {}
+  const store: AimlapiSignInLeaseStore = {}
+  for (const [email, entry] of Object.entries(record)) {
+    if (email && isSignInLeaseRecord(entry)) store[normalizeEmail(email)] = entry
   }
+  return store
 }
 
 function writeSignInLeaseStore(store: AimlapiSignInLeaseStore): void {

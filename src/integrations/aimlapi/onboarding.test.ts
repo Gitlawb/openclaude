@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -40,6 +40,19 @@ afterEach(() => {
 
 function response(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status })
+}
+
+// Permission bits don't restrict a root process (common in CI containers), so
+// a chmod-based unreadable-file test would spuriously pass without exercising
+// anything. Detect that case and skip rather than assert on it.
+function readableDespiteNoPermissions(path: string): boolean {
+  if (process.platform === 'win32') return true
+  try {
+    readFileSync(path, 'utf8')
+    return true
+  } catch {
+    return false
+  }
 }
 
 test('existing account onboarding sends a code, creates a key, and reports low balance', async () => {
@@ -381,4 +394,135 @@ test('a slow createKey refreshes the sign-in lease before the cache save lands',
   // mid-wait) is covered directly by the isolated topupState lease test this
   // one closes the gap for.
   expect(existsSync(leasePath)).toBe(false)
+})
+
+function mockVerifyAndKeyMintCounter(keyMints: { count: number }): typeof fetch {
+  return mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints.count += 1
+      return response({ key: 'new-key', id: 'new-id' })
+    }
+    if (url.endsWith('/billing/balance')) {
+      return response({ balance: 100, lowBalance: false, lowBalanceThreshold: 20 })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+}
+
+test('an unreadable sign-in key cache fails closed instead of minting a fresh key', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const cachePath = join(configDirectory, 'aimlapi-signin-key.json')
+  writeFileSync(
+    cachePath,
+    JSON.stringify({ 'user@example.com': { apiKey: 'cached-key', apiKeyId: 'cached-id' } }),
+  )
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  chmodSync(cachePath, 0o000)
+  try {
+    if (readableDespiteNoPermissions(cachePath)) return
+    await expect(
+      completeAimlapiCodeSignIn(
+        'user@example.com',
+        '123456',
+        undefined,
+        'https://api.example.test/v1',
+      ),
+    ).rejects.toThrow(/Could not read the local AI\/ML API sign-in key cache/)
+  } finally {
+    // Best-effort: the fixed code path never gets far enough to touch this
+    // file, but tolerate it being gone regardless so cleanup itself is never
+    // what fails the test.
+    try {
+      chmodSync(cachePath, 0o600)
+    } catch {
+      // Nothing to restore.
+    }
+  }
+
+  // An unreadable cache must never be mistaken for "no cached key" — that
+  // would authorize a second, orphan-risking createKey call for an account
+  // that may already have one minted.
+  expect(keyMints.count).toBe(0)
+})
+
+test('a malformed-JSON sign-in key cache fails closed instead of minting a fresh key', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const cachePath = join(configDirectory, 'aimlapi-signin-key.json')
+  writeFileSync(cachePath, '{ this is not valid json')
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  await expect(
+    completeAimlapiCodeSignIn(
+      'user@example.com',
+      '123456',
+      undefined,
+      'https://api.example.test/v1',
+    ),
+  ).rejects.toThrow(/is not valid JSON/)
+
+  expect(keyMints.count).toBe(0)
+  expect(readFileSync(cachePath, 'utf8')).toBe('{ this is not valid json')
+})
+
+test('an unreadable sign-in lease file fails closed instead of minting a fresh key', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
+  writeFileSync(
+    leasePath,
+    JSON.stringify({ 'someone-else@example.com': { owner: 'peer', at: Date.now() } }),
+  )
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  chmodSync(leasePath, 0o000)
+  try {
+    if (readableDespiteNoPermissions(leasePath)) return
+    await expect(
+      completeAimlapiCodeSignIn(
+        'user@example.com',
+        '123456',
+        undefined,
+        'https://api.example.test/v1',
+      ),
+    ).rejects.toThrow(/Could not read the local AI\/ML API sign-in key-mint lease/)
+  } finally {
+    // Best-effort: the fixed code path never gets far enough to touch this
+    // file, but tolerate it being gone regardless so cleanup itself is never
+    // what fails the test.
+    try {
+      chmodSync(leasePath, 0o600)
+    } catch {
+      // Nothing to restore.
+    }
+  }
+
+  // An unreadable lease file must not be mistaken for "no live lease" — a
+  // competing process's still-live lease could be sitting in those
+  // unreadable bytes, and minting anyway risks a second concurrent createKey.
+  expect(keyMints.count).toBe(0)
+})
+
+test('a malformed-JSON sign-in lease file fails closed instead of minting a fresh key', async () => {
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+  const leasePath = join(configDirectory, 'aimlapi-signin-lease.json')
+  writeFileSync(leasePath, '{ this is not valid json')
+  const keyMints = { count: 0 }
+  globalThis.fetch = mockVerifyAndKeyMintCounter(keyMints)
+
+  await expect(
+    completeAimlapiCodeSignIn(
+      'user@example.com',
+      '123456',
+      undefined,
+      'https://api.example.test/v1',
+    ),
+  ).rejects.toThrow(/is not valid JSON/)
+
+  expect(keyMints.count).toBe(0)
+  expect(readFileSync(leasePath, 'utf8')).toBe('{ this is not valid json')
 })

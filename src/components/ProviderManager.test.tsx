@@ -8,6 +8,7 @@ import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
 import { AppStateProvider } from '../state/AppState.js'
 import { AIMLAPI_MESSAGES } from '../integrations/aimlapi/messages.js'
+import { aimlapiByKeyIdentity } from '../integrations/aimlapi/topupState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -647,17 +648,16 @@ function mockProviderManagerDependencies(
       }),
     reconcileSettledAimlapiTopupStateAsync:
       options?.reconcileSettledAimlapiTopupStateAsync ??
-      (async (apiKey: string, usesEnv: boolean) => {
-        // Mirror the real semantics: an env-sourced credential's settled
-        // receipt never stores apiKey, so it matches on absence instead of
-        // by value; anything else that doesn't match is left alone.
-        if (!persistedAimlapiTopup?.settled) return
-        const matches = usesEnv
-          ? !persistedAimlapiTopup.apiKey
-          : Boolean(apiKey.trim()) && persistedAimlapiTopup.apiKey === apiKey.trim()
-        if (!matches) return
+      (async (apiKey: string) => {
+        // Mirror the real semantics: match on the by-key intent's identity
+        // fingerprint (see aimlapiByKeyIdentity), not on the stored apiKey —
+        // an env-sourced credential's settled receipt never stores one.
+        const trimmed = apiKey.trim()
+        if (!trimmed || !persistedAimlapiTopup?.settled) return
+        if (persistedAimlapiTopup.email !== aimlapiByKeyIdentity(trimmed)) return
         persistedAimlapiTopup = undefined
       }),
+    aimlapiByKeyIdentity,
     loadAimlapiSignInKey: options?.loadAimlapiSignInKey ?? (() => null),
     saveAimlapiSignInKeyAsync: options?.saveAimlapiSignInKeyAsync ?? (async () => {}),
     clearAimlapiSignInKeyAsync: options?.clearAimlapiSignInKeyAsync ?? (async () => {}),
@@ -1487,7 +1487,7 @@ test('ProviderManager reconciles a stale settled receipt for this credential whe
     await waitForFrameOutput(mounted.getOutput, frame =>
       frame.includes('Create provider profile') && frame.includes('Default model'),
     )
-    expect(reconcileSettledAimlapiTopupStateAsync).toHaveBeenCalledWith('saved-key', false)
+    expect(reconcileSettledAimlapiTopupStateAsync).toHaveBeenCalledWith('saved-key')
   } finally {
     await mounted.dispose()
   }
@@ -2262,6 +2262,67 @@ test('ProviderManager clears the sign-in cache with the minted key id on a suffi
     // synchronous onSaved callback would otherwise close over.
     await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
     expect(clearAimlapiSignInKeyAsync).toHaveBeenCalledWith('stan@aimlapi.com', 'minted-key-id')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager rejects a malformed sign-in code locally instead of calling verifySignInCode', async () => {
+  const beginAimlapiEmailOnboarding = mock(async () => ({ action: 'code-sent' as const }))
+  const completeAimlapiCodeSignIn = mock(async () => ({
+    sessionToken: 'session_test',
+    apiKey: 'issued_test',
+    apiKeyId: 'minted-key-id',
+    balanceStatus: 'confirmed' as const,
+    lowBalance: false,
+  }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    beginAimlapiEmailOnboarding,
+    completeAimlapiCodeSignIn,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 1 of 2: Default model'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Do you have an aimlapi.com key?'),
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your email.'))
+    mounted.stdin.write('stan@aimlapi.com')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Enter the 6-digit code sent to stan@aimlapi.com.'),
+    )
+    let previousCodeFrame = ''
+    await waitForCondition(() => {
+      const frame = mounted.getOutput()
+      const settled = frame === previousCodeFrame && frame.includes('6-digit code')
+      previousCodeFrame = frame
+      return settled
+    })
+
+    // Too short, non-numeric — neither can ever succeed against the
+    // documented 6-digit numeric contract, so both must be rejected before
+    // reaching completeAimlapiCodeSignIn (which wraps verifySignInCode).
+    mounted.stdin.write('12345')
+    mounted.stdin.write('\r')
+    const rejectedOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes(AIMLAPI_MESSAGES.codeIncorrect),
+    )
+    expect(rejectedOutput).toContain('Enter the 6-digit code sent to stan@aimlapi.com.')
+    expect(completeAimlapiCodeSignIn).not.toHaveBeenCalled()
   } finally {
     await mounted.dispose()
   }

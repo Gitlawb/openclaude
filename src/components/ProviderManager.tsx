@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import figures from 'figures'
 import * as React from 'react'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
@@ -54,6 +53,7 @@ import {
   topUpAimlapiByApiKey,
   parseAimlapiAmountUsd,
   isValidAimlapiEmail,
+  isValidAimlapiSignInCode,
   beginAimlapiEmailOnboarding,
   completeAimlapiCodeSignIn,
   validateAimlapiApiKey,
@@ -65,6 +65,7 @@ import {
   resetAimlapiCheckoutSessionAsync,
   saveAimlapiTopupStateAsync,
   reconcileSettledAimlapiTopupStateAsync,
+  aimlapiByKeyIdentity,
   loadAimlapiSignInKey,
   saveAimlapiSignInKeyAsync,
   clearAimlapiSignInKeyAsync,
@@ -3051,9 +3052,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           // same credential (e.g. "Set up a new key or switch account", or
           // Esc then back in) whose fresh settlement could then be caught and
           // deleted by this still-in-flight reconcile.
-          await reconcileSettledAimlapiTopupStateAsync(apiKey, aimlapiExistingUsesEnv).catch(
-            () => {},
-          )
+          await reconcileSettledAimlapiTopupStateAsync(apiKey).catch(() => {})
           if (controller.signal.aborted) return
           setIsAimlapiKeyValidating(false)
           setCursorOffset(draft.model.length)
@@ -3199,7 +3198,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function verifyAimlapiSignInCode(code: string): void {
     const trimmedCode = code.trim()
-    if (!trimmedCode) {
+    if (!isValidAimlapiSignInCode(trimmedCode)) {
       setErrorMessage(AIMLAPI_MESSAGES.codeIncorrect)
       return
     }
@@ -3331,7 +3330,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     const endpoints = resolveEndpoints()
     const intentIdentity = aimlapiTopupByKey
-      ? `key:${createHash('sha256').update(aimlapiIssuedKey).digest('hex')}`
+      ? aimlapiByKeyIdentity(aimlapiIssuedKey)
       : aimlapiTopupEmail.trim().toLowerCase()
     const intent: AimlapiTopupIntent = {
       email: intentIdentity,

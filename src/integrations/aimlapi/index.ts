@@ -8,7 +8,11 @@ export {
   type AimlapiTopupOptions,
   type AimlapiTopupStatus,
 } from './topup.js'
-export { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
+export {
+  isValidAimlapiEmail,
+  isValidAimlapiSignInCode,
+  parseAimlapiAmountUsd,
+} from './validation.js'
 export {
   beginAimlapiEmailOnboarding,
   completeAimlapiCodeSignIn,

@@ -51,7 +51,11 @@ import {
   type AimlapiTopupIntent,
 } from './topupState.js'
 import { abortError, isAmbiguousTransportApiError, sleep } from './transport.js'
-import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
+import {
+  isValidAimlapiEmail,
+  isValidAimlapiSignInCode,
+  parseAimlapiAmountUsd,
+} from './validation.js'
 
 export type AimlapiTopupOptions = {
   email?: string
@@ -338,6 +342,9 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
         process.env.AIMLAPI_CODE?.trim() ||
         (await promptHiddenFn(`6-digit code sent to ${email}`))
       if (!code) throw new Error('Sign-in code is required.')
+      if (!isValidAimlapiSignInCode(code)) {
+        throw new Error('Sign-in code must be the 6-digit code sent by email.')
+      }
       sessionToken = (await client.verifySignInCode(email, code, options.signal)).token
       // Do not mint a key when the retained checkout was a paid sign-up that must
       // still be exchanged (see `mustExchange` below): the exchange yields the key.
@@ -774,7 +781,16 @@ async function mintExistingAccountKeyWithLease(
       }
       // Persist under the same CAS before returning it, so a crash right
       // after minting still recovers the key on the next run instead of
-      // stranding a valid, unused credential.
+      // stranding a valid, unused credential. createKey is non-idempotent, so
+      // this receipt is the ONLY durable record of the minted key until the
+      // checkout finishes and the later, already-fatal save at this
+      // function's caller lands — the window between the two can be minutes
+      // long (the user paying in a browser). Unlike a genuinely optional
+      // resume aid, a failure here must stop the flow with a recovery-
+      // oriented error instead of returning the key only in memory: leave the
+      // key-mint lease held (do not release it) so a peer can't reclaim it
+      // and mint a second key while this one is still unrecorded, and let the
+      // caller's retry see it as still in flight rather than absent.
       try {
         saveAimlapiTopupState({
           ...expected,
@@ -782,8 +798,12 @@ async function mintExistingAccountKeyWithLease(
           apiKey: minted.apiKey,
           apiKeyId: minted.apiKeyId,
         })
-      } catch {
-        // Retained in memory for this run; persistence is only a resume aid.
+      } catch (error) {
+        throw new Error(
+          `A key was issued (id ${minted.apiKeyId}), but the local recovery receipt could ` +
+            `not be saved (${error instanceof Error ? error.message : String(error)}). Open ` +
+            `https://aimlapi.com/app and rotate the issued key to recover access.`,
+        )
       }
       return minted
     }

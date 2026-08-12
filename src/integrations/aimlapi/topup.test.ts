@@ -5,12 +5,18 @@ import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
+  acquireAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
   loadAimlapiTopupState,
   recordAimlapiSettledKeyAsync,
   saveAimlapiTopupState,
+  type AimlapiPersistedTopup,
 } from './topupState.js'
-import { isValidAimlapiEmail, parseAimlapiAmountUsd } from './validation.js'
+import {
+  isValidAimlapiEmail,
+  isValidAimlapiSignInCode,
+  parseAimlapiAmountUsd,
+} from './validation.js'
 import {
   pollUntilPaid,
   provisionAimlapiKey,
@@ -103,6 +109,49 @@ test('isValidAimlapiEmail rejects incomplete domains', () => {
   expect(isValidAimlapiEmail('user@example')).toBe(false)
   expect(isValidAimlapiEmail('user@example.c')).toBe(false)
   expect(isValidAimlapiEmail('user@.example.com')).toBe(false)
+})
+
+test('isValidAimlapiSignInCode accepts only a 6-digit numeric code', () => {
+  expect(isValidAimlapiSignInCode('123456')).toBe(true)
+  expect(isValidAimlapiSignInCode('  123456  ')).toBe(true)
+  expect(isValidAimlapiSignInCode('')).toBe(false)
+  expect(isValidAimlapiSignInCode('   ')).toBe(false)
+  expect(isValidAimlapiSignInCode('abc')).toBe(false)
+  expect(isValidAimlapiSignInCode('abcdef')).toBe(false)
+  expect(isValidAimlapiSignInCode('12345')).toBe(false)
+  expect(isValidAimlapiSignInCode('1234567')).toBe(false)
+  expect(isValidAimlapiSignInCode('12345a')).toBe(false)
+  expect(isValidAimlapiSignInCode('123 456')).toBe(false)
+})
+
+test('a malformed --code is rejected locally before it ever reaches verifySignInCode', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) {
+      throw new Error('verifySignInCode must not be called for a malformed code')
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  for (const malformed of ['abcdef', '12345', '1234567', '12345a', '123 456']) {
+    await expect(
+      runAimlapiTopup({
+        email: 'user@example.com',
+        code: malformed,
+        amountUsd: '25',
+        noOpen: true,
+      }),
+    ).rejects.toThrow('Sign-in code must be the 6-digit code sent by email.')
+  }
 })
 
 test('CLI retries reuse the persisted checkout session and payment id', async () => {
@@ -307,6 +356,88 @@ test('an ambiguous key-mint failure holds the lease instead of releasing it for 
   // (and orphan) a second key while the first POST's outcome is unknown.
   expect(saved.keyMintLeaseOwner).toBeTruthy()
   expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
+})
+
+test('a receipt-write failure right after a successful key mint stops the flow instead of stranding the key', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  // A file (not a directory) at the path the config dir is switched to right
+  // as createKey succeeds — forces the post-mint receipt save's own
+  // mkdirSync (ensureOwnerOnlyDir) to fail with ENOTDIR deterministically and
+  // portably, simulating a real lock/permission/IO-class failure without
+  // relying on OS-specific permission semantics (mirrors the analogous
+  // post-exchange receipt-write-failure test above).
+  const brokenParent = join(configDirectory, 'not-a-directory')
+  writeFileSync(brokenParent, '')
+  const brokenConfigDir = join(brokenParent, 'nested')
+
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      // The key is minted server-side — genuinely successful — but the
+      // config dir is switched to a broken path right before returning, so
+      // the receipt-write that follows fails deterministically.
+      setClaudeConfigHomeDirForTesting(brokenConfigDir)
+      return Response.json({ key: 'minted-key', id: 'minted-id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const error = await runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+  expect(error).toBeInstanceOf(Error)
+  const message = (error as Error).message
+  expect(message).toMatch(/recovery receipt could not be saved/i)
+  // The issued key id is the recovery handle this error exists to surface —
+  // without it, the dashboard-rotation guidance has nothing to point the
+  // user at, so the message must name it, not just describe the failure.
+  expect(message).toContain('minted-id')
+  // Exactly one createKey call: the flow stopped instead of retrying blindly
+  // within the same run.
+  expect(keyMints).toBe(1)
+
+  // Restore the good directory to inspect what was actually left behind —
+  // the lease was acquired (and, on the earlier mint, the intent claimed) in
+  // the ORIGINAL directory, before the switch.
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+
+  // Never reached the checkout/payment step: the flow stopped, rather than
+  // risking a silent loss if the checkout also failed or the process exited
+  // before a later save could catch it.
+  expect(saved.apiKey ?? '').toBe('')
+  // The lease must still be held — releasing it here would let a retry mint
+  // (and orphan) a second key while this one's receipt remains unresolved.
+  expect(saved.keyMintLeaseOwner).toBeTruthy()
+  expect(saved.keyMintLeaseAt).toBeGreaterThan(0)
+
+  // A retry (a fresh lease-acquire attempt for the same intent + payment id)
+  // must see the lease as held, not free — proving it would neither issue a
+  // second key nor silently overwrite this still-unresolved record.
+  const { paymentSessionId } = saved
+  const retryLease = await acquireAimlapiKeyMintLeaseAsync(
+    { ...saved, paymentSessionId },
+    'retry-owner',
+  )
+  expect(retryLease.status).toBe('held')
+  if (retryLease.status === 'held') {
+    expect(retryLease.owner).toBe(saved.keyMintLeaseOwner ?? '')
+  }
 })
 
 test('a 2xx createKey response with an unusable body holds the checkout key-mint lease too', async () => {
