@@ -380,6 +380,15 @@ function getShortHash(str: string): string {
   return (hash >>> 0).toString(36).slice(0, 6)
 }
 
+// Scrub secret substrings from a legacy entity name. Returns the safe name or
+// '' when the name is entirely secret-shaped and must be dropped (P1).
+function safeEntityName(entity: { name?: unknown } | undefined): string {
+  if (!entity?.name) return ''
+  const safe = redactSecretSubstringsForDisplay(String(entity.name), process.env) ?? ''
+  if (!safe.trim() || looksLikeSecretValue(safe)) return ''
+  return safe
+}
+
 function doMigration(data: any, sourcePath: string, projectKey: string, sqliteReadOk = true): void {
   // Track which sources were successfully archived so we never retire a
   // source whose data was not preserved (P1).
@@ -427,8 +436,8 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
         // mergedId wasn't iterated because the dedicated entity loop assigned
         // it from the winning store; look up its migrated name.
         const entity = data.entities[mergedId]
-        if (entity) {
-          const nameSlug = `${slugify(entity.name)}-${getShortHash(entity.name + '_' + mergedId)}`
+        if (entity && safeEntityName(entity)) {
+          const nameSlug = `${slugify(safeEntityName(entity))}-${getShortHash(safeEntityName(entity) + '_' + mergedId)}`
           const typeSlug = slugify(entity.type || 'unknown')
           legacyToNewId.set(mergedId, `fact_fact-${typeSlug}-${nameSlug}.md`)
         }
@@ -436,10 +445,17 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
       legacyToNewId.set(droppedId, legacyToNewId.get(mergedId) || droppedId)
     }
 
-    // Migrate entities
+    // Migrate entities. Drop entities whose names are secret-shaped, and scrub
+    // any secret substrings from surviving names before writing them verbatim
+    // into the YAML title and body (P1). The old fact extractor stored raw env
+    // values in both attributes and names.
     const legacyEntities = Object.entries(data.entities ?? {})
     for (const [legacyId, entity] of legacyEntities as [string, any][]) {
-      const nameSlug = `${slugify(entity.name)}-${getShortHash(entity.name + '_' + legacyId)}`
+      const safeName = safeEntityName(entity)
+      if (!safeName) {
+        continue
+      }
+      const nameSlug = `${slugify(safeName)}-${getShortHash(safeName + '_' + legacyId)}`
       const typeSlug = slugify(entity.type || 'unknown')
       const newId = `fact_fact-${typeSlug}-${nameSlug}.md`
       legacyToNewId.set(legacyId, newId)
@@ -456,14 +472,14 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
         .join('\n')
       const content = `---
 type: reference
-title: ${yamlQuote(entity.name)}
+title: ${yamlQuote(safeName)}
 description: "Migrated from legacy knowledge graph: ${entity.type}"
 factType: ${yamlQuote(entity.type)}
 source: legacy_migration
 legacyId: ${yamlQuote(legacyId)}
 ${attrsYaml ? `attributes:\n${attrsYaml}` : ''}
 ---
-Auto-migrated from legacy store: **${entity.name}**
+Auto-migrated from legacy store: **${safeName}**
 `
       writeFileSync(join(factsDir, `fact-${typeSlug}-${nameSlug}.md`), content, 'utf-8')
       count++
@@ -638,6 +654,9 @@ export function getGlobalGraph(): KnowledgeGraph {
               ? fm.keywords.split(',').map(k => k.trim()).filter(Boolean)
               : []
             summaries.push({ id, content: parsed.content.trim(), keywords, timestamp: Date.now() })
+            // Summary facts are not entities; do not fall through into
+            // entities{} so /knowledge status counts stay accurate (P2).
+            continue
           }
 
           // Preserve the full attributes block (including migrated legacy

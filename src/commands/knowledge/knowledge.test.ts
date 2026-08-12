@@ -6,6 +6,11 @@ import { call as knowledgeCall } from './knowledge.js'
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { getArc, resetArc, initializeArc, addGoal } from '../../utils/conversationArc.js'
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js'
+import {
+  getMultiTurnStats,
+  getTurnHistory,
+  startNewTurn,
+} from '../../utils/multiTurnContext.js'
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import { getAutoMemPath } from '../../memdir/paths.js'
 import {
@@ -120,10 +125,19 @@ Test content
     expect(getArc()!.goals.length).toBeGreaterThan(0)
     expect(getArc()!.decisions.length).toBe(0)
 
+    // Seed multi-turn state: start a turn so it survives and must be reset
+    startNewTurn()
+    expect(getTurnHistory().length).toBeGreaterThan(0)
+    expect(getMultiTurnStats().totalTurns).toBeGreaterThan(0)
+
     const res = await knowledgeCallWithCapture('clear')
     const graphAfter = getGlobalGraph()
     expect(res.toLowerCase()).toContain('cleared')
     expect(Object.keys(graphAfter.entities).length).toBe(0)
+
+    // Multi-turn tracking must not inject prior tool-call context after clear
+    expect(getTurnHistory().length).toBe(0)
+    expect(getMultiTurnStats().totalTurns).toBe(0)
 
     // Arc state should be reset (getArc re-initializes an empty arc
     // since clear deletes the .arc.json file from disk)

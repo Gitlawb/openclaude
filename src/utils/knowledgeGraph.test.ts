@@ -221,6 +221,46 @@ describe('knowledgeGraph legacy migration', () => {
     expect(ruleContent).toContain('factType: rule')
     expect(ruleContent).toContain('Always use TypeScript')
   })
+
+  it('drops legacy entities whose names are secret-shaped during migration (P1)', () => {
+    writeLegacyJson({
+      entities: [
+        { id: 's1', type: 'credential', name: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890', attributes: {} },
+        { id: 'n1', type: 'service', name: 'Billing Service', attributes: {} }
+      ],
+      relations: [],
+    })
+    const graph = getGlobalGraph()
+
+    // The secret-named entity must not be promoted into durable fact files.
+    expect(Object.values(graph.entities).map(e => e.name)).not.toContain(
+      'sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890',
+    )
+    const secretFiles = existsSync(factsDir())
+      ? readdirSync(factsDir()).filter(f => f.startsWith('fact-credential-'))
+      : []
+    expect(secretFiles.length).toBe(0)
+
+    // The legitimate entity still migrates.
+    expect(Object.values(graph.entities).map(e => e.name)).toContain('Billing Service')
+  })
+
+  it('does not count summary facts as entities in getGlobalGraph() (P2)', () => {
+    writeLegacyJson({
+      entities: {},
+      relations: [],
+      summaries: [
+        { id: 's1', content: 'Legacy summary content', keywords: ['api'], timestamp: 12345 }
+      ],
+      rules: ['Always use TypeScript'],
+    })
+    const graph = getGlobalGraph()
+
+    expect(graph.summaries.length).toBe(1)
+    expect(graph.rules.length).toBe(1)
+    // Summary and rule facts are not entities, so counts must stay accurate.
+    expect(Object.keys(graph.entities).length).toBe(0)
+  })
 })
 
 describe('knowledgeGraph reset', () => {

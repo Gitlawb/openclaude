@@ -2,6 +2,7 @@ import type { LocalCommandCall } from '../../types/command.js';
 import { getArcSummary, resetArc, getArcStats, clearArcArtifacts } from '../../utils/conversationArc.js';
 import { getAutoMemPath } from '../../memdir/paths.js';
 import { getGlobalGraph, resetGlobalGraph } from '../../utils/knowledgeGraph.js';
+import { resetMultiTurnState } from '../../utils/multiTurnContext.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import chalk from 'chalk';
 
@@ -51,13 +52,14 @@ export const call: LocalCommandCall = async (args, _context) => {
   if (subCommand === 'clear') {
     resetArc();
     resetGlobalGraph();
+    resetMultiTurnState();
     const memDir = getAutoMemPath();
     if (memDir) {
       clearArcArtifacts(memDir);
     }
     return { 
       type: 'text', 
-      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, and legacy JSON/SQLite stores removed; backups archived alongside originals).' 
+      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, multi-turn tracking, and legacy JSON/SQLite stores removed; backups archived alongside originals).' 
     };
   }
 
