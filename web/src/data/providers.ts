@@ -236,7 +236,7 @@ export const providers: Provider[] = [
     group: 'vendors',
     setup: '/provider or env vars',
     envVars: ['XAI_API_KEY'],
-    notes: 'Grok models at https://api.x.ai/v1; defaults to grok-4.3.',
+    notes: 'Grok models at https://api.x.ai/v1; defaults to grok-4.6.',
   },
   {
     id: 'deepseek',

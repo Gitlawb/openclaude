@@ -1,11 +1,16 @@
 import { defineVendor } from '../define.js'
 
+// Keep chat/coding Grok IDs from https://api.x.ai/v1/models. Imagine, voice,
+// STT/TTS, and embedding entries are not usable on the OpenClaude chat path.
+const XAI_NON_CHAT_PATTERN =
+  /(imagine|voice|tts|stt|whisper|embed|speech-to-speech|speech-to-text|text-to-speech)/i
+
 export default defineVendor({
   id: 'xai',
   label: 'xAI',
   classification: 'openai-compatible',
   defaultBaseUrl: 'https://api.x.ai/v1',
-  defaultModel: 'grok-4.3',
+  defaultModel: 'grok-4.6',
   requiredEnvVars: ['XAI_API_KEY'],
   setup: {
     requiresAuth: true,
@@ -37,8 +42,69 @@ export default defineVendor({
       'XAI_API_KEY is required, or sign in with `openclaude auth xai login` (browser OAuth) or `openclaude auth xai device` (remote hosts).',
   },
   catalog: {
-    source: 'static',
+    source: 'hybrid',
+    discovery: {
+      kind: 'openai-compatible',
+      mapModel(raw: unknown) {
+        const model = raw as {
+          id?: string
+          active?: boolean
+          context_window?: number
+        }
+        const id = model.id?.trim()
+        if (!id || model.active === false) {
+          return null
+        }
+        if (XAI_NON_CHAT_PATTERN.test(id)) {
+          return null
+        }
+        if (!/^grok/i.test(id) && id.toLowerCase() !== 'latest') {
+          return null
+        }
+        return {
+          id,
+          apiName: id,
+          label: id,
+          ...(typeof model.context_window === 'number'
+            ? { contextWindow: model.context_window }
+            : {}),
+        }
+      },
+    },
+    discoveryCacheTtl: '1d',
+    discoveryRefreshMode: 'background-if-stale',
+    allowManualRefresh: true,
     models: [
+      {
+        id: 'grok-4.6',
+        apiName: 'grok-4.6',
+        aliases: ['grok-4.6-latest'],
+        label: 'Grok 4.6',
+        modelDescriptorId: 'grok-4.6',
+        contextWindow: 500_000,
+        maxOutputTokens: 32_768,
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high', 'xhigh'],
+          defaultLevel: 'high',
+          wireFormat: 'reasoning_effort',
+        },
+      },
+      {
+        id: 'grok-4.5',
+        apiName: 'grok-4.5',
+        aliases: ['grok-4.5-latest', 'grok-build-latest'],
+        label: 'Grok 4.5',
+        modelDescriptorId: 'grok-4.5',
+        contextWindow: 500_000,
+        maxOutputTokens: 32_768,
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high'],
+          defaultLevel: 'high',
+          wireFormat: 'reasoning_effort',
+        },
+      },
       {
         id: 'grok-4.3',
         apiName: 'grok-4.3',

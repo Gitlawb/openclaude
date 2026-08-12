@@ -285,6 +285,8 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'openai/gpt-5-mini',
+      'x-ai/grok-4.6',
+      'x-ai/grok-4.5',
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')

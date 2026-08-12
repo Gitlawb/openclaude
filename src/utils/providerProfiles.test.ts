@@ -2771,7 +2771,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('xai')
     expect(defaults.name).toBe('xAI')
     expect(defaults.baseUrl).toBe('https://api.x.ai/v1')
-    expect(defaults.model).toBe('grok-4.3')
+    expect(defaults.model).toBe('grok-4.6')
     expect(defaults.apiKey).toBe('xai-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })

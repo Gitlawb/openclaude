@@ -63,6 +63,15 @@ describe('findModelDescriptorForApiName', () => {
     expect(descriptor?.capabilities?.supportsVision).toBe(false)
   })
 
+  test('resolves gateway Grok 4.6 names to the shared descriptor', () => {
+    expect(findModelDescriptorForApiName('grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('x-ai/grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('xai/grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('grok-4.5')?.id).toBe('grok-4.5')
+    expect(isVisionSupported('grok-4.6')).toBe(true)
+    expect(isVisionSupported('x-ai/grok-4.6')).toBe(true)
+  })
+
   test('does not resolve catalog aliases without a known route', () => {
     expect(findModelDescriptorForApiName('grok-code-fast-1-0825')).toBeUndefined()
   })

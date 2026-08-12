@@ -1118,7 +1118,7 @@ describe('applyProviderFlag - xai', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL as string | undefined).toBe('https://api.x.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('grok-4.3')
+    expect(process.env.OPENAI_MODEL).toBe('grok-4.6')
   })
 
   test('sets OPENAI_MODEL when --model is provided', () => {

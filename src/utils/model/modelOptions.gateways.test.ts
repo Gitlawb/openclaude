@@ -161,6 +161,8 @@ test('OpenRouter active profile cache merges with the static route catalog', asy
 
   expect(values).toContain('qwen/qwen3-32b')
   expect(values).toContain('openai/gpt-5-mini')
+  expect(values).toContain('x-ai/grok-4.6')
+  expect(values).toContain('x-ai/grok-4.5')
 })
 
 test('Atlas Cloud canonicalizes static catalog aliases without hiding the catalog', async () => {
@@ -174,6 +176,8 @@ test('Atlas Cloud canonicalizes static catalog aliases without hiding the catalo
   expect(values).toContain('anthropic/claude-opus-4.8')
   expect(values).toContain('deepseek-ai/deepseek-v4-pro')
   expect(values).toContain('xai/grok-build-0.1')
+  expect(values).toContain('xai/grok-4.6')
+  expect(values).toContain('xai/grok-4.5')
   expect(values).toContain('xai/grok-4.3')
   expect(values).not.toContain('claude-opus-4-8')
   expect(values).not.toContain('grok-code-fast-1')

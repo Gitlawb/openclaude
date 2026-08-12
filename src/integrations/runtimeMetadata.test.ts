@@ -646,6 +646,19 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
     expect(gpt55.openaiShimConfig.requiredApiFormat).toBe('responses')
     expect(gpt55.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
 
+    const grok46 = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46.catalogEntry?.id).toBe('hicap-grok-4.6')
+    expect(grok46.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+
     const grok = resolveOpenAIShimRuntimeContext({
       model: 'grok-4.3',
       baseUrl: 'https://api.hicap.ai/v1',
@@ -661,6 +674,36 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
 
 describe('resolveOpenAIShimRuntimeContext - xAI catalog metadata', () => {
   it('uses live xAI model metadata and per-model shim overrides', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-4.6',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 500_000, maxOutputTokens: 32_768 })
+
+    const grok46 = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6-latest',
+      baseUrl: 'https://api.x.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46.routeId).toBe('xai')
+    expect(grok46.catalogEntry?.id).toBe('grok-4.6')
+    expect(grok46.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-4.5',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 500_000, maxOutputTokens: 32_768 })
+
     expect(
       resolveModelRuntimeLimits({
         model: 'grok-4.20-0309-reasoning',

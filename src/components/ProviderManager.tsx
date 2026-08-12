@@ -241,7 +241,7 @@ const GITHUB_PROVIDER_DEFAULT_BASE_URL = 'https://models.github.ai/inference'
 const CODEX_OAUTH_PROVIDER_NAME = 'Codex OAuth'
 const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
 const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
-const XAI_OAUTH_PROVIDER_MODEL = 'grok-4.3'
+const XAI_OAUTH_PROVIDER_MODEL = 'grok-4.6'
 const XAI_OAUTH_PROVIDER_BASE_URL = 'https://api.x.ai/v1'
 type GithubCredentialSource = 'stored' | 'env' | 'none'
 

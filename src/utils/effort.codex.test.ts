@@ -810,6 +810,34 @@ test('Atlas Cloud catalog exposes only verified reasoning controls for exact mod
     expect(resolveAppliedEffort(model, 'max')).toBe('high')
   }
 
+  expect(resolveModelReasoningControl('xai/grok-4.6')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high', 'xhigh'],
+    defaultLevel: 'high',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('xai/grok-4.6')).toEqual([
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+  ])
+  expect(resolveAppliedEffort('xai/grok-4.6', 'xhigh')).toBe('xhigh')
+  expect(resolveAppliedEffort('xai/grok-4.6', 'max')).toBe('high')
+
+  expect(resolveModelReasoningControl('xai/grok-4.5')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    levels: ['low', 'medium', 'high'],
+    defaultLevel: 'high',
+    wireFormat: 'reasoning_effort',
+  })
+  expect(getAvailableEffortLevels('xai/grok-4.5')).toEqual(['low', 'medium', 'high'])
+  expect(resolveAppliedEffort('xai/grok-4.5', 'xhigh')).toBe('high')
+
   expect(resolveModelReasoningControl('xai/grok-4.3')).toMatchObject({
     supportsReasoning: true,
     controllable: true,
@@ -880,6 +908,40 @@ test('xAI catalog exposes live-verified reasoning controls for direct Grok model
     routeId: 'xai',
     catalogEntries: xaiVendor.catalog?.models ?? [],
   })
+
+  for (const model of ['grok-4.6', 'grok-4.6-latest']) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high', 'xhigh'],
+      defaultLevel: 'high',
+      wireFormat: 'reasoning_effort',
+    })
+    expect(modelSupportsEffort(model)).toBe(true)
+    expect(modelSupportsWireEffort(model)).toBe(true)
+    expect(getAvailableEffortLevels(model)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('xhigh')
+    expect(resolveAppliedEffort(model, 'max')).toBe('high')
+  }
+
+  for (const model of ['grok-4.5', 'grok-4.5-latest', 'grok-build-latest']) {
+    expect(resolveModelReasoningControl(model)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'metadata',
+      levels: ['low', 'medium', 'high'],
+      defaultLevel: 'high',
+      wireFormat: 'reasoning_effort',
+    })
+    expect(getAvailableEffortLevels(model)).toEqual(['low', 'medium', 'high'])
+    expect(resolveAppliedEffort(model, 'xhigh')).toBe('high')
+  }
 
   for (const model of ['grok-4.3', 'grok-4.3-latest', 'grok-latest', 'grok-4', 'grok-3']) {
     expect(resolveModelReasoningControl(model)).toMatchObject({

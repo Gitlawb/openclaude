@@ -91,9 +91,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.3.
+  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.6.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   return getDefaultHaikuModel()
 }
@@ -229,7 +229,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // xAI — flagship Grok model for "opus"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
@@ -279,7 +279,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (!isFirstPartyAnthropicProvider()) {
@@ -327,7 +327,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // xAI — use the current Grok default for "haiku"-equivalent until xAI exposes a smaller live alias.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -412,9 +412,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       'nvidia/llama-3.1-nemotron-70b-instruct'
     )
   }
-  // xAI provider: always use the configured Grok model (default grok-4.3)
+  // xAI provider: always use the configured Grok model (default grok-4.6)
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // MiniMax provider: always use the configured MiniMax model.
   // Keep the env-only fallback aligned with the MiniMax descriptor default
