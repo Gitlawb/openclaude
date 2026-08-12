@@ -127,6 +127,7 @@ async function importAgentToolWithSpawnMock(): Promise<{
 function makeToolUseContext(options: {
   mainLoopModel?: string
   activeAgents?: AgentDefinition[]
+  allAgents?: AgentDefinition[]
 } = {}): ToolUseContext {
   const appState = {
     toolPermissionContext: { mode: 'default' },
@@ -146,7 +147,7 @@ function makeToolUseContext(options: {
       isNonInteractiveSession: false,
       agentDefinitions: {
         activeAgents: options.activeAgents ?? [],
-        allAgents: options.activeAgents ?? [],
+        allAgents: options.allAgents ?? options.activeAgents ?? [],
       },
     },
     abortController: new AbortController(),
@@ -191,6 +192,7 @@ function callTeammateAgentTool(
   contextOptions: {
     mainLoopModel?: string
     activeAgents?: AgentDefinition[]
+    allAgents?: AgentDefinition[]
   } = {},
 ): ReturnType<typeof AgentTool.call> {
   return AgentTool.call(
@@ -432,6 +434,28 @@ test('rejects built-in agents from being spawned as teammates', async () => {
       AgentTool,
       { subagent_type: 'code-reviewer' },
       { activeAgents: [builtinAgent] },
+    ),
+  ).rejects.toThrow(
+    "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
+  )
+  expect(spawnTeammate).not.toHaveBeenCalled()
+})
+
+test('rejects built-in agents from being spawned as teammates even when built-ins are disabled', async () => {
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  const builtinAgent = {
+    agentType: 'code-reviewer',
+    source: 'built-in',
+    getSystemPrompt: () => 'review code',
+  } as unknown as AgentDefinition
+
+  await expect(
+    callTeammateAgentTool(
+      AgentTool,
+      { subagent_type: 'code-reviewer' },
+      // activeAgents is empty (built-ins disabled), but allAgents has it
+      { activeAgents: [], allAgents: [builtinAgent] },
     ),
   ).rejects.toThrow(
     "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
