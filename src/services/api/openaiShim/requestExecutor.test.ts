@@ -445,11 +445,16 @@ test('uses stored xAI OAuth credentials only for the canonical HTTPS API endpoin
     { baseUrl: 'https://api.x.ai/v1', sendsOAuth: true },
     { baseUrl: 'http://api.x.ai/v1', sendsOAuth: false },
     { baseUrl: 'https://proxy.example/v1', sendsOAuth: false },
+    { baseUrl: '', sendsOAuth: false },
   ]
 
   try {
     for (const { baseUrl, sendsOAuth } of cases) {
-      process.env.OPENAI_BASE_URL = baseUrl
+      if (baseUrl) {
+        process.env.OPENAI_BASE_URL = baseUrl
+      } else {
+        delete process.env.OPENAI_BASE_URL
+      }
       delete process.env.OPENAI_API_KEY
       let headers: Headers | undefined
       globalThis.fetch = (async (_input, init) => {
@@ -517,6 +522,17 @@ test('filters a mirrored xAI key from generic credential pools on an untrusted e
   })
 
   expect(authorizations).toEqual(['Bearer pooled-key'])
+})
+
+test('filters comma-separated xAI keys mirrored into generic credential lists on an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-key-a,xai-key-b'
+  process.env.OPENAI_API_KEY = 'xai-key-a,xai-key-b'
+  process.env.OPENAI_API_KEYS = 'xai-key-a,xai-key-b'
+
+  const captured = await captureChatCompletionRequest('grok-4.6')
+
+  expect(captured.authorization).toBeNull()
 })
 
 beforeEach(async () => {

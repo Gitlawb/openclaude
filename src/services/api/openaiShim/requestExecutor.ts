@@ -256,12 +256,15 @@ export async function executeOpenAIRequest(
   // xAI OAuth credentials are valid only for xAI's API host. A route ID may
   // survive an edited provider profile, so it is not sufficient authorization
   // to send the stored bearer to the effective request URL.
-  const isXaiRoute = isCanonicalXaiInferenceBaseUrl(request.baseUrl)
-  const xaiCredential = requestProcessEnv.XAI_API_KEY?.trim()
-  const excludeXaiCredential = Boolean(xaiCredential && !isXaiRoute)
+  const isXaiRoute = Boolean(request.baseUrl?.trim()) &&
+    isCanonicalXaiInferenceBaseUrl(request.baseUrl)
+  const xaiCredentials = new Set(
+    parseCredentialList(requestProcessEnv.XAI_API_KEY),
+  )
+  const excludeXaiCredentials = xaiCredentials.size > 0 && !isXaiRoute
   const withoutUntrustedXaiCredential = (values: string[]): string[] =>
-    excludeXaiCredential
-      ? values.filter(value => value !== xaiCredential)
+    excludeXaiCredentials
+      ? values.filter(value => !xaiCredentials.has(value))
       : values
   const openAIApiKeyValues = withoutUntrustedXaiCredential(
     parseCredentialList(requestProcessEnv.OPENAI_API_KEY?.trim()),
@@ -280,7 +283,9 @@ export async function executeOpenAIRequest(
   // credential variables. Remove that value from every generic source when
   // an xAI profile is retargeted away from the canonical HTTPS API endpoint.
   const requestRouteCredential =
-    excludeXaiCredential && routeCredential === xaiCredential
+    excludeXaiCredentials &&
+    routeCredential !== undefined &&
+    xaiCredentials.has(routeCredential)
     ? undefined
     : routeCredential
   const xaiOAuthToken =
