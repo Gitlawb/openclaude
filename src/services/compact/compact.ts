@@ -1268,7 +1268,10 @@ async function streamCompactSummary({
         // Use a child AbortController that properly propagates parent aborts
         // (user ESC) and cleans up listeners automatically via createChildAbortController.
         const forkAbortController = context.abortController
-          ? createChildAbortController(context.abortController)
+          ? createChildAbortController(context.abortController, undefined, {
+              subsystem: 'compact',
+              controllerRole: 'compact-fork',
+            })
           : new AbortController()
 
         let timeoutId: ReturnType<typeof setTimeout> | undefined

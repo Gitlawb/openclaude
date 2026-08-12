@@ -757,7 +757,15 @@ class QueryImpl implements Query {
   }
 
   close(): void {
+    const wrapperController = this.abortController
     this.interruptWithSource('sdk_close')
+    if (!wrapperController.signal.aborted) {
+      requestAbort(wrapperController, undefined, {
+        source: 'sdk_close',
+        subsystem: 'sdk_query',
+        controllerRole: 'query-root',
+      })
+    }
     // Disconnect MCP clients to prevent resource leaks
     const mcpClients = this._engine?.getMcpClients?.() ?? []
     for (const client of mcpClients) {

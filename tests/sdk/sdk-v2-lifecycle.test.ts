@@ -151,6 +151,19 @@ describe('V2: session interrupt', () => {
     expect(() => session.interrupt()).not.toThrow()
   })
 
+  test('session.close() aborts its wrapper controller after an engine override', () => {
+    const abortController = new AbortController()
+    const session = unstable_v2_createSession({
+      cwd: process.cwd(),
+      abortController,
+    })
+    attachMockEngine(session, new MockQueryEngine())
+
+    session.close()
+
+    expect(abortController.signal.aborted).toBe(true)
+  })
+
   test('session with external abortController — abort signal propagates', async () => {
     const ac = new AbortController()
     const session = unstable_v2_createSession({

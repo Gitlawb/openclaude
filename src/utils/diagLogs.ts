@@ -21,19 +21,22 @@ type DiagnosticLogEntry = {
 export async function appendDiagnosticsNoPII(
   logFile: string,
   entries: readonly Record<string, unknown>[],
-): Promise<boolean> {
-  if (entries.length === 0) return true
+): Promise<'committed' | 'retryable_failure' | 'uncertain_failure'> {
+  if (entries.length === 0) return 'committed'
+  // Windows has no descriptor-relative directory namespace. POSIX platforms
+  // pin every traversed parent through /proc/self/fd or /dev/fd below.
+  if (process.platform === 'win32') return 'retryable_failure'
 
   const fs = getFsImplementation()
   const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
   try {
-    fs.mkdirSync(dirname(logFile), { mode: 0o700 })
     await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
-    return true
-  } catch {
-    // Do not retry the same payload here: an append can fail after a partial
-    // write. The trace ring retains the batch for a later explicit flush.
-    return false
+    return 'committed'
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code ===
+      'ERR_DIAGNOSTIC_APPEND_UNCERTAIN'
+      ? 'uncertain_failure'
+      : 'retryable_failure'
   }
 }
 

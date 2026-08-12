@@ -21,6 +21,12 @@ import {
   type AppState,
 } from '../state/AppStateStore.js'
 import { CancelRequestHandler } from './useCancelRequest.js'
+import type { LocalAgentTaskState } from '../tasks/LocalAgentTask/LocalAgentTask.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../utils/interruptionTrace.js'
 
 type HandlerRegistration = {
   action: string
@@ -151,8 +157,17 @@ async function renderCancelHandler(
   }
 }
 
-afterEach(() => {
+const originalInterruptionTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+
+afterEach(async () => {
   mock.restore()
+  await __waitForInterruptionTraceFlushForTests()
+  __resetInterruptionTraceForTests()
+  if (originalInterruptionTrace === undefined) {
+    delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+  } else {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = originalInterruptionTrace
+  }
 })
 
 describe('CancelRequestHandler interruption sources', () => {
@@ -204,6 +219,59 @@ describe('CancelRequestHandler interruption sources', () => {
         'tengu_cancel',
         expect.objectContaining({ source: 'ctrl_c' }),
       )
+    } finally {
+      await rendered.cleanup()
+    }
+  })
+
+  test('app:interrupt links background-agent aborts to the Ctrl-C input', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const agentAbortController = new AbortController()
+    const agentTask: LocalAgentTaskState = {
+      id: 'agent-1',
+      type: 'local_agent',
+      status: 'running',
+      description: 'trace test agent',
+      startTime: Date.now(),
+      outputFile: '/tmp/openclaude-trace-test-agent.output',
+      outputOffset: 0,
+      notified: false,
+      agentId: 'agent-1',
+      prompt: 'test',
+      agentType: 'general-purpose',
+      abortController: agentAbortController,
+      retrieved: false,
+      lastReportedToolCount: 0,
+      lastReportedTokenCount: 0,
+      isBackgrounded: true,
+      pendingMessages: [],
+      retain: false,
+      diskLoaded: false,
+    }
+    const rendered = await renderCancelHandler({
+      ...getDefaultAppState(),
+      viewSelectionMode: 'viewing-agent',
+      viewingAgentTaskId: 'agent-1',
+      tasks: { 'agent-1': agentTask },
+    })
+    try {
+      rendered.invoke('app:interrupt')
+      await waitFor(() => agentAbortController.signal.aborted)
+
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const input = trace.find(entry => entry.event === 'input.ctrl_c')
+      const agentAbort = trace.find(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.controllerRole === 'background-agent',
+      )
+      expect(input).toBeDefined()
+      expect(agentAbort).toMatchObject({
+        source: 'ctrl_c',
+        subagentId: 'agent-1',
+        causalEventId: input!.eventId,
+      })
     } finally {
       await rendered.cleanup()
     }

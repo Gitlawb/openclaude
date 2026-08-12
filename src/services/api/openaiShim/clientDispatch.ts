@@ -158,11 +158,15 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   async *[Symbol.asyncIterator](): AsyncGenerator<AnthropicStreamEvent> {
     const generator = this.getGenerator()
     let completed = false
+    let failed = false
     try {
       yield* generator
       completed = true
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
-      if (!completed && !this.controller.signal.aborted) {
+      if (!completed && !failed && !this.controller.signal.aborted) {
         requestAbort(this.controller, undefined, {
           source: 'iterator_closed',
           subsystem: 'openai_shim_dispatch',

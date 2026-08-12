@@ -4751,6 +4751,47 @@ test('caller abort winning the timeout catch race prevents a retry', async () =>
   expect(fetchCalls).toBe(1)
 })
 
+test('interruption tracing preserves the native AbortSignal.any request path', async () => {
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  const originalAbortSignalAny = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'any',
+  )
+  const nativeAny = AbortSignal.any.bind(AbortSignal)
+  let nativeAnyCalls = 0
+  Object.defineProperty(AbortSignal, 'any', {
+    configurable: true,
+    value: (signals: AbortSignal[]) => {
+      nativeAnyCalls++
+      return nativeAny(signals)
+    },
+  })
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  globalThis.fetch = asMockFetch(
+    mock(async () => makeChatCompletionResponse('gpt-4o-mini')),
+  )
+
+  try {
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    await client.beta.messages.create(
+      {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: false,
+      },
+      { signal: new AbortController().signal },
+    )
+    expect(nativeAnyCalls).toBe(1)
+  } finally {
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    if (originalAbortSignalAny) {
+      Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    }
+  }
+})
+
 test('manual signal fallback preserves caller cancellation after headers arrive', async () => {
   process.env.API_TIMEOUT_MS = '200'
   const fetchSignals: AbortSignal[] = []

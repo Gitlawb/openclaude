@@ -12,10 +12,10 @@ import { redactUrlForDisplay } from '../../../utils/redaction.js'
 import {
   getInterruptionSignalAbortEventId,
   getInterruptionSignalId,
-  isInterruptionTraceEnabled,
   registerInterruptionController,
   registerInterruptionSignal,
   requestAbort,
+  traceCombinedAbortSignal,
   traceCombinedSignal,
   traceInterruptionEvent,
 } from '../../../utils/interruptionTrace.js'
@@ -91,12 +91,14 @@ function combineRequestSignals(
     }
   }
 
-  if (
-    typeof AbortSignal.any === 'function' &&
-    !isInterruptionTraceEnabled()
-  ) {
+  if (typeof AbortSignal.any === 'function') {
+    const signal = AbortSignal.any([callerSignal, deadlineSignal])
+    traceCombinedAbortSignal(signal, [callerSignal, deadlineSignal], {
+      subsystem: 'openai_shim_transport',
+      controllerRole: 'request-combined',
+    })
     return {
-      signal: AbortSignal.any([callerSignal, deadlineSignal]),
+      signal,
       cleanupAfterHeaders: () => {},
       cleanup: () => {},
     }

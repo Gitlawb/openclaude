@@ -556,21 +556,93 @@ export const NodeFsOperations: FsOperations = {
     if (process.platform === 'win32') {
       throw new Error('Secure diagnostic file output is unavailable on Windows')
     }
-    const flags = fs.constants.O_APPEND |
+    if (!nodePath.isAbsolute(path)) {
+      throw new Error('Secure diagnostic file output requires an absolute path')
+    }
+
+    const resolvedPath = nodePath.resolve(path)
+    const components = nodePath
+      .relative(nodePath.parse(resolvedPath).root, nodePath.dirname(resolvedPath))
+      .split(nodePath.sep)
+      .filter(Boolean)
+    const directoryFlags = fs.constants.O_RDONLY |
+      fs.constants.O_DIRECTORY |
+      fs.constants.O_NOFOLLOW
+    const descriptorDirectory = process.platform === 'linux'
+      ? '/proc/self/fd'
+      : '/dev/fd'
+    let directoryHandle = await open('/', directoryFlags)
+    let committed = false
+
+    try {
+      for (const component of components) {
+        const descriptorPath = `${descriptorDirectory}/${directoryHandle.fd}/${component}`
+        let nextDirectoryHandle
+        try {
+          nextDirectoryHandle = await open(descriptorPath, directoryFlags)
+        } catch (error) {
+          if (getErrnoCode(error) !== 'ENOENT') throw error
+          await mkdirPromise(descriptorPath, { mode: 0o700 })
+          nextDirectoryHandle = await open(descriptorPath, directoryFlags)
+        }
+        try {
+          await directoryHandle.close()
+        } catch (error) {
+          await nextDirectoryHandle.close().catch(() => {})
+          throw error
+        }
+        directoryHandle = nextDirectoryHandle
+      }
+
+      const descriptorPath = `${descriptorDirectory}/${directoryHandle.fd}/${nodePath.basename(resolvedPath)}`
+      const flags = fs.constants.O_APPEND |
       fs.constants.O_CREAT |
       fs.constants.O_NONBLOCK |
       fs.constants.O_WRONLY |
       fs.constants.O_NOFOLLOW
-    const handle = await open(path, flags, options?.mode ?? 0o600)
-    try {
-      const stats = await handle.stat()
-      if (!stats.isFile()) {
-        throw new Error('Diagnostics target is not a regular file')
+      const handle = await open(descriptorPath, flags, options?.mode ?? 0o600)
+      let operationError: unknown
+      try {
+        const stats = await handle.stat()
+        if (!stats.isFile()) {
+          throw new Error('Diagnostics target is not a regular file')
+        }
+        if (options?.mode !== undefined) await handle.chmod(options.mode)
+        try {
+          await handle.writeFile(data, { encoding: 'utf8' })
+          committed = true
+        } catch (error) {
+          try {
+            await handle.truncate(stats.size)
+          } catch (rollbackError) {
+            throw Object.assign(
+              new Error('Diagnostic append may have partially committed', {
+                cause: rollbackError,
+              }),
+              { code: 'ERR_DIAGNOSTIC_APPEND_UNCERTAIN' },
+            )
+          }
+          throw error
+        }
+      } catch (error) {
+        operationError = error
       }
-      if (options?.mode !== undefined) await handle.chmod(options.mode)
-      await handle.writeFile(data, { encoding: 'utf8' })
+      try {
+        await handle.close()
+      } catch (error) {
+        // A close failure after writeFile completed cannot safely be interpreted
+        // as a failed append; replaying would duplicate the committed batch.
+        if (!committed && operationError === undefined) operationError = error
+      }
+      if (operationError !== undefined) throw operationError
     } finally {
-      await handle.close()
+      try {
+        await directoryHandle.close()
+      } catch (error) {
+        // Once writeFile commits, a directory-close failure cannot make replay
+        // safe; report success rather than duplicating the append batch.
+        if (!committed) throw error
+      }
     }
   },
 

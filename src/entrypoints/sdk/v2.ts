@@ -414,7 +414,15 @@ class SDKSessionImpl implements SDKSession {
   }
 
   close(): void {
+    const wrapperController = this._abortController
     this.interruptWithSource('sdk_close')
+    if (wrapperController && !wrapperController.signal.aborted) {
+      requestAbort(wrapperController, undefined, {
+        source: 'sdk_close',
+        subsystem: 'sdk_session',
+        controllerRole: 'query-root',
+      })
+    }
     this._abortController = null
     // Disconnect MCP clients to prevent resource leaks
     const mcpClients = this._engine?.getMcpClients?.() ?? []

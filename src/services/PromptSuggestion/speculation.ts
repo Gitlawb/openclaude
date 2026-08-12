@@ -371,6 +371,11 @@ async function generatePipelinedSuggestion(
 
     const pipelineAbortController = createChildAbortController(
       parentAbortController,
+      undefined,
+      {
+        subsystem: 'prompt_suggestion',
+        controllerRole: 'suggestion-pipeline',
+      },
     )
     if (pipelineAbortController.signal.aborted) return
 
@@ -418,6 +423,11 @@ export async function startSpeculation(
 
   const abortController = createChildAbortController(
     context.toolUseContext.abortController,
+    undefined,
+    {
+      subsystem: 'prompt_suggestion',
+      controllerRole: 'speculation',
+    },
   )
 
   if (abortController.signal.aborted) return

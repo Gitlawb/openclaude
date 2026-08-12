@@ -128,6 +128,21 @@ describe('Engine lazy-init guard (COR-1)', () => {
     expect(() => q.close()).not.toThrow()
   })
 
+  test('QueryImpl close() aborts its wrapper controller after an engine override', () => {
+    const abortController = new AbortController()
+    const q = query({
+      prompt: 'test',
+      options: { cwd: process.cwd(), abortController },
+    })
+    ;(q as unknown as {
+      setEngine(engine: { interrupt(): void }): void
+    }).setEngine({ interrupt() {} })
+
+    q.close()
+
+    expect(abortController.signal.aborted).toBe(true)
+  })
+
   test('SDKSession getMessages() works after construction', async () => {
     const { unstable_v2_createSession } = await import('../../src/entrypoints/sdk/index.js')
     const session = unstable_v2_createSession({

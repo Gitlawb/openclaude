@@ -177,6 +177,7 @@ import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
 import {
   flushInterruptionTrace,
+  getInterruptionErrorCausalEventId,
   getInterruptionSignalAbortEventId,
   requestAbort,
   traceInterruptionEvent,
@@ -2786,6 +2787,9 @@ async function* queryModel(
     } catch (streamingError) {
       // Clear the idle timeout watchdog on error path too
       clearStreamIdleTimers()
+      streamSettlementCausalEventId =
+        getInterruptionErrorCausalEventId(streamingError) ??
+        streamSettlementCausalEventId
       traceInterruptionEvent('claude_stream.error', {
         subsystem: 'claude_stream',
         transport: 'anthropic_messages',
@@ -2949,13 +2953,15 @@ async function* queryModel(
       // Instrumentation: proves executeNonStreamingRequest was entered (vs. the
       // fallback event firing but the call itself hanging at dispatch).
       logForDiagnosticsNoPII('info', 'cli_nonstreaming_fallback_started')
-      traceInterruptionEvent('claude_stream.fallback_started', {
+      const fallbackStartedEventId = traceInterruptionEvent(
+        'claude_stream.fallback_started', {
         subsystem: 'claude_stream',
         transport: 'anthropic_messages',
         model: options.model,
         trigger: streamIdleAborted ? 'watchdog' : 'other',
         causalEventId: streamSettlementCausalEventId,
-      })
+        },
+      )
       flushInterruptionTrace('claude_stream_fallback_started')
       logEvent('tengu_nonstreaming_fallback_started', {
         request_id: (streamRequestId ??
@@ -2967,54 +2973,87 @@ async function* queryModel(
           : 'other') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       endActiveApiCall()
-      const result = yield* executeNonStreamingRequest(
-        { model: providerRequestModel, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
-        {
-          model: providerRequestModel,
-          fallbackModel: options.fallbackModel,
-          thinkingConfig,
-          ...(isFastModeEnabled() && { fastMode: isFastMode }),
-          signal,
-          initialConsecutive529Errors: is529Error(streamingError) ? 1 : 0,
-          querySource: options.querySource,
-        },
-        paramsFromContext,
-        (attempt, _startTime, tokens) => {
-          attemptNumber = attempt
-          maxOutputTokens = tokens
-        },
-        params => captureAPIRequest(params, options.querySource),
-        streamRequestId,
-        options.queryLifecycle,
-        options.onProviderRequestStart,
-      )
+      let result: BetaMessage | null
+      let fallbackResultMessage: AssistantMessage | undefined
+      try {
+        result = yield* executeNonStreamingRequest(
+          { model: providerRequestModel, source: options.querySource, providerOverride: options.providerOverride, effortValue: effort },
+          {
+            model: providerRequestModel,
+            fallbackModel: options.fallbackModel,
+            thinkingConfig,
+            ...(isFastModeEnabled() && { fastMode: isFastMode }),
+            signal,
+            initialConsecutive529Errors: is529Error(streamingError) ? 1 : 0,
+            querySource: options.querySource,
+          },
+          paramsFromContext,
+          (attempt, _startTime, tokens) => {
+            attemptNumber = attempt
+            maxOutputTokens = tokens
+          },
+          params => captureAPIRequest(params, options.querySource),
+          streamRequestId,
+          options.queryLifecycle,
+          options.onProviderRequestStart,
+        )
 
-      if (result === null) return
+        if (result === null) {
+          traceInterruptionEvent('claude_stream.fallback_settled', {
+            subsystem: 'claude_stream',
+            transport: 'anthropic_messages',
+            model: options.model,
+            outcome: 'superseded',
+            causalEventId: fallbackStartedEventId,
+          })
+          flushInterruptionTrace('claude_stream_fallback_settled')
+          return
+        }
 
-      const m: AssistantMessage = {
-        message: {
-          ...result,
-          content: normalizeContentFromAPI(
-            result.content,
-            tools,
-            options.agentId,
-          ),
-        },
-        requestId: streamRequestId ?? undefined,
-        type: 'assistant',
-        uuid: randomUUID(),
-        timestamp: new Date().toISOString(),
-        ...(process.env.USER_TYPE === 'ant' &&
-          research !== undefined && {
-            research,
+        fallbackResultMessage = {
+          message: {
+            ...result,
+            content: normalizeContentFromAPI(
+              result.content,
+              tools,
+              options.agentId,
+            ),
+          },
+          requestId: streamRequestId ?? undefined,
+          type: 'assistant',
+          uuid: randomUUID(),
+          timestamp: new Date().toISOString(),
+          ...(process.env.USER_TYPE === 'ant' &&
+            research !== undefined && {
+              research,
+            }),
+          ...(advisorModel && {
+            advisorModel,
           }),
-        ...(advisorModel && {
-          advisorModel,
-        }),
+        }
+        newMessages.push(fallbackResultMessage)
+        fallbackMessage = fallbackResultMessage
+      } catch (error) {
+        traceInterruptionEvent('claude_stream.fallback_settled', {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          outcome: signal.aborted ? 'aborted' : 'failed',
+          causalEventId: fallbackStartedEventId,
+          error,
+        })
+        flushInterruptionTrace('claude_stream_fallback_settled')
+        throw error
       }
-      newMessages.push(m)
-      fallbackMessage = m
-      yield m
+      traceInterruptionEvent('claude_stream.fallback_settled', {
+        subsystem: 'claude_stream',
+        transport: 'anthropic_messages',
+        model: options.model,
+        outcome: 'completed',
+        causalEventId: fallbackStartedEventId,
+      })
+      flushInterruptionTrace('claude_stream_fallback_settled')
+      yield fallbackResultMessage
     } finally {
       clearStreamIdleTimers()
     }
@@ -3054,6 +3093,16 @@ async function* queryModel(
       errorFromRetry.originalError.status === 404
 
     if (is404StreamCreationError) {
+      const streamCreationErrorEventId = traceInterruptionEvent(
+        'claude_stream.error',
+        {
+          subsystem: 'claude_stream',
+          phase: 'stream_creation',
+          transport: 'anthropic_messages',
+          model: options.model,
+          error: errorFromRetry,
+        },
+      )
       // 404 is thrown at .withResponse() before streamRequestId is assigned,
       // and CannotRetryError means every retry failed — so grab the failed
       // request's ID from the error header instead.
@@ -3082,6 +3131,18 @@ async function* queryModel(
         fallback_cause:
           '404_stream_creation' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
+
+      const fallbackStartedEventId = traceInterruptionEvent(
+        'claude_stream.fallback_started',
+        {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          trigger: '404_stream_creation',
+          causalEventId: streamCreationErrorEventId,
+        },
+      )
+      flushInterruptionTrace('claude_stream_fallback_started')
 
       try {
         // Fall back to non-streaming mode
@@ -3112,7 +3173,17 @@ async function* queryModel(
           options.onProviderRequestStart,
         )
 
-        if (result === null) return
+        if (result === null) {
+          traceInterruptionEvent('claude_stream.fallback_settled', {
+            subsystem: 'claude_stream',
+            transport: 'anthropic_messages',
+            model: options.model,
+            outcome: 'superseded',
+            causalEventId: fallbackStartedEventId,
+          })
+          flushInterruptionTrace('claude_stream_fallback_settled')
+          return
+        }
 
         const m: AssistantMessage = {
           message: {
@@ -3133,10 +3204,27 @@ async function* queryModel(
         }
         newMessages.push(m)
         fallbackMessage = m
+        traceInterruptionEvent('claude_stream.fallback_settled', {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          outcome: 'completed',
+          causalEventId: fallbackStartedEventId,
+        })
+        flushInterruptionTrace('claude_stream_fallback_settled')
         yield m
 
         // Continue to success logging below
       } catch (fallbackError) {
+        traceInterruptionEvent('claude_stream.fallback_settled', {
+          subsystem: 'claude_stream',
+          transport: 'anthropic_messages',
+          model: options.model,
+          outcome: signal.aborted ? 'aborted' : 'failed',
+          causalEventId: fallbackStartedEventId,
+          error: fallbackError,
+        })
+        flushInterruptionTrace('claude_stream_fallback_settled')
         // Propagate model-fallback signal to query.ts (see comment above).
         if (fallbackError instanceof FallbackTriggeredError) {
           throw fallbackError

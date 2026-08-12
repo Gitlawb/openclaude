@@ -394,6 +394,7 @@ describe('Claude stream watchdog', () => {
           eventId?: string
           causalEventId?: string
           source?: string
+          outcome?: string
         })
       const events = trace.map(entry => entry.event)
       expect(events.indexOf('claude_stream.idle_timeout')).toBeGreaterThanOrEqual(0)
@@ -423,10 +424,14 @@ describe('Claude stream watchdog', () => {
       const fallbackStarted = trace.find(
         entry => entry.event === 'claude_stream.fallback_started',
       )
+      const fallbackSettled = trace.find(
+        entry => entry.event === 'claude_stream.fallback_settled',
+      )
       expect(idleTimeout).toBeDefined()
       expect(providerAbort).toBeDefined()
       expect(loopSettled).toBeDefined()
       expect(fallbackStarted).toBeDefined()
+      expect(fallbackSettled).toBeDefined()
       expect(typeof idleTimeout!.eventId).toBe('string')
       expect(typeof providerAbort!.causalEventId).toBe('string')
       expect(typeof loopSettled!.causalEventId).toBe('string')
@@ -434,6 +439,10 @@ describe('Claude stream watchdog', () => {
       expect(providerAbort!.causalEventId).toBe(idleTimeout!.eventId)
       expect(loopSettled!.causalEventId).toBe(idleTimeout!.eventId)
       expect(fallbackStarted!.causalEventId).toBe(idleTimeout!.eventId)
+      expect(fallbackSettled).toMatchObject({
+        causalEventId: fallbackStarted!.eventId,
+        outcome: 'completed',
+      })
       expect(
         (result as unknown[]).some(
           message =>
@@ -507,6 +516,74 @@ describe('Claude stream watchdog', () => {
       expect(typeof providerAbort!.causalEventId).toBe('string')
       expect(parentAbort!.causalEventId).toBe(rootAbort!.eventId)
       expect(providerAbort!.causalEventId).toBe(parentAbort!.eventId)
+    } finally {
+      wedged.rejectPendingNext(new Error('test cleanup'))
+      await settleForCleanup(request)
+    }
+  })
+
+  test('records a terminal failed outcome when non-streaming fallback rejects', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const wedged = makeWedgedStream()
+    createHandler = params => {
+      if (params.stream === true) return makeWithResponse(wedged.stream)
+      return Promise.reject(new Error('synthetic fallback failure'))
+    }
+
+    const request = collectStreamingMessages(
+      new AbortController().signal,
+      makeOptions(),
+    )
+    await wedged.nextStarted
+    try {
+      await Promise.race([request, delay(250)])
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const started = trace.find(
+        entry => entry.event === 'claude_stream.fallback_started',
+      )
+      const settled = trace.find(
+        entry => entry.event === 'claude_stream.fallback_settled',
+      )
+      expect(started).toBeDefined()
+      expect(settled).toMatchObject({
+        outcome: 'failed',
+        causalEventId: started!.eventId,
+      })
+    } finally {
+      wedged.rejectPendingNext(new Error('test cleanup'))
+      await settleForCleanup(request)
+    }
+  })
+
+  test('records fallback failure when the returned message cannot be normalized', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const wedged = makeWedgedStream()
+    createHandler = params => {
+      if (params.stream === true) return makeWithResponse(wedged.stream)
+      return Promise.resolve(
+        makeBetaMessage('msg-invalid-fallback', [null] as never),
+      )
+    }
+
+    const request = collectStreamingMessages(
+      new AbortController().signal,
+      makeOptions(),
+    )
+    await wedged.nextStarted
+    try {
+      const result = await Promise.race([
+        request.then(
+          () => 'resolved',
+          error => error,
+        ),
+        delay(250),
+      ])
+      expect(result).not.toBe('timeout')
+      const settlements = __getInterruptionTraceSnapshotForTests().filter(
+        entry => entry.event === 'claude_stream.fallback_settled',
+      )
+      expect(settlements).toHaveLength(1)
+      expect(settlements[0]?.outcome).toBe('failed')
     } finally {
       wedged.rejectPendingNext(new Error('test cleanup'))
       await settleForCleanup(request)

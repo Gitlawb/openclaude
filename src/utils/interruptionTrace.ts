@@ -46,6 +46,7 @@ export type InterruptionTraceFields = {
   parsedFrameCount?: number
   controlFrameCount?: number
   ignoredFrameCount?: number
+  ignoredParsedFrameCount?: number
   yieldedEventCount?: number
   activeApiCallCount?: number
   activeToolUseCount?: number
@@ -82,7 +83,6 @@ export type InterruptionTraceEntry = SafeTraceFields & {
   controllerId?: string
   firstAbortEventId?: string
   abortStackFingerprint?: string
-  abortCallSites?: string[]
 }
 
 type ControllerTraceState = {
@@ -90,6 +90,13 @@ type ControllerTraceState = {
   firstAbortEventId?: string
   repeatedCount: number
   fields: InterruptionTraceFields
+  provisionalRole: boolean
+}
+
+type SignalTraceState = {
+  id: string
+  fields: InterruptionTraceFields
+  getAbortFields?: () => InterruptionTraceFields
 }
 
 let traceSessionId = ''
@@ -103,8 +110,18 @@ let signalCounter = 0
 let controllerStates = new WeakMap<AbortController, ControllerTraceState>()
 let signalIds = new WeakMap<AbortSignal, string>()
 let signalAbortEventIds = new WeakMap<AbortSignal, string>()
+let signalAbortSources = new WeakMap<AbortSignal, string>()
+let signalStates = new WeakMap<AbortSignal, SignalTraceState>()
+let errorCausalEventIds = new WeakMap<object, string>()
 let eventLoopDelay: IntervalHistogram | undefined
 let flushQueue: Promise<void> = Promise.resolve()
+let retryBatch:
+  | {
+      entries: readonly InterruptionTraceEntry[]
+      marker: InterruptionTraceEntry
+      logFile: string
+    }
+  | undefined
 
 function isEnabled(): boolean {
   const value = process.env[TRACE_ENABLED_ENV]?.toLowerCase()
@@ -240,6 +257,7 @@ function toSafeFields(fields: InterruptionTraceFields): SafeTraceFields {
     'parsedFrameCount',
     'controlFrameCount',
     'ignoredFrameCount',
+    'ignoredParsedFrameCount',
     'yieldedEventCount',
     'activeApiCallCount',
     'activeToolUseCount',
@@ -278,10 +296,7 @@ function toSafeFields(fields: InterruptionTraceFields): SafeTraceFields {
   return safe
 }
 
-function getAbortStackEvidence(): {
-  abortStackFingerprint?: string
-  abortCallSites?: string[]
-} {
+function getAbortStackEvidence(): { abortStackFingerprint?: string } {
   const rawStack = new Error().stack
   if (!rawStack) return {}
   const sites = rawStack
@@ -295,7 +310,7 @@ function getAbortStackEvidence(): {
         : '<anonymous>'
     })
   const fingerprint = createHash('sha256').update(sites.join('>')).digest('hex').slice(0, 16)
-  return { abortStackFingerprint: fingerprint, abortCallSites: sites }
+  return { abortStackFingerprint: fingerprint }
 }
 
 function buildEntry(
@@ -303,8 +318,9 @@ function buildEntry(
   fields: InterruptionTraceFields,
   nextSequence: number,
   extra: Partial<InterruptionTraceEntry> = {},
+  allowDisabled = false,
 ): InterruptionTraceEntry | undefined {
-  if (!isEnabled()) return undefined
+  if (!allowDisabled && !isEnabled()) return undefined
   if (!traceSessionId) traceSessionId = randomUUID()
   if (!eventLoopDelay) {
     eventLoopDelay = monitorEventLoopDelay({ resolution: 20 })
@@ -361,9 +377,48 @@ export function traceInterruptionEvent(
   return addEntry(event, fields)?.eventId
 }
 
+export function setInterruptionErrorCausalEventId(
+  error: unknown,
+  eventId: string | undefined,
+): void {
+  if (
+    eventId &&
+    ((typeof error === 'object' && error !== null) ||
+      typeof error === 'function')
+  ) {
+    errorCausalEventIds.set(error, eventId)
+  }
+}
+
+export function getInterruptionErrorCausalEventId(
+  error: unknown,
+): string | undefined {
+  return (typeof error === 'object' && error !== null) ||
+    typeof error === 'function'
+    ? errorCausalEventIds.get(error)
+    : undefined
+}
+
+export function tracePermissionAbortResolution(
+  source: string | undefined,
+  causalEventId: string | undefined,
+  subsystem: string,
+): string | undefined {
+  return traceInterruptionEvent('permission.abort_resolved', {
+    source: source ?? 'unknown',
+    subsystem,
+    causalEventId,
+    outcome: 'denied',
+  })
+}
+
 export function registerInterruptionController(
   controller: AbortController,
   fields: InterruptionTraceFields = {},
+  options: {
+    provisionalRole?: boolean
+    refreshQueryContext?: boolean
+  } = {},
 ): string | undefined {
   if (!isEnabled()) return undefined
   const existing = controllerStates.get(controller)
@@ -372,11 +427,39 @@ export function registerInterruptionController(
     // add missing context, but must not relabel an established query root as a
     // parent/tool/controller role merely because they are observing it there.
     existing.fields = { ...fields, ...existing.fields }
+    if (
+      existing.provisionalRole &&
+      fields.controllerRole !== undefined &&
+      !options.provisionalRole
+    ) {
+      existing.fields.controllerRole = fields.controllerRole
+      existing.provisionalRole = false
+    }
+    if (options.refreshQueryContext) {
+      existing.fields = {
+        ...existing.fields,
+        ...(fields.queryId !== undefined && { queryId: fields.queryId }),
+        ...(fields.queryGeneration !== undefined && {
+          queryGeneration: fields.queryGeneration,
+        }),
+        ...(fields.querySource !== undefined && {
+          querySource: fields.querySource,
+        }),
+        ...(fields.parentQueryId !== undefined && {
+          parentQueryId: fields.parentQueryId,
+        }),
+      }
+    }
     return existing.id
   }
 
   const id = `controller-${++controllerCounter}`
-  controllerStates.set(controller, { id, repeatedCount: 0, fields })
+  controllerStates.set(controller, {
+    id,
+    repeatedCount: 0,
+    fields,
+    provisionalRole: options.provisionalRole === true,
+  })
   signalIds.set(controller.signal, id)
   addEntry('controller.registered', fields, { controllerId: id })
   const observeAbort = () => {
@@ -394,6 +477,13 @@ export function registerInterruptionController(
     if (observed && !signalAbortEventIds.has(controller.signal)) {
       signalAbortEventIds.set(controller.signal, observed.eventId)
     }
+    if (
+      observed &&
+      state?.fields.source &&
+      !signalAbortSources.has(controller.signal)
+    ) {
+      signalAbortSources.set(controller.signal, state.fields.source)
+    }
     if (observed && state && !state.firstAbortEventId) {
       state.firstAbortEventId = observed.eventId
     }
@@ -406,6 +496,36 @@ export function registerInterruptionController(
   return id
 }
 
+function preserveControllerIdentity(
+  fields: InterruptionTraceFields,
+  state: ControllerTraceState | undefined,
+): InterruptionTraceFields {
+  const identity = state?.fields
+  if (!identity) return fields
+  return {
+    ...fields,
+    ...(identity.queryId !== undefined && { queryId: identity.queryId }),
+    ...(identity.queryGeneration !== undefined && {
+      queryGeneration: identity.queryGeneration,
+    }),
+    ...(identity.querySource !== undefined && {
+      querySource: identity.querySource,
+    }),
+    ...(identity.parentQueryId !== undefined && {
+      parentQueryId: identity.parentQueryId,
+    }),
+    ...(identity.subagentId !== undefined && {
+      subagentId: identity.subagentId,
+    }),
+    ...(identity.controllerRole !== undefined && {
+      controllerRole: identity.controllerRole,
+    }),
+    ...(identity.parentControllerIds !== undefined && {
+      parentControllerIds: identity.parentControllerIds,
+    }),
+  }
+}
+
 export function getInterruptionSignalId(signal: AbortSignal): string | undefined {
   return isEnabled() ? signalIds.get(signal) : undefined
 }
@@ -416,29 +536,81 @@ export function getInterruptionSignalAbortEventId(
   return isEnabled() ? signalAbortEventIds.get(signal) : undefined
 }
 
+export function getInterruptionSignalAbortTrace(
+  signal: AbortSignal,
+): { source?: string; causalEventId?: string } {
+  if (!isEnabled()) return {}
+  return {
+    source: signalAbortSources.get(signal),
+    causalEventId: signalAbortEventIds.get(signal),
+  }
+}
+
 export function registerInterruptionSignal(
   signal: AbortSignal,
   fields: InterruptionTraceFields = {},
+  getAbortFields?: () => InterruptionTraceFields,
 ): string | undefined {
   if (!isEnabled()) return undefined
   const existing = signalIds.get(signal)
   if (existing) return existing
   const id = `signal-${++signalCounter}`
   signalIds.set(signal, id)
+  signalStates.set(signal, { id, fields, getAbortFields })
   addEntry('signal.registered', fields, { controllerId: id })
-  const observeAbort = () => {
-    const observed = addEntry(
-      'signal.observed',
-      { ...fields, reason: signal.reason },
-      { controllerId: id },
-    )
-    if (observed && !signalAbortEventIds.has(signal)) {
-      signalAbortEventIds.set(signal, observed.eventId)
-    }
-  }
+  const observeAbort = () => observeRegisteredSignal(signal)
   if (signal.aborted) observeAbort()
   else signal.addEventListener('abort', observeAbort, { once: true })
   return id
+}
+
+function observeRegisteredSignal(signal: AbortSignal): string | undefined {
+  const existingEventId = signalAbortEventIds.get(signal)
+  if (existingEventId) return existingEventId
+  const state = signalStates.get(signal)
+  if (!state) return undefined
+  const observed = addEntry(
+    'signal.observed',
+    { ...state.fields, ...state.getAbortFields?.(), reason: signal.reason },
+    { controllerId: state.id },
+  )
+  if (observed) signalAbortEventIds.set(signal, observed.eventId)
+  return observed?.eventId
+}
+
+export function traceCombinedAbortSignal(
+  combinedSignal: AbortSignal,
+  parents: readonly AbortSignal[],
+  fields: InterruptionTraceFields = {},
+): string | undefined {
+  if (!isEnabled()) return undefined
+  const parentControllerIds = parents
+    .map(parent =>
+      registerInterruptionSignal(parent, {
+        subsystem: fields.subsystem,
+        controllerRole: 'combined-parent',
+      }),
+    )
+    .filter((value): value is string => value !== undefined)
+  return registerInterruptionSignal(
+    combinedSignal,
+    {
+      ...fields,
+      parentControllerIds,
+    },
+    () => {
+      const winner = parents.find(parent => parent.aborted)
+      if (!winner) return {}
+      // AbortSignal.any can abort the combined signal before ordinary listeners
+      // on the winning parent run. Record the parent synchronously here so the
+      // combined observation carries the causal edge on the native path.
+      observeRegisteredSignal(winner)
+      return {
+        winningParentControllerId: getInterruptionSignalId(winner),
+        causalEventId: getInterruptionSignalAbortEventId(winner),
+      }
+    },
+  )
 }
 
 export function requestAbort(
@@ -456,13 +628,14 @@ export function requestAbort(
     const controllerId =
       registerInterruptionController(controller, fields) ?? 'controller-unknown'
     const state = controllerStates.get(controller)
+    const requestFields = preserveControllerIdentity(fields, state)
     shouldFlushRoot ||= state?.fields.controllerRole === 'query-root'
     if (controller.signal.aborted) {
       if (state) state.repeatedCount++
       addEntry(
         'abort.repeated',
         {
-          ...fields,
+          ...requestFields,
           existingReason: controller.signal.reason,
           attemptedReason: reason,
           outcome: 'ignored_first_abort_wins',
@@ -478,12 +651,15 @@ export function requestAbort(
     } else {
       const entry = addEntry(
         'abort.requested',
-        { ...fields, reason },
+        { ...requestFields, reason },
         { controllerId, ...getAbortStackEvidence() },
       )
       if (entry && state) {
         state.firstAbortEventId = entry.eventId
         signalAbortEventIds.set(controller.signal, entry.eventId)
+        if (fields.source) {
+          signalAbortSources.set(controller.signal, fields.source)
+        }
       }
     }
   } catch {
@@ -516,26 +692,48 @@ export function traceCombinedSignal(
   })
 }
 
-async function performInterruptionTraceFlush(trigger: string): Promise<void> {
+async function performInterruptionTraceFlush(
+  trigger: string,
+  logFile: string,
+): Promise<void> {
   try {
-    const logFile = process.env[TRACE_FILE_ENV]
-    if (!logFile || !isAbsolute(logFile)) return
-    const pending = ring.filter(entry => entry.sequence > flushedThroughSequence)
-    if (pending.length === 0) return
-    const marker = buildEntry(
-      'trace.flush',
-      { trigger, repeatedCount: pending.length },
-      sequence + 1,
-    )
-    if (!marker) return
-    // Reserve the marker before the first await. Events recorded while the
-    // append is pending must receive larger IDs and remain pending afterwards.
-    sequence = marker.sequence
-    if (!(await appendDiagnosticsNoPII(logFile, [...pending, marker]))) return
-    ring = [...ring, marker]
-      .sort((left, right) => left.sequence - right.sequence)
-      .slice(-TRACE_CAPACITY)
-    flushedThroughSequence = marker.sequence
+    while (true) {
+      let batch = retryBatch
+      if (!batch) {
+        const pending = ring.filter(
+          entry => entry.sequence > flushedThroughSequence,
+        )
+        if (pending.length === 0) return
+        const marker = buildEntry(
+          'trace.flush',
+          { trigger, repeatedCount: pending.length },
+          sequence + 1,
+          {},
+          true,
+        )
+        if (!marker) return
+        // Reserve the marker before awaiting. Later events get larger IDs, and
+        // this immutable batch remains reachable even if the ring wraps.
+        sequence = marker.sequence
+        batch = { entries: [...pending, marker], marker, logFile }
+      }
+
+      const result = await appendDiagnosticsNoPII(batch.logFile, batch.entries)
+      if (result === 'retryable_failure') {
+        retryBatch = batch
+        return
+      }
+
+      retryBatch = undefined
+      flushedThroughSequence = batch.marker.sequence
+      if (result === 'committed') {
+        ring = [...ring, batch.marker]
+          .sort((left, right) => left.sequence - right.sequence)
+          .slice(-TRACE_CAPACITY)
+      }
+      // Keep draining: events can be recorded while an append is in flight,
+      // including during graceful shutdown after the caller requested a flush.
+    }
   } catch {
     // A trace flush is never allowed to affect request cleanup.
   }
@@ -543,8 +741,10 @@ async function performInterruptionTraceFlush(trigger: string): Promise<void> {
 
 export function flushInterruptionTrace(trigger: string): void {
   if (!isEnabled()) return
+  const logFile = process.env[TRACE_FILE_ENV]
+  if (!logFile || !isAbsolute(logFile)) return
   flushQueue = flushQueue
-    .then(() => performInterruptionTraceFlush(trigger))
+    .then(() => performInterruptionTraceFlush(trigger, logFile))
     .catch(() => {
       // Diagnostics are deliberately detached from request cancellation.
     })
@@ -574,6 +774,10 @@ export function __resetInterruptionTraceForTests(): void {
   controllerStates = new WeakMap()
   signalIds = new WeakMap()
   signalAbortEventIds = new WeakMap()
+  signalAbortSources = new WeakMap()
+  signalStates = new WeakMap()
+  errorCausalEventIds = new WeakMap()
+  retryBatch = undefined
   flushQueue = Promise.resolve()
   eventLoopDelay?.disable()
   eventLoopDelay = undefined

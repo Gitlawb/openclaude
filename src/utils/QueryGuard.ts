@@ -604,7 +604,7 @@ export class QueryGuard {
       generation: this._generation,
       reason,
       timeoutMs: this._getTimeoutMsForReason(reason, now),
-      elapsedMs: now - context.startedAt,
+      elapsedMs: now - this._queryStartedAt,
       context,
       activeOperations: this._snapshotActiveOperations(),
     }

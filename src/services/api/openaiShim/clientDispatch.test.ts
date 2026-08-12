@@ -181,6 +181,38 @@ test('OpenAIShimStream aborts its controller when a consumer returns early', asy
   expect(stream.controller.signal.aborted).toBe(true)
 })
 
+test('OpenAIShimStream does not relabel a provider exception as consumer closure', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-failure-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
+  const stream = new OpenAIShimStream(async function* () {
+    yield { type: 'message_start' }
+    throw new Error('provider generator failed')
+  })
+
+  try {
+    const iterator = stream[Symbol.asyncIterator]()
+    expect((await iterator.next()).done).toBe(false)
+    await expect(iterator.next()).rejects.toThrow('provider generator failed')
+    expect(stream.controller.signal.aborted).toBe(false)
+    expect(
+      __getInterruptionTraceSnapshotForTests().some(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.source === 'iterator_closed',
+      ),
+    ).toBe(false)
+  } finally {
+    stream.controller.abort('test-cleanup')
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
+})
+
 test.each([
   ['messages', 'https://provider.example/v1/messages'],
   ['gemini', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent'],

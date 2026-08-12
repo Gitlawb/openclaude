@@ -49,6 +49,10 @@ import {
 } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import type { CustomAgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 import { runAgent } from '../../tools/AgentTool/runAgent.js'
+import {
+  registerInterruptionController,
+  tracePermissionAbortResolution,
+} from '../interruptionTrace.js'
 import { awaitClassifierAutoApproval } from '../../tools/BashTool/bashPermissions.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { SEND_MESSAGE_TOOL_NAME } from '../../tools/SendMessageTool/constants.js'
@@ -299,9 +303,14 @@ function createInProcessCanUseTool(
             onUserInteraction() {
               // No-op for teammates (no classifier auto-approval)
             },
-            onAbort() {
+            onAbort(source, causalEventId) {
               if (decisionMade) return
               decisionMade = true
+              tracePermissionAbortResolution(
+                source,
+                causalEventId,
+                'in_process_permission_bridge',
+              )
               abortController.signal.removeEventListener(
                 'abort',
                 onAbortListener,
@@ -1168,6 +1177,12 @@ export async function runInProcessTeammate(
       // This allows Escape to stop current work without killing the whole teammate.
       // The lifecycle abortController still kills the whole teammate if needed.
       const currentWorkAbortController = createAbortController()
+      registerInterruptionController(currentWorkAbortController, {
+        subsystem: 'in_process_teammate',
+        controllerRole: 'subagent-turn',
+        subagentId: identity.agentId,
+        querySource: 'agent:custom',
+      })
 
       // Store the work controller in task state so UI can abort it
       updateTaskState(

@@ -4,6 +4,7 @@ import {
   getInterruptionSignalId,
   registerInterruptionController,
   requestAbort,
+  type InterruptionTraceFields,
 } from './interruptionTrace.js'
 
 /**
@@ -81,22 +82,30 @@ function removeAbortHandler(
  *
  * @param parent - The parent AbortController
  * @param maxListeners - Maximum number of listeners (default: 50)
+ * @param traceFields - Owning lifecycle identity for interruption diagnostics
  * @returns Child AbortController
  */
 export function createChildAbortController(
   parent: AbortController,
   maxListeners?: number,
+  traceFields: InterruptionTraceFields = {},
 ): AbortController {
   const child = createAbortController(maxListeners)
   const parentId = registerInterruptionController(parent, {
     subsystem: 'abort_controller',
     controllerRole: 'parent',
-  })
-  registerInterruptionController(child, {
-    subsystem: 'abort_controller',
-    controllerRole: 'child',
-    ...(parentId && { parentControllerIds: [parentId] }),
-  })
+  }, { provisionalRole: true })
+  const hasOwningRole = traceFields.controllerRole !== undefined
+  registerInterruptionController(
+    child,
+    {
+      subsystem: 'abort_controller',
+      controllerRole: 'child',
+      ...traceFields,
+      ...(parentId && { parentControllerIds: [parentId] }),
+    },
+    { provisionalRole: !hasOwningRole },
+  )
 
   // Fast path: parent already aborted, no listener setup needed
   if (parent.signal.aborted) {

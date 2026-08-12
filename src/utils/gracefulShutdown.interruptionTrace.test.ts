@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
+const testLinuxTraceFile = process.platform === 'linux' ? test : test.skip
+
 function runFixture(extraEnv: NodeJS.ProcessEnv = {}): {
   aborted: boolean
   exitCalled: boolean
@@ -30,7 +32,7 @@ function runFixture(extraEnv: NodeJS.ProcessEnv = {}): {
   return JSON.parse(resultLine!.slice('TRACE_SHUTDOWN_RESULT '.length))
 }
 
-test('graceful shutdown drains the interruption trace before process exit', () => {
+testLinuxTraceFile('graceful shutdown drains the interruption trace before process exit', () => {
   expect(runFixture()).toEqual({
     aborted: true,
     exitCalled: true,
@@ -39,7 +41,7 @@ test('graceful shutdown drains the interruption trace before process exit', () =
   })
 }, 20_000)
 
-test('graceful shutdown queues otherwise-pending trace records', () => {
+testLinuxTraceFile('graceful shutdown queues otherwise-pending trace records', () => {
   expect(runFixture({ TRACE_SHUTDOWN_PENDING_ONLY: '1' })).toEqual({
     aborted: true,
     exitCalled: true,
@@ -48,7 +50,7 @@ test('graceful shutdown queues otherwise-pending trace records', () => {
   })
 }, 20_000)
 
-test('graceful shutdown bounds a blocked interruption trace drain', () => {
+testLinuxTraceFile('graceful shutdown bounds a blocked interruption trace drain', () => {
   expect(runFixture({ TRACE_SHUTDOWN_BLOCK_WRITE: '1' })).toEqual({
     aborted: true,
     exitCalled: true,

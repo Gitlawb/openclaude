@@ -358,7 +358,11 @@ export function createSubagentContext(
     overrides?.abortController ??
     (overrides?.shareAbortController
       ? parentContext.abortController
-      : createChildAbortController(parentContext.abortController))
+      : createChildAbortController(parentContext.abortController, undefined, {
+          subsystem: 'forked_agent',
+          controllerRole: 'subagent-context',
+          subagentId: overrides?.agentId,
+        }))
 
   // Determine getAppState - wrap to set shouldAvoidPermissionPrompts unless sharing abortController
   // (if sharing abortController, it's an interactive agent that CAN show UI)

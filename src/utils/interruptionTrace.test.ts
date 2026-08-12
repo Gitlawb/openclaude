@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as interruptionTraceModule from './interruptionTrace.js'
 import {
   __getInterruptionTraceSnapshotForTests,
   __INTERRUPTION_TRACE_CAPACITY_FOR_TESTS,
@@ -31,7 +32,8 @@ const originalFile = process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE
 const originalDiagnosticsFile = process.env.CLAUDE_CODE_DIAGNOSTICS_FILE
 let tempDirectory: string | undefined
 let originalFs: FsOperations
-const testPosixTraceFile = process.platform === 'win32' ? test.skip : test
+const testLinuxTraceFile = process.platform === 'linux' ? test : test.skip
+const testPosixSymlink = process.platform === 'win32' ? test.skip : test
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/interruptionTrace.test.ts')
@@ -102,9 +104,12 @@ describe('interruptionTrace', () => {
     expect(requested?.controllerId).toBe(controllerId)
     expect(requested?.normalizedReason).toBe('query-timeout')
     expect(requested?.abortStackFingerprint).toMatch(/^[a-f0-9]{16}$/)
-    expect(requested?.abortCallSites?.every(site => !site.includes('/'))).toBe(true)
-    expect(observed?.firstAbortEventId).toBe(requested?.eventId)
-    expect(repeated?.firstAbortEventId).toBe(requested?.eventId)
+    expect(requested).not.toHaveProperty('abortCallSites')
+    expect(typeof requested?.eventId).toBe('string')
+    expect(typeof observed?.firstAbortEventId).toBe('string')
+    expect(typeof repeated?.firstAbortEventId).toBe('string')
+    expect(observed!.firstAbortEventId).toBe(requested!.eventId)
+    expect(repeated!.firstAbortEventId).toBe(requested!.eventId)
     expect(repeated?.existingNormalizedReason).toBe('query-timeout')
     expect(repeated?.attemptedNormalizedReason).toBe('user-abort')
     expect(repeated?.outcome).toBe('ignored_first_abort_wins')
@@ -152,8 +157,10 @@ describe('interruptionTrace', () => {
     const observed = __getInterruptionTraceSnapshotForTests().find(
       entry => entry.event === 'signal.observed',
     )
+    expect(observed).toBeDefined()
+    expect(typeof observed?.eventId).toBe('string')
     expect(getInterruptionSignalAbortEventId(controller.signal)).toBe(
-      observed?.eventId,
+      observed!.eventId,
     )
 
     requestAbort(controller, 'second-abort', {
@@ -163,7 +170,62 @@ describe('interruptionTrace', () => {
     const repeated = __getInterruptionTraceSnapshotForTests().find(
       entry => entry.event === 'abort.repeated',
     )
-    expect(repeated?.firstAbortEventId).toBe(observed?.eventId)
+    expect(repeated).toBeDefined()
+    expect(typeof repeated?.firstAbortEventId).toBe('string')
+    expect(repeated!.firstAbortEventId).toBe(observed!.eventId)
+  })
+
+  test('links a native AbortSignal.any result to its winning parent', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const caller = new AbortController()
+    const deadline = new AbortController()
+    const combined = AbortSignal.any([caller.signal, deadline.signal])
+    interruptionTraceModule.traceCombinedAbortSignal(
+      combined,
+      [caller.signal, deadline.signal], {
+      subsystem: 'native-any-test',
+      controllerRole: 'request-combined',
+      },
+    )
+
+    caller.abort('user-cancel')
+
+    const entries = __getInterruptionTraceSnapshotForTests()
+    const parentObserved = entries.find(
+      entry =>
+        entry.event === 'signal.observed' &&
+        entry.controllerRole === 'combined-parent',
+    )
+    const combinedObserved = entries.find(
+      entry =>
+        entry.event === 'signal.observed' &&
+        entry.controllerRole === 'request-combined',
+    )
+    expect(parentObserved).toBeDefined()
+    expect(combinedObserved).toMatchObject({
+      subsystem: 'native-any-test',
+      causalEventId: parentObserved!.eventId,
+      winningParentControllerId: parentObserved!.controllerId,
+    })
+  })
+
+  test('records permission abort resolution with the input causal edge', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const inputEventId = traceInterruptionEvent('input.ctrl_c')
+
+    interruptionTraceModule.tracePermissionAbortResolution(
+      'ctrl_c',
+      inputEventId,
+      'remote-permission',
+    )
+
+    expect(__getInterruptionTraceSnapshotForTests().at(-1)).toMatchObject({
+      event: 'permission.abort_resolved',
+      source: 'ctrl_c',
+      subsystem: 'remote-permission',
+      causalEventId: inputEventId,
+      outcome: 'denied',
+    })
   })
 
   test('observes and flushes a query-root controller already aborted when registered', async () => {
@@ -203,7 +265,11 @@ describe('interruptionTrace', () => {
       },
     })
     const parent = new AbortController()
-    registerInterruptionController(parent, { controllerRole: 'query-root' })
+    registerInterruptionController(parent, {
+      controllerRole: 'query-root',
+      queryId: 'query-root-1',
+      queryGeneration: 3,
+    })
     createChildAbortController(parent)
 
     requestAbort(parent, 'user-cancel', {
@@ -217,8 +283,86 @@ describe('interruptionTrace', () => {
         entry.event === 'signal.observed' &&
         entry.normalizedReason === 'user-abort',
     )
+    const requested = __getInterruptionTraceSnapshotForTests().find(
+      entry => entry.event === 'abort.requested',
+    )
+    expect(requested).toMatchObject({
+      source: 'cancel_keybinding',
+      controllerRole: 'query-root',
+      queryId: 'query-root-1',
+      queryGeneration: 3,
+    })
     expect(observed?.controllerRole).toBe('query-root')
     expect(writes).toBe(1)
+  })
+
+  test('replaces provisional parent and child roles with concrete lifecycle roles', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const parent = new AbortController()
+    const child = createChildAbortController(parent)
+
+    requestAbort(child, 'sibling_error', {
+      source: 'sibling_error',
+      subsystem: 'streaming_tool_executor',
+      controllerRole: 'sibling-tools',
+    })
+    requestAbort(parent, 'task_stop', {
+      source: 'task_stop',
+      subsystem: 'local_agent_task',
+      controllerRole: 'background-agent',
+      subagentId: 'agent-1',
+    })
+
+    const requested = __getInterruptionTraceSnapshotForTests().filter(
+      entry => entry.event === 'abort.requested',
+    )
+    expect(requested).toHaveLength(2)
+    expect(requested[0]).toMatchObject({
+      source: 'sibling_error',
+      controllerRole: 'sibling-tools',
+    })
+    expect(requested[1]).toMatchObject({
+      source: 'task_stop',
+      controllerRole: 'background-agent',
+      subagentId: 'agent-1',
+    })
+    const observed = __getInterruptionTraceSnapshotForTests().filter(
+      entry => entry.event === 'signal.observed',
+    )
+    expect(observed).toHaveLength(2)
+    expect(observed[0]?.controllerRole).toBe('sibling-tools')
+    expect(observed[1]).toMatchObject({
+      controllerRole: 'background-agent',
+      subagentId: 'agent-1',
+    })
+  })
+
+  test('retains a child owner when the parent aborts before a later request', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const parent = new AbortController()
+    const child = createChildAbortController(parent, undefined, {
+      subsystem: 'in_process_teammate',
+      controllerRole: 'subagent-lifecycle',
+      subagentId: 'agent-1',
+    })
+
+    requestAbort(parent, undefined, {
+      source: 'cancel_keybinding',
+      subsystem: 'query_engine',
+      controllerRole: 'query-root',
+    })
+
+    const childObserved = __getInterruptionTraceSnapshotForTests().find(
+      entry =>
+        entry.event === 'signal.observed' &&
+        entry.controllerRole === 'subagent-lifecycle',
+    )
+    expect(child.signal.aborted).toBe(true)
+    expect(childObserved).toMatchObject({
+      subsystem: 'in_process_teammate',
+      controllerRole: 'subagent-lifecycle',
+      subagentId: 'agent-1',
+    })
   })
 
   test('throwing abort-reason accessors cannot block native or combined aborts', () => {
@@ -306,7 +450,7 @@ describe('interruptionTrace', () => {
     expect(JSON.stringify(entries)).not.toContain('prompt')
   })
 
-  testPosixTraceFile('flushes valid JSONL once to an explicit absolute path', async () => {
+  testLinuxTraceFile('flushes valid JSONL once to an explicit absolute path', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const traceFile = join(tempDirectory, 'trace.jsonl')
@@ -328,7 +472,7 @@ describe('interruptionTrace', () => {
     ])
   })
 
-  testPosixTraceFile('flushes every pending record when the ring is at capacity', async () => {
+  testLinuxTraceFile('flushes every pending record when the ring is at capacity', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const traceFile = join(tempDirectory, 'trace.jsonl')
@@ -374,16 +518,140 @@ describe('interruptionTrace', () => {
     flushInterruptionTrace('retry')
     await __waitForInterruptionTraceFlushForTests()
 
-    expect(writeAttempts).toBe(2)
-    expect(successfulWrites).toHaveLength(1)
-    const events = successfulWrites[0]!
-      .trim()
-      .split('\n')
-      .map(line => (JSON.parse(line) as { event: string }).event)
-    expect(events).toEqual(['first', 'second', 'trace.flush'])
+    expect(writeAttempts).toBe(3)
+    expect(successfulWrites).toHaveLength(2)
+    const events = successfulWrites.flatMap(write =>
+      write
+        .trim()
+        .split('\n')
+        .map(line => (JSON.parse(line) as { event: string }).event),
+    )
+    expect(events).toEqual(['first', 'trace.flush', 'second', 'trace.flush'])
   })
 
-  testPosixTraceFile('rejects an existing non-regular trace target', async () => {
+  test('captures the enabled output target before a detached flush starts', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/captured/trace.jsonl'
+    const writes: Array<{ path: string; data: string }> = []
+    setFsImplementation({
+      ...originalFs,
+      appendRegularFile: async (path, data) => {
+        writes.push({ path, data })
+      },
+    })
+
+    traceInterruptionEvent('before_restore')
+    flushInterruptionTrace('captured-target')
+    delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    delete process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE
+    await __waitForInterruptionTraceFlushForTests()
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.path).toBe('/captured/trace.jsonl')
+    expect(writes[0]?.data).toContain('"event":"before_restore"')
+    expect(writes[0]?.data).toContain('"event":"trace.flush"')
+  })
+
+  test('keeps a retry batch bound to its original output target', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/first/trace.jsonl'
+    const writes: Array<{ path: string; data: string }> = []
+    setFsImplementation({
+      ...originalFs,
+      appendRegularFile: async (path, data) => {
+        writes.push({ path, data })
+        if (writes.length === 1) throw new Error('synthetic retryable failure')
+      },
+    })
+
+    traceInterruptionEvent('first_target')
+    flushInterruptionTrace('first')
+    await __waitForInterruptionTraceFlushForTests()
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/second/trace.jsonl'
+    traceInterruptionEvent('second_target')
+    flushInterruptionTrace('second')
+    await __waitForInterruptionTraceFlushForTests()
+
+    expect(writes.map(write => write.path)).toEqual([
+      '/first/trace.jsonl',
+      '/first/trace.jsonl',
+      '/second/trace.jsonl',
+    ])
+    expect(writes[1]?.data).toContain('"event":"first_target"')
+    expect(writes[2]?.data).toContain('"event":"second_target"')
+    expect(writes[2]?.data).not.toContain('"event":"first_target"')
+  })
+
+  test('retains an in-flight failed batch outside the bounded ring', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
+    let rejectFirstWrite!: (error: Error) => void
+    let markFirstWriteStarted!: () => void
+    const firstWriteStarted = new Promise<void>(resolve => {
+      markFirstWriteStarted = resolve
+    })
+    const firstWriteBlocked = new Promise<void>((_resolve, reject) => {
+      rejectFirstWrite = reject
+    })
+    const writes: string[] = []
+    setFsImplementation({
+      ...originalFs,
+      appendRegularFile: async (_path, data) => {
+        if (writes.length === 0) {
+          writes.push('failed')
+          markFirstWriteStarted()
+          await firstWriteBlocked
+          return
+        }
+        writes.push(data)
+      },
+    })
+
+    traceInterruptionEvent('must_survive')
+    flushInterruptionTrace('blocked')
+    await firstWriteStarted
+    for (let index = 0; index < __INTERRUPTION_TRACE_CAPACITY_FOR_TESTS + 32; index++) {
+      traceInterruptionEvent('newer', { rawByteCount: index })
+    }
+    rejectFirstWrite(new Error('synthetic write failure'))
+    await __waitForInterruptionTraceFlushForTests()
+    flushInterruptionTrace('retry')
+    await __waitForInterruptionTraceFlushForTests()
+
+    expect(writes).toHaveLength(3)
+    expect(writes[1]).toContain('"event":"must_survive"')
+  })
+
+  test('does not replay a batch after an uncertain append failure', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
+    const writes: string[] = []
+    setFsImplementation({
+      ...originalFs,
+      appendRegularFile: async (_path, data) => {
+        writes.push(data)
+        if (writes.length === 1) {
+          throw Object.assign(new Error('partial append'), {
+            code: 'ERR_DIAGNOSTIC_APPEND_UNCERTAIN',
+          })
+        }
+      },
+    })
+
+    traceInterruptionEvent('first')
+    flushInterruptionTrace('uncertain')
+    await __waitForInterruptionTraceFlushForTests()
+    traceInterruptionEvent('second')
+    flushInterruptionTrace('later')
+    await __waitForInterruptionTraceFlushForTests()
+
+    expect(writes).toHaveLength(2)
+    expect(writes[0]).toContain('"event":"first"')
+    expect(writes[1]).not.toContain('"event":"first"')
+    expect(writes[1]).toContain('"event":"second"')
+  })
+
+  testLinuxTraceFile('rejects an existing non-regular trace target', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = tempDirectory
@@ -399,7 +667,7 @@ describe('interruptionTrace', () => {
     ).toBe(false)
   })
 
-  testPosixTraceFile('rejects symlink targets and creates private files and directories', async () => {
+  testLinuxTraceFile('rejects symlink targets and creates private files and directories', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
     const target = join(tempDirectory, 'target.jsonl')
@@ -412,9 +680,15 @@ describe('interruptionTrace', () => {
     await __waitForInterruptionTraceFlushForTests()
     expect(await readFile(target, 'utf8')).toBe('')
 
+    // The rejected batch remains bound to its original target for retry.
+    // Reset before exercising independent creation and permission behavior.
+    __resetInterruptionTraceForTests()
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+
     const privateDirectory = join(tempDirectory, 'private')
     const privateTrace = join(privateDirectory, 'trace.jsonl')
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = privateTrace
+    traceInterruptionEvent('private-target-pending')
     flushInterruptionTrace('private-target')
     await __waitForInterruptionTraceFlushForTests()
     expect((await stat(privateDirectory)).mode & 0o777).toBe(0o700)
@@ -429,7 +703,30 @@ describe('interruptionTrace', () => {
     expect((await stat(existingTrace)).mode & 0o777).toBe(0o600)
   })
 
-  testPosixTraceFile('preserves legacy diagnostics append-through-symlink behavior', async () => {
+  testLinuxTraceFile('rejects a trace target beneath a symlinked parent directory', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-interrupt-trace-'))
+    const realDirectory = join(tempDirectory, 'real-parent')
+    const linkedDirectory = join(tempDirectory, 'linked-parent')
+    const realTrace = join(realDirectory, 'trace.jsonl')
+    await mkdir(realDirectory)
+    await symlink(realDirectory, linkedDirectory, 'dir')
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = join(
+      linkedDirectory,
+      'trace.jsonl',
+    )
+
+    traceInterruptionEvent('symlinked-parent-pending')
+    flushInterruptionTrace('symlinked-parent')
+    await __waitForInterruptionTraceFlushForTests()
+
+    const result = await readFile(realTrace, 'utf8').catch(
+      error => (error as NodeJS.ErrnoException).code,
+    )
+    expect(result).toBe('ENOENT')
+  })
+
+  testPosixSymlink('preserves legacy diagnostics append-through-symlink behavior', async () => {
     tempDirectory = await mkdtemp(join(tmpdir(), 'openclaude-diagnostics-'))
     const target = join(tempDirectory, 'target.jsonl')
     const link = join(tempDirectory, 'diagnostics-link.jsonl')
@@ -469,7 +766,7 @@ describe('interruptionTrace', () => {
     }
   })
 
-  test('keeps sequence IDs unique and later events pending during an async flush', async () => {
+  test('keeps sequence IDs unique and drains later events during an async flush', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let releaseFirstWrite!: () => void
@@ -502,9 +799,6 @@ describe('interruptionTrace', () => {
       releaseFirstWrite()
       await __waitForInterruptionTraceFlushForTests()
     }
-    flushInterruptionTrace('second')
-    await __waitForInterruptionTraceFlushForTests()
-
     const persistedEvents = writes.flatMap(write =>
       write
         .trim()
@@ -521,6 +815,20 @@ describe('interruptionTrace', () => {
     )
   })
 
+  test('never persists dynamic function names from abort stacks', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const controller = new AbortController()
+    const customerSpecificHandlerName = () => {
+      requestAbort(controller, 'user-cancel', { source: 'test' })
+    }
+
+    customerSpecificHandlerName()
+
+    const serialized = JSON.stringify(__getInterruptionTraceSnapshotForTests())
+    expect(serialized).not.toContain('customerSpecificHandlerName')
+    expect(serialized).not.toContain('abortCallSites')
+  })
+
   test('does not write for relative paths and isolates write failures', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     traceInterruptionEvent('query.started')
@@ -530,6 +838,33 @@ describe('interruptionTrace', () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/proc/openclaude/trace.jsonl'
     expect(() => flushInterruptionTrace('unwritable')).not.toThrow()
     await __waitForInterruptionTraceFlushForTests()
+  })
+
+  test('delegates trace-file output on non-Windows POSIX platforms', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
+    let appendCalls = 0
+    setFsImplementation({
+      ...originalFs,
+      appendRegularFile: async () => {
+        appendCalls++
+      },
+    })
+    const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', {
+      value: 'darwin',
+      configurable: true,
+    })
+    try {
+      traceInterruptionEvent('pending')
+      flushInterruptionTrace('posix-platform')
+      await __waitForInterruptionTraceFlushForTests()
+      expect(appendCalls).toBe(1)
+    } finally {
+      if (platformDescriptor) {
+        Object.defineProperty(process, 'platform', platformDescriptor)
+      }
+    }
   })
 
   test('redacts secret-shaped values and absolute local paths', () => {

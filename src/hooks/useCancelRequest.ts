@@ -185,13 +185,14 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   // Shared kill path: stop all agents, suppress per-agent notifications,
   // emit SDK events, enqueue a single aggregate model-facing notification.
   // Returns true if anything was killed.
-  const killAllAgentsAndNotify = useCallback((): boolean => {
+  const killAllAgentsAndNotify = useCallback(
+    (source: string, causalEventId?: string): boolean => {
     const tasks = store.getState().tasks
     const running = Object.entries(tasks).filter(
       ([, t]) => t.type === 'local_agent' && t.status === 'running',
     )
     if (running.length === 0) return false
-    killAllRunningAgentTasks(tasks, setAppState)
+    killAllRunningAgentTasks(tasks, setAppState, { source, causalEventId })
     const descriptions: string[] = []
     for (const [taskId, task] of running) {
       markAgentsNotified(taskId, setAppState)
@@ -207,8 +208,10 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
         : `${descriptions.length} background agents were stopped by the user: ${descriptions.map(d => `"${d}"`).join(', ')}.`
     enqueuePendingNotification({ value: summary, mode: 'task-notification' })
     onAgentsKilled()
-    return true
-  }, [store, setAppState, onAgentsKilled])
+      return true
+    },
+    [store, setAppState, onAgentsKilled],
+  )
 
   // Ctrl+C (app:interrupt). Scoped to teammate-view: killing agents from the
   // main prompt stays a deliberate gesture (chat:killAgents), not a
@@ -220,7 +223,7 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
       phase: isViewingTeammate ? 'teammate_view' : 'main_view',
     })
     if (isViewingTeammate) {
-      killAllAgentsAndNotify()
+      killAllAgentsAndNotify('ctrl_c', causalEventId)
       exitTeammateView(setAppState)
     }
     if (canCancelRunningTask || hasQueuedCommands) {
@@ -268,7 +271,11 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
           'kill_agents' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       clearCommandQueue()
-      killAllAgentsAndNotify()
+      const causalEventId = traceInterruptionEvent('input.kill_agents', {
+        source: 'kill_agents',
+        subsystem: 'cancel_request',
+      })
+      killAllAgentsAndNotify('kill_agents', causalEventId)
       return
     }
     // First press -- show confirmation hint in status bar

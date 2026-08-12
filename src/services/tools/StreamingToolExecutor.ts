@@ -70,6 +70,11 @@ export class StreamingToolExecutor {
     this.toolUseContext = toolUseContext
     this.siblingAbortController = createChildAbortController(
       toolUseContext.abortController,
+      undefined,
+      {
+        subsystem: 'streaming_tool_executor',
+        controllerRole: 'sibling-tools',
+      },
     )
   }
 
@@ -363,6 +368,11 @@ export class StreamingToolExecutor {
       // sends REJECT_MESSAGE to the model instead of aborting (#21056 regression).
       const toolAbortController = createChildAbortController(
         this.siblingAbortController,
+        undefined,
+        {
+          subsystem: 'streaming_tool_executor',
+          controllerRole: 'tool',
+        },
       )
       toolAbortController.signal.addEventListener(
         'abort',

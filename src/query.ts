@@ -5,6 +5,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { CanUseToolFn } from './hooks/useCanUseTool.js'
 import { FallbackTriggeredError } from './services/api/withRetry.js'
+import { isMainThreadGoalSource } from './services/goal/controller.js'
 import {
   calculateTokenWarningState,
   getAutoCompactThreshold,
@@ -823,7 +824,10 @@ async function* queryLoop(
   )
 
   const activeGoal = state.toolUseContext.getAppState().goal
-  if (activeGoal?.status === 'active') {
+  if (
+    activeGoal?.status === 'active' &&
+    isMainThreadGoalSource(querySource, state.toolUseContext)
+  ) {
     traceInterruptionEvent('goal.main_turn_started', {
       subsystem: 'goal',
       phase: 'main_query',

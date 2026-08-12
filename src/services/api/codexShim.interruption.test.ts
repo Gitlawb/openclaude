@@ -31,6 +31,26 @@ async function bounded<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
   }
 }
 
+function responseFromText(text: string): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(text))
+        controller.close()
+      },
+    }),
+  )
+}
+
+async function collectCodex(response: Response): Promise<AnthropicStreamEvent[]> {
+  const events: AnthropicStreamEvent[] = []
+  for await (const event of codexStreamToAnthropic(response, 'gpt-test')) {
+    events.push(event)
+  }
+  return events
+}
+
 function makeTimedStream(
   makeFrame: (index: number) => string,
   intervalMs: number,
@@ -85,6 +105,7 @@ async function driveWithGuard(
   options: {
     idleTimeoutMs: number
     hardMaxQueryMs: number
+    /** Raw-reader deadline, intentionally distinct from QueryGuard activity. */
     readerIdleTimeoutMs: number
   },
 ): Promise<{
@@ -255,7 +276,7 @@ describe('issue #1830 Codex interruption ownership', () => {
     }
   })
 
-  test('normal terminal frames close the reader without an interruption trace', async () => {
+  test('a done-only Codex stream completes without waiting for transport EOF', async () => {
     const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     __resetInterruptionTraceForTests()
@@ -264,15 +285,7 @@ describe('issue #1830 Codex interruption ownership', () => {
     const response = new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(new Uint8Array())
-          controller.enqueue(encoder.encode([
-            ': keepalive',
-            '',
-            'event: response.completed',
-            'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
-            '',
-            '',
-          ].join('\n')))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         },
         cancel(reason) {
           cancelReasons.push(reason)
@@ -282,29 +295,87 @@ describe('issue #1830 Codex interruption ownership', () => {
 
     try {
       const events: AnthropicStreamEvent[] = []
-      await bounded((async () => {
-        for await (const event of codexStreamToAnthropic(response, 'gpt-test')) {
-          events.push(event)
-        }
-      })())
-
+      for await (const event of __codexStreamToAnthropicForTests(
+        response,
+        'gpt-test',
+        undefined,
+        { idleTimeoutMs: 25 },
+      )) {
+        events.push(event)
+      }
       expect(events.at(-1)?.type).toBe('message_stop')
-      const trace = __getInterruptionTraceSnapshotForTests()
-      const firstRawBytes = trace.filter(
-        entry => entry.event === 'codex_stream.first_raw_byte',
-      )
-      const terminal = trace.find(
-        entry => entry.event === 'codex_stream.protocol_terminal',
-      )
-      expect(firstRawBytes).toHaveLength(1)
-      expect(firstRawBytes[0]!.rawByteCount).toBeGreaterThan(0)
-      expect(terminal).toBeDefined()
-      expect(terminal!.controlFrameCount).toBe(1)
-      expect(terminal!.ignoredFrameCount).toBe(0)
       expect(
-        trace.some(entry => entry.event === 'codex_stream.cancelled'),
+        __getInterruptionTraceSnapshotForTests().some(
+          entry => entry.event === 'codex_stream.idle_timeout',
+        ),
       ).toBe(false)
       expect(cancelReasons).toHaveLength(1)
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
+  })
+
+  test('normal completed and incomplete frames after a done marker close without interruption traces', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    try {
+      for (const terminalEvent of [
+        'response.completed',
+        'response.incomplete',
+      ]) {
+        __resetInterruptionTraceForTests()
+        const cancelReasons: unknown[] = []
+        const encoder = new TextEncoder()
+        const response = new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array())
+              controller.enqueue(encoder.encode([
+                ': keepalive',
+                '',
+                'data: [DONE]',
+                '',
+                `event: ${terminalEvent}`,
+                `data: {"type":"${terminalEvent}","response":{"status":"${terminalEvent.slice('response.'.length)}","output":[]}}`,
+                '',
+                '',
+              ].join('\n')))
+            },
+            cancel(reason) {
+              cancelReasons.push(reason)
+            },
+          }),
+        )
+        const events: AnthropicStreamEvent[] = []
+        await bounded((async () => {
+          for await (const event of codexStreamToAnthropic(response, 'gpt-test')) {
+            events.push(event)
+          }
+        })())
+
+        expect(events.at(-1)?.type).toBe('message_stop')
+        const trace = __getInterruptionTraceSnapshotForTests()
+        const firstRawBytes = trace.filter(
+          entry => entry.event === 'codex_stream.first_raw_byte',
+        )
+        const terminal = trace.find(
+          entry =>
+            entry.event === 'codex_stream.protocol_terminal' &&
+            entry.phase === terminalEvent,
+        )
+        expect(firstRawBytes).toHaveLength(1)
+        expect(firstRawBytes[0]!.rawByteCount).toBeGreaterThan(0)
+        expect(terminal).toBeDefined()
+        expect(terminal!.controlFrameCount).toBe(2)
+        expect(terminal!.ignoredFrameCount).toBe(0)
+        expect(
+          trace.some(entry => entry.event === 'codex_stream.cancelled'),
+        ).toBe(false)
+        expect(cancelReasons).toHaveLength(1)
+      }
     } finally {
       await __waitForInterruptionTraceFlushForTests()
       __resetInterruptionTraceForTests()
@@ -313,6 +384,52 @@ describe('issue #1830 Codex interruption ownership', () => {
       } else {
         process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
       }
+    }
+  })
+
+  test('idle evidence stays non-negative when the wall clock moves backwards', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    const originalDateNow = Date.now
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    let wallNow = 10_000
+    Date.now = () => wallNow
+    const encoder = new TextEncoder()
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(': keepalive\n\n'))
+        },
+      }),
+    )
+    const iterator = __codexStreamToAnthropicForTests(
+      response,
+      'gpt-test',
+      undefined,
+      { idleTimeoutMs: 25 },
+    )[Symbol.asyncIterator]()
+
+    try {
+      expect((await bounded(iterator.next())).value?.type).toBe('message_start')
+      const pending = iterator.next().catch(error => error)
+      await Bun.sleep(5)
+      wallNow = 1_000
+      await bounded(pending)
+
+      const idleTimeout = __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.idle_timeout',
+      )
+      expect(idleTimeout?.sinceLastRawByteMs).toBeGreaterThanOrEqual(0)
+      expect(idleTimeout?.sinceLastParsedFrameMs).toBeGreaterThanOrEqual(0)
+    } finally {
+      Date.now = originalDateNow
+      await bounded(iterator.return?.(undefined) ?? Promise.resolve()).catch(
+        () => {},
+      )
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
     }
   })
 
@@ -366,15 +483,181 @@ describe('issue #1830 Codex interruption ownership', () => {
     }
   })
 
+  test('keeps terminal ownership when the consumer returns after message_delta', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const response = responseFromText([
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+      '',
+      '',
+    ].join('\n'))
+    const iterator = codexStreamToAnthropic(response, 'gpt-test')
+
+    try {
+      let next: IteratorResult<AnthropicStreamEvent>
+      do {
+        next = await bounded(iterator.next())
+      } while (!next.done && next.value.type !== 'message_delta')
+      expect(next.done).toBe(false)
+      await bounded(iterator.return(undefined))
+
+      const converterClosed = __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )
+      expect(converterClosed?.outcome).toBe('complete')
+    } finally {
+      await bounded(iterator.return(undefined)).catch(() => {})
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
+  })
+
+  test('classifies each Codex reader and converter frame exactly once', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const text = [
+      ': keepalive',
+      '',
+      'event: response.created',
+      'data: not-json',
+      '',
+      'event: response.created',
+      'data: []',
+      '',
+      'event: response.created',
+      'data: {"type":"response.created","sequence_number":1}',
+      '',
+      'data: [DONE]',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+      '',
+      '',
+    ].join('\n')
+
+    try {
+      await bounded((async () => {
+        for await (const _event of codexStreamToAnthropic(
+          responseFromText(text),
+          'gpt-test',
+        )) {
+          // Drain the converter to terminal diagnostics.
+        }
+      })())
+
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const terminal = trace.find(
+        entry => entry.event === 'codex_stream.protocol_terminal',
+      )
+      const converterClosed = trace.find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )
+      expect(terminal).toMatchObject({
+        rawByteCount: new TextEncoder().encode(text).byteLength,
+        parsedFrameCount: 2,
+        controlFrameCount: 2,
+        ignoredFrameCount: 2,
+      })
+      expect(converterClosed?.ignoredParsedFrameCount).toBe(1)
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
+  })
+
+  test('classifies event-only and typed data-only frames without inflating ignored input', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const text = [
+      'event: ping',
+      '',
+      'data: {"type":"response.created","sequence_number":1}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+      '',
+      '',
+    ].join('\n')
+
+    try {
+      await collectCodex(responseFromText(text))
+      const terminal = __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.protocol_terminal',
+      )
+      expect(terminal).toMatchObject({
+        parsedFrameCount: 2,
+        controlFrameCount: 1,
+        ignoredFrameCount: 0,
+      })
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
+  })
+
+  test('reports parsed-but-unhandled converter events with a distinct counter', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const encoder = new TextEncoder()
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'event: response.created',
+            'data: {"type":"response.created","sequence_number":1}',
+            '',
+            'event: response.completed',
+            'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+            '',
+            '',
+          ].join('\n')))
+        },
+      }),
+    )
+
+    try {
+      await bounded((async () => {
+        for await (const _event of codexStreamToAnthropic(response, 'gpt-test')) {
+          // Drain the converter to its terminal diagnostics.
+        }
+      })())
+
+      const converterClosed = __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )
+      expect(converterClosed?.ignoredParsedFrameCount).toBe(1)
+      expect(converterClosed?.ignoredFrameCount).toBeUndefined()
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
+  })
+
   test('keepalives and parsed-but-ignored frames cannot reset QueryGuard', async () => {
     const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     __resetInterruptionTraceForTests()
     const timed = makeTimedStream(
       index => {
-        if (index % 3 === 0) return ': keepalive\n\n'
-        if (index % 3 === 1) {
+        if (index % 4 === 0) return ': keepalive\n\n'
+        if (index % 4 === 1) {
           return `event: response.created\ndata: {"type":"response.created","sequence_number":${index}}\n\n`
+        }
+        if (index % 4 === 2) {
+          return 'event: response.created\ndata: []\n\n'
         }
         return `event: response.reasoning_summary_text.delta\ndata: {"type":"response.reasoning_summary_text.delta","delta":"r","sequence_number":${index}}\n\n`
       },
@@ -409,7 +692,12 @@ describe('issue #1830 Codex interruption ownership', () => {
       expect(readerClosed?.rawByteCount).toBeGreaterThan(0)
       expect(readerClosed?.parsedFrameCount).toBeGreaterThan(0)
       expect(readerClosed?.controlFrameCount).toBeGreaterThan(0)
-      expect(readerClosed?.ignoredFrameCount).toBe(0)
+      expect(readerClosed?.ignoredFrameCount).toBeGreaterThan(0)
+      const converterClosed = __getInterruptionTraceSnapshotForTests()
+        .filter(entry => entry.event === 'codex_stream.converter_closed')
+        .at(-1)
+      expect(converterClosed?.ignoredParsedFrameCount).toBeGreaterThan(0)
+      expect(converterClosed?.ignoredFrameCount).toBeUndefined()
       expect(rootAbort).toBeDefined()
       expect(readerClosed).toBeDefined()
       expect(typeof rootAbort!.eventId).toBe('string')
