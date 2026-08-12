@@ -462,6 +462,17 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
     expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
   })
+
+  it('resolves the official Grok 4.5 grok-build-latest alias on Atlas Cloud', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'grok-build-latest',
+      baseUrl: 'https://api.atlascloud.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(result.routeId).toBe('atlas-cloud')
+    expect(result.catalogEntry?.id).toBe('xai/grok-4.5')
+    expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+  })
 })
 
 describe('resolveOpenAIShimRuntimeContext - GLM catalog-aware gating', () => {
@@ -658,6 +669,20 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
       'high',
       'xhigh',
     ])
+
+    const grok46Latest = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6-latest',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46Latest.catalogEntry?.id).toBe('hicap-grok-4.6')
+
+    const grokBuildLatest = resolveOpenAIShimRuntimeContext({
+      model: 'grok-build-latest',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grokBuildLatest.catalogEntry?.id).toBe('hicap-grok-4.5')
 
     const grok = resolveOpenAIShimRuntimeContext({
       model: 'grok-4.3',

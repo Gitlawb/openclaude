@@ -1308,6 +1308,18 @@ test('/model applies auto provider surface for single-model descriptor profiles'
           'Recommended · Provider: OpenRouter (openai/gpt-5-mini)',
       },
       {
+        value: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.6)',
+      },
+      {
+        value: 'x-ai/grok-4.5',
+        label: 'Grok 4.5 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.5)',
+      },
+      {
         value: activeProfile.model,
         label: activeProfile.model,
         description: 'Provider: OpenRouter',
@@ -1570,6 +1582,18 @@ test('/model applies providerProfileModelPickerMode provider override on descrip
         description: 'Recommended · Provider: OpenRouter',
         descriptionForModel:
           'Recommended · Provider: OpenRouter (openai/gpt-5-mini)',
+      },
+      {
+        value: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.6)',
+      },
+      {
+        value: 'x-ai/grok-4.5',
+        label: 'Grok 4.5 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.5)',
       },
       {
         value: 'openai/gpt-oss-120b:free',

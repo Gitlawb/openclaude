@@ -21,6 +21,7 @@ import {
 import {
   getRouteDescriptor,
   isNativeVendorCatalogRoute,
+  isXaiBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
@@ -35,6 +36,7 @@ import {
   resolveProviderRequest,
 } from '../../services/api/providerConfig.js'
 import { firstUsableCredential } from '../../services/api/credentialPool.js'
+import { resolveXaiAccessToken } from '../../utils/xaiCredentials.js'
 import type { ProviderProfile } from '../../utils/config.js'
 import type { AppState } from '../../state/AppState.js'
 import { useAppState, useSetAppState } from '../../state/AppState.js'
@@ -366,24 +368,29 @@ function withInactiveProfileSwitchOptions(
   return additions.length > 0 ? [...options, ...additions] : options
 }
 
-function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
+async function getOpenAIDiscoveryRequestOptions(routeId?: string | null): Promise<{
   apiKey?: string
   baseUrl?: string
   headers?: Record<string, string>
-} {
+}> {
   const request = resolveProviderRequest({
     model: process.env.OPENAI_MODEL,
     baseUrl: process.env.OPENAI_BASE_URL,
   })
 
+  let apiKey = firstUsableCredential(
+    resolveRouteCredentialValue({
+      routeId,
+      baseUrl: request.baseUrl,
+      processEnv: process.env,
+    }),
+  )
+  if (!apiKey && (routeId === 'xai' || isXaiBaseUrl(request.baseUrl))) {
+    apiKey = firstUsableCredential(await resolveXaiAccessToken())
+  }
+
   return {
-    apiKey: firstUsableCredential(
-      resolveRouteCredentialValue({
-        routeId,
-        baseUrl: request.baseUrl,
-        processEnv: process.env,
-      }),
-    ),
+    apiKey,
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
   }
@@ -499,7 +506,7 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const ttlMs = parseDurationString(catalog.discoveryCacheTtl ?? 0)
-  const discoveryOptions = getOpenAIDiscoveryRequestOptions(routeId)
+  const discoveryOptions = await getOpenAIDiscoveryRequestOptions(routeId)
   const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
   const cached = await getCachedModels(cacheKey, ttlMs, { includeStale: true })
   const stale = await isCacheStale(cacheKey, ttlMs)
@@ -563,7 +570,7 @@ async function loadModelDiscoveryContext(): Promise<ModelDiscoveryContext | null
   }
 
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    const { baseUrl } = getOpenAIDiscoveryRequestOptions()
+    const { baseUrl } = await getOpenAIDiscoveryRequestOptions()
     const activeProfile = getActiveProviderProfile()
     const legacyRouteId = routeId ?? 'custom'
     const profileModelSurface = resolveProviderProfileModelSurface({
@@ -884,11 +891,14 @@ function ModelPickerWrapper({
     })
 
     if (discoveryContext.kind === 'descriptor') {
+      const discoveryOptions = await getOpenAIDiscoveryRequestOptions(
+        discoveryContext.routeId,
+      )
       if (manual) {
         await clearDiscoveryCache(
           getDiscoveryCacheKey(
             discoveryContext.routeId,
-            getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+            discoveryOptions,
           ),
         )
       }
@@ -896,7 +906,7 @@ function ModelPickerWrapper({
       const result = await discoverModelsForRoute(
         discoveryContext.routeId,
         {
-          ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+          ...discoveryOptions,
           forceRefresh: true,
         },
       )
@@ -1223,14 +1233,17 @@ async function refreshModelsAndSummarize(): Promise<string> {
   }
 
   if (discoveryContext.kind === 'descriptor') {
+    const discoveryOptions = await getOpenAIDiscoveryRequestOptions(
+      discoveryContext.routeId,
+    )
     await clearDiscoveryCache(
       getDiscoveryCacheKey(
         discoveryContext.routeId,
-        getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+        discoveryOptions,
       ),
     )
     const result = await discoverModelsForRoute(discoveryContext.routeId, {
-      ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+      ...discoveryOptions,
       forceRefresh: true,
     })
     const nextOptions = mergeActiveProfileModelOptions(
