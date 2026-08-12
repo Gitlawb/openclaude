@@ -19,6 +19,7 @@ import {
   filterSubagentTranscriptsForExternalEgress,
   flushSessionStorage,
   getRemoteEgressOmittedParentsForTesting,
+  getRemoteEgressOmissionRebuildIncompleteForTesting,
   isSafeForExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
@@ -352,6 +353,77 @@ describe('recordExternalEgressOmission / projectTranscriptParentForExternalEgres
     )
     expect(projected.parentUuid).toBe(id(1))
   })
+
+  test('walks transitive omission chains with a cycle guard', () => {
+    const map = new Map<UUID, UUID | null>()
+    // One-hop rebuild shape (not pre-compressed): O2→O1, O3→O2.
+    map.set(id(2), id(1))
+    map.set(id(3), id(2))
+    const projected = projectTranscriptParentForExternalEgress(
+      { parentUuid: id(3) as UUID | null },
+      map,
+    )
+    expect(projected.parentUuid).toBe(id(1))
+
+    map.set(id(4), id(5))
+    map.set(id(5), id(4))
+    const cyclic = projectTranscriptParentForExternalEgress(
+      { parentUuid: id(4) as UUID | null },
+      map,
+    )
+    expect(cyclic.parentUuid === id(4) || cyclic.parentUuid === id(5)).toBe(
+      true,
+    )
+  })
+})
+
+describe('filterJsonl / filterMessages malformed attachment validation', () => {
+  test('drops parseable records with attachment payload when type is not attachment', () => {
+    const malformedUuid = id(40)
+    const survivorUuid = id(41)
+    const messages = [
+      {
+        type: 'user',
+        uuid: malformedUuid,
+        parentUuid: null,
+        attachment: {
+          type: 'skill_listing',
+          content: 'MALFORMED-LEAK',
+        },
+        message: { role: 'user', content: 'spoofed' },
+      },
+      {
+        type: 'user',
+        uuid: survivorUuid,
+        parentUuid: malformedUuid,
+        message: { role: 'user', content: 'ok' },
+      },
+    ] as Array<{
+      type?: string
+      uuid?: UUID
+      parentUuid?: UUID | null
+      attachment?: unknown
+      message?: { role: string; content: string }
+    }>
+    const filtered = filterMessagesForExternalEgress(messages)
+    expect(filtered.map(m => m.uuid)).toEqual([survivorUuid])
+    expect(filtered[0]?.parentUuid).toBeNull()
+    expect(JSON.stringify(filtered)).not.toContain('MALFORMED-LEAK')
+
+    const jsonl = [
+      JSON.stringify(messages[0]),
+      JSON.stringify(messages[1]),
+    ].join('\n')
+    const out = filterJsonlForExternalEgress(jsonl)
+    expect(out).not.toContain('MALFORMED-LEAK')
+    const kept = out
+      .split('\n')
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { uuid: string; parentUuid: string | null })
+    expect(kept).toHaveLength(1)
+    expect(kept[0]?.uuid).toBe(survivorUuid)
+    expect(kept[0]?.parentUuid).toBeNull()
+  })
 })
 
 describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
@@ -383,6 +455,43 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
         map,
       )
       expect(projected.parentUuid).toBe(userUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('bounds omission map during resume rebuild with more than 64 withheld entries', async () => {
+    process.env.USER_TYPE = 'external'
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-rebuild-bound-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(50)
+    const omissionCount = MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 40
+    const lastListing = id(51 + omissionCount - 1)
+    try {
+      const lines = [JSON.stringify(user(userUuid, null, 'resume seed'))]
+      let parent: UUID = userUuid
+      for (let n = 0; n < omissionCount; n++) {
+        const uuid = id(51 + n)
+        lines.push(
+          JSON.stringify(listing(uuid, parent, 'skill_listing', 'REBUILD-BOUND-LEAK')),
+        )
+        parent = uuid
+      }
+      await writeFile(path, lines.join('\n') + '\n')
+      resetProjectForTesting()
+      setSessionFileForTesting(path)
+      rebuildRemoteEgressOmittedParentsForTesting()
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.size).toBeLessThanOrEqual(MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+      expect(map.has(lastListing)).toBe(true)
+      const projected = projectTranscriptParentForExternalEgress(
+        { parentUuid: lastListing },
+        map,
+      )
+      expect(projected.parentUuid).toBe(userUuid)
+      expect(JSON.stringify([...map.entries()])).not.toContain(
+        'REBUILD-BOUND-LEAK',
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -611,12 +720,99 @@ describe('appendEntry remote egress gate', () => {
       await flushSessionStorage()
 
       const map = getRemoteEgressOmittedParentsForTesting()
-      expect(map.has(hookUuid)).toBe(false)
+      // Retain omitted parents after the first safe child so branch siblings
+      // can still reparent (P1: retain-omitted-parent-for-branch-children).
+      expect(map.has(hookUuid)).toBe(true)
 
       const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
       expect(remoteAfter).toBeDefined()
       expect(remoteAfter?.parentUuid).toBe(userUuid)
       expect(JSON.stringify(remotePayloads)).not.toContain('HOOK-APPEND-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('keeps omitted parent for a second branch child after the first reparents', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-branch-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(30)
+    const hookUuid = id(31)
+    const childA = id(32)
+    const childB = id(33)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      const hookMsg = {
+        type: 'attachment',
+        uuid: hookUuid,
+        parentUuid: userUuid,
+        timestamp: '2026-08-11T00:00:01.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'BRANCH-LEAK',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'BRANCH-LEAK',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      const afterA = {
+        type: 'user',
+        uuid: childA,
+        parentUuid: hookUuid,
+        timestamp: '2026-08-11T00:00:02.000Z',
+        message: { role: 'user', content: 'branch A' },
+      } as unknown as Message
+      const afterB = {
+        type: 'user',
+        uuid: childB,
+        parentUuid: hookUuid,
+        timestamp: '2026-08-11T00:00:03.000Z',
+        message: { role: 'user', content: 'branch B' },
+      } as unknown as Message
+
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      await recordTranscript([hookMsg, afterA], undefined, userUuid)
+      await flushSessionStorage()
+      expect(getRemoteEgressOmittedParentsForTesting().has(hookUuid)).toBe(true)
+
+      await recordTranscript([afterB], undefined, hookUuid)
+      await flushSessionStorage()
+
+      const remoteA = remotePayloads.find(p => p.uuid === childA)
+      const remoteB = remotePayloads.find(p => p.uuid === childB)
+      expect(remoteA?.parentUuid).toBe(userUuid)
+      expect(remoteB?.parentUuid).toBe(userUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('BRANCH-LEAK')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -1056,6 +1252,132 @@ describe('appendEntry remote egress gate', () => {
       expect(remoteChild?.parentUuid).not.toBe(siblingUuid)
       expect(remoteChild?.parentUuid).not.toBe(firstListing)
       expect(JSON.stringify(remotePayloads)).not.toContain('ONDEMAND-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('incomplete rebuild fail-closes remote persist for unresolved parents', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-incomplete-'))
+    const path = join(dir, 'session.jsonl')
+    const withheldParent = id(400)
+    const childUuid = id(401)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      // Oversized pad with no newlines → mid-line skip → incomplete rebuild.
+      await writeFile(path, Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 4096, 0x78))
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      await rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: withheldParent,
+        timestamp: '2026-08-11T00:04:00.000Z',
+        message: { role: 'user', content: 'child under incomplete rebuild' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, withheldParent)
+      await flushSessionStorage()
+
+      expect(remotePayloads.find(p => p.uuid === childUuid)).toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('compact fallback sees queued writes before flush', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-queued-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(500)
+    const firstListing = id(501)
+    const childUuid = id(700)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      const seedUser = {
+        type: 'user',
+        uuid: userUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seedUser])
+      await flushSessionStorage()
+      remotePayloads.length = 0
+
+      // One batch: many omissions (evict firstListing) + child of firstListing
+      // without an intermediate flush so the queue still holds parents.
+      const batch: Message[] = []
+      let parent: UUID = userUuid
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 16; n++) {
+        const uuid = id(501 + n)
+        batch.push({
+          type: 'attachment',
+          uuid,
+          parentUuid: parent,
+          timestamp: `2026-08-11T00:05:${String(n).padStart(2, '0')}.000Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: 'QUEUED-LEAK',
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: 'QUEUED-LEAK',
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message)
+        parent = uuid
+      }
+      batch.push({
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: firstListing,
+        timestamp: '2026-08-11T00:06:00.000Z',
+        message: { role: 'user', content: 'child while queue pending' },
+      } as unknown as Message)
+
+      await recordTranscript(batch, undefined, userUuid)
+      await flushSessionStorage()
+
+      const map = getRemoteEgressOmittedParentsForTesting()
+      expect(map.has(firstListing)).toBe(false)
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(userUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('QUEUED-LEAK')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
