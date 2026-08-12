@@ -8,6 +8,7 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import { publicBuildVersion } from '../utils/version.js'
+import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -76,6 +77,7 @@ beforeEach(async () => {
   await acquireSharedMutationLock('discoveryService.test.ts')
   mock.restore()
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
+  setClaudeConfigHomeDirForTesting(tempDir)
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
   delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
@@ -88,6 +90,7 @@ afterEach(() => {
     mock.restore()
     globalThis.fetch = originalFetch
     rmSync(tempDir, { recursive: true, force: true })
+    setClaudeConfigHomeDirForTesting(undefined)
     restoreEnvValue('CLAUDE_CONFIG_DIR')
     restoreEnvValue('OPENROUTER_API_KEY')
     restoreEnvValue('OPENAI_BASE_URL')

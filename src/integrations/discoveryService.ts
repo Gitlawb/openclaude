@@ -16,6 +16,7 @@ import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
   isCanonicalApismartInferenceBaseUrl,
+  isXaiBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
 } from './routeMetadata.js'
@@ -196,7 +197,8 @@ async function withXaiDiscoveryCredentials<
   if (getRouteDiscoveryApiKey(routeId, next)) {
     return next
   }
-  if (routeId !== 'xai') {
+  const baseUrl = getRouteBaseUrl(routeId, next)
+  if (routeId !== 'xai' && !isXaiBaseUrl(baseUrl)) {
     return next
   }
   const token = firstUsableCredential(await resolveXaiAccessToken())
