@@ -1442,10 +1442,13 @@ describe('appendEntry remote egress gate', () => {
       await recordTranscript([grandchild], undefined, midUuid)
       await flushSessionStorage()
 
-      const remoteGrandchild = remotePayloads.find(
-        p => p.uuid === grandchildUuid,
-      )
-      expect(remoteGrandchild?.parentUuid).not.toBe(midUuid)
+      // Incomplete rebuild stays true, so the grandchild takes the same
+      // fail-closed persist skip as `mid` — assert that branch, not rematch
+      // emit (optional parentUuid would pass when the payload is missing).
+      expect(remotePayloads.find(p => p.uuid === grandchildUuid)).toBeUndefined()
+      expect(
+        getRemoteEgressOmittedParentsForTesting().has(grandchildUuid),
+      ).toBe(true)
       expect(getRemoteEgressOmittedParentsForTesting().has(midUuid)).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
