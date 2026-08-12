@@ -1648,6 +1648,31 @@ describe('getProviderProfiles', () => {
   })
 })
 
+describe('isAnthropicDefaultProfileActive', () => {
+  test('is true only for the explicit Anthropic sentinel', async () => {
+    const {
+      isAnthropicDefaultProfileActive,
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    } = await importFreshProviderProfileModules()
+
+    expect(
+      isAnthropicDefaultProfileActive({
+        activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+      } as any),
+    ).toBe(true)
+    expect(
+      isAnthropicDefaultProfileActive({
+        activeProviderProfileId: undefined,
+      } as any),
+    ).toBe(false)
+    expect(
+      isAnthropicDefaultProfileActive({
+        activeProviderProfileId: 'saved_deepseek',
+      } as any),
+    ).toBe(false)
+  })
+})
+
 describe('clearActiveProviderProfile', () => {
   test('returns undefined active profile while preserving saved profiles (#1426)', async () => {
     const {
@@ -2460,6 +2485,91 @@ describe('applyActiveProviderProfileFromConfig', () => {
       expect(startupEnv.OPENAI_BASE_URL).toBeUndefined()
     } finally {
       for (const [key, value] of providerEnvSnapshot) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
+  })
+
+  test('Anthropic sentinel wins over leftover OpenGateway/MiMo keys so restart does not FireRouter a first-party model', async () => {
+    // Reproduction: user picks Claude Code (OAuth), which writes the sentinel
+    // and deletes the profile mirror. A leftover OPENGATEWAY_API_KEY /
+    // MIMO_API_KEY / OpenGateway Xiaomi base URL from the previous profile
+    // made hasCompleteProviderSelection() true via resolveEnvOnlyProviderRouteId.
+    // The sentinel path then returned without setting PROFILE_ENV_APPLIED,
+    // and buildStartupEnvFromProfile synthesized OpenGateway. The persisted
+    // settings.model (claude-opus-5) was sent to FireRouter with no Anthropic
+    // credential: "FireRouter cannot route 'claude-opus-5'".
+    const { applyActiveProviderProfileFromConfig, ANTHROPIC_DEFAULT_PROFILE_ID } =
+      await importFreshProviderProfileModules()
+    const { buildStartupEnvFromProfile, DEFAULT_STARTUP_PROVIDER_ENV_VAR } =
+      await import(`./providerProfile.js?ts=${Date.now()}-${Math.random()}`)
+
+    const leftoverKeys = [
+      'CLAUDE_CODE_USE_OPENAI',
+      'CLAUDE_CODE_USE_GITHUB',
+      'CLAUDE_CODE_USE_GEMINI',
+      'CLAUDE_CODE_USE_MISTRAL',
+      'CLAUDE_CODE_USE_BEDROCK',
+      'CLAUDE_CODE_USE_VERTEX',
+      'CLAUDE_CODE_USE_FOUNDRY',
+      'OPENAI_BASE_URL',
+      'OPENAI_MODEL',
+      'OPENAI_API_KEY',
+      'OPENGATEWAY_API_KEY',
+      'MIMO_API_KEY',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+    ]
+    const leftoverSnapshot = new Map(
+      leftoverKeys.map(key => [key, process.env[key]] as const),
+    )
+    for (const key of leftoverKeys) {
+      delete process.env[key]
+    }
+    process.env.OPENGATEWAY_API_KEY = 'ogw-leftover'
+    process.env.MIMO_API_KEY = 'mimo-leftover'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL =
+      'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
+    process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+
+    try {
+      const applied = applyActiveProviderProfileFromConfig({
+        providerProfiles: [
+          buildProfile({
+            id: 'saved_opengateway',
+            provider: 'gitlawb-opengateway',
+            name: 'Gitlawb Opengateway',
+            baseUrl: 'https://opengateway.gitlawb.com/v1/xiaomi-mimo',
+            model: 'mimo-v2.5-pro',
+          }),
+        ],
+        activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+      } as any)
+
+      expect(applied).toBeUndefined()
+      expect(String(process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)).toBe(
+        '1',
+      )
+      expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+      expect(process.env.OPENAI_MODEL).toBeUndefined()
+
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted: null,
+        processEnv: process.env,
+      })
+      expect(startupEnv[DEFAULT_STARTUP_PROVIDER_ENV_VAR]).not.toBe(
+        'gitlawb-opengateway',
+      )
+      expect(startupEnv.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+      expect(startupEnv.OPENAI_BASE_URL).toBeUndefined()
+    } finally {
+      for (const [key, value] of leftoverSnapshot) {
         if (value === undefined) {
           delete process.env[key]
         } else {

@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import figures from 'figures'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -192,6 +193,7 @@ function mockProviderProfilesModule(options?: {
   clearActiveProviderProfile?: (...args: unknown[]) => unknown
   getActiveProviderProfile?: () => unknown
   getProviderProfiles?: () => unknown[]
+  isAnthropicDefaultProfileActive?: () => boolean
   updateProviderProfile?: (...args: unknown[]) => unknown
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
@@ -202,6 +204,8 @@ function mockProviderProfilesModule(options?: {
     clearActiveProviderProfile: options?.clearActiveProviderProfile ?? (() => null),
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
+    isAnthropicDefaultProfileActive:
+      options?.isAnthropicDefaultProfileActive ?? (() => false),
     getProviderPresetDefaults: (preset: string) => {
       if (preset === 'ollama') {
         return {
@@ -327,6 +331,7 @@ function mockProviderManagerDependencies(
     clearCodexCredentials?: () => { success: boolean; warning?: string }
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
+    isAnthropicDefaultProfileActive?: () => boolean
     probeRouteReadiness?: (
       routeId: string,
       options?: { baseUrl?: string; model?: string; timeoutMs?: number; apiKey?: string },
@@ -382,6 +387,7 @@ function mockProviderManagerDependencies(
     clearActiveProviderProfile: options?.clearActiveProviderProfile,
     getActiveProviderProfile: options?.getActiveProviderProfile,
     getProviderProfiles: options?.getProviderProfiles,
+    isAnthropicDefaultProfileActive: options?.isAnthropicDefaultProfileActive,
     updateProviderProfile: options?.updateProviderProfile,
     setActiveProviderProfile: options?.setActiveProviderProfile,
   })
@@ -2697,6 +2703,302 @@ test('ProviderManager activates Claude Code OAuth without starting Anthropic API
     expect(clearActiveProviderProfile).toHaveBeenCalled()
     expect(addProviderProfile).not.toHaveBeenCalled()
     expect(mounted.getOutput()).not.toContain('Enter ANTHROPIC_API_KEY')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+// Regression: activating the built-in Anthropic/OAuth entry used to reset
+// mainLoopModel to the default (getDefaultMainLoopModelSetting) even when the
+// user had a first-party model saved in settings. The app-state settings sync
+// then persisted that default over the saved model, so re-selecting the
+// already-active OAuth entry silently destroyed the user's /model choice.
+test('ProviderManager keeps the saved first-party model when activating Claude Code OAuth', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  const realModel = await import('../utils/model/model.js')
+  let savedModelSetting: unknown = 'claude-opus-5'
+  mock.module('../utils/model/model.js', () => ({
+    ...realModel,
+    getUserSpecifiedModelSetting: () => savedModelSetting,
+  }))
+
+  const oauthCredentials = {
+    accessToken: 'stored-oauth-token',
+    refreshToken: 'stored-refresh-token',
+    expiresAt: Date.now() + 60_000,
+    scopes: ['user:inference'],
+    subscriptionType: 'pro' as const,
+    rateLimitTier: null,
+  }
+
+  async function activateOAuthAndGetResult(): Promise<Record<string, unknown>> {
+    const onDoneResults: Array<Record<string, unknown>> = []
+    mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+      claudeAiOAuthAsyncRead: async () => oauthCredentials,
+      clearActiveProviderProfile: mock(() => null),
+    })
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    const mounted = await mountProviderManager(ProviderManager, {
+      mode: 'first-run',
+      onDone: result => {
+        if (result && typeof result === 'object') {
+          onDoneResults.push(result as Record<string, unknown>)
+        }
+      },
+    })
+    try {
+      await waitForFrameOutput(
+        mounted.getOutput,
+        frame => frame.includes('Claude Code (OAuth)'),
+      )
+      for (let i = 0; i < 3; i++) {
+        mounted.stdin.write('j')
+        await Bun.sleep(25)
+      }
+      mounted.stdin.write('\r')
+      await waitForCondition(() => onDoneResults.length > 0)
+      return onDoneResults[0]!
+    } finally {
+      await mounted.dispose()
+    }
+  }
+
+  try {
+    // A saved first-party model must survive activation untouched.
+    const preserved = await activateOAuthAndGetResult()
+    expect(preserved.action).toBe('activated')
+    expect(preserved.activeProviderModel).toBe('claude-opus-5')
+
+    // /model aliases (opus/sonnet/haiku) are also first-party settings and
+    // must not be reset just because they do not start with `claude-`.
+    savedModelSetting = 'opus'
+    const preservedAlias = await activateOAuthAndGetResult()
+    expect(preservedAlias.action).toBe('activated')
+    expect(preservedAlias.activeProviderModel).toBe('opus')
+
+    // A saved third-party model would be rejected by the Anthropic API, so
+    // activation must still fall back to the built-in default.
+    savedModelSetting = 'mimo-v2.5-pro'
+    const fallback = await activateOAuthAndGetResult()
+    expect(fallback.action).toBe('activated')
+    expect(fallback.activeProviderModel).not.toBe('mimo-v2.5-pro')
+    const { getPrimaryModel } = await import('../utils/providerModels.js')
+    expect(fallback.activeProviderModel).toBe(
+      getPrimaryModel(realModel.getDefaultMainLoopModelSetting()),
+    )
+  } finally {
+    mock.module('../utils/model/model.js', () => realModel)
+  }
+})
+
+// Regression: Claude Code OAuth used to be reachable only from the first-run
+// preset picker, so a user who had already completed setup had no way to switch
+// back to it from /provider. It must be offered in the "Set active provider"
+// list too, under its own option value so it does not collide with the
+// "Use Anthropic (built-in)" entry that shares its underlying activation.
+test('ProviderManager offers Claude Code OAuth in the set-active-provider list', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    claudeAiOAuthAsyncRead: async () => ({
+      accessToken: 'stored-oauth-token',
+      refreshToken: 'stored-refresh-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: ['user:inference'],
+      subscriptionType: 'pro',
+      rateLimitTier: null,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {})
+
+  try {
+    // Wait for the async GitHub/OAuth credential checks to settle before
+    // sending keys, otherwise the Enter lands mid-rerender and is dropped.
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set active provider') &&
+        !frame.includes('Checking GitHub Models credentials'),
+    )
+    await Bun.sleep(100)
+
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Claude Code (OAuth)'),
+    )
+
+    expect(mounted.getOutput()).toContain('Claude Code (OAuth)')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+// Regression: the built-in Anthropic selection persists as a sentinel with no
+// saved profile, so the picker rendered every row unmarked after a restart.
+// Users read "nothing is selected" as "my provider was forgotten" and
+// re-selected a provider that was already live.
+test('ProviderManager marks Claude Code OAuth active when the Anthropic sentinel is persisted', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    getProviderProfiles: () => [],
+    getActiveProviderProfile: () => null,
+    isAnthropicDefaultProfileActive: () => true,
+    claudeAiOAuthAsyncRead: async () => ({
+      accessToken: 'stored-oauth-token',
+      refreshToken: 'stored-refresh-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: ['user:inference'],
+      subscriptionType: 'pro',
+      rateLimitTier: null,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {})
+
+  try {
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set active provider') &&
+        !frame.includes('Checking GitHub Models credentials'),
+    )
+    await Bun.sleep(100)
+
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Claude Code (OAuth)'),
+    )
+
+    expect(mounted.getOutput()).toContain('Claude Code (OAuth) (active)')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager omits Claude Code OAuth from the set-active-provider list without tokens', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    claudeAiOAuthAsyncRead: async () => null,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {})
+
+  try {
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set active provider') &&
+        !frame.includes('Checking GitHub Models credentials'),
+    )
+    await Bun.sleep(100)
+
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('\r')
+    await Bun.sleep(250)
+
+    expect(mounted.getOutput()).not.toContain('Claude Code (OAuth)')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+// Regression: OAuth credentials were briefly folded into `hasSelectableProviders`,
+// which gates edit/delete as well as activate. `renderMenu` kept its own narrower
+// local copy of that flag, so the row rendered enabled while the handler guard
+// still refused it: "Delete provider" looked live and did nothing. OAuth is not a
+// deletable provider (its token is revoked via /logout), so it must enable the
+// activate path only.
+test('ProviderManager keeps Delete provider inert when only Claude Code OAuth is available', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.GITHUB_TOKEN
+  delete process.env.GH_TOKEN
+
+  mockProviderManagerDependencies(mock(() => undefined), mock(async () => undefined), {
+    claudeAiOAuthAsyncRead: async () => ({
+      accessToken: 'stored-oauth-token',
+      refreshToken: 'stored-refresh-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: ['user:inference'],
+      subscriptionType: 'pro',
+      rateLimitTier: null,
+    }),
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager, {})
+
+  try {
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Set active provider') &&
+        !frame.includes('Checking GitHub Models credentials'),
+    )
+    await Bun.sleep(100)
+
+    // Menu order is add(0), activate(1), edit(2), delete(3). CustomSelect's
+    // navigation reducer walks the option list without skipping disabled rows,
+    // so three downward moves land on "Delete provider" deterministically.
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('j')
+    await Bun.sleep(50)
+    mounted.stdin.write('\r')
+    await Bun.sleep(250)
+
+    const frame = stripAnsi(extractLastFrame(mounted.getOutput()))
+    const deleteRow = frame
+      .split('\n')
+      .find(line => line.includes('Delete provider'))
+    expect(deleteRow).toBeDefined()
+
+    // The load-bearing assertion. "Nothing happens on Enter" is true in both
+    // the fixed and the broken state, so staying on the menu proves nothing.
+    // The tick does: CustomSelect's select:accept handler bails out before
+    // selectFocusedOption() when the focused option is disabled, so a disabled
+    // row can never acquire the selection marker. When the row is wrongly
+    // enabled, Enter marks it selected and only the stale handler guard stops
+    // the navigation — which is exactly the "live-looking but dead" entry.
+    expect(deleteRow).not.toContain(figures.tick)
+
+    // Secondary: the delete screen must not have opened either.
+    expect(frame).not.toContain('No providers available. Add one first.')
   } finally {
     await mounted.dispose()
   }

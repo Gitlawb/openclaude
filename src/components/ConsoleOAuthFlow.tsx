@@ -21,11 +21,26 @@ import {
   updateProviderProfile,
 } from '../utils/providerProfiles.js';
 import { getSettings_DEPRECATED } from '../utils/settings/settings.js';
-import { ProviderManager } from './ProviderManager.js';
+import {
+  ProviderManager,
+  type ProviderManagerResult,
+} from './ProviderManager.js';
 import { Select } from './CustomSelect/select.js';
 import { KeyboardShortcutHint } from './design-system/KeyboardShortcutHint.js';
 import { Spinner } from './Spinner.js';
 import TextInput from './TextInput.js';
+
+export function isSuccessfulProviderSetupResult(
+  result: ProviderManagerResult | undefined,
+): boolean {
+  return (
+    !!result &&
+    (result.action === 'saved' || result.action === 'activated') &&
+    typeof result.message === 'string' &&
+    result.message.length > 0
+  )
+}
+
 export type ConsoleOAuthFlowResult = {
   type: 'oauth';
 } | {
@@ -559,7 +574,7 @@ function OAuthStatusMessage({
         <ProviderManager
           mode="first-run"
           onDone={result => {
-            if (!result || result.action !== 'saved' || !result.message) {
+            if (!isSuccessfulProviderSetupResult(result)) {
               setOAuthStatus({ state: 'idle' })
               return
             }

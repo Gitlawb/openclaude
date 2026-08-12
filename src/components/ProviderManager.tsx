@@ -68,12 +68,14 @@ import {
   getActiveProviderProfile,
   getProviderPresetDefaults,
   getProviderProfiles,
+  isAnthropicDefaultProfileActive,
   setActiveProviderProfile,
   type ProviderPreset,
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
-import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
+import { isModelAlias } from '../utils/model/aliases.js'
+import { getDefaultMainLoopModelSetting, getUserSpecifiedModelSetting } from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
   clearHydratedGithubModelsTokenFromEnv,
@@ -244,6 +246,26 @@ const CODEX_OAUTH_PROVIDER_MODEL = 'codexplan'
 const XAI_OAUTH_PROVIDER_NAME = 'xAI OAuth'
 const XAI_OAUTH_PROVIDER_MODEL = 'grok-4.3'
 const XAI_OAUTH_PROVIDER_BASE_URL = 'https://api.x.ai/v1'
+// Picker-only option value. Claude Code OAuth activates as built-in Anthropic
+// (ANTHROPIC_DEFAULT_PROFILE_ID) on purpose — the OAuth bearer is only attached
+// on the first-party path, which is exactly the env state that sentinel
+// produces. This distinct value exists so the switch picker can list OAuth
+// without colliding with its "Use Anthropic (built-in)" entry.
+const CLAUDE_OAUTH_OPTION_VALUE = 'claude-oauth'
+const CLAUDE_OAUTH_PROVIDER_NAME = 'Claude Code (OAuth)'
+
+function isReusableFirstPartyModelSetting(model: unknown): model is string {
+  if (typeof model !== 'string') {
+    return false
+  }
+  const trimmed = model.trim()
+  if (trimmed.length === 0) {
+    return false
+  }
+  const normalized = trimmed.toLowerCase()
+  return normalized.startsWith('claude-') || isModelAlias(normalized)
+}
+
 type GithubCredentialSource = 'stored' | 'env' | 'none'
 
 function toDraft(profile: ProviderProfile): ProviderDraft {
@@ -818,6 +840,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   const codexRefreshEpochRef = React.useRef(0)
   const [hasClaudeAiOAuthCredentials, setHasClaudeAiOAuthCredentials] =
     React.useState(false)
+  // Tracked separately from activeProfileId: the built-in Anthropic selection is
+  // a sentinel with no saved profile, so activeProfileId is undefined for it and
+  // every picker row would otherwise render unmarked (#persisted-selection).
+  const [isAnthropicDefaultActive, setIsAnthropicDefaultActive] =
+    React.useState(false)
   const [screen, setScreen] = React.useState<Screen>(
     mode === 'first-run' ? 'select-preset' : 'menu',
   )
@@ -874,6 +901,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     if (process.env.NODE_ENV === 'test') {
       setProfiles(getProviderProfiles())
       setActiveProfileId(getActiveProviderProfile()?.id)
+      setIsAnthropicDefaultActive(isAnthropicDefaultProfileActive())
       setIsInitializing(false)
       return
     }
@@ -883,6 +911,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const activeId = getActiveProviderProfile()?.id
       setProfiles(profilesData)
       setActiveProfileId(activeId)
+      setIsAnthropicDefaultActive(isAnthropicDefaultProfileActive())
       setIsInitializing(false)
     })
   }, [])
@@ -929,6 +958,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   // the select menu. Without this, each arrow key press creates a new options
   // array reference, causing Select to re-render and feel sluggish.
   const hasProfiles = profiles.length > 0
+  // Gates edit/delete, which act on a thing that can actually be removed: a
+  // saved profile or GitHub Models. Deliberately excludes Claude Code OAuth,
+  // whose token is revoked via /logout rather than from this menu — widening
+  // this would light up "Delete provider" with nothing for it to delete.
   const hasSelectableProviders = hasProfiles || githubProviderAvailable
   // A non-Anthropic provider (a saved profile or GitHub Models) is currently
   // active. The switch-back-to-Anthropic recovery option must stay reachable
@@ -937,8 +970,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   // stranded on an unusable provider with no way back. Scoped to the activate
   // path only — edit/delete still require an actual profile.
   const isNonAnthropicProviderActive = isGithubActive || activeProfileId != null
+  // Claude Code OAuth is activatable on credentials alone, exactly like GitHub
+  // Models: both are credential-backed providers with no saved profile. Without
+  // the OAuth term, a user whose only credential is a /login token sees "Set
+  // active provider" greyed out and cannot reach the entry the picker offers.
   const canSwitchActiveProvider =
-    hasSelectableProviders || isNonAnthropicProviderActive
+    hasSelectableProviders ||
+    hasClaudeAiOAuthCredentials ||
+    isNonAnthropicProviderActive
   const menuOptions = React.useMemo(
     () => [
       {
@@ -1231,6 +1270,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       const nextProfiles = getProviderProfiles()
       setProfiles(nextProfiles)
       setActiveProfileId(getActiveProviderProfile()?.id)
+      setIsAnthropicDefaultActive(isAnthropicDefaultProfileActive())
       refreshGithubProviderState()
       refreshClaudeAiOAuthCredentialState()
       refreshCodexOAuthCredentialState()
@@ -1327,7 +1367,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
   }
 
-  async function activateSelectedProvider(profileId: string): Promise<void> {
+  async function activateSelectedProvider(
+    selectedValue: string,
+  ): Promise<void> {
+    // The switch picker offers Claude Code OAuth under its own option value so
+    // it does not collide with the "Use Anthropic (built-in)" entry, but the
+    // activation itself is identical: built-in Anthropic with no saved profile
+    // is exactly the env state the OAuth token requires.
+    const profileId =
+      selectedValue === CLAUDE_OAUTH_OPTION_VALUE
+        ? ANTHROPIC_DEFAULT_PROFILE_ID
+        : selectedValue
     let providerLabel = 'provider'
 
     // Set loading state before sync I/O to keep UI responsive
@@ -1389,7 +1439,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // and GitHub activation paths perform the same cleanup; surface any
         // failure as a warning the same way the saved-profile path does.
         const settingsOverrideError = clearStartupProviderOverrideFromUserSettings()
-        const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
+        // Keep the user's saved first-party model (e.g. claude-opus-5 chosen
+        // via /model) instead of resetting to the default on every activation.
+        // Re-selecting the already-active OAuth/built-in entry used to clobber
+        // the saved model back to the default and persist it via the app-state
+        // settings sync. Only fall back to the default when the saved model is
+        // not a first-party Claude model (e.g. a third-party profile model
+        // like mimo-v2.5-pro that the Anthropic API would reject).
+        const savedModel = getUserSpecifiedModelSetting()
+        const anthropicModel = isReusableFirstPartyModelSetting(savedModel)
+          ? savedModel
+          : getPrimaryModel(getDefaultMainLoopModelSetting())
         setAppState(prev => ({
           ...prev,
           mainLoopModel: anthropicModel,
@@ -2139,7 +2199,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       )
       options.splice(anthropicIndex >= 0 ? anthropicIndex + 1 : options.length, 0, {
         value: ANTHROPIC_DEFAULT_PROFILE_ID,
-        label: 'Claude Code (OAuth)',
+        label: CLAUDE_OAUTH_PROVIDER_NAME,
         description: 'Use your authenticated Claude Code subscription',
       })
     }
@@ -2796,11 +2856,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderMenu(): React.ReactNode {
-    // Use memoized menuOptions from component scope
-    const hasProfiles = profiles.length > 0
-    const hasSelectableProviders = hasProfiles || githubProviderAvailable
-    // canSwitchActiveProvider is derived once in the component body; reuse it
-    // here rather than recomputing so the two sites cannot drift.
+    // Use memoized menuOptions from component scope. hasProfiles,
+    // hasSelectableProviders and canSwitchActiveProvider are all derived once
+    // in the component body and reused here rather than recomputed: local
+    // copies previously shadowed them, and a handler guard silently drifted
+    // from the `disabled` flag that renders it, leaving a live-looking menu
+    // entry that did nothing when selected.
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -2979,6 +3040,25 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ? `${GITHUB_PROVIDER_LABEL} (active)`
           : GITHUB_PROVIDER_LABEL,
         description: `github-models · ${GITHUB_PROVIDER_DEFAULT_BASE_URL} · ${getGithubProviderModel()}`,
+      })
+    }
+
+    // Claude Code OAuth was previously reachable only from the preset picker,
+    // so /provider had no way to switch to it. Offer it here whenever /login
+    // has stored tokens.
+    if (includeAnthropic && hasClaudeAiOAuthCredentials) {
+      // OAuth routes through the Anthropic sentinel, so a live sentinel with
+      // stored tokens *is* this entry being active. Without the marker the
+      // picker looks empty on restart and users re-select an already-live
+      // provider.
+      const isClaudeOAuthActive =
+        isAnthropicDefaultActive && !activeProfileId && !isGithubActive
+      selectOptions.push({
+        value: CLAUDE_OAUTH_OPTION_VALUE,
+        label: isClaudeOAuthActive
+          ? `${CLAUDE_OAUTH_PROVIDER_NAME} (active)`
+          : CLAUDE_OAUTH_PROVIDER_NAME,
+        description: 'Use your authenticated Claude Code subscription',
       })
     }
 

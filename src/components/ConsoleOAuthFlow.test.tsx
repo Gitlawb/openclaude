@@ -7,7 +7,10 @@ import { stripVTControlCharacters as stripAnsi } from 'node:util'
 import { AppStateProvider } from '../state/AppState.js'
 import { createRoot } from '../ink.js'
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js'
-import { ConsoleOAuthFlow } from './ConsoleOAuthFlow.js'
+import {
+  ConsoleOAuthFlow,
+  isSuccessfulProviderSetupResult,
+} from './ConsoleOAuthFlow.js'
 
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
@@ -122,6 +125,28 @@ test('login picker shows the third-party platform option', async () => {
 
   expect(output).toContain('Select login method:')
   expect(output).toContain('3rd-party platform')
+})
+
+test('first-run provider setup accepts both saved profiles and Claude Code activation', () => {
+  expect(
+    isSuccessfulProviderSetupResult({
+      action: 'saved',
+      message: 'Saved Gitlawb Opengateway',
+    }),
+  ).toBe(true)
+  expect(
+    isSuccessfulProviderSetupResult({
+      action: 'activated',
+      message: 'Provider switched to Claude Code (OAuth) (claude-opus-5)',
+    }),
+  ).toBe(true)
+  expect(
+    isSuccessfulProviderSetupResult({
+      action: 'cancelled',
+      message: 'Provider setup skipped',
+    }),
+  ).toBe(false)
+  expect(isSuccessfulProviderSetupResult(undefined)).toBe(false)
 })
 
 test('third-party provider branch opens the first-run provider manager', async () => {

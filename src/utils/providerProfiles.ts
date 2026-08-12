@@ -864,6 +864,20 @@ export function getActiveProviderProfile(
 }
 
 /**
+ * True when the user explicitly selected built-in Anthropic via the sentinel.
+ * `getActiveProviderProfile` reports that selection as `undefined`, which is
+ * indistinguishable from "never picked a provider", so callers that need to
+ * render the current selection must ask for it separately.
+ */
+export function isAnthropicDefaultProfileActive(
+  config = getGlobalConfig(),
+): boolean {
+  return (
+    trimOrUndefined(config.activeProviderProfileId) === ANTHROPIC_DEFAULT_PROFILE_ID
+  )
+}
+
+/**
  * Switch back to built-in Anthropic while keeping saved provider profiles.
  * Clears the managed env this session (so the switch takes effect without a
  * restart), records the Anthropic sentinel as the active id (so startup no
@@ -1148,9 +1162,16 @@ export function applyActiveProviderProfileFromConfig(
   if (
     trimOrUndefined(config.activeProviderProfileId) === ANTHROPIC_DEFAULT_PROFILE_ID
   ) {
-    if (!options?.force && hasCompleteProviderSelection(processEnv)) {
-      return undefined
-    }
+    // The sentinel is the persisted /provider choice. Leftover shell env
+    // from a previous OpenGateway/MiMo session — USE flags, dedicated keys,
+    // Xiaomi base URLs — used to trip hasCompleteProviderSelection and
+    // return here without setting PROFILE_ENV_APPLIED. buildStartupEnvFromProfile
+    // then treated the deleted profile mirror as a fresh install and
+    // synthesized Gitlawb OpenGateway, so restart sent the saved first-party
+    // model (claude-opus-5) to FireRouter with no Anthropic credential.
+    // `--provider` / `--provider-env-file` are reapplied after this function
+    // in applySafeConfigEnvironmentVariables, so they still win for the
+    // current invocation.
     clearProviderProfileEnvFromProcessEnv(processEnv)
     processEnv[PROFILE_ENV_APPLIED_FLAG] = '1'
     return undefined

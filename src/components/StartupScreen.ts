@@ -17,6 +17,7 @@ import { parseUserSpecifiedModel } from '../utils/model/model.js'
 import { DEFAULT_GEMINI_MODEL } from '../utils/providerProfile.js'
 import { BRAND_TAGLINE } from '../constants/brand.js'
 import { getGlobalConfig } from '../utils/config.js'
+import { ANTHROPIC_DEFAULT_PROFILE_ID } from '../utils/providerProfiles.js'
 import { ANSI_DIM, ANSI_RESET, ansiRgb } from '../utils/terminalAnsi.js'
 import {
   resolveLogoPalette,
@@ -162,11 +163,20 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
+  const config = getGlobalConfig()
   const modelSetting = modelOverride || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || settings.model || 'claude-sonnet-4-6'
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
-  const name = isMiniMaxBaseUrl(baseUrl) ? 'MiniMax' : 'Anthropic'
+  // Claude Code OAuth is persisted as the Anthropic sentinel, not a saved
+  // profile. Without this, the banner labels a live OAuth session as a generic
+  // "Anthropic" API-key setup and looks like the provider was forgotten.
+  const name = isMiniMaxBaseUrl(baseUrl)
+    ? 'MiniMax'
+    : (config.activeProviderProfileId ?? '').trim() ===
+          ANTHROPIC_DEFAULT_PROFILE_ID && config.oauthAccount
+      ? 'Claude Code (OAuth)'
+      : 'Anthropic'
   return { name, model: resolvedModel, baseUrl, isLocal }
 }
 

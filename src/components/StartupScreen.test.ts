@@ -29,6 +29,7 @@ import {
   getGlobalConfig,
   saveGlobalConfig,
 } from '../utils/config.js'
+import { ANTHROPIC_DEFAULT_PROFILE_ID } from '../utils/providerProfiles.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -66,6 +67,8 @@ const originalWrite = process.stdout.write
 const originalColumns = process.stdout.columns
 // `model` is a legacy loose key not declared on GlobalConfig.
 const originalModel = (getGlobalConfig() as GlobalConfig & Record<string, unknown>).model
+const originalActiveProviderProfileId = getGlobalConfig().activeProviderProfileId
+const originalOauthAccount = getGlobalConfig().oauthAccount
 
 beforeEach(() => {
   for (const key of ENV_KEYS) {
@@ -76,6 +79,8 @@ beforeEach(() => {
   saveGlobalConfig(current => ({
     ...current,
     model: undefined,
+    activeProviderProfileId: undefined,
+    oauthAccount: undefined,
   }))
 })
 
@@ -84,6 +89,8 @@ afterEach(() => {
   saveGlobalConfig(current => ({
     ...current,
     model: originalModel,
+    activeProviderProfileId: originalActiveProviderProfileId,
+    oauthAccount: originalOauthAccount,
   }))
   ;(globalThis as Record<string, unknown>).MACRO = originalMacro
   Object.defineProperty(process.stdout, 'isTTY', {
@@ -225,6 +232,49 @@ describe('printStartupScreen layout', () => {
     expect(version!.indexOf('openclaude')).toBe(
       Math.floor((120 - version!.trim().length) / 2),
     )
+  })
+})
+
+describe('detectProvider — persisted Claude Code OAuth selection', () => {
+  test('labels the Anthropic sentinel plus a stored OAuth account as Claude Code', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-opus-5'
+    saveGlobalConfig(current => ({
+      ...current,
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+      oauthAccount: {
+        accountUuid: 'acct-1',
+        emailAddress: 'user@example.com',
+        organizationUuid: 'org-1',
+        organizationName: 'Example',
+        displayName: 'User',
+        hasExtraUsageEnabled: false,
+        billingType: 'stripe_subscription',
+        accountCreatedAt: '2026-01-01',
+      },
+    }))
+
+    const detected = detectProvider()
+    expect(detected.name).toBe('Claude Code (OAuth)')
+    expect(detected.model).toContain('claude-opus-5')
+  })
+
+  test('keeps the generic Anthropic label when the sentinel is unset', () => {
+    saveGlobalConfig(current => ({
+      ...current,
+      activeProviderProfileId: undefined,
+      oauthAccount: {
+        accountUuid: 'acct-1',
+        emailAddress: 'user@example.com',
+        organizationUuid: 'org-1',
+        organizationName: 'Example',
+        displayName: 'User',
+        hasExtraUsageEnabled: false,
+        billingType: 'stripe_subscription',
+        accountCreatedAt: '2026-01-01',
+      },
+    }))
+
+    expect(detectProvider().name).toBe('Anthropic')
   })
 })
 
