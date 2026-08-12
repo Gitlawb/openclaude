@@ -160,7 +160,7 @@ export default defineVendor({
         const model = raw as {
           id?: string
           active?: boolean
-          context_window?: number
+          context_length?: number
         }
         const id = model.id?.trim()
         if (!id || model.active === false) {
@@ -179,8 +179,8 @@ export default defineVendor({
           id,
           apiName: id,
           label: id,
-          ...(isPositiveFiniteNumber(model.context_window)
-            ? { contextWindow: model.context_window }
+          ...(isPositiveFiniteNumber(model.context_length)
+            ? { contextWindow: model.context_length }
             : {}),
         }
       },

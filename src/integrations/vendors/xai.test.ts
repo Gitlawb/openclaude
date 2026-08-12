@@ -77,26 +77,26 @@ describe('xAI vendor hybrid catalog', () => {
     }
   })
 
-  test('drops inactive entries, missing ids, and non-positive context windows', () => {
+  test('drops inactive entries, missing ids, and non-positive context limits', () => {
     if (!mapModel) throw new Error('mapModel missing')
     expect(mapModel(shape('grok-4.6', { active: false }))).toBeNull()
     expect(mapModel({})).toBeNull()
     expect(mapModel({ id: '' })).toBeNull()
-    expect(mapModel(shape('grok-4.7', { context_window: 0 }))).toEqual({
+    expect(mapModel(shape('grok-4.7', { context_length: 0 }))).toEqual({
       id: 'grok-4.7',
       apiName: 'grok-4.7',
       label: 'grok-4.7',
     })
-    expect(mapModel(shape('grok-4.7', { context_window: Number.NaN }))).toEqual({
+    expect(mapModel(shape('grok-4.7', { context_length: Number.NaN }))).toEqual({
       id: 'grok-4.7',
       apiName: 'grok-4.7',
       label: 'grok-4.7',
     })
   })
 
-  test('forwards context_window when present', () => {
+  test('forwards the /v1/models context_length when present', () => {
     if (!mapModel) throw new Error('mapModel missing')
-    expect(mapModel(shape('grok-4.6', { context_window: 500000 }))).toEqual({
+    expect(mapModel(shape('grok-4.6', { context_length: 500000 }))).toEqual({
       id: 'grok-4.6',
       apiName: 'grok-4.6',
       label: 'grok-4.6',
