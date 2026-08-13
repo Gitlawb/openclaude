@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, spyOn } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -71,6 +71,50 @@ describe('resolveModelRuntimeLimits', () => {
           },
         }).contextWindow,
       ).toBe(1_000_000)
+    })
+  })
+
+  it('uses the stable xAI OAuth cache identity for discovered runtime limits', async () => {
+    await withTempConfigDir(async () => {
+      const xaiCredentials = await import('../utils/xaiCredentials.js')
+      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
+        accessToken: 'rotating-access-token',
+        refreshToken: 'stable-account-identity',
+        tokenEndpoint: 'https://auth.x.ai/oauth/token',
+      })
+      try {
+        const baseUrl = 'https://api.x.ai/v1'
+        await setCachedModels(
+          getDiscoveryCacheKey('xai', {
+            baseUrl,
+            apiKey: 'rotating-access-token',
+            cacheKey: 'stable-account-identity',
+          }),
+          {
+            models: [
+              {
+                id: 'grok-4.7',
+                apiName: 'grok-4.7',
+                label: 'grok-4.7',
+                contextWindow: 500_000,
+              },
+            ],
+          },
+        )
+
+        expect(
+          resolveModelRuntimeLimits({
+            model: 'grok-4.7',
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
+              XAI_CREDENTIAL_SOURCE: 'oauth',
+            },
+          }).contextWindow,
+        ).toBe(500_000)
+      } finally {
+        readSpy.mockRestore()
+      }
     })
   })
   it('uses built-in Z.AI GLM-5.2 runtime limits', () => {

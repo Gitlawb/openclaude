@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { setCachedModels } from './discoveryCache.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from './index.js'
 import {
   acquireSharedMutationLock,
@@ -606,6 +607,48 @@ describe('discoverModelsForRoute', () => {
     expect(['static', 'cache', 'stale-cache']).toContain(result?.source)
     expect(modelNames).toContain('openai/gpt-5-mini')
     expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  test('reads xAI OAuth cache identity without refreshing when discovery traffic is disabled', async () => {
+    process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
+      accessToken: 'cached-oauth-token',
+      refreshToken: 'stable-account-identity',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    })
+    const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'refreshed-oauth-token',
+    )
+    try {
+      const { discoverModelsForRoute, getDiscoveryCacheKey } =
+        await loadDiscoveryServiceModule()
+      await setCachedModels(
+        getDiscoveryCacheKey('xai', {
+          baseUrl: 'https://api.x.ai/v1',
+          apiKey: 'cached-oauth-token',
+          cacheKey: 'stable-account-identity',
+        }),
+        {
+          models: [
+            {
+              id: 'grok-4.7',
+              apiName: 'grok-4.7',
+              label: 'grok-4.7',
+            },
+          ],
+        },
+      )
+
+      const result = await discoverModelsForRoute('xai', { forceRefresh: true })
+
+      expect(result?.source).toBe('cache')
+      expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
+      expect(refreshSpy).not.toHaveBeenCalled()
+    } finally {
+      readSpy.mockRestore()
+      refreshSpy.mockRestore()
+    }
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {

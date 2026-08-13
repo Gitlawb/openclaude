@@ -4,7 +4,7 @@ import type { ModelCatalogEntry } from '../descriptors.js'
 // Keep chat/coding Grok IDs from https://api.x.ai/v1/models. Imagine, voice,
 // STT/TTS, and embedding entries are not usable on the OpenClaude chat path.
 const XAI_NON_CHAT_PATTERN =
-  /(imagine|voice|tts|stt|whisper|embed|speech-to-speech|speech-to-text|text-to-speech)/i
+  /(imagine|voice|tts|stt|whisper|embed|speech-to-speech|speech-to-text|text-to-speech|multi-agent)/i
 
 const XAI_CURATED_MODELS: ModelCatalogEntry[] = [
   {

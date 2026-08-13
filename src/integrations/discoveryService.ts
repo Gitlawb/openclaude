@@ -35,7 +35,10 @@ import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../servi
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
-import { resolveXaiAccessToken } from '../utils/xaiCredentials.js'
+import {
+  readXaiCredentials,
+  resolveXaiAccessToken,
+} from '../utils/xaiCredentials.js'
 
 export type RouteDiscoveryResult = {
   routeId: string
@@ -149,14 +152,16 @@ export function getDiscoveryCacheKey(
   options?: {
     baseUrl?: string
     apiKey?: string
+    cacheKey?: string
     headers?: Record<string, string>
   },
 ): string {
   const discoveryApiKey = getRouteDiscoveryApiKey(routeId, options)
+  const cacheIdentity = options?.cacheKey ?? discoveryApiKey
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
-    apiKeyHash: discoveryApiKey
-      ? hashDiscoveryCachePartition(discoveryApiKey)
+    apiKeyHash: cacheIdentity
+      ? hashDiscoveryCachePartition(cacheIdentity)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
@@ -210,11 +215,40 @@ function getRouteDiscoveryApiKey(
   )
 }
 
-async function withXaiDiscoveryCredentials<T extends { apiKey?: string; baseUrl?: string; headers?: Record<string, string> }>(routeId: string, options?: T): Promise<T> {
+export async function resolveDiscoveryRequestOptions<
+  T extends {
+    apiKey?: string
+    cacheKey?: string
+    baseUrl?: string
+    headers?: Record<string, string>
+  },
+>(
+  routeId: string,
+  options?: T,
+  resolverOptions?: { refreshXaiOAuth?: boolean },
+): Promise<T> {
   const next = { ...(options ?? {}) } as T
-  if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai' || !isCanonicalXaiInferenceBaseUrl(getRouteBaseUrl(routeId, next))) return next
-  const token = firstUsableCredential(await resolveXaiAccessToken())
-  if (token) next.apiKey = token
+  if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai') {
+    return next
+  }
+
+  if (!isCanonicalXaiInferenceBaseUrl(getRouteBaseUrl(routeId, next))) {
+    return next
+  }
+
+  const credentials = readXaiCredentials()
+  const token = firstUsableCredential(
+    shouldSkipNonessentialDiscoveryTraffic() ||
+      resolverOptions?.refreshXaiOAuth === false
+      ? credentials?.accessToken
+      : await resolveXaiAccessToken(),
+  )
+  if (token) {
+    next.apiKey = token
+    // The access token can rotate while the OAuth account does not. Keep the
+    // cache partition tied to a stable account identity, not a bearer token.
+    next.cacheKey = credentials?.accountId ?? credentials?.refreshToken ?? token
+  }
   return next
 }
 
@@ -387,9 +421,14 @@ export async function discoverModelsForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const discoveryOptions = await withXaiDiscoveryCredentials(routeId, options)
-  const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
-  if (!discoveryOptions.forceRefresh && ttlMs > 0) {
+  // Cache-only reads must not refresh an OAuth token: discovery can be
+  // disabled by privacy policy, and a refresh can rotate the bearer before a
+  // fresh cached result is checked.
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
+  if (!cachedOptions.forceRefresh && ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
       return {
@@ -430,12 +469,14 @@ export async function discoverModelsForRoute(
   }
 
   try {
+    const discoveryOptions = await resolveDiscoveryRequestOptions(routeId, options)
+    const discoveryCacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
     const discovered = await runDiscovery(routeId, discoveryOptions)
     if (discovered === null) {
       throw new Error(`Discovery failed for route ${routeId}`)
     }
 
-    await setCachedModels(cacheKey, { models: discovered })
+    await setCachedModels(discoveryCacheKey, { models: discovered })
     return {
       routeId,
       models: mergeCatalogEntries(staticEntries, discovered),
@@ -489,8 +530,10 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const discoveryOptions = await withXaiDiscoveryCredentials(routeId, options)
-  const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
   if (ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
@@ -505,7 +548,7 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   return discoverModelsForRoute(routeId, {
-    ...discoveryOptions,
+    ...options,
     forceRefresh: true,
   })
 }

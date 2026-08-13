@@ -459,12 +459,16 @@ function findCachedCatalogEntryForApiName(
   let apiKey = firstUsableCredential(
     resolveRouteCredentialValue({ routeId, baseUrl, processEnv: runtimeEnv }),
   )
+  let cacheIdentity: string | undefined
   if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
-    apiKey = firstUsableCredential(readXaiCredentials()?.accessToken)
+    const credentials = readXaiCredentials()
+    apiKey = firstUsableCredential(credentials?.accessToken)
+    cacheIdentity = credentials?.accountId ?? credentials?.refreshToken ?? apiKey
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
     apiKey,
+    cacheKey: cacheIdentity,
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))

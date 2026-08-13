@@ -35,7 +35,6 @@ describe('xAI vendor hybrid catalog', () => {
       'grok-4.7',
       'grok-build-0.1',
       'grok-4.20-0309-reasoning',
-      'grok-4.20-multi-agent-0309',
     ]
     for (const id of keep) {
       expect(mapModel(shape(id))).toEqual({
@@ -56,6 +55,9 @@ describe('xAI vendor hybrid catalog', () => {
       'grok-voice-think-fast-2.0',
       'grok-stt-1.0',
       'grok-tts-1.0',
+      // This model requires xAI's Responses API and does not support the
+      // generic OpenAI-compatible chat transport used by live discovery.
+      'grok-4.20-multi-agent-0309',
     ]
     for (const id of drop) {
       expect(mapModel(shape(id))).toBeNull()
