@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -36,7 +37,7 @@ import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 import {
   getXaiDiscoveryCacheIdentity,
-  readXaiCredentials,
+  readXaiCredentialsAsync,
   resolveXaiAccessToken,
 } from '../utils/xaiCredentials.js'
 
@@ -122,13 +123,13 @@ function normalizeDiscoveryCacheHeaders(
 
 function hashDiscoveryCachePartition(value: unknown): string {
   // Discovery results can be account-specific, so a credential is used only
-  // to derive an opaque cache namespace. Credentials are high-entropy bearer
-  // secrets, not passwords. Use Bun's native SHA-256 implementation for this
-  // opaque filename namespace: it preserves the legacy digest format without
-  // treating a credential as a password-verification input.
-  const hasher = new Bun.CryptoHasher('sha256')
-  hasher.update(JSON.stringify(value))
-  return hasher.digest('hex').slice(0, 16)
+  // to derive an opaque cache namespace. This runs in the shipped Node CLI as
+  // well as Bun during development, so keep it runtime-portable. HMAC is a
+  // one-pass namespace derivation, not password verification.
+  return createHmac('sha256', 'openclaude-discovery-cache-v1')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 16)
 }
 
 export function getDiscoveryCacheKey(
@@ -220,7 +221,7 @@ export async function resolveDiscoveryRequestOptions<
     return next
   }
 
-  let credentials = readXaiCredentials()
+  let credentials = await readXaiCredentialsAsync()
   const cacheOnly =
     shouldSkipNonessentialDiscoveryTraffic() ||
     resolverOptions?.refreshXaiOAuth === false
@@ -230,7 +231,7 @@ export async function resolveDiscoveryRequestOptions<
   if (!cacheOnly) {
     // A refresh can rotate the refresh token. Re-read the persisted blob so
     // discovery writes under the same stable identity subsequent readers use.
-    credentials = readXaiCredentials() ?? credentials
+    credentials = (await readXaiCredentialsAsync()) ?? credentials
   }
   if (token) {
     next.apiKey = token

@@ -16,6 +16,7 @@ import {
   getDiscoveryCacheKey,
   getRouteDiscoveryHeaders,
 } from './discoveryService'
+import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
@@ -24,6 +25,7 @@ async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
   let tempDir: string | null = null
   try {
     tempDir = mkdtempSync(join(tmpdir(), 'openclaude-runtime-metadata-test-'))
+    setClaudeConfigHomeDirForTesting(tempDir)
     process.env.CLAUDE_CONFIG_DIR = tempDir
     return await fn()
   } finally {
@@ -36,6 +38,7 @@ async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
       if (tempDir) {
         rmSync(tempDir, { recursive: true, force: true })
       }
+      setClaudeConfigHomeDirForTesting(undefined)
     } finally {
       releaseSharedMutationLock()
     }
@@ -77,7 +80,7 @@ describe('resolveModelRuntimeLimits', () => {
   it('uses the stable xAI OAuth cache identity for discovered runtime limits', async () => {
     await withTempConfigDir(async () => {
       const xaiCredentials = await import('../utils/xaiCredentials.js')
-      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
+      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockReturnValue({
         accessToken: 'rotating-access-token',
         refreshToken: 'stable-account-identity',
         tokenEndpoint: 'https://auth.x.ai/oauth/token',

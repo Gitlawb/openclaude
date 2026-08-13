@@ -29,8 +29,8 @@ import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import {
+  getCachedXaiCredentials,
   getXaiDiscoveryCacheIdentity,
-  readXaiCredentials,
 } from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
@@ -464,7 +464,10 @@ function findCachedCatalogEntryForApiName(
   )
   let cacheIdentity: string | undefined
   if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
-    const credentials = readXaiCredentials()
+    // Runtime limit resolution is synchronous request planning. Discovery
+    // populates this memory cache asynchronously; do not launch a credential
+    // store subprocess here merely to recover optional dynamic metadata.
+    const credentials = getCachedXaiCredentials()
     apiKey = firstUsableCredential(credentials?.accessToken)
     cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
   }

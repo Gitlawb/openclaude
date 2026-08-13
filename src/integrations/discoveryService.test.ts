@@ -612,7 +612,7 @@ describe('discoverModelsForRoute', () => {
   test('reads xAI OAuth cache identity without refreshing when discovery traffic is disabled', async () => {
     process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
     const xaiCredentials = await import('../utils/xaiCredentials.js')
-    const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync').mockResolvedValue({
       accessToken: 'cached-oauth-token',
       refreshToken: 'stable-account-identity',
       tokenEndpoint: 'https://auth.x.ai/oauth/token',
@@ -664,9 +664,9 @@ describe('discoverModelsForRoute', () => {
       cacheIdentity: 'old-refresh-token',
       tokenEndpoint: 'https://auth.x.ai/oauth/token',
     }
-    const readSpy = spyOn(xaiCredentials, 'readXaiCredentials')
-      .mockReturnValueOnce(initialCredentials)
-      .mockReturnValue(refreshedCredentials)
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync')
+      .mockResolvedValueOnce(initialCredentials)
+      .mockResolvedValue(refreshedCredentials)
     const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
       'new-access-token',
     )

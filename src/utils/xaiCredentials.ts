@@ -21,6 +21,7 @@ import {
 export const XAI_STORAGE_KEY = 'xai' as const
 const XAI_TOKEN_REFRESH_SKEW_MS = 60_000
 const XAI_TOKEN_REFRESH_RETRY_COOLDOWN_MS = 60_000
+const XAI_CREDENTIAL_CACHE_TTL_MS = 30_000
 
 export type XaiCredentialBlob = {
   accessToken: string
@@ -43,7 +44,10 @@ let inFlightXaiRefresh:
   | null = null
 let inMemoryLastRefreshFailureAt: number | null = null
 let cachedXaiCredentials: XaiCredentialBlob | undefined
-let hasCachedXaiCredentials = false
+let cachedXaiCredentialsAt = 0
+let xaiCredentialsGeneration = 0
+let inFlightXaiCredentialRead: Promise<XaiCredentialBlob | undefined> | null =
+  null
 
 function getXaiSecureStorage() {
   return getSecureStorage({ allowPlainTextFallback: false })
@@ -88,8 +92,23 @@ function cacheXaiCredentials(
   credentials: XaiCredentialBlob | undefined,
 ): XaiCredentialBlob | undefined {
   cachedXaiCredentials = credentials
-  hasCachedXaiCredentials = true
+  cachedXaiCredentialsAt = credentials ? Date.now() : 0
+  xaiCredentialsGeneration++
   return credentials
+}
+
+function hasFreshCachedXaiCredentials(): boolean {
+  return (
+    cachedXaiCredentials !== undefined &&
+    Date.now() - cachedXaiCredentialsAt < XAI_CREDENTIAL_CACHE_TTL_MS
+  )
+}
+
+// This is deliberately memory-only: callers on synchronous request-planning
+// paths can use a recently loaded OAuth identity without blocking on keychain,
+// libsecret, or Credential Locker I/O.
+export function getCachedXaiCredentials(): XaiCredentialBlob | undefined {
+  return hasFreshCachedXaiCredentials() ? cachedXaiCredentials : undefined
 }
 
 export function getXaiDiscoveryCacheIdentity(
@@ -127,14 +146,14 @@ function isWithinRefreshFailureCooldown(
 
 export function readXaiCredentials(): XaiCredentialBlob | undefined {
   if (isBareMode()) return undefined
-  if (hasCachedXaiCredentials) return cachedXaiCredentials
+  const cached = getCachedXaiCredentials()
+  if (cached) return cached
   try {
     const data = getXaiSecureStorage().read()
-    return cacheXaiCredentials(
-      normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY]),
-    )
+    const credentials = normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY])
+    return credentials ? cacheXaiCredentials(credentials) : undefined
   } catch {
-    return cacheXaiCredentials(undefined)
+    return undefined
   }
 }
 
@@ -142,15 +161,31 @@ export async function readXaiCredentialsAsync(): Promise<
   XaiCredentialBlob | undefined
 > {
   if (isBareMode()) return undefined
-  if (hasCachedXaiCredentials) return cachedXaiCredentials
-  try {
-    const data = await getXaiSecureStorage().readAsync()
-    return cacheXaiCredentials(
-      normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY]),
-    )
-  } catch {
-    return cacheXaiCredentials(undefined)
+  const cached = getCachedXaiCredentials()
+  if (cached) return cached
+  if (inFlightXaiCredentialRead) {
+    return inFlightXaiCredentialRead
   }
+
+  const generation = xaiCredentialsGeneration
+  const read = getXaiSecureStorage()
+    .readAsync()
+    .then(data => {
+      const credentials = normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY])
+      if (generation !== xaiCredentialsGeneration) {
+        return getCachedXaiCredentials()
+      }
+      return credentials ? cacheXaiCredentials(credentials) : undefined
+    })
+    .catch(() => undefined)
+
+  inFlightXaiCredentialRead = read
+  void read.finally(() => {
+    if (inFlightXaiCredentialRead === read) {
+      inFlightXaiCredentialRead = null
+    }
+  })
+  return read
 }
 
 export function saveXaiCredentials(
