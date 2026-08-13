@@ -1,4 +1,4 @@
-import { createHash, pbkdf2Sync } from 'node:crypto'
+import { pbkdf2Sync } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -123,34 +123,19 @@ function normalizeDiscoveryCacheHeaders(
 
 const DISCOVERY_CACHE_PARTITION_SALT = 'openclaude:discovery-cache:v1'
 const DISCOVERY_CACHE_PARTITION_ITERATIONS = 120_000
-const DISCOVERY_CACHE_PARTITION_CACHE_LIMIT = 64
-const discoveryCachePartitions = new Map<string, string>()
 
 function hashDiscoveryCachePartition(value: unknown): string {
   const serialized = JSON.stringify(value)
-  // Never retain the serialized cache input as a Map key: it can contain an
-  // OAuth credential or caller-provided header. SHA-256 gives the bounded
-  // process-local memoization map an opaque lookup key while PBKDF2 continues
-  // to derive the on-disk cache partition from the original input.
-  const memoKey = createHash('sha256').update(serialized).digest('hex')
-  const cached = discoveryCachePartitions.get(memoKey)
-  if (cached) return cached
-
   // Discovery results can be account-specific, so a credential is used only
   // to derive an opaque cache namespace. Use a password KDF in case a cache
   // filename is exposed; never persist the credential itself.
-  const partition = pbkdf2Sync(
+  return pbkdf2Sync(
     serialized,
     DISCOVERY_CACHE_PARTITION_SALT,
     DISCOVERY_CACHE_PARTITION_ITERATIONS,
     16,
     'sha256',
   ).toString('hex')
-  if (discoveryCachePartitions.size >= DISCOVERY_CACHE_PARTITION_CACHE_LIMIT) {
-    discoveryCachePartitions.delete(discoveryCachePartitions.keys().next().value!)
-  }
-  discoveryCachePartitions.set(memoKey, partition)
-  return partition
 }
 
 export function getDiscoveryCacheKey(
