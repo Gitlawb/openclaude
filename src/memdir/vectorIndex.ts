@@ -117,32 +117,23 @@ function getMdStats(memoryDir: string): MdStats {
 
   const fileFingerprint = fingerprint.digest('hex')
 
-  const state = getOrCreateDirState(memoryDir)
-  if (state.statsCache && state.statsCache.fileFingerprint === fileFingerprint) {
-    return state.statsCache
-  }
-
-  const metaPath = getIndexMetaPath(memoryDir)
-  if (existsSync(metaPath)) {
-    try {
-      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
-      if (meta.fileFingerprint === fileFingerprint && typeof meta.contentHash === 'string') {
-        const stats = { count, totalSize, latestMtime, fileFingerprint, contentHash: meta.contentHash }
-        state.statsCache = stats
-        return stats
-      }
-    } catch { /* ignore */ }
-  }
-
+  // The path/size/mtime fingerprint is a fast-change signal, NOT a validity
+  // guarantee: an equal-length rewrite with a restored mtime (coarse
+  // timestamp filesystems, restores, editors that preserve stat times) leaves
+  // the fingerprint identical while the corpus content differs. The content
+  // hash is the authoritative digest, so it is always recomputed before a
+  // cached stat set may be trusted (P1). Returning a cached contentHash on
+  // fingerprint match alone would serve stale vector results.
   const contentHasher = createHash('sha256')
   for (const f of files) {
     try {
-      const raw = readFileSync(f.fullPath)
-      contentHasher.update(raw)
+      contentHasher.update(readFileSync(f.fullPath))
     } catch { /* skip */ }
   }
   const contentHash = contentHasher.digest('hex')
+
   const stats = { count, totalSize, latestMtime, fileFingerprint, contentHash }
+  const state = getOrCreateDirState(memoryDir)
   state.statsCache = stats
   return stats
 }

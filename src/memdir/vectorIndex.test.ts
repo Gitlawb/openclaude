@@ -371,5 +371,35 @@ ${body}`
       const r2 = await searchMemdirIndex('Content', memDir)
       expect(r2.length).toBe(1)
     })
+
+    it('detects equal-size edits with a preserved mtime (P1 #6)', async () => {
+      const { statSync, utimesSync } = require('fs')
+      const { join } = require('path')
+
+      // Seed a corpus and build the index.
+      writeMem('deploy.md', 'Deployment', 'reference', 'Deploy steps', 'Deploy with oldword on port 5000')
+      await initMemdirIndex(memDir)
+
+      const before = await searchMemdirIndex('oldword', memDir)
+      expect(before.length).toBeGreaterThan(0)
+
+      // Rewrite the file with an EQUAL-LENGTH replacement and restore the
+      // original mtime so the path/size/mtime fingerprint is identical. The
+      // content hash alone must reveal the change and serve the new token.
+      const filePath = join(memDir, 'deploy.md')
+      const originalMtime = statSync(filePath).mtime
+      writeMem('deploy.md', 'Deployment', 'reference', 'Deploy steps', 'Deploy with newword on port 5000')
+      utimesSync(filePath, originalMtime, originalMtime)
+
+      // Direct search must return the replacement content.
+      const direct = await searchMemdirIndex('newword', memDir)
+      expect(direct.length).toBeGreaterThan(0)
+      expect(direct.some(r => r.content.includes('newword'))).toBe(true)
+      expect(direct.some(r => r.content.includes('oldword'))).toBe(false)
+
+      // The old token must no longer be retrievable.
+      const stale = await searchMemdirIndex('oldword', memDir)
+      expect(stale.some(r => r.content.includes('oldword'))).toBe(false)
+    })
   })
 })

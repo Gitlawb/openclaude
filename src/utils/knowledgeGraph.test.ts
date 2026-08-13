@@ -261,6 +261,79 @@ describe('knowledgeGraph legacy migration', () => {
     // Summary and rule facts are not entities, so counts must stay accurate.
     expect(Object.keys(graph.entities).length).toBe(0)
   })
+
+  it('redacts embedded secrets in legacy attribute values during migration (P1)', () => {
+    writeLegacyJson({
+      entities: [
+        {
+          id: 'e1',
+          type: 'endpoint',
+          name: 'Diagnostics',
+          attributes: {
+            header: 'Authorization: Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890',
+            jwt: 'Connection failed: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
+            url: 'https://api.example.com/v1?token=abcDEFghiJKLmnoPQRstUVwxyz&mode=test',
+            benign: 'deploying then verify via sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890 now',
+          },
+        },
+      ],
+      relations: [],
+    })
+    const graph = getGlobalGraph()
+    const entity = Object.values(graph.entities).find(e => e.name === 'Diagnostics')
+    expect(entity).toBeDefined()
+    const attrs = entity!.attributes
+
+    // Embedded secrets must not survive verbatim; the redacted form must.
+    expect(attrs.header).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890')
+    expect(attrs.jwt).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+    expect(attrs.url).not.toContain('abcDEFghiJKLmnoPQRstUVwxyz')
+    // Benign context around the secret must be preserved.
+    expect(attrs.benign).toContain('deploying then verify via')
+    expect(attrs.benign).not.toContain('abcdefghijklmnopqrstuvwxyz1234567890')
+    // Non-secret query params survive URL redaction.
+    expect(attrs.url).toContain('mode=test')
+  })
+
+  it('redacts embedded secrets in migrated summary and rule text (P1)', () => {
+    writeLegacyJson({
+      entities: {},
+      relations: [],
+      summaries: [
+        {
+          id: 's1',
+          content: 'Endpoint uses Authorization: Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890 for auth',
+          keywords: ['api', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'],
+          timestamp: 12345,
+        },
+      ],
+      rules: ['Never log https://api.example.com/v1?token=abcDEFghiJKLmnoPQRstUVwxyz'],
+    })
+    const graph = getGlobalGraph()
+
+    expect(graph.summaries.length).toBe(1)
+    expect(graph.summaries[0].content).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890')
+    expect(graph.summaries[0].content).toContain('Bearer')
+    expect(graph.summaries[0].keywords.join(' ')).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+    expect(graph.rules.length).toBe(1)
+    expect(graph.rules[0]).not.toContain('abcDEFghiJKLmnoPQRstUVwxyz')
+  })
+
+  it('rejects entities whose names carry embedded secrets (P1)', () => {
+    writeLegacyJson({
+      entities: [
+        {
+          id: 's1',
+          type: 'fact',
+          name: 'My token is sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890',
+          attributes: {},
+        },
+      ],
+      relations: [],
+    })
+    const graph = getGlobalGraph()
+    expect(Object.values(graph.entities).some(e => e.name.includes('abcdefghijklmnopqrstuvwxyz1234567890'))).toBe(false)
+  })
 })
 
 describe('knowledgeGraph reset', () => {
@@ -284,5 +357,59 @@ describe('knowledgeGraph reset', () => {
     expect(existsSync(sqlitePath())).toBe(false)
     expect(existsSync(`${sqlitePath()}-wal`)).toBe(false)
     expect(existsSync(`${sqlitePath()}-shm`)).toBe(false)
+  })
+
+  it('backs up and byte-verifies a JSON-only legacy store before archival on clear (P1)', () => {
+    mkdirSync(projectRoot(), { recursive: true })
+    const legacyBody = JSON.stringify({ entities: { a: { name: 'A' } }, relations: [] })
+    writeFileSync(legacyJsonPath(), legacyBody)
+
+    const result = resetGlobalGraph()
+
+    expect(result.failures.length).toBe(0)
+    expect(result.archived).toContain(legacyJsonPath())
+    // The live file is removed but a byte-identical, verified backup survives.
+    expect(existsSync(legacyJsonPath())).toBe(false)
+    const backupPath = `${legacyJsonPath()}.migration-backup`
+    expect(existsSync(backupPath)).toBe(true)
+    expect(readFileSync(backupPath, 'utf-8')).toBe(legacyBody)
+  })
+
+  it('backs up and byte-verifies a SQLite store plus WAL/SHM sidecars on clear (P1)', () => {
+    mkdirSync(projectRoot(), { recursive: true })
+    const dbBody = Buffer.from('sqlite-bytes')
+    const walBody = Buffer.from('wal-bytes')
+    const shmBody = Buffer.from('shm-bytes')
+    writeFileSync(sqlitePath(), dbBody)
+    writeFileSync(`${sqlitePath()}-wal`, walBody)
+    writeFileSync(`${sqlitePath()}-shm`, shmBody)
+
+    const result = resetGlobalGraph()
+
+    expect(result.failures.length).toBe(0)
+    expect(result.archived).toContain(sqlitePath())
+    expect(result.archived).toContain(`${sqlitePath()}-wal`)
+    expect(result.archived).toContain(`${sqlitePath()}-shm`)
+    for (const live of [sqlitePath(), `${sqlitePath()}-wal`, `${sqlitePath()}-shm`]) {
+      expect(existsSync(live)).toBe(false)
+      expect(existsSync(`${live}.migration-backup`)).toBe(true)
+    }
+  })
+
+  it('leaves the live legacy file in place when the backup cannot be created (P1)', () => {
+    mkdirSync(projectRoot(), { recursive: true })
+    const legacyBody = JSON.stringify({ entities: {}, relations: [] })
+    writeFileSync(legacyJsonPath(), legacyBody)
+    // Poison the backup path so writeFileSync throws (a directory cannot be
+    // written as a file).
+    mkdirSync(`${legacyJsonPath()}.migration-backup`)
+
+    const result = resetGlobalGraph()
+
+    expect(result.archived.length).toBe(0)
+    expect(result.failures).toContain(legacyJsonPath())
+    // The live artifact must NOT be removed when its data could not be backed up.
+    expect(existsSync(legacyJsonPath())).toBe(true)
+    expect(readFileSync(legacyJsonPath(), 'utf-8')).toBe(legacyBody)
   })
 })

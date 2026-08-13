@@ -20,6 +20,7 @@ import { getFsImplementation } from './fsOperations.js'
 import { isAutoMemoryEnabled } from '../memdir/paths.js'
 import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
 import { looksLikeSecretValue, redactSecretSubstringsForDisplay } from './providerSecrets.js'
+import { redactUrlForDisplay, shouldRedactUrlQueryParam } from './redaction.js'
 import { createRequire } from 'module'
 const _require = createRequire(import.meta.url)
 
@@ -384,9 +385,61 @@ function getShortHash(str: string): string {
 // '' when the name is entirely secret-shaped and must be dropped (P1).
 function safeEntityName(entity: { name?: unknown } | undefined): string {
   if (!entity?.name) return ''
-  const safe = redactSecretSubstringsForDisplay(String(entity.name), process.env) ?? ''
-  if (!safe.trim() || looksLikeSecretValue(safe)) return ''
+  const { text: safe, changed } = sanitizeLegacyText(entity.name)
+  if (!safe.trim() || changed || looksLikeSecretValue(safe)) return ''
   return safe
+}
+
+// Shared redaction policy for legacy migration (P1). Secrets commonly occur as
+// substrings of free-form fields (diagnostic text, URLs, headers) rather than
+// as the whole value, so a whole-value classifier like looksLikeSecretValue is
+// insufficient. Every legacy text field must pass through this pipeline before
+// serialization:
+//
+//   1. redactSecretSubstringsForDisplay  — exact env-var values, sk-/ghp_/AIza
+//      prefixes, and JWT payloads.
+//   2. Bearer token values               — any Bearer token, regardless of
+//      prefix, with the label preserved so benign context survives.
+//   3. URL credentials                   — userinfo and sensitive query params
+//      (?token=..., ?signature=...); benign URLs are left byte-identical so
+//      redaction never mangles ordinary references.
+//
+// `changed` reports whether any redaction occurred so callers can reject the
+// field outright (entity names) or persist the redacted form (other fields).
+function sanitizeLegacyText(value: unknown): { text: string; changed: boolean } {
+  const input = String(value ?? '')
+  if (!input.trim()) return { text: input, changed: false }
+  let redacted = redactSecretSubstringsForDisplay(input, process.env) ?? input
+  redacted = redacted.replace(
+    /(?<![A-Za-z0-9_-])(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}(?![A-Za-z0-9_-])/gi,
+    '$1[redacted]',
+  )
+  redacted = redacted.replace(
+    /(?:https?:)?\/\/[^\s"'`,<>()]+/gi,
+    (url) => {
+      try {
+        const parsed = new URL(url)
+        const hasUserinfo = Boolean(parsed.username || parsed.password)
+        let hasSensitiveParam = false
+        for (const key of parsed.searchParams.keys()) {
+          if (shouldRedactUrlQueryParam(key)) {
+            hasSensitiveParam = true
+            break
+          }
+        }
+        if (!hasUserinfo && !hasSensitiveParam) return url
+        return redactUrlForDisplay(url)
+      } catch {
+        // Malformed URL (protocol-relative or bare): leave it untouched unless
+        // it carries obvious userinfo or a sensitive query credential.
+        if (/[?&][^&=#]+(?:token|key|secret|password|passwd|pwd|auth|signature|sig|api[_]?key)=/i.test(url)) {
+          return redactUrlForDisplay(url)
+        }
+        return url
+      }
+    },
+  )
+  return { text: redacted, changed: redacted !== input }
 }
 
 function doMigration(data: any, sourcePath: string, projectKey: string, sqliteReadOk = true): void {
@@ -437,8 +490,9 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
         // it from the winning store; look up its migrated name.
         const entity = data.entities[mergedId]
         if (entity && safeEntityName(entity)) {
-          const nameSlug = `${slugify(safeEntityName(entity))}-${getShortHash(safeEntityName(entity) + '_' + mergedId)}`
-          const typeSlug = slugify(entity.type || 'unknown')
+          const safe = safeEntityName(entity)
+          const nameSlug = `${slugify(safe)}-${getShortHash(safe + '_' + mergedId)}`
+          const typeSlug = slugify(sanitizeLegacyText(entity.type ?? 'unknown').text)
           legacyToNewId.set(mergedId, `fact_fact-${typeSlug}-${nameSlug}.md`)
         }
       }
@@ -455,26 +509,33 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
       if (!safeName) {
         continue
       }
+      // Route the legacy type through the shared policy before it is written
+      // into the factType frontmatter, description, and filename slug (P1).
+      const safeType = sanitizeLegacyText(entity.type ?? 'unknown').text
       const nameSlug = `${slugify(safeName)}-${getShortHash(safeName + '_' + legacyId)}`
-      const typeSlug = slugify(entity.type || 'unknown')
+      const typeSlug = slugify(safeType)
       const newId = `fact_fact-${typeSlug}-${nameSlug}.md`
       legacyToNewId.set(legacyId, newId)
 
-      // Redact secret-bearing attributes before persisting (P1):
-      // the old fact extractor stored raw env values in entity attributes.
-      const safeAttrs = Object.fromEntries(
-        Object.entries(entity.attributes ?? {}).filter(
-          ([, v]) => !looksLikeSecretValue(String(v)),
-        ),
-      )
+      // Redact secret-bearing attributes before persisting (P1). Whole-value
+      // secrets are dropped; values with embedded secrets (Bearer tokens,
+      // JWT payloads, URL query credentials) are persisted in redacted form.
+      const safeAttrs: Record<string, string> = {}
+      for (const [k, v] of Object.entries(entity.attributes ?? {})) {
+        const { text, changed } = sanitizeLegacyText(v)
+        if (looksLikeSecretValue(text) && changed) {
+          continue
+        }
+        safeAttrs[k] = text
+      }
       const attrsYaml = Object.entries(safeAttrs)
         .map(([k, v]) => `  ${k}: ${yamlQuote(String(v))}`)
         .join('\n')
       const content = `---
 type: reference
 title: ${yamlQuote(safeName)}
-description: "Migrated from legacy knowledge graph: ${entity.type}"
-factType: ${yamlQuote(entity.type)}
+description: "Migrated from legacy knowledge graph: ${safeType}"
+factType: ${yamlQuote(safeType)}
 source: legacy_migration
 legacyId: ${yamlQuote(legacyId)}
 ${attrsYaml ? `attributes:\n${attrsYaml}` : ''}
@@ -491,13 +552,14 @@ Auto-migrated from legacy store: **${safeName}**
     for (const summary of data.summaries ?? []) {
       const rawId = summary.id || `summary-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
       const idSlug = `${slugify(rawId)}-${getShortHash(rawId)}`
-      const safeSummary = redactSecretSubstringsForDisplay(summary.content ?? '', process.env) ?? ''
+      const safeSummary = sanitizeLegacyText(summary.content ?? '').text
+      const safeKeywords = (summary.keywords ?? []).map((k: unknown) => sanitizeLegacyText(k).text)
       const content = `---
 type: reference
 title: "Knowledge Summary"
 description: ${yamlQuote(safeSummary.slice(0, 200))}
 factType: summary
-keywords: ${yamlQuote((summary.keywords ?? []).join(', '))}
+keywords: ${yamlQuote(safeKeywords.join(', '))}
 source: legacy_migration
 ---
 ${safeSummary}
@@ -511,7 +573,7 @@ ${safeSummary}
     // substrings before persisting (P1).
     for (const rule of data.rules ?? []) {
       if (typeof rule !== 'string') continue
-      const safeRule = redactSecretSubstringsForDisplay(rule, process.env) ?? ''
+      const safeRule = sanitizeLegacyText(rule).text
       const slug = `${slugify(safeRule).slice(0, 60)}-${getShortHash(safeRule)}`
       const content = `---
 type: reference
@@ -530,10 +592,13 @@ ${safeRule}
     const relations: Relation[] = (data.relations ?? []).map((r: any) => {
       const sourceId = legacyToNewId.get(String(r.sourceId ?? '')) || String(r.sourceId ?? '')
       const targetId = legacyToNewId.get(String(r.targetId ?? '')) || String(r.targetId ?? '')
+      // Route the free-form relation type through the shared redaction policy;
+      // ids are internal references, not free-form legacy text.
+      const safeType = sanitizeLegacyText(r.type ?? 'related').text
       return {
         sourceId,
         targetId,
-        type: String(r.type ?? 'related'),
+        type: safeType,
       }
     })
     if (relations.length > 0) {
@@ -805,9 +870,62 @@ function pruneLegacyGraphArtifacts(projectDir: string): void {
   } catch { /* ignore */ }
 }
 
-export function resetGlobalGraph(): void {
+// Centralized, recovery-safe retirement of a legacy store (P1). Every live
+// artifact (knowledge_graph.json, knowledge.db, plus WAL/SHM sidecars) is
+// backed up and the backup is byte-verified BEFORE the live file is removed.
+// If any artifact cannot be backed up, its live file is left on disk so a
+// first-use /knowledge clear never permanently loses data. Returns the paths
+// that were archived+removed and any that failed to be preserved.
+function retireLegacyArtifacts(
+  projectDir: string,
+): { archived: string[]; failures: string[] } {
+  const archived: string[] = []
+  const failures: string[] = []
+  if (!existsSync(projectDir)) return { archived, failures }
+
+  const mainArtifacts = [
+    join(projectDir, 'knowledge_graph.json'),
+    join(projectDir, 'knowledge.db'),
+  ]
+  const sidecars = ['-wal', '-shm'].map(s => join(projectDir, `knowledge.db${s}`))
+  const candidates = [...mainArtifacts, ...sidecars].filter(p => existsSync(p))
+
+  for (const live of candidates) {
+    const backupPath = `${live}.migration-backup`
+    let data: Buffer | null = null
+    try {
+      data = readFileSync(live)
+      writeFileSync(backupPath, data)
+    } catch {
+      failures.push(live)
+      continue
+    }
+    // Verify the backup is byte-identical to the live file before removing it.
+    let backupOk = false
+    try {
+      backupOk = existsSync(backupPath) &&
+        readFileSync(backupPath).equals(data)
+    } catch {
+      backupOk = false
+    }
+    if (!backupOk) {
+      failures.push(live)
+      continue
+    }
+    try {
+      rmSync(live, { force: true })
+      archived.push(live)
+    } catch {
+      failures.push(live)
+    }
+  }
+
+  return { archived, failures }
+}
+
+export function resetGlobalGraph(): { archived: string[]; failures: string[] } {
   const memDir = getAutoMemPath()
-  if (!memDir) return
+  if (!memDir) return { archived: [], failures: [] }
 
   // 1. Remove facts directory
   const factsDir = join(memDir, FACTS_SUBDIR)
@@ -831,26 +949,15 @@ export function resetGlobalGraph(): void {
     pruneLegacyGraphArtifacts(join(getProjectsDir(), key))
   }
 
-  // 4. Remove live legacy sources
-  const legacyPath = getLegacyGraphPath()
-  if (existsSync(legacyPath)) {
-    try {
-      rmSync(legacyPath, { force: true })
-    } catch { /* ignore */ }
-  }
-  const sqlitePath = getLegacySqlitePath()
-  if (existsSync(sqlitePath)) {
-    try {
-      rmSync(sqlitePath, { force: true })
-    } catch { /* ignore */ }
-  }
-  for (const sidecar of ['-wal', '-shm']) {
-    const sidecarPath = `${sqlitePath}${sidecar}`
-    if (existsSync(sidecarPath)) {
-      try {
-        rmSync(sidecarPath, { force: true })
-      } catch { /* ignore */ }
-    }
+  // 4. Retire live legacy sources recovery-safely: archive + byte-verify every
+  // artifact (json, db, WAL/SHM) before removing it, so a first-use clear never
+  // permanently destroys a legacy-only store (P1). Probe every candidate key.
+  const archived: string[] = []
+  const failures: string[] = []
+  for (const key of getLegacyProjectKeys()) {
+    const { archived: a, failures: f } = retireLegacyArtifacts(join(getProjectsDir(), key))
+    archived.push(...a)
+    failures.push(...f)
   }
 
   // 5. Reset guards and in-memory index. Also clear the skipped-project guard
@@ -860,6 +967,8 @@ export function resetGlobalGraph(): void {
   migrationAttempts.delete(currentProjectKey())
   legacyMigrationSkippedProjects.delete(currentProjectKey())
   clearIndex(memDir)
+
+  return { archived, failures }
 }
 
 export function clearMemoryOnly(): void {

@@ -133,9 +133,10 @@ ${Object.keys(attributes).length > 0 ? `**Details:**\n${Object.entries(attribute
 `
 
   try {
-    // Skip rewriting when content is identical to avoid triggering
-    // unnecessary rebuildIndex() calls (P2).
-    if (existsSync(filePath) && readFileSync(filePath, 'utf-8') === content) {
+    // Skip rewriting when the stable fact content is identical, ignoring the
+    // volatile detectedAt timestamp, so repeated turns do not trigger
+    // unnecessary rebuildIndex() calls (P1).
+    if (existsSync(filePath) && stableFactContent(readFileSync(filePath, 'utf-8')) === stableFactContent(content)) {
       return false
     }
     writeFileSync(filePath, content, 'utf-8')
@@ -144,6 +145,12 @@ ${Object.keys(attributes).length > 0 ? `**Details:**\n${Object.entries(attribute
     // Fact write failures are non-fatal — continue without this fact.
     return false
   }
+}
+
+// Strips the volatile detectedAt line so byte-equality reflects semantic
+// content only (P1).
+function stableFactContent(raw: string): string {
+  return raw.replace(/^detectedAt: .*$/m, 'detectedAt: <ignored>')
 }
 
 const MAX_FACTS_PER_CALL = 20

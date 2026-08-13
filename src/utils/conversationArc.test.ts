@@ -241,6 +241,28 @@ describe('conversationArc', () => {
       const files = readdirSync(memDir).filter(f => f.startsWith('session-summary-'))
       expect(files.length).toBe(0)
     })
+
+    it('does not rewrite the summary or rebuild on unchanged repeated cycles (P1 #5)', async () => {
+      initializeArc(memDir)
+      const goal = addGoal('Implement feature')
+      updateGoalStatus(goal.id, 'completed')
+      addDecision('Use TypeScript', 'Type safety')
+
+      // First cycle writes the summary and rebuilds the index.
+      await finalizeArcTurn()
+      const summaryFile = readdirSync(memDir).find(f => f.startsWith('session-summary-'))!
+      const contentAfterFirst = readFileSync(join(memDir, summaryFile), 'utf-8')
+      expect(contentAfterFirst).toContain('detectedAt:')
+
+      // Let the clock advance so the volatile detectedAt timestamp differs on
+      // the next cycle. The semantic summary content is byte-identical, so the
+      // repeated cycle must neither rewrite the file nor trigger a full-corpus
+      // rebuild on the request path.
+      await new Promise(r => setTimeout(r, 5))
+      await finalizeArcTurn()
+      expect(readFileSync(join(memDir, summaryFile), 'utf-8')).toBe(contentAfterFirst)
+      expect(readdirSync(memDir).filter(f => f.startsWith('session-summary-')).length).toBe(1)
+    })
   })
 
   describe('clearArcArtifacts', () => {

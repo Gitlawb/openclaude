@@ -344,8 +344,9 @@ ${arc.milestones.map(m => `- ${m.description}`).join('\n')}
     try {
       // Only rebuild the index when the summary actually changed — the filename
       // and content are deterministic, so repeated tool cycles must not trigger
-      // a full-corpus rebuild (P1).
-      if (existsSync(filePath) && readFileSync(filePath, 'utf-8') === content) {
+      // a full-corpus rebuild (P1). The volatile detectedAt timestamp is
+      // stripped so byte-equality reflects the semantic summary content only.
+      if (existsSync(filePath) && stripDetectedAt(readFileSync(filePath, 'utf-8')) === stripDetectedAt(content)) {
         return
       }
       writeFileSync(filePath, content, 'utf-8')
@@ -354,6 +355,12 @@ ${arc.milestones.map(m => `- ${m.description}`).join('\n')}
       // non-fatal
     }
   }
+}
+
+// Strips the volatile detectedAt line so unchanged summaries do not look
+// rewritten on every tool cycle (P1).
+function stripDetectedAt(raw: string): string {
+  return raw.replace(/^detectedAt: .*$/m, 'detectedAt: <ignored>')
 }
 
 export function addGoal(description: string): Goal {

@@ -51,15 +51,28 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (subCommand === 'clear') {
     resetArc();
-    resetGlobalGraph();
+    const retireResult = resetGlobalGraph();
     resetMultiTurnState();
     const memDir = getAutoMemPath();
     if (memDir) {
       clearArcArtifacts(memDir);
     }
+    if (retireResult.failures.length > 0) {
+      return { 
+        type: 'text', 
+        value: '⚠️ Knowledge graph memory cleared, but the following legacy artifacts could not be backed up and were left in place — resolve any read/write issue and retry: ' 
+          + retireResult.failures.join(', ')
+          + '.' 
+      };
+    }
     return { 
       type: 'text', 
-      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, multi-turn tracking, and legacy JSON/SQLite stores removed; backups archived alongside originals).' 
+      value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, and multi-turn tracking removed'.concat(
+        retireResult.archived.length > 0
+          ? `; ${retireResult.archived.length} legacy artifact(s) verified and archived alongside originals`
+          : '; no legacy JSON/SQLite stores present',
+        ').',
+      ) 
     };
   }
 

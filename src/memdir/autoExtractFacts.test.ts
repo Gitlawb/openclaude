@@ -287,6 +287,32 @@ describe('autoExtractFacts governance gate (P1#1, P2#6)', () => {
     expect(result).toBe(false)
   })
 
+  it('does not rewrite facts or return true on an identical repeated turn (P1 #5)', async () => {
+    // Extraction respects the memory-write approval policy; opt in so facts
+    // are actually persisted.
+    delete process.env.CLAUDE_CODE_SIMPLE
+    setGovernancePolicySettingsForSourceForTesting(() => ({
+      memory: { requireApprovalBeforeWrite: false },
+    }))
+    // First turn writes the fact and reports a change (callers rebuild the
+    // index on true).
+    const first = await extractFactsIntoMemdir('export DATABASE_URL=postgres://localhost:5432/mydb', memDir)
+    expect(first).toBe(true)
+    const factDir = join(memDir, '.facts')
+    const factFile = readdirSync(factDir).find(f => f.endsWith('.md'))!
+    const contentAfterFirst = readFileSync(join(factDir, factFile), 'utf-8')
+    expect(contentAfterFirst).toContain('detectedAt:')
+
+    // The detectedAt timestamp advances on the second turn, but the stable
+    // fact content is byte-identical, so the second turn must neither rewrite
+    // the file nor report a change (which would trigger a full index rebuild
+    // on the request path).
+    await new Promise(r => setTimeout(r, 5))
+    const second = await extractFactsIntoMemdir('export DATABASE_URL=postgres://localhost:5432/mydb', memDir)
+    expect(second).toBe(false)
+    expect(readFileSync(join(factDir, factFile), 'utf-8')).toBe(contentAfterFirst)
+  })
+
   function factCount(): number {
     const dir = join(memDir, '.facts')
     if (!existsSync(dir)) return 0
