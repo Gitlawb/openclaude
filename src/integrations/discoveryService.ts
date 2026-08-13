@@ -1,4 +1,4 @@
-import { pbkdf2Sync } from 'node:crypto'
+import { createHash, pbkdf2Sync } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -128,7 +128,12 @@ const discoveryCachePartitions = new Map<string, string>()
 
 function hashDiscoveryCachePartition(value: unknown): string {
   const serialized = JSON.stringify(value)
-  const cached = discoveryCachePartitions.get(serialized)
+  // Never retain the serialized cache input as a Map key: it can contain an
+  // OAuth credential or caller-provided header. SHA-256 gives the bounded
+  // process-local memoization map an opaque lookup key while PBKDF2 continues
+  // to derive the on-disk cache partition from the original input.
+  const memoKey = createHash('sha256').update(serialized).digest('hex')
+  const cached = discoveryCachePartitions.get(memoKey)
   if (cached) return cached
 
   // Discovery results can be account-specific, so a credential is used only
@@ -144,7 +149,7 @@ function hashDiscoveryCachePartition(value: unknown): string {
   if (discoveryCachePartitions.size >= DISCOVERY_CACHE_PARTITION_CACHE_LIMIT) {
     discoveryCachePartitions.delete(discoveryCachePartitions.keys().next().value!)
   }
-  discoveryCachePartitions.set(serialized, partition)
+  discoveryCachePartitions.set(memoKey, partition)
   return partition
 }
 
