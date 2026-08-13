@@ -477,3 +477,20 @@ test('rejects built-in agents from being spawned as teammates even when built-in
   }
 
 })
+
+test('allows a custom agent to be spawned as a teammate even if it shadows a built-in name', async () => {
+  const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
+
+  const customShadowAgent = {
+    agentType: 'code-reviewer',
+    source: 'projectSettings', // It shadows the name but has a different source
+  } as unknown as AgentDefinition
+
+  await callTeammateAgentTool(
+    AgentTool,
+    { subagent_type: 'code-reviewer' },
+    { activeAgents: [customShadowAgent] },
+  )
+
+  expect(spawnTeammate).toHaveBeenCalled()
+})

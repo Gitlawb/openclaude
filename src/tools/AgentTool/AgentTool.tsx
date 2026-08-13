@@ -376,8 +376,14 @@ export const AgentTool = buildTool({
       // Set agent definition color for grouped UI display before spawning
       const agentDef = subagent_type ? toolUseContext.options.agentDefinitions.activeAgents.find(a => a.agentType === subagent_type) : undefined;
 
-      if (subagent_type && isBuiltInAgentType(subagent_type)) {
-        throw new Error(`Built-in agent type '${subagent_type}' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.`);
+      if (subagent_type) {
+        if (agentDef) {
+          if (agentDef.source === 'built-in') {
+            throw new Error(`Built-in agent type '${subagent_type}' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.`);
+          }
+        } else if (isBuiltInAgentType(subagent_type)) {
+          throw new Error(`Built-in agent type '${subagent_type}' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.`);
+        }
       }
 
       if (agentDef?.color) {

@@ -618,7 +618,7 @@ export async function writeAgentMetadata(
 ): Promise<void> {
   const path = getAgentMetadataPath(agentId)
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(metadata))
+  await replaceFileAtomic(path, JSON.stringify(metadata))
 }
 
 export async function readAgentMetadata(
