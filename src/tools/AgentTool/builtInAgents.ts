@@ -72,3 +72,17 @@ export function getBuiltInAgents(): AgentDefinition[] {
 
   return agents
 }
+
+const BUILT_IN_AGENT_TYPES = new Set([
+  'general-purpose',
+  'statusline-setup',
+  'code-reviewer',
+  'Explore',
+  'Plan',
+  'guide',
+  'verification'
+])
+
+export function isBuiltInAgentType(agentType: string): boolean {
+  return BUILT_IN_AGENT_TYPES.has(agentType)
+}

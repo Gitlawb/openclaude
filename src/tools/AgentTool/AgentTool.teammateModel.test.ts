@@ -274,7 +274,7 @@ test('passes routed agentModels keys to teammate spawns by subagent type', async
       },
     },
     agentRouting: {
-      'general-purpose': 'deepseek-grunt',
+      'custom-helper': 'deepseek-grunt',
     },
   } as unknown as SettingsJson
   allowedModelsForTest = new Set(['deepseek-grunt'])
@@ -282,8 +282,8 @@ test('passes routed agentModels keys to teammate spawns by subagent type', async
 
   await callTeammateAgentTool(
     AgentTool,
-    { subagent_type: 'general-purpose' },
-    { activeAgents: [createAgentDefinition('general-purpose')] },
+    { subagent_type: 'custom-helper' },
+    { activeAgents: [createAgentDefinition('custom-helper')] },
   )
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('deepseek-grunt')
@@ -302,7 +302,7 @@ test('applies a model-only route to a teammate spawn without a cross-provider ov
       mini: { model: 'gpt-5-mini' },
     },
     agentRouting: {
-      verification: 'mini',
+      'custom-researcher': 'mini',
     },
   } as unknown as SettingsJson
   allowedModelsForTest = new Set(['gpt-5-mini'])
@@ -310,8 +310,8 @@ test('applies a model-only route to a teammate spawn without a cross-provider ov
 
   await callTeammateAgentTool(
     AgentTool,
-    { subagent_type: 'verification' },
-    { activeAgents: [createAgentDefinition('verification')] },
+    { subagent_type: 'custom-researcher' },
+    { activeAgents: [createAgentDefinition('custom-researcher')] },
   )
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('gpt-5-mini')
@@ -385,9 +385,9 @@ test('does not let non-configured explicit teammate models fall through to defau
     AgentTool,
     {
       model: 'custom-provider-model',
-      subagent_type: 'general-purpose',
+      subagent_type: 'custom-helper',
     },
-    { activeAgents: [createAgentDefinition('general-purpose')] },
+    { activeAgents: [createAgentDefinition('custom-helper')] },
   )
 
   expect(getSpawnConfig(spawnTeammate).model).toBe('custom-provider-model')
@@ -403,7 +403,7 @@ test('rejects disallowed routed provider models before spawning a teammate', asy
       },
     },
     agentRouting: {
-      'general-purpose': 'deepseek-grunt',
+      'custom-helper': 'deepseek-grunt',
     },
   } as unknown as SettingsJson
   const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
@@ -411,8 +411,8 @@ test('rejects disallowed routed provider models before spawning a teammate', asy
   await expect(
     callTeammateAgentTool(
       AgentTool,
-      { subagent_type: 'general-purpose' },
-      { activeAgents: [createAgentDefinition('general-purpose')] },
+      { subagent_type: 'custom-helper' },
+      { activeAgents: [createAgentDefinition('custom-helper')] },
     ),
   ).rejects.toThrow(
     "Model 'deepseek-grunt' is not available. Your organization restricts model selection.",
@@ -444,21 +444,30 @@ test('rejects built-in agents from being spawned as teammates', async () => {
 test('rejects built-in agents from being spawned as teammates even when built-ins are disabled', async () => {
   const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
 
-  const builtinAgent = {
-    agentType: 'code-reviewer',
-    source: 'built-in',
-    getSystemPrompt: () => 'review code',
-  } as unknown as AgentDefinition
+  process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS = '1'
+  const { setIsInteractive } = await import('../../bootstrap/state.js')
+  const { getAgentDefinitionsWithOverrides, clearAgentDefinitionsCache } = await import('./loadAgentsDir.js')
 
-  await expect(
-    callTeammateAgentTool(
-      AgentTool,
-      { subagent_type: 'code-reviewer' },
-      // activeAgents is empty (built-ins disabled), but allAgents has it
-      { activeAgents: [], allAgents: [builtinAgent] },
-    ),
-  ).rejects.toThrow(
-    "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
-  )
-  expect(spawnTeammate).not.toHaveBeenCalled()
+  setIsInteractive(false)
+  clearAgentDefinitionsCache()
+
+  try {
+    const definitions = await getAgentDefinitionsWithOverrides()
+
+    await expect(
+      callTeammateAgentTool(
+        AgentTool,
+        { subagent_type: 'code-reviewer' },
+        { activeAgents: definitions.activeAgents, allAgents: definitions.allAgents },
+      ),
+    ).rejects.toThrow(
+      "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
+    )
+    expect(spawnTeammate).not.toHaveBeenCalled()
+  } finally {
+    setIsInteractive(true)
+    delete process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS
+    clearAgentDefinitionsCache()
+  }
+
 })

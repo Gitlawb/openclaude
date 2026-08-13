@@ -786,6 +786,7 @@ export async function* runAgent({
   )
   void writeAgentMetadata(agentId, {
     agentType: agentDefinition.agentType,
+    source: agentDefinition.source,
     ...(worktreePath && { worktreePath }),
     // Keep explicit cwd even when a worktree exists so resume can fall back
     // to the child repo if the worktree is later removed.

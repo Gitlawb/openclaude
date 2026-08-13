@@ -124,6 +124,9 @@ export async function resumeAgentBackground({
     if (!found) {
       throw new Error(`Cannot resume agent: type '${meta.agentType}' is unavailable or disabled in the current session.`)
     }
+    if (meta.source && found.source !== meta.source) {
+      throw new Error(`Cannot resume agent: identity mismatch. Expected source '${meta.source}', found '${found.source}' for type '${meta.agentType}'.`)
+    }
     selectedAgent = found
   } else {
     selectedAgent = GENERAL_PURPOSE_AGENT

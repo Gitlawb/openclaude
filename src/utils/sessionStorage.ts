@@ -598,6 +598,9 @@ export type AgentMetadata = {
    * resumed agent's notification can show the original description instead
    * of a placeholder. Optional — older metadata files lack this field. */
   description?: string
+  /** Source of the agent definition (e.g. 'built-in', 'projectSettings').
+   * Used on resume to verify the resolved definition matches the original. */
+  source?: string
 }
 
 /**

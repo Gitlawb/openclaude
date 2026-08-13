@@ -95,3 +95,30 @@ test('successfully resumes when agent is available', async () => {
 
   expect(result.agentId).toBe('test-agent')
 })
+
+test('rejects resume when agent definition source does not match metadata', async () => {
+  mockMetadata = {
+    agentType: 'code-reviewer',
+    source: 'built-in', // Originally launched as a built-in
+  }
+
+  // A custom agent was added to the project that shadows the built-in name
+  const customReviewer = {
+    agentType: 'code-reviewer',
+    source: 'projectSettings', // Different source
+    getSystemPrompt: () => 'review code differently',
+  } as unknown as AgentDefinition
+
+  const context = makeToolUseContext([customReviewer])
+
+  await expect(
+    resumeAgentBackground({
+      agentId: 'test-agent',
+      prompt: 'continue',
+      toolUseContext: context,
+      canUseTool: async () => ({ behavior: 'allow' } as any),
+    }),
+  ).rejects.toThrow(
+    "Cannot resume agent: identity mismatch. Expected source 'built-in', found 'projectSettings' for type 'code-reviewer'."
+  )
+})

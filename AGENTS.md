@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # AGENTS.md - AI Agent Coding Guide
 
 This guide is for AI coding agents working in the OpenClaude repository. Read it before changing code, and also follow [CONTRIBUTING.md](CONTRIBUTING.md) for contributor policy, PR expectations, review follow-up, and project scope.
