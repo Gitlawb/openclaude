@@ -444,10 +444,12 @@ test('rejects built-in agents from being spawned as teammates', async () => {
 test('rejects built-in agents from being spawned as teammates even when built-ins are disabled', async () => {
   const { AgentTool, spawnTeammate } = await importAgentToolWithSpawnMock()
 
+  const prevEnv = process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS
   process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS = '1'
-  const { setIsInteractive } = await import('../../bootstrap/state.js')
+  const { setIsInteractive, getIsNonInteractiveSession } = await import('../../bootstrap/state.js')
   const { getAgentDefinitionsWithOverrides, clearAgentDefinitionsCache } = await import('./loadAgentsDir.js')
 
+  const prevInteractive = !getIsNonInteractiveSession()
   setIsInteractive(false)
   clearAgentDefinitionsCache()
 
@@ -465,8 +467,12 @@ test('rejects built-in agents from being spawned as teammates even when built-in
     )
     expect(spawnTeammate).not.toHaveBeenCalled()
   } finally {
-    setIsInteractive(true)
-    delete process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS
+    setIsInteractive(prevInteractive)
+    if (prevEnv !== undefined) {
+      process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS = prevEnv
+    } else {
+      delete process.env.CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS
+    }
     clearAgentDefinitionsCache()
   }
 

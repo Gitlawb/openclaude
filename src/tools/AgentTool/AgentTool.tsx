@@ -855,6 +855,7 @@ export const AgentTool = buildTool({
           // present so resume can still land in the target repository.
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
+            source: selectedAgent.source,
             ...(cwd && { cwd }),
             ...(description && { description }),
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));
