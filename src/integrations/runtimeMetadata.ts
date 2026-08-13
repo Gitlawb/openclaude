@@ -28,7 +28,10 @@ import {
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
-import { readXaiCredentials } from '../utils/xaiCredentials.js'
+import {
+  getXaiDiscoveryCacheIdentity,
+  readXaiCredentials,
+} from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
 function resolveRouteOpenAIShimConfig(
@@ -463,7 +466,7 @@ function findCachedCatalogEntryForApiName(
   if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     const credentials = readXaiCredentials()
     apiKey = firstUsableCredential(credentials?.accessToken)
-    cacheIdentity = credentials?.accountId ?? credentials?.refreshToken ?? apiKey
+    cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,

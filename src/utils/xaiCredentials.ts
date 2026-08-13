@@ -25,6 +25,9 @@ const XAI_TOKEN_REFRESH_RETRY_COOLDOWN_MS = 60_000
 export type XaiCredentialBlob = {
   accessToken: string
   refreshToken: string
+  // An opaque, persisted cache namespace. Unlike a bearer or a rotated refresh
+  // token, it remains stable for the lifetime of one OAuth login.
+  cacheIdentity?: string
   idToken?: string
   expiresAt?: number
   tokenEndpoint: string
@@ -39,6 +42,8 @@ let inFlightXaiRefresh:
   | Promise<{ refreshed: boolean; credentials?: XaiCredentialBlob }>
   | null = null
 let inMemoryLastRefreshFailureAt: number | null = null
+let cachedXaiCredentials: XaiCredentialBlob | undefined
+let hasCachedXaiCredentials = false
 
 function getXaiSecureStorage() {
   return getSecureStorage({ allowPlainTextFallback: false })
@@ -56,6 +61,7 @@ function normalizeXaiCredentialBlob(
   return {
     accessToken,
     refreshToken,
+    cacheIdentity: asTrimmedString(record.cacheIdentity),
     tokenEndpoint,
     idToken: asTrimmedString(record.idToken),
     email: asTrimmedString(record.email),
@@ -76,6 +82,25 @@ function normalizeXaiCredentialBlob(
         ? record.lastRefreshFailureAt
         : undefined,
   }
+}
+
+function cacheXaiCredentials(
+  credentials: XaiCredentialBlob | undefined,
+): XaiCredentialBlob | undefined {
+  cachedXaiCredentials = credentials
+  hasCachedXaiCredentials = true
+  return credentials
+}
+
+export function getXaiDiscoveryCacheIdentity(
+  credentials: XaiCredentialBlob | undefined,
+): string | undefined {
+  return (
+    credentials?.cacheIdentity ??
+    credentials?.accountId ??
+    credentials?.refreshToken ??
+    credentials?.accessToken
+  )
 }
 
 function effectiveExpiresAt(blob: XaiCredentialBlob): number | undefined {
@@ -102,11 +127,14 @@ function isWithinRefreshFailureCooldown(
 
 export function readXaiCredentials(): XaiCredentialBlob | undefined {
   if (isBareMode()) return undefined
+  if (hasCachedXaiCredentials) return cachedXaiCredentials
   try {
     const data = getXaiSecureStorage().read()
-    return normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY])
+    return cacheXaiCredentials(
+      normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY]),
+    )
   } catch {
-    return undefined
+    return cacheXaiCredentials(undefined)
   }
 }
 
@@ -114,11 +142,14 @@ export async function readXaiCredentialsAsync(): Promise<
   XaiCredentialBlob | undefined
 > {
   if (isBareMode()) return undefined
+  if (hasCachedXaiCredentials) return cachedXaiCredentials
   try {
     const data = await getXaiSecureStorage().readAsync()
-    return normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY])
+    return cacheXaiCredentials(
+      normalizeXaiCredentialBlob(data?.[XAI_STORAGE_KEY]),
+    )
   } catch {
-    return undefined
+    return cacheXaiCredentials(undefined)
   }
 }
 
@@ -147,6 +178,7 @@ export function saveXaiCredentials(
   const result = storage.update(next as typeof previous)
   if (result.success) {
     const stored = normalizeXaiCredentialBlob(next[XAI_STORAGE_KEY])
+    cacheXaiCredentials(stored)
     inMemoryLastRefreshFailureAt = stored?.lastRefreshFailureAt ?? null
   }
   return result
@@ -162,7 +194,10 @@ export function clearXaiCredentials(): {
   const next = { ...(previous as Record<string, unknown>) }
   delete next[XAI_STORAGE_KEY]
   const result = storage.update(next as typeof previous)
-  if (result.success) inMemoryLastRefreshFailureAt = null
+  if (result.success) {
+    cacheXaiCredentials(undefined)
+    inMemoryLastRefreshFailureAt = null
+  }
   return result
 }
 
@@ -177,10 +212,17 @@ function persistRefreshFailure(
   if (!result.success) inMemoryLastRefreshFailureAt = occurredAt
 }
 
-function toBlob(tokens: XaiOAuthTokens, previous?: XaiCredentialBlob): XaiCredentialBlob {
+function toBlob(
+  tokens: XaiOAuthTokens,
+  previous?: XaiCredentialBlob,
+  options?: { preserveCacheIdentity?: boolean },
+): XaiCredentialBlob {
   return {
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken || previous?.refreshToken || '',
+    cacheIdentity: options?.preserveCacheIdentity
+      ? getXaiDiscoveryCacheIdentity(previous)
+      : tokens.accountId ?? tokens.refreshToken,
     tokenEndpoint: tokens.tokenEndpoint,
     idToken: tokens.idToken ?? previous?.idToken,
     email: tokens.email ?? previous?.email,
@@ -220,7 +262,7 @@ export async function refreshXaiAccessTokenIfNeeded(options?: {
         refreshToken: current.refreshToken,
         tokenEndpoint: current.tokenEndpoint,
       })
-      const next = toBlob(tokens, current)
+      const next = toBlob(tokens, current, { preserveCacheIdentity: true })
       const save = saveXaiCredentials(next)
       if (!save.success) {
         throw new Error(

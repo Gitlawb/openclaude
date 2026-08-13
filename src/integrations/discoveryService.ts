@@ -1,4 +1,4 @@
-import { pbkdf2Sync } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -36,6 +36,7 @@ import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 import {
+  getXaiDiscoveryCacheIdentity,
   readXaiCredentials,
   resolveXaiAccessToken,
 } from '../utils/xaiCredentials.js'
@@ -120,31 +121,15 @@ function normalizeDiscoveryCacheHeaders(
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }
 
-const DISCOVERY_CACHE_PARTITION_SALT = 'openclaude:discovery-cache:v1'
-const DISCOVERY_CACHE_PARTITION_ITERATIONS = 120_000
-const DISCOVERY_CACHE_PARTITION_CACHE_LIMIT = 64
-const discoveryCachePartitions = new Map<string, string>()
-
 function hashDiscoveryCachePartition(value: unknown): string {
-  const serialized = JSON.stringify(value)
-  const cached = discoveryCachePartitions.get(serialized)
-  if (cached) return cached
-
   // Discovery results can be account-specific, so a credential is used only
-  // to derive an opaque cache namespace. Use a password KDF in case a cache
-  // filename is exposed; never persist the credential itself.
-  const partition = pbkdf2Sync(
-    serialized,
-    DISCOVERY_CACHE_PARTITION_SALT,
-    DISCOVERY_CACHE_PARTITION_ITERATIONS,
-    16,
-    'sha256',
-  ).toString('hex')
-  if (discoveryCachePartitions.size >= DISCOVERY_CACHE_PARTITION_CACHE_LIMIT) {
-    discoveryCachePartitions.delete(discoveryCachePartitions.keys().next().value!)
-  }
-  discoveryCachePartitions.set(serialized, partition)
-  return partition
+  // to derive an opaque cache namespace. Credentials are high-entropy bearer
+  // secrets, not passwords, so a single hash avoids retaining them in memory
+  // and preserves cache keys created before this OAuth support was added.
+  return createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')
+    .slice(0, 16)
 }
 
 export function getDiscoveryCacheKey(
@@ -236,18 +221,23 @@ export async function resolveDiscoveryRequestOptions<
     return next
   }
 
-  const credentials = readXaiCredentials()
-  const token = firstUsableCredential(
+  let credentials = readXaiCredentials()
+  const cacheOnly =
     shouldSkipNonessentialDiscoveryTraffic() ||
-      resolverOptions?.refreshXaiOAuth === false
-      ? credentials?.accessToken
-      : await resolveXaiAccessToken(),
+    resolverOptions?.refreshXaiOAuth === false
+  const token = firstUsableCredential(
+    cacheOnly ? credentials?.accessToken : await resolveXaiAccessToken(),
   )
+  if (!cacheOnly) {
+    // A refresh can rotate the refresh token. Re-read the persisted blob so
+    // discovery writes under the same stable identity subsequent readers use.
+    credentials = readXaiCredentials() ?? credentials
+  }
   if (token) {
     next.apiKey = token
     // The access token can rotate while the OAuth account does not. Keep the
     // cache partition tied to a stable account identity, not a bearer token.
-    next.cacheKey = credentials?.accountId ?? credentials?.refreshToken ?? token
+    next.cacheKey = getXaiDiscoveryCacheIdentity(credentials) ?? token
   }
   return next
 }

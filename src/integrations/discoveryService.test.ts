@@ -651,6 +651,43 @@ describe('discoverModelsForRoute', () => {
     }
   })
 
+  test('uses the persisted xAI OAuth cache identity after token rotation', async () => {
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const initialCredentials = {
+      accessToken: 'old-access-token',
+      refreshToken: 'old-refresh-token',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    }
+    const refreshedCredentials = {
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+      cacheIdentity: 'old-refresh-token',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    }
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentials')
+      .mockReturnValueOnce(initialCredentials)
+      .mockReturnValue(refreshedCredentials)
+    const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'new-access-token',
+    )
+    try {
+      const { resolveDiscoveryRequestOptions } =
+        await loadDiscoveryServiceModule()
+      const result = await resolveDiscoveryRequestOptions('xai', {
+        baseUrl: 'https://api.x.ai/v1',
+      })
+
+      expect(result).toMatchObject({
+        apiKey: 'new-access-token',
+        cacheKey: 'old-refresh-token',
+      })
+      expect(refreshSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      readSpy.mockRestore()
+      refreshSpy.mockRestore()
+    }
+  })
+
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {
     const { refreshStartupDiscoveryForRoute } = await loadDiscoveryServiceModule()
 
