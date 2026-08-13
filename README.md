@@ -74,13 +74,25 @@ OpenClaude is also mirrored to GitLawb:
     </td>
     <td align="center" width="150" height="80">
       <a href="https://novita.ai/">
-        <img src="docs/assets/novita-logo.png" alt="Novita AI logo" width="120">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/novita-logo-dark.svg">
+          <img src="docs/assets/novita-logo.svg" alt="Novita AI logo" width="136">
+        </picture>
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://www.apismart.ai">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/apismart-logo-dark.png">
+          <img src="docs/assets/apismart-logo.png" alt="ApiSmart logo" width="120">
+        </picture>
       </a>
     </td>
   </tr>
   <tr>
     <td align="center"><a href="https://aimlapi.com/"><strong>AI/ML API</strong></a></td>
     <td align="center"><a href="https://novita.ai/"><strong>Novita AI</strong></a></td>
+    <td align="center"><a href="https://www.apismart.ai"><strong>ApiSmart</strong></a></td>
   </tr>
 </table>
 
