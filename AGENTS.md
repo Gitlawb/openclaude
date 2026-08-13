@@ -105,16 +105,15 @@ When modifying provider behavior:
 
 <!-- BEGIN OPENLORE (managed — edits inside this block will be overwritten) -->
 <!-- openlore-fingerprint: 54119b1928fb28c9 -->
-This project uses OpenLore for persistent architectural memory.
+This project supports OpenLore for persistent architectural memory, though it is strictly optional.
 
-ALWAYS call `orient()` (via the openlore MCP server, or `npx openlore orient --json`)
-before reading source files when starting a new task. This returns the relevant
-functions, callers, spec sections, and insertion points for the task at hand and
-saves you 15,000–50,000 tokens of file-by-file rediscovery.
+If you have the OpenLore MCP server configured, you may call `orient()` to quickly find
+relevant functions and specs before reading source files. If you do not use MCP, you can 
+optionally use `npx --yes openlore@0.2.4 orient --json` if you are online.
 
-Re-orient whenever the Epistemic Lease indicates staleness (you'll see a prefix
-on tool responses telling you to do so).
+If you are offline, on a clean checkout, or simply do not wish to use OpenLore, you MUST 
+skip this step. It is non-blocking. Proceed directly with standard file exploration using 
+the provided tools.
 
-For the MCP setup, ensure `openlore mcp` is configured as an MCP server.
-See https://github.com/clay-good/OpenLore for details.
+For the MCP setup, see https://github.com/clay-good/OpenLore for details.
 <!-- END OPENLORE -->
