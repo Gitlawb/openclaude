@@ -141,6 +141,14 @@ export const providers: Provider[] = [
     notes: 'OpenAI-compatible aggregation across hundreds of hosted models.',
   },
   {
+    id: 'orcarouter',
+    name: 'OrcaRouter',
+    group: 'gateways',
+    setup: '/provider or env vars',
+    envVars: ['ORCAROUTER_API_KEY'],
+    notes: 'OpenAI-compatible model routing gateway with named auto routing.',
+  },
+  {
     id: 'near-ai',
     name: 'NEAR AI',
     group: 'gateways',
