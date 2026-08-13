@@ -432,6 +432,9 @@ function sanitizeLegacyText(value: unknown): { text: string; changed: boolean } 
       } catch {
         // Malformed URL (protocol-relative or bare): leave it untouched unless
         // it carries obvious userinfo or a sensitive query credential.
+        if (/\/\/[^\s/]+@/.test(url)) {
+          return redactUrlForDisplay(url)
+        }
         if (/[?&][^&=#]+(?:token|key|secret|password|passwd|pwd|auth|signature|sig|api[_]?key)=/i.test(url)) {
           return redactUrlForDisplay(url)
         }

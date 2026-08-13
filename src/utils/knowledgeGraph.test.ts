@@ -274,6 +274,7 @@ describe('knowledgeGraph legacy migration', () => {
             jwt: 'Connection failed: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
             url: 'https://api.example.com/v1?token=abcDEFghiJKLmnoPQRstUVwxyz&mode=test',
             benign: 'deploying then verify via sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890 now',
+            protocolRelative: 'clone from //svc:supersecretpw@git.internal.example.com/repo.git',
           },
         },
       ],
@@ -288,6 +289,10 @@ describe('knowledgeGraph legacy migration', () => {
     expect(attrs.header).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890')
     expect(attrs.jwt).not.toContain('eyJhbGciOiJIUzI1NiJ9')
     expect(attrs.url).not.toContain('abcDEFghiJKLmnoPQRstUVwxyz')
+    // Protocol-relative URLs with userinfo (no scheme, so new URL() throws)
+    // must still have credentials redacted (copilot P1).
+    expect(attrs.protocolRelative).not.toContain('svc:supersecretpw@')
+    expect(attrs.protocolRelative).toContain('git.internal.example.com/repo.git')
     // Benign context around the secret must be preserved.
     expect(attrs.benign).toContain('deploying then verify via')
     expect(attrs.benign).not.toContain('abcdefghijklmnopqrstuvwxyz1234567890')
