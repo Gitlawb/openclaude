@@ -600,6 +600,33 @@ test('claiming a different intent refuses to clobber a live key-mint lease, even
   expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toBeNull()
 })
 
+test('a differently-amounted claim is no longer blocked once the mint completes and its lease retires', async () => {
+  useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  // Mirrors the real sequence in mintExistingAccountKeyWithLease: acquire the
+  // lease, mint, then persist the winning key via saveAimlapiTopupState.
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  saveAimlapiTopupState({
+    ...expected,
+    resumeSessionToken: '',
+    apiKey: 'minted-key',
+    apiKeyId: 'minted-id',
+  })
+
+  // The user backs out of this still-unpaid checkout and confirms starting a
+  // DIFFERENT amount right away — this must retain the minted key instead of
+  // being refused as "still minting", since the mint actually completed and
+  // its lease retired with it.
+  const next = claimAimlapiTopupState(
+    { ...intent, amountUsdMinor: 5000 },
+    { abandonExisting: true },
+  )
+  expect(next.apiKey).toBe('minted-key')
+  expect(next.apiKeyId).toBe('minted-id')
+})
+
 test('claiming a different intent replaces a never-advanced claim', () => {
   useTemporaryConfig()
   // A fresh claim that never opened a checkout (empty resume token, unsettled, no

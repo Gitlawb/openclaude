@@ -646,6 +646,13 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
   // may itself legitimately be an empty "not applicable" sentinel) must come
   // from the SAME winner, never mixed with a losing caller's id.
   const existingApiKeyWins = Boolean(current.apiKey?.trim())
+  // True only when THIS save is the one electing a freshly minted key (not a
+  // save that merely retains one already recorded, nor one that carries no
+  // key at all, e.g. persisting the exchange flag alone) — the one moment a
+  // live key-mint lease is safe to retire here, since the mint it guarded is
+  // now complete. Retiring it elsewhere would drop an in-flight peer's still
+  //-live lease (see below) or a lease this save never actually resolved.
+  const justElectedNewKey = !existingApiKeyWins && Boolean(state.apiKey?.trim())
   writeAimlapiTopupStateUnlocked({
     ...state,
     resumeSessionToken: current.resumeSessionToken?.trim() || state.resumeSessionToken,
@@ -672,8 +679,17 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
     // neither lease pair, so an unrelated save (e.g. persisting the exchange
     // flag) must not silently drop an in-flight peer's key-mint lease — that
     // would let a THIRD process see the lease as absent and mint a second key.
-    keyMintLeaseOwner: state.keyMintLeaseOwner ?? current.keyMintLeaseOwner,
-    keyMintLeaseAt: state.keyMintLeaseAt ?? current.keyMintLeaseAt,
+    // The one exception is electing a freshly minted key: that mint is now
+    // complete, so the lease that guarded it must retire with it (mirrors
+    // recordAimlapiSettledKeyAsync clearing the exchange lease on settle) —
+    // otherwise hasLiveMintOrExchangeLease keeps reporting a finished mint as
+    // still in flight until the lease ages out on its own.
+    keyMintLeaseOwner: justElectedNewKey
+      ? undefined
+      : (state.keyMintLeaseOwner ?? current.keyMintLeaseOwner),
+    keyMintLeaseAt: justElectedNewKey
+      ? undefined
+      : (state.keyMintLeaseAt ?? current.keyMintLeaseAt),
   })
 }
 

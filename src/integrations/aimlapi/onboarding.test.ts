@@ -9,7 +9,11 @@ import {
   completeAimlapiCodeSignIn,
   validateAimlapiApiKey,
 } from './onboarding.js'
-import { loadAimlapiSignInKey, saveAimlapiSignInKey } from './topupState.js'
+import {
+  acquireAimlapiSignInKeyLeaseAsync,
+  loadAimlapiSignInKey,
+  saveAimlapiSignInKey,
+} from './topupState.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -394,6 +398,63 @@ test('a slow createKey refreshes the sign-in lease before the cache save lands',
   // mid-wait) is covered directly by the isolated topupState lease test this
   // one closes the gap for.
   expect(existsSync(leasePath)).toBe(false)
+})
+
+test('a cache-commit failure right after a successful mint stops the flow instead of stranding the key', async () => {
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_INFERENCE_URL = 'https://api.example.test/v1'
+
+  // A file (not a directory) at the path the config dir is switched to right
+  // as createKey succeeds — forces the post-mint commit's own mkdirSync
+  // (ensureOwnerOnlyDir) to fail with ENOTDIR deterministically and
+  // portably, simulating a real lock/permission/IO-class failure without
+  // relying on OS-specific permission semantics.
+  const brokenParent = join(configDirectory, 'not-a-directory')
+  writeFileSync(brokenParent, '')
+  const brokenConfigDir = join(brokenParent, 'nested')
+
+  let keyMints = 0
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/code/verify')) return response({ token: 'bearer', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      // The key is minted server-side — genuinely successful — but the
+      // config dir is switched to a broken path right before returning, so
+      // the commit that follows fails deterministically.
+      setClaudeConfigHomeDirForTesting(brokenConfigDir)
+      return response({ key: 'minted-key', id: 'minted-id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const error = await completeAimlapiCodeSignIn(
+    'user@example.com',
+    '123456',
+    undefined,
+    'https://api.example.test/v1',
+  ).catch((caught: unknown) => caught)
+  expect(error).toBeInstanceOf(Error)
+  const message = (error as Error).message
+  expect(message).toMatch(/recovery receipt could not be saved/i)
+  // The issued key id is the recovery handle this error exists to surface —
+  // without it, the dashboard-rotation guidance has nothing to point the
+  // user at, so the message must name it, not just describe the failure.
+  expect(message).toContain('minted-id')
+  // Exactly one createKey call: the flow stopped instead of retrying
+  // blindly within the same attempt.
+  expect(keyMints).toBe(1)
+
+  // Restore the good directory to inspect what was actually left behind —
+  // the lease was acquired in the ORIGINAL directory, before the switch.
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  expect(loadAimlapiSignInKey('user@example.com')).toBeNull()
+
+  // The lease must still be held — releasing it (or letting a peer reclaim
+  // it) here would let a retry mint (and orphan) a second key while this
+  // one's receipt remains unresolved.
+  const retryLease = await acquireAimlapiSignInKeyLeaseAsync('user@example.com', 'retry-owner')
+  expect(retryLease.status).toBe('held')
 })
 
 function mockVerifyAndKeyMintCounter(keyMints: { count: number }): typeof fetch {

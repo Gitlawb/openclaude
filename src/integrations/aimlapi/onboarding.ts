@@ -63,47 +63,9 @@ async function mintOrAdoptSignInKey(
       return { apiKey: lease.apiKey, apiKeyId: lease.apiKeyId }
     }
     if (lease.status === 'acquired') {
+      let created: { key: string; id: string }
       try {
-        const created = await client.createKey(accessToken, 'OpenClaude CLI', signal)
-        // Best-effort: give the cache-write phase its own fresh stale window
-        // (see refreshAimlapiSignInKeyLeaseAsync) instead of sharing the
-        // mint's budget — SIGN_IN_KEY_LEASE_STALE_MS already carries generous
-        // margin over this refresh's own worst-case lock wait, so losing
-        // ownership here should be exceedingly rare. A failed refresh call,
-        // or one that reports ownership already lost, is still non-fatal: the
-        // key was already minted, and the commit below is safe to attempt
-        // regardless (its cache write is first-writer-wins, so a losing write
-        // here is a harmless no-op, and it only retires a lease it still
-        // owns) — but log the lost-ownership case, since it signals the
-        // stale window was cut closer than expected and a peer may now also
-        // be minting concurrently.
-        const refreshed = await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(
-          (refreshError: unknown): false => {
-            logForDebugging(
-              `Failed to refresh the AI/ML API sign-in key-mint lease: ${String(refreshError)}`,
-              { level: 'warn' },
-            )
-            return false
-          },
-        )
-        if (!refreshed) {
-          logForDebugging(
-            'AI/ML API sign-in key-mint lease ownership was lost before the cache write; ' +
-              'a concurrent mint may be in flight.',
-            { level: 'warn' },
-          )
-        }
-        try {
-          // Commits the cache entry and retires this lease together: leaving
-          // the lease behind after a successful mint would let it resurface
-          // as "held" for a fresh acquire as soon as something later clears
-          // just the cache entry (see clearAimlapiSignInKeyAsync), even
-          // though no mint is still running.
-          await commitAimlapiSignInKeyAsync(email, created.key, created.id, owner)
-        } catch {
-          // Retained in memory below; the cache is only a recovery aid.
-        }
-        return { apiKey: created.key, apiKeyId: created.id }
+        created = await client.createKey(accessToken, 'OpenClaude CLI', signal)
       } catch (error) {
         // createKey is non-idempotent and exposes no retrieval-by-id
         // endpoint, so a transport-level failure is ambiguous: the POST may
@@ -125,6 +87,63 @@ async function mintOrAdoptSignInKey(
         }
         throw error
       }
+      // createKey succeeded — the key exists server-side regardless of what
+      // happens below, so nothing from here on may release the lease: this
+      // commit is the ONLY durable record of that key, and losing it while
+      // the lease is reclaimable would let a peer mint (and orphan) a
+      // second one before this credential is ever recovered.
+      //
+      // Best-effort: give the cache-write phase its own fresh stale window
+      // (see refreshAimlapiSignInKeyLeaseAsync) instead of sharing the
+      // mint's budget — SIGN_IN_KEY_LEASE_STALE_MS already carries generous
+      // margin over this refresh's own worst-case lock wait, so losing
+      // ownership here should be exceedingly rare. A failed refresh call,
+      // or one that reports ownership already lost, is still non-fatal: the
+      // key was already minted, and the commit below is safe to attempt
+      // regardless (its cache write is first-writer-wins, so a losing write
+      // here is a harmless no-op, and it only retires a lease it still
+      // owns) — but log the lost-ownership case, since it signals the
+      // stale window was cut closer than expected and a peer may now also
+      // be minting concurrently.
+      const refreshed = await refreshAimlapiSignInKeyLeaseAsync(email, owner).catch(
+        (refreshError: unknown): false => {
+          logForDebugging(
+            `Failed to refresh the AI/ML API sign-in key-mint lease: ${String(refreshError)}`,
+            { level: 'warn' },
+          )
+          return false
+        },
+      )
+      if (!refreshed) {
+        logForDebugging(
+          'AI/ML API sign-in key-mint lease ownership was lost before the cache write; ' +
+            'a concurrent mint may be in flight.',
+          { level: 'warn' },
+        )
+      }
+      try {
+        // Commits the cache entry and retires this lease together: leaving
+        // the lease behind after a successful mint would let it resurface
+        // as "held" for a fresh acquire as soon as something later clears
+        // just the cache entry (see clearAimlapiSignInKeyAsync), even
+        // though no mint is still running.
+        await commitAimlapiSignInKeyAsync(email, created.key, created.id, owner)
+      } catch (error) {
+        // A required checkpoint, not a best-effort resume aid: returning the
+        // key only in memory here risks losing it outright — if the caller
+        // is then interrupted (e.g. the user presses Esc while verification
+        // is completing) before it reaches a durable save of its own, the
+        // lease is all that is left, and it eventually goes stale and lets a
+        // retry mint (and orphan) a second key. Stop instead, and leave the
+        // lease exactly as it is: still held, so a retry waits for it rather
+        // than reclaiming it out from under this still-unresolved commit.
+        throw new Error(
+          `A key was issued (id ${created.id}), but the local recovery receipt could not ` +
+            `be saved (${error instanceof Error ? error.message : String(error)}). Open ` +
+            `https://aimlapi.com/app and rotate the issued key to recover access.`,
+        )
+      }
+      return { apiKey: created.key, apiKeyId: created.id }
     }
     // held: a live peer is minting; back off and re-attempt rather than
     // minting in parallel and orphaning a credential.
