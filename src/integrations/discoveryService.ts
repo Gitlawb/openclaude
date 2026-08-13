@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -121,15 +120,23 @@ function normalizeDiscoveryCacheHeaders(
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }
 
-function hashDiscoveryCachePartition(value: unknown): string {
-  // Discovery results can be account-specific, so a credential is used only
-  // to derive an opaque cache namespace. This runs in the shipped Node CLI as
-  // well as Bun during development, so keep it runtime-portable. HMAC is a
-  // one-pass namespace derivation, not password verification.
-  return createHmac('sha256', 'openclaude-discovery-cache-v1')
-    .update(JSON.stringify(value))
-    .digest('hex')
-    .slice(0, 16)
+const FNV1A_128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58dn
+const FNV1A_128_PRIME = 0x0000000001000000000000000000013bn
+
+function fingerprintDiscoveryCachePartition(value: unknown): string {
+  // Discovery results can be account-specific. This only needs a stable,
+  // opaque local cache namespace; it is not password storage, authentication,
+  // integrity protection, or a security boundary. Keep raw credentials out of
+  // the cache key without retaining them in a process-wide memoization cache.
+  let fingerprint = FNV1A_128_OFFSET_BASIS
+  const serialized = JSON.stringify(value) ?? ''
+
+  for (const byte of new TextEncoder().encode(serialized)) {
+    fingerprint ^= BigInt(byte)
+    fingerprint = BigInt.asUintN(128, fingerprint * FNV1A_128_PRIME)
+  }
+
+  return fingerprint.toString(16).padStart(32, '0')
 }
 
 export function getDiscoveryCacheKey(
@@ -146,14 +153,14 @@ export function getDiscoveryCacheKey(
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
     apiKeyHash: cacheIdentity
-      ? hashDiscoveryCachePartition(cacheIdentity)
+      ? fingerprintDiscoveryCachePartition(cacheIdentity)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
     ),
   }
 
-  return `${routeId}:${hashDiscoveryCachePartition(partition)}`
+  return `${routeId}:${fingerprintDiscoveryCachePartition(partition)}`
 }
 
 function getRouteBaseUrl(

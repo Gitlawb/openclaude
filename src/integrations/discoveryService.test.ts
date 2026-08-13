@@ -221,6 +221,24 @@ describe('discoverModelsForRoute', () => {
     expect(callCount).toBe(2)
   })
 
+  test('uses opaque cache partitions for credential-scoped discovery', async () => {
+    const { getDiscoveryCacheKey } = await loadDiscoveryServiceModule()
+
+    const first = getDiscoveryCacheKey('custom', {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'discovery-cache-secret-a',
+    })
+    const second = getDiscoveryCacheKey('custom', {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'discovery-cache-secret-b',
+    })
+
+    expect(first).toMatch(/^custom:[0-9a-f]{32}$/)
+    expect(first).not.toContain('discovery-cache-secret-a')
+    expect(second).not.toContain('discovery-cache-secret-b')
+    expect(first).not.toBe(second)
+  })
+
   test('preserves stale cache data when refresh fails', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
