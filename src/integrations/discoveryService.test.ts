@@ -1035,6 +1035,36 @@ describe('discoverModelsForRoute', () => {
     }
   })
 
+  test('uses the canonical xAI URL for an empty discovery override', async () => {
+    const originalXaiKey = process.env.XAI_API_KEY
+    try {
+      process.env.XAI_API_KEY = 'xai-api-key'
+      let url: string | undefined
+      let authorization: string | null | undefined
+      setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
+        url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        authorization = new Headers(init?.headers).get('authorization')
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }) as unknown as typeof globalThis.fetch)
+
+      const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+      await discoverModelsForRoute('xai', { baseUrl: '', forceRefresh: true })
+
+      expect(url).toBe('https://api.x.ai/v1/models')
+      expect(authorization).toBe('Bearer xai-api-key')
+    } finally {
+      if (originalXaiKey === undefined) {
+        delete process.env.XAI_API_KEY
+      } else {
+        process.env.XAI_API_KEY = originalXaiKey
+      }
+    }
+  })
+
   test('does not refresh xAI OAuth credentials when nonessential traffic is disabled', async () => {
     const xaiCredentials = await import('../utils/xaiCredentials.js')
     const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(

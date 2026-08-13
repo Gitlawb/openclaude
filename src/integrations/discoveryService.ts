@@ -1,4 +1,3 @@
-import { pbkdf2Sync } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -121,21 +120,23 @@ function normalizeDiscoveryCacheHeaders(
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }
 
-const DISCOVERY_CACHE_PARTITION_SALT = 'openclaude:discovery-cache:v1'
-const DISCOVERY_CACHE_PARTITION_ITERATIONS = 120_000
+const FNV1A_128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58dn
+const FNV1A_128_PRIME = 0x0000000001000000000000000000013bn
 
-function hashDiscoveryCachePartition(value: unknown): string {
-  const serialized = JSON.stringify(value)
-  // Discovery results can be account-specific, so a credential is used only
-  // to derive an opaque cache namespace. Use a password KDF in case a cache
-  // filename is exposed; never persist the credential itself.
-  return pbkdf2Sync(
-    serialized,
-    DISCOVERY_CACHE_PARTITION_SALT,
-    DISCOVERY_CACHE_PARTITION_ITERATIONS,
-    16,
-    'sha256',
-  ).toString('hex')
+function fingerprintDiscoveryCachePartition(value: unknown): string {
+  // Cache partitions need a stable opaque namespace, not password hashing or
+  // an authentication boundary. This runs while preparing every request, so
+  // keep it constant-time with respect to credential-stretching work and do
+  // not retain the serialized value in a process-wide memoization cache.
+  let fingerprint = FNV1A_128_OFFSET_BASIS
+  const serialized = JSON.stringify(value) ?? ''
+
+  for (const byte of new TextEncoder().encode(serialized)) {
+    fingerprint ^= BigInt(byte)
+    fingerprint = BigInt.asUintN(128, fingerprint * FNV1A_128_PRIME)
+  }
+
+  return fingerprint.toString(16).padStart(32, '0')
 }
 
 export function getDiscoveryCacheKey(
@@ -152,21 +153,25 @@ export function getDiscoveryCacheKey(
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
     apiKeyHash: cacheIdentity
-      ? hashDiscoveryCachePartition(cacheIdentity)
+      ? fingerprintDiscoveryCachePartition(cacheIdentity)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
     ),
   }
 
-  return `${routeId}:${hashDiscoveryCachePartition(partition)}`
+  return `${routeId}:${fingerprintDiscoveryCachePartition(partition)}`
 }
 
 function getRouteBaseUrl(
   routeId: string,
   options?: { baseUrl?: string },
 ): string | undefined {
-  return options?.baseUrl ?? getRouteDescriptor(routeId)?.defaultBaseUrl
+  const configuredBaseUrl = options?.baseUrl?.trim()
+  if (configuredBaseUrl) {
+    return configuredBaseUrl
+  }
+  return getRouteDescriptor(routeId)?.defaultBaseUrl
 }
 
 function getRouteDiscoveryApiKey(
