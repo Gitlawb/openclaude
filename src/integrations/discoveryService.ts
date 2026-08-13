@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -124,12 +123,12 @@ function normalizeDiscoveryCacheHeaders(
 function hashDiscoveryCachePartition(value: unknown): string {
   // Discovery results can be account-specific, so a credential is used only
   // to derive an opaque cache namespace. Credentials are high-entropy bearer
-  // secrets, not passwords, so a single hash avoids retaining them in memory
-  // and preserves cache keys created before this OAuth support was added.
-  return createHash('sha256')
-    .update(JSON.stringify(value))
-    .digest('hex')
-    .slice(0, 16)
+  // secrets, not passwords. Use Bun's native SHA-256 implementation for this
+  // opaque filename namespace: it preserves the legacy digest format without
+  // treating a credential as a password-verification input.
+  const hasher = new Bun.CryptoHasher('sha256')
+  hasher.update(JSON.stringify(value))
+  return hasher.digest('hex').slice(0, 16)
 }
 
 export function getDiscoveryCacheKey(
