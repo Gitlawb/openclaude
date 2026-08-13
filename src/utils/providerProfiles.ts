@@ -1403,6 +1403,10 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
+        strictEnv.XAI_API_KEY = activeProfile.apiKey
+        strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+      }
       if (isAimlapiProfile) {
         strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
         strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'

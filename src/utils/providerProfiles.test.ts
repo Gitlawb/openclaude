@@ -3354,6 +3354,50 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('retargeted xAI profiles retain dedicated-key identity in the startup env', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const xaiProfile = buildProfile({
+        id: 'xai_proxy',
+        name: 'xAI proxy',
+        provider: 'xai',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'grok-4.6',
+        apiKey: 'xai-test-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [xaiProfile],
+      }))
+
+      const result = setActiveProviderProfile('xai_proxy', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('xai_proxy')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+        OPENAI_BASE_URL: 'https://proxy.example/v1',
+        OPENAI_MODEL: 'grok-4.6',
+        OPENAI_API_KEY: 'xai-test-key',
+        XAI_API_KEY: 'xai-test-key',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))

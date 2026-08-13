@@ -1055,7 +1055,7 @@ describe('discoverModelsForRoute', () => {
 
   test('uses the stored OAuth token to read a fresh xAI discovery cache before refreshing', async () => {
     const xaiCredentials = await import('../utils/xaiCredentials.js')
-    const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue(
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync').mockResolvedValue(
       {
         accessToken: 'cached-oauth-token',
         refreshToken: 'refresh-token',

@@ -34,7 +34,8 @@ import {
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import {
-  readXaiCredentials,
+  getXaiDiscoveryCacheIdentity,
+  readXaiCredentialsAsync,
   resolveXaiAccessToken,
 } from '../utils/xaiCredentials.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
@@ -227,7 +228,7 @@ export async function resolveDiscoveryRequestOptions<
   resolverOptions?: { refreshXaiOAuth?: boolean },
 ): Promise<T> {
   const next = { ...(options ?? {}) } as T
-  if (getRouteDiscoveryApiKey(routeId, next)) {
+  if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai') {
     return next
   }
   const baseUrl = getRouteBaseUrl(routeId, next)
@@ -241,18 +242,21 @@ export async function resolveDiscoveryRequestOptions<
   // Refresh only when a network discovery request is actually necessary: a
   // refresh rotates the token and would otherwise turn a fresh cache entry
   // into an avoidable miss.
-  const credentials = readXaiCredentials()
-  const token = firstUsableCredential(
+  let credentials = await readXaiCredentialsAsync()
+  const cacheOnly =
     shouldSkipNonessentialDiscoveryTraffic() ||
-      resolverOptions?.refreshXaiOAuth === false
-      ? credentials?.accessToken
-      : await resolveXaiAccessToken(),
+    resolverOptions?.refreshXaiOAuth === false
+  const token = firstUsableCredential(
+    cacheOnly ? credentials?.accessToken : await resolveXaiAccessToken(),
   )
+  if (!cacheOnly) {
+    credentials = (await readXaiCredentialsAsync()) ?? credentials
+  }
   if (token) {
     next.apiKey = token
     // Access tokens rotate, while refresh tokens and account IDs identify the
     // same OAuth account. Keep cache partitions stable across token refreshes.
-    next.cacheKey = credentials?.accountId ?? credentials?.refreshToken ?? token
+    next.cacheKey = getXaiDiscoveryCacheIdentity(credentials) ?? token
   }
   return next
 }

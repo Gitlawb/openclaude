@@ -297,13 +297,13 @@ describe('resolveModelRuntimeLimits', () => {
       const originalXaiKey = process.env.XAI_API_KEY
       const originalOpenAIKey = process.env.OPENAI_API_KEY
       const xaiCredentials = await import('../utils/xaiCredentials.js')
-      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockImplementation(
+      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockImplementation(
         () =>
           ({
             accessToken: 'oauth-token',
             refreshToken: 'refresh-token',
             tokenEndpoint: 'https://auth.x.ai/oauth/token',
-          }) as ReturnType<typeof xaiCredentials.readXaiCredentials>,
+          }) as ReturnType<typeof xaiCredentials.getCachedXaiCredentials>,
       )
       try {
         delete process.env.XAI_API_KEY

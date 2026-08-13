@@ -43,7 +43,6 @@ describe('xAI vendor hybrid catalog', () => {
       'grok-4.7',
       'grok-build-0.1',
       'grok-4.20-0309-reasoning',
-      'grok-4.20-multi-agent-0309',
     ]
     for (const id of keep) {
       expect(mapModel(shape(id))).toEqual({
@@ -64,6 +63,7 @@ describe('xAI vendor hybrid catalog', () => {
       'grok-voice-think-fast-2.0',
       'grok-stt-1.0',
       'grok-tts-1.0',
+      'grok-4.20-multi-agent-0309',
     ]
     for (const id of drop) {
       expect(mapModel(shape(id))).toBeNull()
@@ -124,6 +124,9 @@ describe('xAI vendor hybrid catalog', () => {
     const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockImplementation(
       async () => 'oauth-token',
     )
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync').mockResolvedValue(
+      undefined,
+    )
     setClaudeConfigHomeDirForTesting(tempDir)
     try {
       delete process.env.XAI_API_KEY
@@ -155,6 +158,7 @@ describe('xAI vendor hybrid catalog', () => {
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.6')
       expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
     } finally {
+      readSpy.mockRestore()
       tokenSpy.mockRestore()
       globalThis.fetch = originalFetch
       setClaudeConfigHomeDirForTesting(undefined)
