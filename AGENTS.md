@@ -109,7 +109,7 @@ This project supports OpenLore for persistent architectural memory, though it is
 
 If you have the OpenLore MCP server configured, you may call `orient()` to quickly find
 relevant functions and specs before reading source files. If you do not use MCP, you can 
-optionally use `npx --yes openlore@0.2.4 orient --json` if you are online.
+optionally use `npx --yes openlore@2.1.9 orient --json` if you are online.
 
 If you are offline, on a clean checkout, or simply do not wish to use OpenLore, you MUST 
 skip this step. It is non-blocking. Proceed directly with standard file exploration using 
