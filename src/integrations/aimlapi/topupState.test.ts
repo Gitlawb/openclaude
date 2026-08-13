@@ -664,6 +664,12 @@ test('recordAimlapiMintedKeyAsync must not clear a reclaimed peer\'s live lease 
   )
 
   const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  // The stale owner still minted a real key server-side: the receipt must
+  // retain it regardless of who currently holds the lease, or that
+  // credential (createKey is non-idempotent — there is no other copy) is
+  // unrecoverable.
+  expect(saved.apiKey).toBe('owner-a-key')
+  expect(saved.apiKeyId).toBe('owner-a-id')
   expect(saved.keyMintLeaseOwner).toBe('owner-b')
   expect(saved.keyMintLeaseAt).toBeGreaterThan(Date.now() - 5_000)
 
