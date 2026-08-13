@@ -9,6 +9,11 @@ import {
   isRecord,
 } from '../modelMapping.js'
 
+/**
+ * Normalizes OpenGateway model IDs by removing the `xiaomi/` prefix when the
+ * remainder starts with `mimo` (the gateway exposes some Xiaomi models both
+ * with and without the vendor prefix; we keep the shorter form for the catalog).
+ */
 function normalizeOpenGatewayModelId(id: string): string {
   return id.replace(/^xiaomi\/(?=mimo(?:-|$))/i, '')
 }

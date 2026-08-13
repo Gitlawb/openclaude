@@ -8,11 +8,21 @@ import {
   isRecord,
 } from '../modelMapping.js'
 
+/**
+ * Checks if the raw model payload declares support for tool/function calling
+ * via the `supported_parameters` array.
+ */
 function supportsTools(raw: Record<string, unknown>): boolean {
   const params = raw.supported_parameters
   return Array.isArray(params) && params.some(value => value === 'tools')
 }
 
+/**
+ * Checks if the raw model payload declares reasoning support.
+ * Recognizes `reasoning`, `reasoning_effort`, `include_reasoning` in
+ * `supported_parameters`, or a `reasoning` object with mandatory/default/enabled
+ * flags or a non-empty `supported_efforts` array.
+ */
 function supportsReasoning(raw: Record<string, unknown>): boolean {
   const params = raw.supported_parameters
   if (
