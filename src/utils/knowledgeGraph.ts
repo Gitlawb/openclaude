@@ -523,7 +523,9 @@ function doMigration(data: any, sourcePath: string, projectKey: string, sqliteRe
       const safeAttrs: Record<string, string> = {}
       for (const [k, v] of Object.entries(entity.attributes ?? {})) {
         const { text, changed } = sanitizeLegacyText(v)
-        if (looksLikeSecretValue(text) && changed) {
+        // Drop whole-value secrets that were not redacted by sanitizeLegacyText.
+        // If the value contained embedded secrets, keep the redacted form.
+        if (looksLikeSecretValue(text) && !changed) {
           continue
         }
         safeAttrs[k] = text
