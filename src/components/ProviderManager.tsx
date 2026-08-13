@@ -2860,6 +2860,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         setAimlapiIssuedKeyId('')
         setAimlapiTopupByKey(true)
         setAimlapiExistingUsesEnv(options.preserveEnv === true)
+        // Carry the endpoint this key was actually validated against into the
+        // top-up flow — without this, a non-canonical baseUrl here (e.g. a
+        // manually entered key against an overridden AIMLAPI_INFERENCE_URL)
+        // leaves aimlapiInferenceBaseUrl at its stale default, so the later
+        // by-key top-up and profile save would charge/persist against the
+        // wrong endpoint.
+        setAimlapiInferenceBaseUrl(baseUrl)
         setIsAimlapiKeyValidating(false)
         setScreen('aimlapi-low-balance')
         return
@@ -2979,7 +2986,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
     persistAimlapiKey(
       aimlapiIssuedKey,
-      resolveEndpoints().inferenceBaseUrl,
+      aimlapiInferenceBaseUrl,
       model,
       aimlapiTopupPaidRef.current ? 'topup' : 'ready',
       { preserveEnv: aimlapiExistingUsesEnv },

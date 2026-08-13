@@ -1361,6 +1361,128 @@ test('ProviderManager tops up a low-balance saved key by API key, not a new chec
   }
 }, 20_000)
 
+test('ProviderManager tops up and persists a low-balance manually-entered key against the endpoint it was validated on, not the ambient default', async () => {
+  // Reproduces the real divergence: existingAimlapiCredential only offers the
+  // quick-continue screen for a CANONICAL profile, so the saved profile here
+  // must be canonical to even reach it — but the AMBIENT endpoint
+  // (AIMLAPI_INFERENCE_URL) is a proxy override. "Set up a new key or switch
+  // account" then resets aimlapiInferenceBaseUrl to that ambient proxy, while
+  // draft.baseUrl (what the new key is actually validated against) stays at
+  // the old profile's canonical endpoint. The top-up and the saved profile
+  // must follow the validated (canonical) endpoint, not the ambient proxy
+  // aimlapiInferenceBaseUrl was reset to.
+  process.env.AIMLAPI_INFERENCE_URL = 'https://proxy.example.test/v1'
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.AIMLAPI_EMAIL
+  delete process.env.AIMLAPI_CODE
+  const profile = {
+    id: 'aimlapi_existing',
+    provider: 'aimlapi',
+    name: 'aimlapi.com',
+    baseUrl: 'https://api.aimlapi.com/v1',
+    model: 'old-model',
+    apiKey: 'old-key',
+    apiFormat: 'chat_completions',
+  }
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'aimlapi_profile',
+    ...payload,
+  }))
+  const validateAimlapiApiKey = mock(async () => ({
+    balance: 5,
+    lowBalance: true,
+    lowBalanceThreshold: 20,
+  }))
+  const topUpAimlapiByApiKey = mock(async (options: any) => {
+    options.onSession?.('by-key-checkout')
+    options.onStatus?.('waiting-payment')
+    return {
+      apiKey: 'aimlapi-test-key',
+      apiKeyId: '',
+      baseUrl: 'https://api.aimlapi.com/v1',
+      model: 'gpt-4o',
+    }
+  })
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    getProviderProfiles: () => [profile],
+    getActiveProviderProfile: () => profile,
+    addProviderProfile,
+    validateAimlapiApiKey,
+    topUpAimlapiByApiKey,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Provider manager'))
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Choose provider preset'))
+    await navigateToPreset(mounted.stdin, 'aimlapi.com')
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('aimlapi.com account is already configured'),
+    )
+
+    // Select "Set up a new key or switch account" (the second option) —
+    // this is what resets aimlapiInferenceBaseUrl to the ambient default
+    // while draft.baseUrl keeps the old profile's endpoint.
+    const beforeFocusMove = mounted.getOutput()
+    mounted.stdin.write('j')
+    let previousConfiguredFrame = ''
+    await waitForCondition(() => {
+      const frame = mounted.getOutput()
+      const settled =
+        frame !== beforeFocusMove &&
+        frame === previousConfiguredFrame &&
+        frame.includes('already configured')
+      previousConfiguredFrame = frame
+      return settled
+    })
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Do you have an aimlapi.com key?'))
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Enter your aimlapi.com key.'))
+    mounted.stdin.write('aimlapi-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes(AIMLAPI_MESSAGES.lowBalance))
+    expect(validateAimlapiApiKey).toHaveBeenCalledWith(
+      'aimlapi-test-key',
+      expect.any(AbortSignal),
+      'https://api.aimlapi.com/v1',
+    )
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame => frame.includes('Add credits'))
+
+    mounted.stdin.write('\r')
+    await waitForCondition(() => topUpAimlapiByApiKey.mock.calls.length === 1)
+    const topUpOptions = topUpAimlapiByApiKey.mock.calls[0]?.[0] as any
+    expect(topUpOptions.apiKey).toBe('aimlapi-test-key')
+    // The endpoint this key was validated against, not the ambient proxy
+    // aimlapiInferenceBaseUrl was reset to by "switch account".
+    expect(topUpOptions.inferenceBaseUrl).toBe('https://api.aimlapi.com/v1')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'aimlapi',
+        apiKey: 'aimlapi-test-key',
+        baseUrl: 'https://api.aimlapi.com/v1',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+}, 20_000)
+
 test('ProviderManager offers and reuses an existing AIMLAPI profile', async () => {
   delete process.env.AIMLAPI_API_KEY
   const profile = {
