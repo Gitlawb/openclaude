@@ -141,6 +141,7 @@ async function mintOrAdoptSignInKey(
           `A key was issued (id ${created.id}), but the local recovery receipt could not ` +
             `be saved (${error instanceof Error ? error.message : String(error)}). Open ` +
             `https://aimlapi.com/app and rotate the issued key to recover access.`,
+          { cause: error },
         )
       }
       return { apiKey: created.key, apiKeyId: created.id }

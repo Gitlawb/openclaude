@@ -31,10 +31,12 @@ import {
   loadAimlapiTopupState,
   reconcileSettledAimlapiTopupStateAsync,
   recordAimlapiCheckoutSession,
+  recordAimlapiMintedKeyAsync,
   recordAimlapiSettledKeyAsync,
   resetAimlapiCheckoutSession,
   saveAimlapiSignInKey,
   saveAimlapiTopupState,
+  type AimlapiPersistedTopup,
   type AimlapiTopupIntent,
 } from './topupState.js'
 
@@ -600,20 +602,26 @@ test('claiming a different intent refuses to clobber a live key-mint lease, even
   expect(loadAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toBeNull()
 })
 
-test('a differently-amounted claim is no longer blocked once the mint completes and its lease retires', async () => {
-  useTemporaryConfig()
+test('recordAimlapiMintedKeyAsync retires its own key-mint lease so a differently-amounted claim is no longer blocked', async () => {
+  const directory = useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
   const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
 
   // Mirrors the real sequence in mintExistingAccountKeyWithLease: acquire the
-  // lease, mint, then persist the winning key via saveAimlapiTopupState.
+  // lease, mint, then persist the winning key under the SAME owner.
   expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
-  saveAimlapiTopupState({
-    ...expected,
-    resumeSessionToken: '',
-    apiKey: 'minted-key',
-    apiKeyId: 'minted-id',
-  })
+  await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'minted-key', apiKeyId: 'minted-id' },
+    'owner-a',
+  )
+
+  // Pins the lease retirement directly, not just its downstream effect: both
+  // fields must be gone from the persisted record.
+  const statePath = join(directory, 'aimlapi-topup.json')
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.keyMintLeaseOwner).toBeUndefined()
+  expect(saved.keyMintLeaseAt).toBeUndefined()
 
   // The user backs out of this still-unpaid checkout and confirms starting a
   // DIFFERENT amount right away — this must retain the minted key instead of
@@ -625,6 +633,46 @@ test('a differently-amounted claim is no longer blocked once the mint completes 
   )
   expect(next.apiKey).toBe('minted-key')
   expect(next.apiKeyId).toBe('minted-id')
+})
+
+test('recordAimlapiMintedKeyAsync must not clear a reclaimed peer\'s live lease from a stale owner\'s delayed save', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+  const statePath = join(directory, 'aimlapi-topup.json')
+
+  // owner-a's createKey call is delayed long enough for its lease to go
+  // stale (createKey has no refresh mechanism, unlike the sign-in/exchange
+  // leases) — backdate it past KEY_MINT_LEASE_STALE_MS (75s).
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  const aged = JSON.parse(readFileSync(statePath, 'utf8'))
+  aged.keyMintLeaseAt = Date.now() - 100_000
+  writeFileSync(statePath, JSON.stringify(aged))
+
+  // owner-b reclaims the now-stale lease and is genuinely minting — this
+  // mirrors a real stale-lease takeover, not an abandoned attempt.
+  const reclaimed = await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-b')
+  expect(reclaimed.status).toBe('acquired')
+
+  // owner-a's own (very delayed) createKey response finally lands and tries
+  // to record its result — but owner-a no longer holds the lease, so this
+  // must not clear owner-b's now-live one.
+  await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'owner-a-key', apiKeyId: 'owner-a-id' },
+    'owner-a',
+  )
+
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.keyMintLeaseOwner).toBe('owner-b')
+  expect(saved.keyMintLeaseAt).toBeGreaterThan(Date.now() - 5_000)
+
+  // owner-b's mint is still genuinely in flight from the system's point of
+  // view: a differently-amounted claim must still be refused, not allowed
+  // to proceed as though minting were done.
+  expect(() =>
+    claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }, { abandonExisting: true }),
+  ).toThrow(/minting or exchanging/i)
 })
 
 test('claiming a different intent replaces a never-advanced claim', () => {

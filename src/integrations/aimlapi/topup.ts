@@ -42,6 +42,7 @@ import {
   claimAimlapiTopupState,
   clearAimlapiTopupState,
   recordAimlapiCheckoutSession,
+  recordAimlapiMintedKeyAsync,
   recordAimlapiSettledKeyAsync,
   refreshAimlapiExchangeLeaseAsync,
   releaseAimlapiExchangeLeaseAsync,
@@ -437,6 +438,7 @@ export async function runAimlapiTopup(options: AimlapiTopupOptions): Promise<voi
       `Payment succeeded and a key was issued (id ${provisioned.apiKeyId}), but the local ` +
         `recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
         `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
+      { cause: error },
     )
   }
 
@@ -792,17 +794,19 @@ async function mintExistingAccountKeyWithLease(
       // and mint a second key while this one is still unrecorded, and let the
       // caller's retry see it as still in flight rather than absent.
       try {
-        saveAimlapiTopupState({
-          ...expected,
-          resumeSessionToken: '',
-          apiKey: minted.apiKey,
-          apiKeyId: minted.apiKeyId,
-        })
+        // Owner-checked: retires the key-mint lease only while it is still
+        // this call's own — see recordAimlapiMintedKeyAsync.
+        await recordAimlapiMintedKeyAsync(
+          expected,
+          { apiKey: minted.apiKey, apiKeyId: minted.apiKeyId },
+          owner,
+        )
       } catch (error) {
         throw new Error(
           `A key was issued (id ${minted.apiKeyId}), but the local recovery receipt could ` +
             `not be saved (${error instanceof Error ? error.message : String(error)}). Open ` +
             `https://aimlapi.com/app and rotate the issued key to recover access.`,
+          { cause: error },
         )
       }
       return minted

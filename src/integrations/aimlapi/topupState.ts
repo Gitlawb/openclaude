@@ -646,13 +646,6 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
   // may itself legitimately be an empty "not applicable" sentinel) must come
   // from the SAME winner, never mixed with a losing caller's id.
   const existingApiKeyWins = Boolean(current.apiKey?.trim())
-  // True only when THIS save is the one electing a freshly minted key (not a
-  // save that merely retains one already recorded, nor one that carries no
-  // key at all, e.g. persisting the exchange flag alone) — the one moment a
-  // live key-mint lease is safe to retire here, since the mint it guarded is
-  // now complete. Retiring it elsewhere would drop an in-flight peer's still
-  //-live lease (see below) or a lease this save never actually resolved.
-  const justElectedNewKey = !existingApiKeyWins && Boolean(state.apiKey?.trim())
   writeAimlapiTopupStateUnlocked({
     ...state,
     resumeSessionToken: current.resumeSessionToken?.trim() || state.resumeSessionToken,
@@ -679,17 +672,51 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
     // neither lease pair, so an unrelated save (e.g. persisting the exchange
     // flag) must not silently drop an in-flight peer's key-mint lease — that
     // would let a THIRD process see the lease as absent and mint a second key.
-    // The one exception is electing a freshly minted key: that mint is now
-    // complete, so the lease that guarded it must retire with it (mirrors
-    // recordAimlapiSettledKeyAsync clearing the exchange lease on settle) —
-    // otherwise hasLiveMintOrExchangeLease keeps reporting a finished mint as
-    // still in flight until the lease ages out on its own.
-    keyMintLeaseOwner: justElectedNewKey
-      ? undefined
-      : (state.keyMintLeaseOwner ?? current.keyMintLeaseOwner),
-    keyMintLeaseAt: justElectedNewKey
-      ? undefined
-      : (state.keyMintLeaseAt ?? current.keyMintLeaseAt),
+    // This generic save has no owner to check before clearing it, so it never
+    // does — see recordAimlapiMintedKeyAsync for the owner-checked retirement
+    // a successful mint actually needs.
+    keyMintLeaseOwner: state.keyMintLeaseOwner ?? current.keyMintLeaseOwner,
+    keyMintLeaseAt: state.keyMintLeaseAt ?? current.keyMintLeaseAt,
+  })
+}
+
+/**
+ * Record a freshly minted existing-account key under the same CAS, and —
+ * only while the key-mint lease is still held by THIS call's `owner` —
+ * retire it in the same update. createKey (unlike the sign-in/exchange
+ * leases) is never refreshed while the caller waits on it, so a slow
+ * response can let the lease go stale and be reclaimed by a peer before this
+ * save lands. Checking ownership before clearing matters precisely then: the
+ * peer's own mint may still be genuinely in flight, and clearing THEIR live
+ * lease would let a differently-amounted claim proceed as though minting
+ * were done — see claimTopupStateOperation's hasLiveMintOrExchangeLease
+ * guard — discarding the record the peer's still-pending save needs to land
+ * in. First-writer-wins on the key itself, same as saveAimlapiTopupState: a
+ * losing caller's own key is adopted, never overwritten.
+ */
+export function recordAimlapiMintedKeyAsync(
+  expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
+  key: { apiKey: string; apiKeyId?: string },
+  owner: string,
+): Promise<void> {
+  return withStateLockAsync(() => {
+    const current = matchingStateOrNull(expected)
+    if (!current) return
+    const existingApiKeyWins = Boolean(current.apiKey?.trim())
+    const trimmedApiKey = existingApiKeyWins ? current.apiKey : key.apiKey.trim() || undefined
+    const retiresOwnLease = !existingApiKeyWins && current.keyMintLeaseOwner === owner
+    writeAimlapiTopupStateUnlocked({
+      ...current,
+      resumeSessionToken: current.resumeSessionToken?.trim() || '',
+      apiKey: trimmedApiKey,
+      apiKeyId: existingApiKeyWins
+        ? current.apiKeyId
+        : trimmedApiKey
+          ? key.apiKeyId?.trim() || undefined
+          : undefined,
+      keyMintLeaseOwner: retiresOwnLease ? undefined : current.keyMintLeaseOwner,
+      keyMintLeaseAt: retiresOwnLease ? undefined : current.keyMintLeaseAt,
+    })
   })
 }
 

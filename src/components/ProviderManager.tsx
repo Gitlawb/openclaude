@@ -3579,6 +3579,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             `Payment succeeded and a key was issued (id ${provisioned.apiKeyId}), but the ` +
               `local recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
               `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
+            { cause: error },
           )
         }
         // A payment just cleared, so the done screen should report the top-up
