@@ -753,15 +753,16 @@ export function recordAimlapiMintedKeyAsync(
       )
     }
     const trimmedApiKey = key.apiKey.trim() || undefined
+    const trimmedApiKeyId = trimmedApiKey ? key.apiKeyId?.trim() || undefined : undefined
     writeAimlapiTopupStateUnlocked({
       ...current,
       resumeSessionToken: current.resumeSessionToken?.trim() || '',
       apiKey: trimmedApiKey,
-      apiKeyId: trimmedApiKey ? key.apiKeyId?.trim() || undefined : undefined,
+      apiKeyId: trimmedApiKeyId,
       keyMintLeaseOwner: undefined,
       keyMintLeaseAt: undefined,
     })
-    return { apiKey: trimmedApiKey ?? '', apiKeyId: key.apiKeyId }
+    return { apiKey: trimmedApiKey ?? '', apiKeyId: trimmedApiKeyId }
   })
 }
 
@@ -771,22 +772,28 @@ export function recordAimlapiMintedKeyAsync(
  * intent survive. The exchange-lease winner calls this BEFORE it returns the key,
  * so a crash after the non-idempotent /exchange can still recover the paid key
  * from the receipt instead of re-running (and being rejected by) the spent
- * exchange. Clears the lease — a settled receipt supersedes it. No-op when the
- * slot no longer belongs to this intent + payment id (a reset/clear happened).
+ * exchange. Clears the lease — a settled receipt supersedes it.
+ *
+ * Returns whether the receipt was actually written. Both no-op cases — the slot
+ * no longer belongs to this intent + payment id (a reset/clear happened), or no
+ * credential could be resolved to settle with — return false rather than
+ * throwing, since neither is an I/O failure. Callers that treat this as the
+ * only durable record of the exchange (see exchangeKeyWithLease) must treat a
+ * `false` return exactly like a thrown error: nothing was committed.
  */
 export function recordAimlapiSettledKeyAsync(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
   key: { apiKey: string; apiKeyId?: string; model?: string },
-): Promise<void> {
+): Promise<boolean> {
   return withStateLockAsync(() => {
     const current = matchingStateOrNull(expected)
-    if (!current) return
+    if (!current) return false
     const apiKey = key.apiKey.trim() || current.apiKey?.trim()
     // Never settle without a credential: marking the receipt settled and clearing
     // the lease with no key would make a peer resume from a receipt that holds
     // nothing while the one-shot /exchange is already spent. Leave the record
     // (and its lease) untouched so a retry can still exchange.
-    if (!apiKey) return
+    if (!apiKey) return false
     writeAimlapiTopupStateUnlocked({
       ...current,
       apiKey,
@@ -796,6 +803,7 @@ export function recordAimlapiSettledKeyAsync(
       exchangeLeaseOwner: undefined,
       exchangeLeaseAt: undefined,
     })
+    return true
   })
 }
 

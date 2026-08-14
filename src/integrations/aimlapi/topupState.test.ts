@@ -635,6 +635,27 @@ test('recordAimlapiMintedKeyAsync retires its own key-mint lease so a differentl
   expect(next.apiKeyId).toBe('minted-id')
 })
 
+test('recordAimlapiMintedKeyAsync returns the apiKeyId it actually persisted, not the raw untrimmed input', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  expect((await acquireAimlapiKeyMintLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
+  const recorded = await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'minted-key', apiKeyId: '  minted-id  ' },
+    'owner-a',
+  )
+
+  // The persisted record trims the id; the returned value must match it exactly
+  // (mintExistingAccountKeyWithLease reports the returned id as saved), not the
+  // raw untrimmed input.
+  const statePath = join(directory, 'aimlapi-topup.json')
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.apiKeyId).toBe('minted-id')
+  expect(recorded.apiKeyId).toBe('minted-id')
+})
+
 test('recordAimlapiMintedKeyAsync rejects a stale owner\'s delayed result instead of recording it beside a reclaimed peer\'s live lease', async () => {
   const directory = useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
@@ -1125,11 +1146,13 @@ test('recordAimlapiSettledKeyAsync persists the key and clears the lease under t
   // The winner holds the lease while it runs the one-shot exchange.
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-a')).status).toBe('acquired')
 
-  await recordAimlapiSettledKeyAsync(expected, {
-    apiKey: 'exchanged-key',
-    apiKeyId: 'exchanged-id',
-    model: 'gpt-4o',
-  })
+  expect(
+    await recordAimlapiSettledKeyAsync(expected, {
+      apiKey: 'exchanged-key',
+      apiKeyId: 'exchanged-id',
+      model: 'gpt-4o',
+    }),
+  ).toBe(true)
 
   // The receipt is readable (settled + key) and supersedes the lease, so a peer
   // resumes from it rather than finding a lingering lease.
@@ -1139,9 +1162,11 @@ test('recordAimlapiSettledKeyAsync persists the key and clears the lease under t
   expect(loaded?.apiKeyId).toBe('exchanged-id')
   expect((await acquireAimlapiExchangeLeaseAsync(expected, 'owner-b')).status).toBe('settled')
 
-  // CAS: it is a no-op once the slot no longer belongs to this intent + payment id.
+  // CAS: it is a no-op once the slot no longer belongs to this intent + payment id,
+  // and the caller can tell — the boolean return is its only signal, since this
+  // path never throws.
   clearAimlapiTopupState(expected)
-  await recordAimlapiSettledKeyAsync(expected, { apiKey: 'late-key' })
+  expect(await recordAimlapiSettledKeyAsync(expected, { apiKey: 'late-key' })).toBe(false)
   expect(loadAimlapiTopupState(intent)).toBeNull()
 })
 
@@ -1155,7 +1180,8 @@ test('recordAimlapiSettledKeyAsync never settles a receipt without a key', async
   // No key resolved (none passed, none stored): the receipt must NOT be marked
   // settled and the lease must survive, so a retry can still run the exchange
   // rather than resuming from a keyless receipt for a spent one-shot exchange.
-  await recordAimlapiSettledKeyAsync(expected, { apiKey: '' })
+  // The boolean return is the only signal of this — the call never throws.
+  expect(await recordAimlapiSettledKeyAsync(expected, { apiKey: '' })).toBe(false)
 
   expect(loadAimlapiTopupState(intent)?.settled).not.toBe(true)
   // The lease must remain HELD (owner-a's, intact) — not merely "not settled":

@@ -8,6 +8,7 @@ import {
   acquireAimlapiExchangeLeaseAsync,
   acquireAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
+  clearAimlapiTopupState,
   loadAimlapiTopupState,
   recordAimlapiSettledKeyAsync,
   saveAimlapiTopupState,
@@ -826,6 +827,69 @@ test('provisionAimlapiKey itself fails when the post-exchange settled-receipt co
     'retry-owner',
   )
   expect(retryLease.status).toBe('held')
+})
+
+test('provisionAimlapiKey fails when the settled-receipt commit is a no-op, not just when it throws', async () => {
+  // recordAimlapiSettledKeyAsync returns false (rather than throwing) when the
+  // checkout record was cleared/reset out from under its CAS between the
+  // /exchange succeeding and this call landing — e.g. a concurrent `topup reset`.
+  // That's just as unrecoverable as an I/O failure: this call is still the only
+  // place the exchanged key was ever recorded, so it must fail the same way.
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-noop-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'OpenClaude',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions/paid-session')) {
+      return sessionJson({ sessionToken: 'paid-session', status: 'paid' })
+    }
+    if (url.endsWith('/exchange')) {
+      // Simulate a concurrent reset landing between the /exchange response and
+      // the checkpoint's own read of the record: matchingStateOrNull(expected)
+      // will find nothing, and the old code silently returned instead of
+      // signaling anything went wrong.
+      clearAimlapiTopupState(expected)
+      return Response.json({ apiKey: 'exchanged_key', apiKeyId: 'exchanged_id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const error = await provisionAimlapiKey({
+    sessionToken: 'account-session',
+    resumeSessionToken: 'paid-session',
+    paymentSessionId: claimed.paymentSessionId,
+    exchange: true,
+    intent,
+    amountUsd: '25',
+    model: 'gpt-4o',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+
+  expect(error).toBeInstanceOf(Error)
+  const message = (error as Error).message
+  expect(message).toMatch(/recovery receipt could not be saved/i)
+  expect(message).toContain('exchanged_id')
 })
 
 test('a receipt-write failure right after a successful exchange stops the flow instead of stranding the key', async () => {

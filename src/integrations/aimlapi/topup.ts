@@ -995,8 +995,9 @@ async function exchangeKeyWithLease(
       // still in flight and cannot send a second /exchange for the spent
       // session rather than falling through to the discovers-it-was-already-
       // exchanged case, which has no automatic recovery.
+      let settled: boolean
       try {
-        await recordAimlapiSettledKeyAsync(expected, {
+        settled = await recordAimlapiSettledKeyAsync(expected, {
           apiKey: exchanged.apiKey,
           apiKeyId: exchanged.apiKeyId,
           model: options.model,
@@ -1007,6 +1008,20 @@ async function exchangeKeyWithLease(
             `recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
             `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
           { cause: error },
+        )
+      }
+      // recordAimlapiSettledKeyAsync also returns false (rather than throwing) when
+      // the write is a deliberate no-op — the checkout record was cleared/reset out
+      // from under this CAS, or no credential could be resolved to settle with.
+      // Neither is an I/O failure, but both leave this call as the only place the
+      // exchanged key was ever recorded, so they must fail exactly like a thrown
+      // save error rather than let the key return with no durable receipt.
+      if (!settled) {
+        throw new Error(
+          `Payment succeeded and a key was issued (id ${exchanged.apiKeyId}), but the local ` +
+            `recovery receipt could not be saved (the checkout record was cleared, reset, or claimed ` +
+            `anew before it could be committed). Open https://aimlapi.com/app and rotate the issued ` +
+            `key to recover access.`,
         )
       }
       return exchanged
