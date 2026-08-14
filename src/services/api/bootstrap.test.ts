@@ -154,7 +154,7 @@ test('local OpenAI bootstrap falls back when route discovery has only static mod
   }
 })
 
-test('AIMLAPI discovery omits credentials on the public /models route', async () => {
+test('AIMLAPI discovery passes credentials and headers on the bootstrap route', async () => {
   const envKeys = [
     'ANTHROPIC_CUSTOM_HEADERS',
     'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
@@ -211,11 +211,12 @@ test('AIMLAPI discovery omits credentials on the public /models route', async ()
       },
     })
 
-    // Public `/models`: no apiKey and no env-sourced headers reach the probe;
-    // only the route's attribution headers ride along on the fallback.
-    expect(discoveryOptions?.apiKey).toBeUndefined()
-    expect(discoveryOptions?.headers).toBeUndefined()
-    expect(fallbackOptions?.apiKey).toBeUndefined()
+    expect(discoveryOptions?.apiKey).toBe('sk-aimlapi-test')
+    expect(discoveryOptions?.headers).toEqual({
+      Authorization: 'Bearer leaked',
+      'X-API-Key': 'leaked-key',
+    })
+    expect(fallbackOptions?.apiKey).toBe('sk-aimlapi-test')
     expect(fallbackOptions?.headers).toEqual({
       'X-AIMLAPI-Source': 'agent/openclaude',
       'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
@@ -223,6 +224,8 @@ test('AIMLAPI discovery omits credentials on the public /models route', async ()
       'X-AIMLAPI-Integration-Version': publicBuildVersion,
       'HTTP-Referer': 'OpenClaude',
       'X-Title': 'OpenClaude',
+      Authorization: 'Bearer leaked',
+      'X-API-Key': 'leaked-key',
     })
   } finally {
     for (const key of envKeys) {

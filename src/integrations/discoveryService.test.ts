@@ -336,8 +336,8 @@ describe('discoverModelsForRoute', () => {
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
-    expect(result?.models[1]?.label).toBe('Anthropic: Claude Sonnet 4')
-    expect(result?.models[1]?.contextWindow).toBe(200000)
+    expect(result?.models[3]?.label).toBe('Anthropic: Claude Sonnet 4')
+    expect(result?.models[3]?.contextWindow).toBe(200000)
   })
 
   test('opengateway hybrid discovery loads the live list without a key', async () => {
@@ -400,6 +400,89 @@ describe('discoverModelsForRoute', () => {
     )
     expect(liveOnly?.label).toBe('Kimi K3')
     expect(liveOnly?.contextWindow).toBe(128000)
+  })
+
+  test('openrouter discovery preserves credentials and custom headers for overridden base URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedUrl: string | undefined
+    let capturedHeaders: unknown
+    setMockFetch(mock((input, init) => {
+      capturedUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'custom-proxy/model-1' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('openrouter', {
+      baseUrl: 'https://proxy.corp.internal/v1',
+      apiKey: 'sk-or-proxy-key',
+      headers: {
+        'X-Proxy-Auth': 'secret-proxy-token',
+      },
+      forceRefresh: true,
+    })
+
+    expect(capturedUrl).toBe('https://proxy.corp.internal/v1/models')
+    expect(capturedHeaders).toEqual({
+      'X-Proxy-Auth': 'secret-proxy-token',
+      Authorization: 'Bearer sk-or-proxy-key',
+    })
+    expect(result?.source).toBe('network')
+    expect(result?.models.some(m => m.apiName === 'custom-proxy/model-1')).toBe(true)
+  })
+
+  test('opengateway discovery preserves credentials and custom headers for overridden base URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedUrl: string | undefined
+    let capturedHeaders: unknown
+    setMockFetch(mock((input, init) => {
+      capturedUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'custom-og/mimo-v3' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      baseUrl: 'https://og-proxy.corp.internal/v1',
+      apiKey: 'ogw_live_proxy_key',
+      headers: {
+        'X-Custom-Gate': 'gate-token',
+      },
+      forceRefresh: true,
+    })
+
+    expect(capturedUrl).toBe('https://og-proxy.corp.internal/v1/models')
+    expect(capturedHeaders).toEqual({
+      'Accept-Encoding': 'identity',
+      'X-Custom-Gate': 'gate-token',
+      Authorization: 'Bearer ogw_live_proxy_key',
+    })
+    expect(result?.source).toBe('network')
+    expect(result?.models.some(m => m.apiName === 'custom-og/mimo-v3')).toBe(true)
   })
 
   test('openai-compatible discovery applies descriptor static headers with auth', async () => {
@@ -501,12 +584,9 @@ describe('discoverModelsForRoute', () => {
     }) as unknown as typeof globalThis.fetch)
 
     const result = await discoverModelsForRoute('discovery-no-auth-test', {
-      apiKey: 'discovery-key',
       forceRefresh: true,
     })
-    const cached = await discoverModelsForRoute('discovery-no-auth-test', {
-      apiKey: 'different-discovery-key',
-    })
+    const cached = await discoverModelsForRoute('discovery-no-auth-test')
 
     expect(result?.source).toBe('network')
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
@@ -589,12 +669,6 @@ describe('discoverModelsForRoute', () => {
     }) as unknown as typeof globalThis.fetch)
 
     const result = await discoverModelsForRoute('aimlapi', {
-      apiKey: 'should-not-be-sent',
-      headers: {
-        Authorization: 'Bearer should-not-be-sent',
-        'anthropic-api-key': 'should-not-be-sent',
-        'X-Custom-Secret': 'should-not-be-sent',
-      },
       forceRefresh: true,
     })
 

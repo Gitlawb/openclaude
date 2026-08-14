@@ -1589,8 +1589,10 @@ test('/model merges non-empty OpenGateway discovery cache with curated entries w
       'qwen/qwen3.7-max',
       'z-ai/glm-5.2',
       'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'inclusionai/ling-3.0-flash:free',
+      'nvidia/nemotron-3-ultra-550b-a55b',
+      'inclusionai/ling-3.0-flash',
       'mindai/macaron-v1-tall',
+      'mindai/macaron-v1-venti',
       'tencent/hy3',
       'moonshotai/kimi-k3',
     ])

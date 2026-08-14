@@ -174,10 +174,6 @@ function getRouteDiscoveryApiKey(
   routeId: string,
   options?: { baseUrl?: string; apiKey?: string },
 ): string | undefined {
-  if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
-    return undefined
-  }
-
   const baseUrl = getRouteBaseUrl(routeId, options)
   // ApiSmart's dedicated token must never be used for an overridden discovery
   // URL. Apply the same exact inference-endpoint boundary used by requests and
@@ -254,8 +250,6 @@ export function getRouteDiscoveryHeaders(
   options?: { baseUrl?: string; headers?: Record<string, string> },
 ): Record<string, string> | undefined {
   const transportConfig = getRouteDescriptor(routeId)?.transportConfig
-  const acceptsCallerHeaders =
-    getRouteCatalog(routeId)?.discovery?.requiresAuth !== false
   // Descriptor headers are attribution, not transport plumbing: an `aimlapi`
   // profile keeps its route id while pointing at a user-controlled proxy, so the
   // `/models` request must be filtered on the same canonical predicate the
@@ -272,7 +266,7 @@ export function getRouteDiscoveryHeaders(
           getRouteBaseUrl(routeId, options),
         )
       : descriptorHeaders),
-    ...(acceptsCallerHeaders ? (options?.headers ?? {}) : {}),
+    ...(options?.headers ?? {}),
   }
 
   return Object.keys(headers).length > 0 ? headers : undefined

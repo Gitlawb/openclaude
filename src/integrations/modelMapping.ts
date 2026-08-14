@@ -36,7 +36,7 @@ export function firstPositiveNumber(...values: unknown[]): number | undefined {
  * Matches common embedding, audio, image, moderation, and speech model name patterns.
  */
 export function isKnownNonCodingModelId(id: string): boolean {
-  return /(audio|dall-e|deep-research|embedding|image|moderation|realtime|rerank|sora|speech|transcribe|translate|tts|whisper)/i.test(
+  return /(audio|dall-e|embedding|image|moderation|realtime|rerank|sora|speech|transcribe|translate|tts|whisper)/i.test(
     id,
   )
 }

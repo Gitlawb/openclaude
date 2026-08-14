@@ -100,4 +100,28 @@ describe('openrouter gateway live model mapping', () => {
       })?.capabilities,
     ).toEqual({ supportsReasoning: true })
   })
+
+  test('keeps text models with deep-research in their ID', () => {
+    expect(
+      mapOpenRouterModel({
+        id: 'perplexity/sonar-deep-research',
+        name: 'Perplexity: Sonar Deep Research',
+        context_length: 128000,
+        architecture: {
+          input_modalities: ['text'],
+          output_modalities: ['text'],
+        },
+        supported_parameters: ['tools', 'reasoning'],
+      }),
+    ).toEqual({
+      id: 'perplexity/sonar-deep-research',
+      apiName: 'perplexity/sonar-deep-research',
+      label: 'Perplexity: Sonar Deep Research',
+      contextWindow: 128000,
+      capabilities: {
+        supportsFunctionCalling: true,
+        supportsReasoning: true,
+      },
+    })
+  })
 })
