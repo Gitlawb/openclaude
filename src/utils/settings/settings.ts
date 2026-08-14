@@ -14,7 +14,6 @@ import { logForDebugging } from '../debug.js'
 import { logForDiagnosticsNoPII } from '../diagLogs.js'
 import { getClaudeConfigHomeDir, isEnvTruthy } from '../envUtils.js'
 import { getErrnoCode, isENOENT } from '../errors.js'
-import { writeFileSyncAndFlush_DEPRECATED } from '../file.js'
 import { readFileSync } from '../fileRead.js'
 import { getFsImplementation, safeResolvePath } from '../fsOperations.js'
 import { addFileGlobRuleToGitignore } from '../git/gitignore.js'
@@ -29,10 +28,7 @@ import {
   type SettingSource,
 } from './constants.js'
 import { markInternalWrite } from './internalWrites.js'
-import {
-  SettingsFileLockOwnershipError,
-  withSettingsFileLockSync,
-} from './settingsFileLock.js'
+import { withSettingsFileLockSync } from './settingsFileLock.js'
 import {
   getManagedFilePath,
   getManagedSettingsDropInDir,
@@ -434,117 +430,23 @@ export function updateSettingsForSource(
   source: EditableSettingSource,
   settings: SettingsJson,
 ): { error: Error | null } {
-  const result = updateSettingsForSourceWithResult(source, settings)
-  return { error: result.error }
-}
-
-/**
- * Rich settings-write result for callers that must advance runtime state only
- * after the requested bytes are known to have committed.
- */
-export function updateSettingsForSourceWithResult(
-  source: EditableSettingSource,
-  settings: SettingsJson,
-): SettingsWriteResult {
-  return updateSettingsForSourceWithFreshSettings(source, () => settings)
-}
-
-export type SettingsWriteResult = {
-  /**
-   * The persistence or cleanup error, when one exists. A pre-write refusal
-   * such as an unavailable settings path can have `error: null` together with
-   * `written: false`; callers should supply operation-specific fallback copy.
-   */
-  error: Error | null
-  /** True only when the requested bytes reached the settings file. */
-  written: boolean
-  /**
-   * False when bytes reached the acquired physical target but ownership or
-   * logical-target identity changed before the transaction released. Omitted
-   * by legacy/test callers, where `written` remains the compatibility signal.
-   */
-  committed?: boolean
-  /** The requested state was already present in the locked fresh snapshot. */
-  unchanged?: boolean
-}
-
-/** Return from a fresh-settings updater when its requested state already exists. */
-export const SETTINGS_UPDATE_NO_CHANGE = Symbol('settings-update-no-change')
-
-/**
- * True only when the requested settings bytes reached disk. A release or
- * cleanup error can coexist with `written: true`; stateful callers must keep
- * their in-memory state aligned with the committed bytes in that case.
- */
-export function wasSettingsUpdateCommitted(
-  result: SettingsWriteResult,
-): boolean {
-  return result.committed ?? result.written
-}
-
-/**
- * True when the guarded transaction either wrote the requested bytes or
- * verified that the requested state was already present without an error.
- */
-export function wasSettingsUpdateApplied(
-  result: SettingsWriteResult,
-): boolean {
-  return (
-    wasSettingsUpdateCommitted(result) ||
-    (result.unchanged === true && result.error === null)
-  )
-}
-
-/**
- * Computes a settings patch from the fresh file contents while holding the
- * physical-target lock. Use this for read-dependent updates such as appending
- * to arrays; constructing those patches before lock acquisition can overwrite
- * a concurrent process's successful change.
- *
- * The callback is synchronous and must not re-enter settings persistence.
- */
-export function updateSettingsForSourceWithFreshSettings(
-  source: EditableSettingSource,
-  createSettingsPatch: (settings: SettingsJson) => SettingsJson,
-): SettingsWriteResult {
-  return updateSettingsForSourceWithFreshSettingsOrNoop(
-    source,
-    createSettingsPatch,
-  )
-}
-
-/**
- * Fresh-settings update variant that can explicitly report that the requested
- * state already exists, avoiding an unnecessary rewrite while under the lock.
- */
-export function updateSettingsForSourceWithFreshSettingsOrNoop(
-  source: EditableSettingSource,
-  createSettingsPatch: (
-    settings: SettingsJson,
-  ) => SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE,
-): SettingsWriteResult {
   if (
     (source as unknown) === 'policySettings' ||
     (source as unknown) === 'flagSettings'
   ) {
-    return { error: null, written: false }
+    return { error: null }
   }
 
   // Create the folder if needed
   const filePath = getSettingsFilePathForSource(source)
   if (!filePath) {
-    return { error: null, written: false }
+    return { error: null }
   }
 
-  let written = false
-  let committed = false
-  let unchanged = false
-  let noChangeRequested = false
-  let callbackError: Error | null = null
   try {
     withSettingsFileLockSync(
       filePath,
-      ({ targetPath, assertOwned }) => {
+      ({ targetPath, writeFile }) => {
         // Always re-read after acquiring the physical-target lock. The public
         // parser's path cache may describe an older external write.
         let existingSettings = parseSettingsFileUncached(filePath, targetPath)
@@ -572,8 +474,8 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
             }
             if (rawData && typeof rawData === 'object') {
               // safeParseJSON memoizes small inputs and returns the cached object
-              // by reference. mergeWith mutates its destination, so clone the
-              // validation-fallback value before merging an update into it.
+              // by reference. mergeWith mutates its destination, so do not let a
+              // failed transaction mutate a cached parse result.
               existingSettings = structuredClone(rawData) as SettingsJson
               logForDebugging(
                 `Using raw settings from ${filePath} due to validation failure`,
@@ -582,107 +484,53 @@ export function updateSettingsForSourceWithFreshSettingsOrNoop(
           }
         }
 
-        let settings: SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE
-        try {
-          settings = createSettingsPatch(
-            structuredClone(existingSettings || {}),
-          )
-        } catch (error) {
-          callbackError =
-            error instanceof Error ? error : new Error(String(error))
-          throw callbackError
-        }
-        if (settings === SETTINGS_UPDATE_NO_CHANGE) {
-          noChangeRequested = true
-          return
-        }
-        const updatedSettings = applySettingsPatch(
+        const updatedSettings = mergeWith(
           existingSettings || {},
           settings,
+          (
+            _objValue: unknown,
+            srcValue: unknown,
+            key: string | number | symbol,
+            object: Record<string | number | symbol, unknown>,
+          ) => {
+            // Handle undefined as deletion
+            if (srcValue === undefined && object && typeof key === 'string') {
+              delete object[key]
+              return undefined
+            }
+            // For arrays, always replace with the provided array
+            // This puts the responsibility on the caller to compute the desired final state
+            if (Array.isArray(srcValue)) {
+              return srcValue
+            }
+            // For non-arrays, let lodash handle the default merge behavior
+            return undefined
+          },
         )
 
-        assertOwned()
-        writeFileSyncAndFlush_DEPRECATED(
-          targetPath,
-          jsonStringify(updatedSettings, null, 2) + '\n',
-          { encoding: 'utf-8', preserveSymlink: false },
-        )
-        written = true
+        writeFile(jsonStringify(updatedSettings, null, 2) + '\n')
         markInternalWrite(filePath)
         markInternalWrite(targetPath)
         resetSettingsCache()
-        // Detect a logical symlink retarget or ownership compromise that lands
-        // after the pre-write assertion but before release. The old physical
-        // target may contain bytes, but the logical settings transaction did
-        // not commit in that case.
-        assertOwned()
       },
     )
-    committed = written
-    // A requested no-op is trustworthy only after release validates that the
-    // same physical target remained owned for the complete transaction.
-    unchanged = noChangeRequested
-    if (unchanged) {
-      // The lock-scoped snapshot may be newer than the public parser caches.
-      // Invalidate them even when no bytes were needed so later readers see
-      // the state this transaction just verified.
-      resetSettingsCache()
-    }
-  } catch (e) {
-    committed =
-      written && !(e instanceof SettingsFileLockOwnershipError)
-    const error =
-      callbackError ?? new Error(`Failed to update settings at ${filePath}: ${e}`)
-    logError(error)
-    return {
-      error,
-      written,
-      committed,
-      ...(unchanged ? { unchanged: true } : {}),
-    }
-  } finally {
-    if (source === 'localSettings' && written) {
-      // Bytes can land before ownership or release reports an error. Preserve
-      // the local-settings gitignore side effect for every physical write.
+
+    if (source === 'localSettings') {
+      // Okay to add to gitignore async without awaiting
       void addFileGlobRuleToGitignore(
         getRelativeSettingsFilePathForSource('localSettings'),
         getOriginalCwd(),
       )
     }
+  } catch (e) {
+    const error = new Error(
+      `Failed to update settings at ${filePath}: ${e}`,
+    )
+    logError(error)
+    return { error }
   }
 
-  return {
-    error: null,
-    written,
-    committed,
-    ...(unchanged ? { unchanged: true } : {}),
-  }
-}
-
-/** Apply a settings patch with the same deletion and array semantics as disk writes. */
-export function applySettingsPatch(
-  existingSettings: SettingsJson,
-  settings: SettingsJson,
-): SettingsJson {
-  return mergeWith(
-    structuredClone(existingSettings),
-    settings,
-    (
-      _objValue: unknown,
-      srcValue: unknown,
-      key: string | number | symbol,
-      object: Record<string | number | symbol, unknown>,
-    ) => {
-      if (srcValue === undefined && object && typeof key === 'string') {
-        delete object[key]
-        return undefined
-      }
-      if (Array.isArray(srcValue)) {
-        return srcValue
-      }
-      return undefined
-    },
-  )
+  return { error: null }
 }
 
 /**

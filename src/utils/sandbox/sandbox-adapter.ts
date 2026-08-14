@@ -37,17 +37,13 @@ import { settingsChangeDetector } from '../settings/changeDetector.js'
 import { SETTING_SOURCES, type SettingSource } from '../settings/constants.js'
 import { getManagedSettingsDropInDir } from '../settings/managedPath.js'
 import {
-  SETTINGS_UPDATE_NO_CHANGE,
   getInitialSettings,
   getRelativeSettingsFilePathForSource,
   getSettings_DEPRECATED,
   getSettingsFilePathForSource,
   getSettingsForSource,
   getSettingsRootPathForSource,
-  updateSettingsForSourceWithFreshSettings,
-  updateSettingsForSourceWithFreshSettingsOrNoop,
-  wasSettingsUpdateApplied,
-  wasSettingsUpdateCommitted,
+  updateSettingsForSource,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 
@@ -226,7 +222,6 @@ export function convertToSandboxRuntimeConfig(
         allowedDomains.push(rule.ruleContent.substring('domain:'.length))
       }
     }
-    allowedDomains.push(...sessionAllowedDomains)
   }
 
   for (const ruleString of permissions.deny || []) {
@@ -411,7 +406,6 @@ export function convertToSandboxRuntimeConfig(
 
 let initializationPromise: Promise<void> | undefined
 let settingsSubscriptionCleanup: (() => void) | undefined
-const sessionAllowedDomains = new Set<string>()
 
 // Cached main repo path for git worktrees, resolved once during initialize().
 // In a worktree, .git is a file containing "gitdir: /path/to/main/repo/.git/worktrees/name".
@@ -706,27 +700,23 @@ async function setSandboxSettings(options: {
   autoAllowBashIfSandboxed?: boolean
   allowUnsandboxedCommands?: boolean
 }): Promise<void> {
+  const existingSettings = getSettingsForSource('localSettings')
+
   // Note: Memoized caches auto-invalidate when settings change because they use
   // the settings object as the cache key (new settings object = cache miss)
 
-  const result = updateSettingsForSourceWithFreshSettings(
-    'localSettings',
-    freshSettings => ({
-      sandbox: {
-        ...freshSettings.sandbox,
-        ...(options.enabled !== undefined && { enabled: options.enabled }),
-        ...(options.autoAllowBashIfSandboxed !== undefined && {
-          autoAllowBashIfSandboxed: options.autoAllowBashIfSandboxed,
-        }),
-        ...(options.allowUnsandboxedCommands !== undefined && {
-          allowUnsandboxedCommands: options.allowUnsandboxedCommands,
-        }),
-      },
-    }),
-  )
-  if (!wasSettingsUpdateCommitted(result)) {
-    throw result.error ?? new Error('Sandbox settings update was not written')
-  }
+  updateSettingsForSource('localSettings', {
+    sandbox: {
+      ...existingSettings?.sandbox,
+      ...(options.enabled !== undefined && { enabled: options.enabled }),
+      ...(options.autoAllowBashIfSandboxed !== undefined && {
+        autoAllowBashIfSandboxed: options.autoAllowBashIfSandboxed,
+      }),
+      ...(options.allowUnsandboxedCommands !== undefined && {
+        allowUnsandboxedCommands: options.allowUnsandboxedCommands,
+      }),
+    },
+  })
 }
 
 /**
@@ -841,24 +831,6 @@ function refreshConfig(): void {
   BaseSandboxManager.updateConfig(newConfig)
 }
 
-/** Keep an approved domain in the sandbox runtime for this process only. */
-function addSessionAllowedDomain(domain: string): boolean {
-  const normalizedDomain = domain.trim()
-  if (!normalizedDomain || shouldAllowManagedSandboxDomainsOnly()) return false
-  sessionAllowedDomains.add(normalizedDomain)
-  refreshConfig()
-  return true
-}
-
-/** Apply a remembered network approval from either REPL approval path. */
-function applyNetworkApproval(domain: string, persisted: boolean): boolean {
-  if (persisted) {
-    refreshConfig()
-    return false
-  }
-  return addSessionAllowedDomain(domain)
-}
-
 /**
  * Reset sandbox state and clear memoized values
  */
@@ -868,7 +840,6 @@ async function reset(): Promise<void> {
   settingsSubscriptionCleanup = undefined
   worktreeMainRepoPath = undefined
   bareGitRepoScrubPaths.length = 0
-  sessionAllowedDomains.clear()
 
   // Clear memoized caches
   checkDependencies.cache.clear?.()
@@ -890,6 +861,10 @@ export function addToExcludedCommands(
     rules: Array<{ toolName: string; ruleContent?: string }>
   }>,
 ): string {
+  const existingSettings = getSettingsForSource('localSettings')
+  const existingExcludedCommands =
+    existingSettings?.sandbox?.excludedCommands || []
+
   // Determine the command pattern to add
   // If there are suggestions with Bash rules, extract the pattern (e.g., "npm run test" from "npm run test:*")
   // Otherwise use the exact command
@@ -914,27 +889,14 @@ export function addToExcludedCommands(
     }
   }
 
-  const result = updateSettingsForSourceWithFreshSettingsOrNoop(
-    'localSettings',
-    freshSettings => {
-      if (freshSettings.sandbox?.excludedCommands?.includes(commandPattern)) {
-        return SETTINGS_UPDATE_NO_CHANGE
-      }
-      return {
-        sandbox: {
-          ...freshSettings.sandbox,
-          excludedCommands: [
-            ...new Set([
-              ...(freshSettings.sandbox?.excludedCommands ?? []),
-              commandPattern,
-            ]),
-          ],
-        },
-      }
-    },
-  )
-  if (!wasSettingsUpdateApplied(result)) {
-    throw result.error ?? new Error('Sandbox exclusion was not written')
+  // Add to excludedCommands if not already present
+  if (!existingExcludedCommands.includes(commandPattern)) {
+    updateSettingsForSource('localSettings', {
+      sandbox: {
+        ...existingSettings?.sandbox,
+        excludedCommands: [...existingExcludedCommands, commandPattern],
+      },
+    })
   }
 
   return commandPattern
@@ -985,7 +947,6 @@ export interface ISandboxManager {
   annotateStderrWithSandboxFailures(command: string, stderr: string): string
   getLinuxGlobPatternWarnings(): string[]
   refreshConfig(): void
-  applyNetworkApproval(domain: string, persisted: boolean): boolean
   reset(): Promise<void>
 }
 
@@ -1007,7 +968,6 @@ export const SandboxManager: ISandboxManager = {
   getExcludedCommands,
   wrapWithSandbox,
   refreshConfig,
-  applyNetworkApproval,
   reset,
   checkDependencies,
 

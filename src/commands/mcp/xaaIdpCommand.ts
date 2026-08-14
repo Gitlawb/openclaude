@@ -19,10 +19,7 @@ import {
   saveIdpIdTokenFromJwt,
 } from '../../services/mcp/xaaIdpLogin.js'
 import { errorMessage } from '../../utils/errors.js'
-import {
-  updateSettingsForSourceWithResult,
-  wasSettingsUpdateCommitted,
-} from '../../utils/settings/settings.js'
+import { updateSettingsForSource } from '../../utils/settings/settings.js'
 
 export function registerMcpXaaIdpCommand(mcp: Command): void {
   const xaaIdp = mcp
@@ -47,7 +44,7 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
     .action(options => {
       // Validate everything BEFORE any writes. An exit(1) mid-write leaves
       // settings configured but keychain missing — confusing state.
-      // updateSettingsForSourceWithResult doesn't schema-check on write; a non-URL
+      // updateSettingsForSource doesn't schema-check on write; a non-URL
       // issuer lands on disk and then poisons the whole userSettings source
       // on next launch (SettingsSchema .url() fails → parseSettingsFile
       // returns { settings: null }, dropping everything, not just xaaIdp).
@@ -106,17 +103,15 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       // callbackPort MUST be present (even as undefined) — mergeWith deep-merges
       // and only deletes on explicit `undefined`, not on absent key. A conditional
       // spread would leak a prior fixed port into a new IdP's config.
-      const result = updateSettingsForSourceWithResult('userSettings', {
+      const { error } = updateSettingsForSource('userSettings', {
         xaaIdp: {
           issuer: options.issuer,
           clientId: options.clientId,
           callbackPort,
         },
       })
-      if (!wasSettingsUpdateCommitted(result)) {
-        return cliError(
-          `Error writing settings: ${result.error?.message ?? 'settings were not written'}`,
-        )
+      if (error) {
+        return cliError(`Error writing settings: ${error.message}`)
       }
 
       // Clear stale keychain slots only after settings write succeeded —
@@ -251,15 +246,13 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
     .action(() => {
       // Read issuer first so we can clear the right keychain slots.
       const idp = getXaaIdpSettings()
-      // updateSettingsForSourceWithResult uses mergeWith: set to undefined (not delete)
+      // updateSettingsForSource uses mergeWith: set to undefined (not delete)
       // to signal key removal.
-      const result = updateSettingsForSourceWithResult('userSettings', {
+      const { error } = updateSettingsForSource('userSettings', {
         xaaIdp: undefined,
       })
-      if (!wasSettingsUpdateCommitted(result)) {
-        return cliError(
-          `Error writing settings: ${result.error?.message ?? 'settings were not written'}`,
-        )
+      if (error) {
+        return cliError(`Error writing settings: ${error.message}`)
       }
       // Clear keychain only after settings write succeeded — otherwise a
       // write failure leaves settings pointing at the IdP with its secrets

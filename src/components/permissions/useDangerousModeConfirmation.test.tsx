@@ -26,7 +26,6 @@ async function importFreshUseDangerousModeConfirmation() {
     ) => {
       persistedModes.push(mode)
       resolvePersisted?.()
-      return null
     },
   }))
 

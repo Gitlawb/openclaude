@@ -22,14 +22,11 @@ const SMART_ROUTING_ENV_KEYS = [
   'OPENCLAUDE_SMART_ROUTING_SIMPLE',
   'OPENCLAUDE_SMART_ROUTING_STRONG',
 ] as const
-let settingsForWrite: SettingsJson = {}
-let writtenPatches: SettingsJson[] = []
 
 function makeContext(initial: Partial<SettingsJson> = {}) {
   let state = {
     settings: { agentModels: AGENT_MODELS, ...initial } as SettingsJson,
   }
-  settingsForWrite = structuredClone(state.settings)
   return {
     getAppState: () => state as never,
     setAppState: (updater: (s: typeof state) => typeof state) => {
@@ -49,30 +46,7 @@ describe('/smartroute command', () => {
   beforeEach(async () => {
     savedEnv = Object.fromEntries(SMART_ROUTING_ENV_KEYS.map(key => [key, process.env[key]])) as typeof savedEnv
     for (const key of SMART_ROUTING_ENV_KEYS) delete process.env[key]
-    writtenPatches = []
-    writeSpy = spyOn(
-      settingsModule,
-      'updateSettingsForSourceWithFreshSettings',
-    ).mockImplementation((_source, createPatch) => {
-      try {
-        const patch = createPatch(structuredClone(settingsForWrite))
-        writtenPatches.push(patch)
-        settingsForWrite = {
-          ...settingsForWrite,
-          ...patch,
-          smartRouting: {
-            ...settingsForWrite.smartRouting,
-            ...patch.smartRouting,
-          },
-        }
-        return { error: null, written: true }
-      } catch (error) {
-        return {
-          error: error instanceof Error ? error : new Error(String(error)),
-          written: false,
-        }
-      }
-    })
+    writeSpy = spyOn(settingsModule, 'updateSettingsForSource').mockImplementation(() => ({ error: null }))
     call = (await command.load()).call
   })
   afterEach(() => {
@@ -116,7 +90,7 @@ describe('/smartroute command', () => {
     const ctx = makeContext()
     const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Smart routing enabled')
-    expect(writtenPatches).toContainEqual({
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
       smartRouting: { enabled: true, simpleModel: 'mini', strongModel: 'main' },
     })
     expect(ctx._state().settings.smartRouting).toEqual({
@@ -129,17 +103,14 @@ describe('/smartroute command', () => {
   test('setting simple/strong to a valid key persists', async () => {
     const ctx = makeContext()
     await call('simple mini', ctx)
-    expect(writtenPatches).toContainEqual({ smartRouting: { simpleModel: 'mini' } })
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', { smartRouting: { simpleModel: 'mini' } })
     expect((ctx as never as { _state: () => { settings: SettingsJson } })._state().settings.smartRouting).toEqual({
       simpleModel: 'mini',
     })
   })
 
   test('setting a role reports persistence errors without mutating app state', async () => {
-    writeSpy.mockImplementation(() => ({
-      error: new Error('settings are read-only'),
-      written: false,
-    }))
+    writeSpy.mockImplementation(() => ({ error: new Error('settings are read-only') }))
     const ctx = makeContext()
     const res = expectText(await call('simple mini', ctx))
     expect(res.value).toContain('Failed to update smart routing settings: settings are read-only')
@@ -149,7 +120,7 @@ describe('/smartroute command', () => {
   test('setting the strong role to a valid key persists', async () => {
     const ctx = makeContext()
     await call('strong main', ctx)
-    expect(writtenPatches).toContainEqual({ smartRouting: { strongModel: 'main' } })
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', { smartRouting: { strongModel: 'main' } })
   })
 
   test('setting one role preserves env-backed defaults instead of shadowing them with a partial block', async () => {
@@ -158,7 +129,7 @@ describe('/smartroute command', () => {
     process.env.OPENCLAUDE_SMART_ROUTING_STRONG = 'main'
     const ctx = makeContext()
     await call('simple main', ctx)
-    expect(writtenPatches).toContainEqual({
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
       smartRouting: { enabled: true, simpleModel: 'main', strongModel: 'main' },
     })
   })
@@ -183,7 +154,7 @@ describe('/smartroute command', () => {
     const res = expectText(await call('on', ctx))
     expect(res.value).toContain('Smart routing enabled')
     expect(res.value).not.toContain('Heads up')
-    expect(writtenPatches).toContainEqual({
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
       smartRouting: { enabled: true, simpleModel: 'mini', strongModel: 'main' },
     })
   })
@@ -204,7 +175,7 @@ describe('/smartroute command', () => {
     const ctx = makeContext({ smartRouting: { enabled: true, simpleModel: 'mini', strongModel: 'main' } })
     const res = expectText(await call('off', ctx))
     expect(res.value).toContain('disabled')
-    expect(writtenPatches).toContainEqual({
+    expect(writeSpy).toHaveBeenCalledWith('userSettings', {
       smartRouting: { enabled: false, simpleModel: 'mini', strongModel: 'main' },
     })
   })

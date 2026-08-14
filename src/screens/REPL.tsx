@@ -5241,7 +5241,6 @@ export function REPL({
             const currentRequest = sandboxPermissionRequestQueue[0];
             if (!currentRequest) return;
             const approvedHost = currentRequest.hostPattern.host;
-            let effectiveAllow = allow;
             if (persistToSettings) {
               const update = {
                 type: 'addRules' as const,
@@ -5252,41 +5251,21 @@ export function REPL({
                 behavior: (allow ? 'allow' : 'deny') as 'allow' | 'deny',
                 destination: 'localSettings' as const
               };
-              const persisted = persistPermissionUpdate(update);
+              setAppState(prev => ({
+                ...prev,
+                toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
+              }));
+              persistPermissionUpdate(update);
 
-              // Apply the explicit decision for this session even when the
-              // durable write fails; otherwise "allow and remember" silently
-              // degrades to a one-shot approval.
-              const sessionOnly = persisted ? (SandboxManager.applyNetworkApproval(approvedHost, true), false) : allow ? SandboxManager.applyNetworkApproval(approvedHost, false) : true;
-              const applied = persisted || sessionOnly;
-              if (applied) {
-                setAppState(prev => ({
-                  ...prev,
-                  toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
-                }));
-              }
-              if (sessionOnly) {
-                addNotification({
-                  key: `sandbox-permission-session-only:${approvedHost}`,
-                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
-                  color: 'warning',
-                  priority: 'immediate'
-                });
-              } else if (allow && !applied) {
-                effectiveAllow = false;
-                addNotification({
-                  key: `sandbox-permission-unapplied:${approvedHost}`,
-                  text: `Sandbox rule for ${approvedHost} could not be saved or applied to this session.`,
-                  color: 'error',
-                  priority: 'immediate'
-                });
-              }
+              // Immediately update sandbox in-memory config to prevent race conditions
+              // where pending requests slip through before settings change is detected
+              SandboxManager.refreshConfig();
             }
 
             // Resolve ALL pending requests for the same host (not just the first one)
             // This handles the case where multiple parallel requests came in for the same domain
             setSandboxPermissionRequestQueue(queue => {
-              queue.filter(item => item.hostPattern.host === approvedHost).forEach(item => item.resolvePromise(effectiveAllow));
+              queue.filter(item => item.hostPattern.host === approvedHost).forEach(item => item.resolvePromise(allow));
               return queue.filter(item => item.hostPattern.host !== approvedHost);
             });
 
@@ -5333,7 +5312,9 @@ export function REPL({
             const currentRequest = workerSandboxPermissions.queue[0];
             if (!currentRequest) return;
             const approvedHost = currentRequest.host;
-            let effectiveAllow = allow;
+
+            // Send response via mailbox to the worker
+            void sendSandboxPermissionResponseViaMailbox(currentRequest.workerName, currentRequest.requestId, approvedHost, allow, teamContext?.teamName);
             if (persistToSettings && allow) {
               const update = {
                 type: 'addRules' as const,
@@ -5344,36 +5325,13 @@ export function REPL({
                 behavior: 'allow' as const,
                 destination: 'localSettings' as const
               };
-              const persisted = persistPermissionUpdate(update);
-              const sessionOnly = SandboxManager.applyNetworkApproval(approvedHost, persisted);
-              const applied = persisted || sessionOnly;
-              if (applied) {
-                setAppState(prev => ({
-                  ...prev,
-                  toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
-                }));
-              }
-              if (sessionOnly) {
-                addNotification({
-                  key: `worker-sandbox-permission-session-only:${approvedHost}`,
-                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
-                  color: 'warning',
-                  priority: 'immediate'
-                });
-              } else if (!applied) {
-                effectiveAllow = false;
-                addNotification({
-                  key: `worker-sandbox-permission-unapplied:${approvedHost}`,
-                  text: `Sandbox rule for ${approvedHost} could not be saved or applied to this session.`,
-                  color: 'error',
-                  priority: 'immediate'
-                });
-              }
+              setAppState(prev => ({
+                ...prev,
+                toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
+              }));
+              persistPermissionUpdate(update);
+              SandboxManager.refreshConfig();
             }
-
-            // Do not tell a worker to proceed until the durable rule or the
-            // session fallback is actually active in the leader runtime.
-            void sendSandboxPermissionResponseViaMailbox(currentRequest.workerName, currentRequest.requestId, approvedHost, effectiveAllow, teamContext?.teamName);
 
             // Remove from queue
             setAppState(prev => ({

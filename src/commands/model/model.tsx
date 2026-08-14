@@ -4,7 +4,6 @@ import type { CommandResultDisplay } from '../../commands.js'
 import {
   ModelPicker,
   type ModelPickerDiscoveryState,
-  type ModelPickerPersistence,
 } from '../../components/ModelPicker.js'
 import { COMMON_HELP_ARGS, COMMON_INFO_ARGS } from '../../constants/xml.js'
 import {
@@ -52,7 +51,6 @@ import {
   isFastModeAvailable,
   isFastModeEnabled,
   isFastModeSupportedByModel,
-  syncFastModeModelRestoreAfterSelection,
 } from '../../utils/fastMode.js'
 import { MODEL_ALIASES } from '../../utils/model/aliases.js'
 import {
@@ -87,18 +85,7 @@ import {
   setActiveProviderProfile,
 } from '../../utils/providerProfiles.js'
 import { parseModelList } from '../../utils/providerModels.js'
-import { withPrecommittedModelStateUpdate } from '../../state/onChangeAppState.js'
-import {
-  getInitialSettings,
-  updateSettingsForSourceWithResult,
-  wasSettingsUpdateCommitted,
-} from '../../utils/settings/settings.js'
-import {
-  commitModelSettingsTransition,
-  rollbackModelSettingsTransition,
-  type ModelSettingsRollbackResult,
-} from '../../utils/settings/modelTransition.js'
-import type { SettingsJson } from '../../utils/settings/types.js'
+import { getInitialSettings } from '../../utils/settings/settings.js'
 
 export type ProviderProfileModelPickerMode = 'auto' | 'profile' | 'provider'
 export type ResolvedProviderProfileModelSurface = 'profile' | 'provider'
@@ -131,30 +118,6 @@ function renderModelLabel(model: string | null): string {
     model ?? getDefaultMainLoopModelSetting(),
   )
   return model === null ? `${rendered} (default)` : rendered
-}
-
-function persistModelSelection(
-  model: string | null,
-  additionalSettings: SettingsJson = {},
-): string | null {
-  const result = updateSettingsForSourceWithResult('userSettings', {
-    ...additionalSettings,
-    model: model ?? undefined,
-  })
-  return wasSettingsUpdateCommitted(result)
-    ? null
-    : result.error?.message ?? 'settings were not written'
-}
-
-function describeModelRollback(result: ModelSettingsRollbackResult): string {
-  switch (result.status) {
-    case 'restored':
-      return ' The previous model setting was restored.'
-    case 'superseded':
-      return ' A newer model setting from another writer was preserved.'
-    case 'failed':
-      return ` The model setting was saved, and rollback also failed: ${result.error}`
-  }
 }
 
 function haveSameModelOptions(left: ModelOption[], right: ModelOption[]): boolean {
@@ -442,6 +405,7 @@ export function reconcileFastModeForSwitch(
   isFastModeOn: boolean,
 ): FastModeReconcileResult {
   if (!isFastModeEnabled()) return 'unchanged'
+  clearFastModeCooldown()
   if (!isFastModeSupportedByModel(targetModel) && isFastModeOn) {
     return 'off'
   }
@@ -745,12 +709,11 @@ function ModelPickerWrapper({
     model: string | null,
     effort: EffortLevel | undefined,
     switchToProfileId?: string,
-    persistence?: ModelPickerPersistence,
   ) => {
     // Cross-profile switch from /model picker (issue #1119). The composite
-    // value carries the profile id. Persist the target model before activating
-    // the profile so a failed settings write cannot leave provider env active
-    // with a stale model, then update the runtime state with the bare model.
+    // value carries the profile id; activate that profile first so subsequent
+    // requests use the new OPENAI_BASE_URL / OPENAI_API_KEY, then drop down to
+    // the regular model-switch path with the bare model string.
     //
     // Only treat the value as a switch when the SELECTED OPTION carried the
     // `switchToProfileId` marker (threaded here by the picker) — not merely
@@ -791,50 +754,24 @@ function ModelPickerWrapper({
         isFastMode ?? false,
       )
 
-      const modelTransition = commitModelSettingsTransition(
-        switchTarget.model,
-        persistence?.settingsPatch,
-      )
-      if (!wasSettingsUpdateCommitted(modelTransition.result)) {
-        onDone(`Could not save model selection: ${modelTransition.result.error?.message ?? 'settings were not written'}`, {
+      const activated = setActiveProviderProfile(switchTarget.profileId)
+      if (!activated) {
+        onDone(`Could not activate provider profile "${switchTarget.profileId}".`, {
           display: 'system',
         })
         return
-      }
-      let activated: ReturnType<typeof setActiveProviderProfile>
-      try {
-        activated = setActiveProviderProfile(switchTarget.profileId)
-      } catch (error) {
-        const rollback = rollbackModelSettingsTransition(
-          modelTransition.transition!,
-        )
-        const detail = error instanceof Error ? error.message : String(error)
-        onDone(
-          `Could not activate provider profile "${switchTarget.profileId}": ${detail}.` +
-            describeModelRollback(rollback),
-          { display: 'system' },
-        )
-        return
-      }
-      if (!activated) {
-        const rollback = rollbackModelSettingsTransition(
-          modelTransition.transition!,
-        )
-        onDone(
-          `Could not activate provider profile "${switchTarget.profileId}".` +
-            describeModelRollback(rollback),
-          { display: 'system' },
-        )
-        return
-      }
-      if (isFastModeEnabled()) {
-        clearFastModeCooldown()
       }
       logEvent('tengu_model_command_menu', {
         action: 'switch_profile' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
         to_model: String(switchTarget.model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: switchTarget.model,
+        mainLoopModelForSession: null,
+      }))
+
       // Re-evaluate fast mode AFTER activation: the pre-activation reconcile
       // gates on the *source* provider, so its 'on' result can be stale when
       // the target provider can't actually run fast mode (e.g. switching from
@@ -850,15 +787,9 @@ function ModelPickerWrapper({
         (isFastMode ?? false) &&
         (switchFastMode === 'off' || !fastModeSupportedNow)
 
-      withPrecommittedModelStateUpdate(switchTarget.model, () => {
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: switchTarget.model,
-          mainLoopModelForSession: null,
-          ...(persistence ? { effortValue: persistence.effortValue } : {}),
-          ...(shouldTurnFastModeOff ? { fastMode: false } : {}),
-        }))
-      })
+      if (shouldTurnFastModeOff) {
+        setAppState(prev => ({ ...prev, fastMode: false }))
+      }
 
       let switchMessage = `Switched to ${chalk.bold(activated.name)} · model ${chalk.bold(switchTarget.model)}`
       // Mirror the regular switch confirmation so a cross-profile selection
@@ -871,10 +802,6 @@ function ModelPickerWrapper({
       }
       const crossProfileFastModeOn =
         (isFastMode ?? false) && fastModeSupportedNow && !shouldTurnFastModeOff
-      syncFastModeModelRestoreAfterSelection(
-        switchTarget.model,
-        crossProfileFastModeOn,
-      )
       if (shouldTurnFastModeOff) {
         switchMessage += ' · Fast mode OFF'
       } else if (crossProfileFastModeOn) {
@@ -901,46 +828,30 @@ function ModelPickerWrapper({
       return
     }
 
-    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode ?? false)
-    const persistenceError = persistModelSelection(
-      model,
-      persistence?.settingsPatch,
-    )
-    if (persistenceError) {
-      onDone(`Could not save model selection: ${persistenceError}`, {
-        display: 'system',
-      })
-      return
-    }
-    if (isFastModeEnabled()) {
-      clearFastModeCooldown()
-    }
-    syncFastModeModelRestoreAfterSelection(
-      model,
-      fastModeResult !== 'off' && Boolean(isFastMode),
-    )
-
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       to_model: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
 
-    withPrecommittedModelStateUpdate(model, () => {
-      setAppState(prev => ({
-        ...prev,
-        mainLoopModel: model,
-        mainLoopModelForSession: null,
-        ...(persistence ? { effortValue: persistence.effortValue } : {}),
-        ...(fastModeResult === 'off' ? { fastMode: false } : {}),
-      }))
-    })
+    setAppState(prev => ({
+      ...prev,
+      mainLoopModel: model,
+      mainLoopModelForSession: null,
+    }))
 
     let message = `Set model to ${chalk.bold(renderModelLabel(model))}`
     if (effort !== undefined) {
       message += ` with ${chalk.bold(effort)} effort`
     }
 
+    const fastModeResult = reconcileFastModeForSwitch(model, isFastMode ?? false)
+    if (fastModeResult === 'off') {
+      setAppState(prev => ({
+        ...prev,
+        fastMode: false,
+      }))
+    }
     const wasFastModeToggledOn: boolean | undefined =
       fastModeResult === 'on'
         ? true
@@ -1202,37 +1113,22 @@ function SetModelAndClose({
     }
 
     function setModel(modelValue: string | null): void {
-      const persistenceError = persistModelSelection(modelValue)
-      if (persistenceError) {
-        onDone(`Could not save model selection: ${persistenceError}`, {
-          display: 'system',
-        })
-        return
-      }
-
-      const shouldTurnFastModeOff =
-        isFastModeEnabled() &&
-        !isFastModeSupportedByModel(modelValue) &&
-        Boolean(isFastMode)
-      syncFastModeModelRestoreAfterSelection(
-        modelValue,
-        Boolean(isFastMode) && !shouldTurnFastModeOff,
-      )
-      withPrecommittedModelStateUpdate(modelValue, () => {
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: modelValue,
-          mainLoopModelForSession: null,
-          ...(shouldTurnFastModeOff ? { fastMode: false } : {}),
-        }))
-      })
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: modelValue,
+        mainLoopModelForSession: null,
+      }))
 
       let message = `Set model to ${chalk.bold(renderModelLabel(modelValue))}`
       let wasFastModeToggledOn: boolean | undefined
 
       if (isFastModeEnabled()) {
         clearFastModeCooldown()
-        if (shouldTurnFastModeOff) {
+        if (!isFastModeSupportedByModel(modelValue) && isFastMode) {
+          setAppState(prev => ({
+            ...prev,
+            fastMode: false,
+          }))
           wasFastModeToggledOn = false
         } else if (isFastModeSupportedByModel(modelValue) && isFastMode) {
           message += ' · Fast mode ON'

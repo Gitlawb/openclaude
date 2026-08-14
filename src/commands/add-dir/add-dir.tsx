@@ -66,8 +66,8 @@ export async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXComma
     let message: string;
     if (remember) {
       try {
-        const persisted = persistPermissionUpdate(permissionUpdate);
-        message = persisted ? `Added ${chalk.bold(path)} as a working directory and saved to local settings` : `Added ${chalk.bold(path)} as a working directory. Failed to save to local settings`;
+        persistPermissionUpdate(permissionUpdate);
+        message = `Added ${chalk.bold(path)} as a working directory and saved to local settings`;
       } catch (error) {
         message = `Added ${chalk.bold(path)} as a working directory. Failed to save to local settings: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }

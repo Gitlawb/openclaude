@@ -1917,9 +1917,6 @@ function runHeadlessStreaming(
         ),
       ])
 
-      // The download can land one settings source while another contends.
-      // Reconcile every successful write before plugin install reads settings;
-      // doDownloadUserSettings already records a warning for partial apply.
       if (userSettingsResult) {
         for (const source of userSettingsResult.settingsSourcesWritten) {
           settingsChangeDetector.notifyChange(source)

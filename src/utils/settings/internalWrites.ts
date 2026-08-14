@@ -1,5 +1,3 @@
-import { normalize } from 'node:path'
-
 /**
  * Tracks timestamps of in-process settings-file writes so the chokidar watcher
  * in changeDetector.ts can ignore its own echoes.
@@ -11,14 +9,13 @@ import { normalize } from 'node:path'
  * changeDetector (chokidar, hooks, mdm polling) is irrelevant to settings.ts.
  *
  * Callers pass resolved paths. The path→source resolution (getSettingsFilePathForSource)
- * lives in settings.ts, so settings.ts does it before calling here. Keys are
- * normalized here so chokidar's Windows separators match write call sites.
+ * lives in settings.ts, so settings.ts does it before calling here. No imports.
  */
 
 const timestamps = new Map<string, number>()
 
 export function markInternalWrite(path: string): void {
-  timestamps.set(normalize(path), Date.now())
+  timestamps.set(path, Date.now())
 }
 
 /**
@@ -27,10 +24,9 @@ export function markInternalWrite(path: string): void {
  * the next (real, external) change to the same file.
  */
 export function consumeInternalWrite(path: string, windowMs: number): boolean {
-  const normalizedPath = normalize(path)
-  const ts = timestamps.get(normalizedPath)
+  const ts = timestamps.get(path)
   if (ts !== undefined && Date.now() - ts < windowMs) {
-    timestamps.delete(normalizedPath)
+    timestamps.delete(path)
     return true
   }
   return false

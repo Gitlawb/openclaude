@@ -21,7 +21,7 @@ import { getBuiltinPluginDefinition } from '../../plugins/builtinPlugins.js';
 import { useMcpToggleEnabled } from '../../services/mcp/MCPConnectionManager.js';
 import type { MCPServerConnection, McpClaudeAIProxyServerConfig, McpHTTPServerConfig, McpSSEServerConfig, McpStdioServerConfig } from '../../services/mcp/types.js';
 import { filterToolsByServer } from '../../services/mcp/utils.js';
-import { disablePluginOp, enablePluginOp, getPluginInstallationFromV2, isInstallableScope, isPluginEnabledAtProjectScope, shouldRemoveFailedPluginFromSettings, uninstallPluginOp, updatePluginOp } from '../../services/plugins/pluginOperations.js';
+import { disablePluginOp, enablePluginOp, getPluginInstallationFromV2, isInstallableScope, isPluginEnabledAtProjectScope, uninstallPluginOp, updatePluginOp } from '../../services/plugins/pluginOperations.js';
 import { useAppState } from '../../state/AppState.js';
 import type { Tool } from '../../Tool.js';
 import type { LoadedPlugin, PluginError } from '../../types/plugin.js';
@@ -41,7 +41,7 @@ import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { loadPluginOptions, type PluginOptionSchema, savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js';
 import { isPluginBlockedByPolicy } from '../../utils/plugins/pluginPolicy.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
-import { SETTINGS_UPDATE_NO_CHANGE, getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSourceWithResult, updateSettingsForSourceWithFreshSettingsOrNoop, wasSettingsUpdateApplied, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
+import { getRelativeSettingsFilePathForSource, getSettings_DEPRECATED, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 import { jsonParse } from '../../utils/slowOperations.js';
 import { plural } from '../../utils/stringUtils.js';
 import { formatErrorMessage, getErrorGuidance } from './PluginErrors.js';
@@ -1464,32 +1464,24 @@ export function ManagePlugins({
           // The normal uninstall path prompts; this one preserves.
           const result_2 = isInstallableScope(pluginScope_1) ? await uninstallPluginOp(pluginId_7, pluginScope_1, false) : await uninstallPluginOp(pluginId_7, 'user', false);
           let success = result_2.success;
-          let settingsFailure: string | null = null;
-          if (shouldRemoveFailedPluginFromSettings(result_2)) {
+          if (!success) {
             // Plugin was never installed (only in enabledPlugins settings).
             // Remove directly from all editable settings sources.
             const editableSources = ['userSettings' as const, 'projectSettings' as const, 'localSettings' as const];
             for (const source of editableSources) {
-              const settingsResult = updateSettingsForSourceWithFreshSettingsOrNoop(source, freshSettings => {
-                if (freshSettings.enabledPlugins?.[pluginId_7] === undefined) {
-                  return SETTINGS_UPDATE_NO_CHANGE;
-                }
-                return {
-                  enabledPlugins: {
-                    ...freshSettings.enabledPlugins,
-                    [pluginId_7]: undefined
-                  } as Record<string, boolean | string[]>
+              const settings = getSettingsForSource(source);
+              if (settings?.enabledPlugins?.[pluginId_7] !== undefined) {
+                const enabledPlugins: Record<string, boolean | string[] | undefined> = {
+                  ...settings.enabledPlugins,
+                  [pluginId_7]: undefined
                 };
-              });
-              if (wasSettingsUpdateApplied(settingsResult)) {
+                const settingsUpdate: Record<string, unknown> = {
+                  enabledPlugins
+                };
+                updateSettingsForSource(source, settingsUpdate);
                 success = true;
-              } else {
-                if (settingsFailure === null) {
-                  settingsFailure = settingsResult.error?.message ?? 'settings were not written';
-                }
               }
             }
-            if (settingsFailure) success = false;
             // Clear memoized caches so next loadAllPlugins() picks up settings changes
             clearAllCaches();
           }
@@ -1502,7 +1494,7 @@ export function ManagePlugins({
             setViewState('plugin-list');
           } else {
             setIsProcessing(false);
-            setProcessError(settingsFailure ?? result_2.message);
+            setProcessError(result_2.message);
           }
         })();
       }
@@ -1523,14 +1515,17 @@ export function ManagePlugins({
       // reject this (plugin isn't in localSettings yet; the override IS the
       // point).
       const enabledPlugins: Record<string, boolean | string[]> = {
+        ...(getSettingsForSource('localSettings')?.enabledPlugins ?? {}),
         [pluginId_8]: false
       };
-      const result_0 = updateSettingsForSourceWithResult('localSettings', {
+      const {
+        error: error_2
+      } = updateSettingsForSource('localSettings', {
         enabledPlugins
       });
-      if (!wasSettingsUpdateCommitted(result_0)) {
+      if (error_2) {
         setIsProcessing(false);
-        setProcessError(`Failed to write settings: ${result_0.error?.message ?? "settings were not written"}`);
+        setProcessError(`Failed to write settings: ${error_2.message}`);
         return;
       }
       clearAllCaches();

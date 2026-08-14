@@ -53,23 +53,18 @@ const DEFAULT_MAX_RETRIES = 3
 const MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB per file (matches backend limit)
 
 export type SettingsDownloadResult = {
-  /** True when the download finished successfully, including an intentional no-op. */
+  /** True when every requested settings file was applied. */
   complete: boolean
+  /** Logical settings sources whose writes committed. */
   settingsSourcesWritten: Array<'userSettings' | 'localSettings'>
 }
 
 function noOpSettingsDownloadResult(): SettingsDownloadResult {
-  return {
-    complete: true,
-    settingsSourcesWritten: [],
-  }
+  return { complete: true, settingsSourcesWritten: [] }
 }
 
 function failedSettingsDownloadResult(): SettingsDownloadResult {
-  return {
-    complete: false,
-    settingsSourcesWritten: [],
-  }
+  return { complete: false, settingsSourcesWritten: [] }
 }
 
 /**
@@ -144,8 +139,8 @@ export function _resetDownloadPromiseForTesting(): void {
  * Fired fire-and-forget at the top of print.ts runHeadless(); awaited in
  * installPluginsAndApplyMcpInBackground before plugin install. First call
  * starts the fetch; subsequent calls join it.
- * Reports both whether the full download completed and which settings files
- * landed. A partial result lets mid-session callers refresh successful writes.
+ * Reports completeness separately from the logical settings sources that
+ * committed so mid-session callers can apply successful partial downloads.
  */
 export function downloadUserSettings(): Promise<SettingsDownloadResult> {
   if (downloadPromise) {
@@ -165,10 +160,10 @@ export function downloadUserSettings(): Promise<SettingsDownloadResult> {
  * can re-run /reload-plugins to retry. Startup path keeps DEFAULT_MAX_RETRIES.
  *
  * Caller is responsible for firing settingsChangeDetector.notifyChange for
- * every returned settingsSourcesWritten entry. applyRemoteEntriesToLocal uses
- * markInternalWrite to suppress detection (correct for startup, but
- * mid-session needs applySettingsChange to run). Kept out of this module to
- * avoid the settingsSync → changeDetector cycle edge.
+ * every returned settingsSourcesWritten entry. applyRemoteEntriesToLocal
+ * suppresses watcher delivery for internal writes, while mid-session callers
+ * still need applySettingsChange to run. Kept out of this module to avoid the
+ * settingsSync → changeDetector cycle edge.
  */
 export function redownloadUserSettings(): Promise<SettingsDownloadResult> {
   downloadPromise = doDownloadUserSettings(0)
@@ -506,15 +501,17 @@ async function writeFileForSync(
 function writeSettingsFileForSync(
   filePath: string,
   content: string,
-): { written: boolean; error?: Error } {
+): boolean {
   const result = replaceSettingsFileSync(filePath, content)
-  if (result.written) {
+  if (result.committed) {
     logForDiagnosticsNoPII('info', 'settings_sync_file_written')
   }
-  if (!result.written || result.error) {
+  if (!result.committed) {
     logForDiagnosticsNoPII('warn', 'settings_sync_file_write_failed')
+  } else if (result.error) {
+    logForDiagnosticsNoPII('warn', 'settings_sync_file_cleanup_failed')
   }
-  return result
+  return result.committed
 }
 
 /**
@@ -535,16 +532,10 @@ async function applyRemoteEntriesToLocal(
   let applyFailed = false
   let memoryWritten = false
 
-  // Rejects oversized content (defense-in-depth, matches backend limit).
-  // Only settings-file failures make startup settings incomplete; memory sync
-  // remains best-effort as it was before the transaction result was added.
-  const rejectIfOversized = (
-    content: string,
-    affectsSettingsCompletion: boolean,
-  ): boolean => {
+  // Helper to check size limit (defense-in-depth, matches backend limit)
+  const exceedsSizeLimit = (content: string, _path: string): boolean => {
     const sizeBytes = Buffer.byteLength(content, 'utf8')
     if (sizeBytes > MAX_FILE_SIZE_BYTES) {
-      if (affectsSettingsCompletion) applyFailed = true
       logForDiagnosticsNoPII('info', 'settings_sync_file_too_large', {
         sizeBytes,
         maxBytes: MAX_FILE_SIZE_BYTES,
@@ -558,16 +549,15 @@ async function applyRemoteEntriesToLocal(
   const userSettingsContent = entries[SYNC_KEYS.USER_SETTINGS]
   if (userSettingsContent) {
     const userSettingsPath = getSettingsFilePathForSource('userSettings')
-    if (userSettingsPath && !rejectIfOversized(userSettingsContent, true)) {
-      const result = writeSettingsFileForSync(
-        userSettingsPath,
-        userSettingsContent,
-      )
-      if (result.written) {
+    if (!userSettingsPath) {
+      applyFailed = true
+    } else if (exceedsSizeLimit(userSettingsContent, userSettingsPath)) {
+      applyFailed = true
+    } else {
+      if (writeSettingsFileForSync(userSettingsPath, userSettingsContent)) {
         appliedCount++
         settingsSourcesWritten.push('userSettings')
-      }
-      if (!result.written || result.error) {
+      } else {
         applyFailed = true
       }
     }
@@ -577,7 +567,7 @@ async function applyRemoteEntriesToLocal(
   const userMemoryContent = entries[SYNC_KEYS.USER_MEMORY]
   if (userMemoryContent) {
     const userMemoryPath = getMemoryPath('User')
-    if (!rejectIfOversized(userMemoryContent, false)) {
+    if (!exceedsSizeLimit(userMemoryContent, userMemoryPath)) {
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
         memoryWritten = true
@@ -591,19 +581,22 @@ async function applyRemoteEntriesToLocal(
     const projectSettingsContent = entries[projectSettingsKey]
     if (projectSettingsContent) {
       const localSettingsPath = getSettingsFilePathForSource('localSettings')
-      if (
-        localSettingsPath &&
-        !rejectIfOversized(projectSettingsContent, true)
+      if (!localSettingsPath) {
+        applyFailed = true
+      } else if (
+        exceedsSizeLimit(projectSettingsContent, localSettingsPath)
       ) {
-        const result = writeSettingsFileForSync(
-          localSettingsPath,
-          projectSettingsContent,
-        )
-        if (result.written) {
+        applyFailed = true
+      } else {
+        if (
+          writeSettingsFileForSync(
+            localSettingsPath,
+            projectSettingsContent,
+          )
+        ) {
           appliedCount++
           settingsSourcesWritten.push('localSettings')
-        }
-        if (!result.written || result.error) {
+        } else {
           applyFailed = true
         }
       }
@@ -613,7 +606,7 @@ async function applyRemoteEntriesToLocal(
     const projectMemoryContent = entries[projectMemoryKey]
     if (projectMemoryContent) {
       const localMemoryPath = getMemoryPath('Local')
-      if (!rejectIfOversized(projectMemoryContent, false)) {
+      if (!exceedsSizeLimit(projectMemoryContent, localMemoryPath)) {
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
           memoryWritten = true

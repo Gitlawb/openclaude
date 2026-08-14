@@ -135,30 +135,6 @@ type SetAppStateFn = (updater: (prev: AppState) => AppState) => void
 
 const PERMISSION_POLL_INTERVAL_MS = 500
 
-function persistAndApplyPermissionUpdates(
-  updates: PermissionUpdate[],
-  toolUseContext: ToolUseContext,
-): void {
-  const persistence = persistPermissionUpdates(updates)
-  if (persistence.appliedUpdates.length > 0) {
-    const setToolPermissionContext = getLeaderSetToolPermissionContext()
-    if (setToolPermissionContext) {
-      const currentAppState = toolUseContext.getAppState()
-      const updatedContext = applyPermissionUpdates(
-        currentAppState.toolPermissionContext,
-        persistence.appliedUpdates,
-      )
-      setToolPermissionContext(updatedContext, { preserveMode: true })
-    }
-  }
-  if (persistence.failedUpdates.length > 0) {
-    logForDebugging(
-      `[inProcessRunner] Failed to persist ${persistence.failedUpdates.length} permission update(s)`,
-      { level: 'warn' },
-    )
-  }
-}
-
 /**
  * Creates a canUseTool function for in-process teammates that properly resolves
  * 'ask' permissions via the UI rather than treating them as denials.
@@ -351,9 +327,25 @@ export function createInProcessCanUseTool(
                 toolUseContext.getAppState().toolPermissionContext.mode ===
                   'plan',
               )
-              // Write committed permission updates back to the leader's
-              // shared context without leaking the worker's transformed mode.
-              persistAndApplyPermissionUpdates(updatesToApply, toolUseContext)
+              persistPermissionUpdates(updatesToApply)
+              // Write back permission updates to the leader's shared context
+              if (updatesToApply.length > 0) {
+                const setToolPermissionContext =
+                  getLeaderSetToolPermissionContext()
+                if (setToolPermissionContext) {
+                  const currentAppState = toolUseContext.getAppState()
+                  const updatedContext = applyPermissionUpdates(
+                    currentAppState.toolPermissionContext,
+                    updatesToApply,
+                  )
+                  // Preserve the leader's mode to prevent workers'
+                  // transformed 'acceptEdits' context from leaking back
+                  // to the coordinator
+                  setToolPermissionContext(updatedContext, {
+                    preserveMode: true,
+                  })
+                }
+              }
               const trimmedFeedback = feedback?.trim()
               resolve({
                 behavior: 'allow',
@@ -459,13 +451,12 @@ export function createInProcessCanUseTool(
             resolve(approval.decision)
             return
           }
-          persistAndApplyPermissionUpdates(
+          persistPermissionUpdates(
             filterPermissionRequestHookUpdates(
               approval.permissionUpdates,
               toolUseContext.getAppState().toolPermissionContext.mode ===
                 'plan',
             ),
-            toolUseContext,
           )
           resolve({
             behavior: 'allow',

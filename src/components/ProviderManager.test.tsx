@@ -13,7 +13,6 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
-import { createWaitForCondition } from '../test/waitForCondition.js'
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
 type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
@@ -24,8 +23,6 @@ const actualSettingsModule = (await import(
 const actualProviderStartupOverridesModule = (await import(
   `../utils/providerStartupOverrides.ts?providerManagerStartupOverridesActual=${Date.now()}-${Math.random()}`
 )) as ProviderStartupOverridesModule
-let providerManagerSettingsMockActive = false
-
 const SYNC_START = '\x1B[?2026h'
 const SYNC_END = '\x1B[?2026l'
 
@@ -139,7 +136,6 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
-  'ApiSmart',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -206,18 +202,8 @@ function mockProviderProfilesModule(options?: {
   updateProviderProfile?: (...args: unknown[]) => unknown
   setActiveProviderProfile?: (...args: unknown[]) => unknown
 }): void {
-  mock.module('../utils/providerProfiles.js', () => {
-    let lastSavedProfile: unknown
-    const addProviderProfile = (...args: unknown[]) => {
-      lastSavedProfile = options?.addProviderProfile?.(...args) ?? null
-      return lastSavedProfile
-    }
-    const updateProviderProfile = (...args: unknown[]) => {
-      lastSavedProfile = options?.updateProviderProfile?.(...args) ?? null
-      return lastSavedProfile
-    }
-    return {
-    addProviderProfile,
+  mock.module('../utils/providerProfiles.js', () => ({
+    addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
     deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
@@ -331,10 +317,9 @@ function mockProviderProfilesModule(options?: {
       }
     },
     getProviderProfiles: options?.getProviderProfiles ?? (() => []),
-    setActiveProviderProfile:
-      options?.setActiveProviderProfile ?? (() => lastSavedProfile),
-    updateProviderProfile,
-  }})
+    setActiveProviderProfile: options?.setActiveProviderProfile ?? (() => null),
+    updateProviderProfile: options?.updateProviderProfile ?? (() => null),
+  }))
 }
 
 function mockProviderManagerDependencies(
@@ -344,7 +329,6 @@ function mockProviderManagerDependencies(
     addProviderProfile?: (...args: any[]) => unknown
     applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
-    clearGithubModelsToken?: () => { success: boolean; warning?: string }
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
     probeRouteReadiness?: (
@@ -407,11 +391,6 @@ function mockProviderManagerDependencies(
         error?: string
       }
     }
-    updateSettingsForSource?: (...args: any[]) => {
-      error: Error | null
-      written: boolean
-    }
-    getSettings?: () => Record<string, unknown>
   },
 ): void {
   let persistedAimlapiTopup: Record<string, unknown> | undefined
@@ -457,8 +436,7 @@ function mockProviderManagerDependencies(
   }))
 
   mock.module('../utils/githubModelsCredentials.js', () => ({
-    clearGithubModelsToken:
-      options?.clearGithubModelsToken ?? (() => ({ success: true })),
+    clearGithubModelsToken: () => ({ success: true }),
     GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
     hydrateGithubModelsTokenFromSecureStorage: () => {},
     readGithubModelsToken: githubSyncRead,
@@ -507,55 +485,9 @@ function mockProviderManagerDependencies(
     }),
   }))
 
-  const updateSettingsForTest =
-    options?.updateSettingsForSource ??
-    (() => ({ error: null, written: true }))
-  providerManagerSettingsMockActive = true
   mock.module('../utils/settings/settings.js', () => ({
     ...actualSettingsModule,
-    getSettings_DEPRECATED: () =>
-      providerManagerSettingsMockActive
-        ? (options?.getSettings?.() ?? {})
-        : actualSettingsModule.getSettings_DEPRECATED(),
-    updateSettingsForSource: (
-      ...args: Parameters<SettingsModule['updateSettingsForSource']>
-    ) =>
-      providerManagerSettingsMockActive
-        ? updateSettingsForTest(...args)
-        : actualSettingsModule.updateSettingsForSource(...args),
-    updateSettingsForSourceWithResult: (
-      ...args: Parameters<SettingsModule['updateSettingsForSourceWithResult']>
-    ) =>
-      providerManagerSettingsMockActive
-        ? updateSettingsForTest(...args)
-        : actualSettingsModule.updateSettingsForSourceWithResult(...args),
-    updateSettingsForSourceWithFreshSettings: (
-      source: string,
-      createPatch: (settings: Record<string, unknown>) => Record<string, unknown>,
-    ) =>
-      providerManagerSettingsMockActive
-        ? updateSettingsForTest(source, createPatch({}))
-        : actualSettingsModule.updateSettingsForSourceWithFreshSettings(
-            source as never,
-            createPatch as never,
-          ),
-    updateSettingsForSourceWithFreshSettingsOrNoop: (
-      source: string,
-      createPatch: (
-        settings: Record<string, unknown>,
-      ) => Record<string, unknown> | symbol,
-    ) => {
-      if (!providerManagerSettingsMockActive) {
-        return actualSettingsModule.updateSettingsForSourceWithFreshSettingsOrNoop(
-          source as never,
-          createPatch as never,
-        )
-      }
-      const patch = createPatch({})
-      return typeof patch === 'symbol'
-        ? { error: null, written: false, unchanged: true }
-        : updateSettingsForTest(source, patch)
-    },
+    updateSettingsForSource: () => ({ error: null }),
   }))
 
   mock.module('./providerManagerAimlapi.js', () => ({
@@ -767,12 +699,10 @@ async function waitForFrameOutput(
 ): Promise<string> {
   let output = ''
 
-  await createWaitForCondition('ProviderManager frame output', {
-    timeoutMs,
-  })(() => {
+  await waitForCondition(() => {
     output = stripAnsi(extractLastFrame(getOutput()))
     return predicate(output)
-  })
+  }, { timeoutMs })
 
   // The predicate matched, but Ink registers input handlers in an effect that
   // runs after the render commits. A caller that types on the next line can lose
@@ -865,7 +795,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    providerManagerSettingsMockActive = false
     mock.restore()
     mock.module('../utils/settings/settings.js', () => actualSettingsModule)
     mock.module('../utils/providerStartupOverrides.js', () => actualProviderStartupOverridesModule)
@@ -4899,10 +4828,6 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
   const onDone = mock(() => {})
   const applySavedProfileToCurrentSession = mock(async () => null)
   const persistCredentials = mock(() => {})
-  const updateSettingsForSource = mock(() => ({
-    error: null,
-    written: true,
-  }))
   const setActiveProviderProfile = mock((profileId: string) => ({
     id: profileId,
     provider: 'openai',
@@ -4933,7 +4858,6 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
       addProviderProfile,
       applySavedProfileToCurrentSession,
       setActiveProviderProfile,
-      updateSettingsForSource,
       useCodexOAuthFlow: ({ onAuthenticated }) => {
         React.useEffect(() => {
           void onAuthenticated({
@@ -4982,9 +4906,6 @@ test('ProviderManager first-run Codex OAuth switches the current session after l
   expect(setActiveProviderProfile).toHaveBeenCalledWith(
     'provider_codex_oauth',
   )
-  expect(updateSettingsForSource).toHaveBeenCalledWith('userSettings', {
-    model: 'codexplan',
-  })
   expect(applySavedProfileToCurrentSession).toHaveBeenCalled()
   expect(persistCredentials).toHaveBeenCalledWith({
     profileId: 'provider_codex_oauth',
@@ -5512,17 +5433,7 @@ test('ProviderManager activating a multi-model provider sets the session model t
     apiKey: 'sk-test',
   }
 
-  const activationOrder: string[] = []
-  const updateSettingsForSource = mock(
-    (_source: string, patch: { model?: string }) => {
-      activationOrder.push(`model:${patch.model ?? ''}`)
-      return { error: null, written: true }
-    },
-  )
-  const setActiveProviderProfile = mock(() => {
-    activationOrder.push('provider')
-    return multiModelProfile
-  })
+  const setActiveProviderProfile = mock(() => multiModelProfile)
   const appStateChanges: Array<{ newState: any; oldState: any }> = []
 
   mockProviderManagerDependencies(
@@ -5531,7 +5442,6 @@ test('ProviderManager activating a multi-model provider sets the session model t
     {
       getProviderProfiles: () => [multiModelProfile],
       setActiveProviderProfile,
-      updateSettingsForSource,
     },
   )
 
@@ -5574,7 +5484,6 @@ test('ProviderManager activating a multi-model provider sets the session model t
   )
 
   expect(setActiveProviderProfile).toHaveBeenCalledWith('provider_multi_model')
-  expect(activationOrder.slice(0, 2)).toEqual(['model:gpt-5.4', 'provider'])
   expect(
     appStateChanges.some(
       ({ newState }) =>
@@ -5606,15 +5515,7 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
     apiKey: 'sk-test',
   }
 
-  const activationOrder: string[] = []
-  const updateSettingsForSource = mock(() => {
-    activationOrder.push('model')
-    return { error: null, written: true }
-  })
-  const updateProviderProfile = mock(() => {
-    activationOrder.push('profile')
-    return multiModelProfile
-  })
+  const updateProviderProfile = mock(() => multiModelProfile)
   const appStateChanges: Array<{ newState: any; oldState: any }> = []
 
   mockProviderManagerDependencies(
@@ -5623,7 +5524,6 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
     {
       getActiveProviderProfile: () => multiModelProfile,
       getProviderProfiles: () => [multiModelProfile],
-      updateSettingsForSource,
       updateProviderProfile,
     },
   )
@@ -5725,7 +5625,6 @@ test('ProviderManager editing an active multi-model provider keeps app state on 
       model: 'gpt-5.4; gpt-5.4-mini',
     }),
   )
-  expect(activationOrder.slice(0, 2)).toEqual(['model', 'profile'])
   expect(
     appStateChanges.some(
       ({ newState }) =>
@@ -6021,7 +5920,7 @@ test('ProviderManager switches back to Anthropic via the manager UI: resets the 
   }
 })
 
-test('ProviderManager reconciles transient GitHub state when secure-storage cleanup fails', async () => {
+test('ProviderManager deleting the GitHub provider reverts the hydrated credential via the shared cleanup helper', async () => {
   // Regression for the #1429 review: the GitHub Models delete path used to
   // hand-roll its own cleanup that only dropped GITHUB_TOKEN, so a hydrated
   // `copilot_key` (which hydrateGithubModelsTokenFromSecureStorage stores in
@@ -6036,7 +5935,6 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
     'CLAUDE_CODE_USE_GITHUB',
     'GITHUB_TOKEN',
     'GITHUB_COPILOT_KEY',
-    'GITHUB_ENTERPRISE_URL',
     'GH_TOKEN',
     'CLAUDE_CODE_SIMPLE',
   ]
@@ -6047,7 +5945,6 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
     delete process.env.GITHUB_TOKEN
     delete process.env.GITHUB_COPILOT_KEY
-    process.env.GITHUB_ENTERPRISE_URL = 'https://github.example/api/copilot'
     delete process.env.GH_TOKEN
     delete process.env.CLAUDE_CODE_SIMPLE
 
@@ -6055,23 +5952,12 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
 
     const githubSyncRead = mock(() => undefined)
     const githubAsyncRead = mock(async () => undefined)
-    const cleanupOrder: string[] = []
-    const updateSettingsForSource = mock((_source: string, _patch: unknown) => {
-      cleanupOrder.push('settings')
-      return { error: null, written: true }
-    })
     mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
       getProviderProfiles: () => [],
       getActiveProviderProfile: () => null,
-      getSettings: () => ({ model: 'github:copilot' }),
-      updateSettingsForSource,
     })
 
     const clearHydratedGithubModelsTokenFromEnv = mock(() => {})
-    const clearGithubModelsToken = mock(() => {
-      cleanupOrder.push('credentials')
-      return { success: false, warning: 'secure storage unavailable' }
-    })
     // Seed a stored GitHub Models token so the delete path forwards a real token
     // into the cleanup helper (rather than `undefined`).
     const storedToken = 'ghp_stored_secure_storage_token'
@@ -6083,7 +5969,7 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
       getActiveProviderProfile: () => null,
     }))
     mock.module('../utils/githubModelsCredentials.js', () => ({
-      clearGithubModelsToken,
+      clearGithubModelsToken: () => ({ success: true }),
       clearHydratedGithubModelsTokenFromEnv,
       GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
       hydrateGithubModelsTokenFromSecureStorage: () => {},
@@ -6131,23 +6017,6 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
     // fails the test if the delete path regresses to a partial hand-rolled
     // cleanup that leaves the hydrated Copilot key behind.
     expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
-    expect(updateSettingsForSource).toHaveBeenCalled()
-    expect(updateSettingsForSource).toHaveBeenCalledWith(
-      'userSettings',
-      expect.objectContaining({
-        model: expect.not.stringContaining('github:'),
-        env: expect.objectContaining({ GITHUB_ENTERPRISE_URL: undefined }),
-      }),
-    )
-    expect(clearGithubModelsToken).toHaveBeenCalled()
-    expect(cleanupOrder).toEqual(['settings', 'credentials'])
-    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBeUndefined()
-    expect(process.env.GITHUB_ENTERPRISE_URL).toBeUndefined()
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes(
-        'GitHub provider deleted, but credentials could not be cleared',
-      ),
-    )
   } finally {
     if (mounted) {
       await mounted.dispose()
@@ -6158,73 +6027,6 @@ test('ProviderManager reconciles transient GitHub state when secure-storage clea
       } else {
         process.env[key] = value
       }
-    }
-  }
-})
-
-test('ProviderManager keeps GitHub credentials when the provider settings removal is rejected', async () => {
-  const envKeys = [
-    'CLAUDE_CODE_USE_GITHUB',
-    'GITHUB_TOKEN',
-    'GH_TOKEN',
-    'CLAUDE_CODE_SIMPLE',
-  ]
-  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
-  process.env.CLAUDE_CODE_USE_GITHUB = '1'
-  delete process.env.GITHUB_TOKEN
-  delete process.env.GH_TOKEN
-  delete process.env.CLAUDE_CODE_SIMPLE
-
-  const clearGithubModelsToken = mock(() => ({ success: true }))
-  const updateSettingsForSource = mock(() => ({
-    error: new Error('settings file is locked'),
-    written: false,
-  }))
-  mockProviderManagerDependencies(
-    () => 'stored-token',
-    async () => 'stored-token',
-    {
-      clearGithubModelsToken,
-      getProviderProfiles: () => [],
-      getActiveProviderProfile: () => null,
-      updateSettingsForSource,
-    },
-  )
-
-  const nonce = `${Date.now()}-${Math.random()}`
-  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
-  const mounted = await mountProviderManager(ProviderManager)
-
-  try {
-    await waitForFrameOutput(
-      mounted.getOutput,
-      frame =>
-        frame.includes('Provider manager') && frame.includes('Delete provider'),
-    )
-
-    mounted.stdin.write('j')
-    await Bun.sleep(25)
-    mounted.stdin.write('j')
-    await Bun.sleep(25)
-    mounted.stdin.write('j')
-    await Bun.sleep(25)
-    mounted.stdin.write('\r')
-
-    await waitForFrameOutput(
-      mounted.getOutput,
-      frame => frame.includes('Delete provider') && frame.includes('GitHub Models'),
-    )
-    await Bun.sleep(40)
-    mounted.stdin.write('\r')
-
-    await waitForCondition(() => updateSettingsForSource.mock.calls.length > 0)
-    expect(updateSettingsForSource).toHaveBeenCalled()
-    expect(clearGithubModelsToken).not.toHaveBeenCalled()
-  } finally {
-    await mounted.dispose()
-    for (const [key, value] of envSnapshot) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
     }
   }
 })

@@ -1,12 +1,12 @@
 import { c as _c } from "react-compiler-runtime";
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { Box, Text } from '../ink.js';
 import { isMaxSubscriber, isProSubscriber, isTeamSubscriber } from '../utils/auth.js';
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
 import type { EffortLevel } from '../utils/effort.js';
 import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, toPersistableEffort } from '../utils/effort.js';
 import { parseUserSpecifiedModel } from '../utils/model/model.js';
-import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
+import { updateSettingsForSource } from '../utils/settings/settings.js';
 import type { OptionWithDescription } from './CustomSelect/select.js';
 import { Select } from './CustomSelect/select.js';
 import { effortLevelToSymbol } from './EffortIndicator.js';
@@ -23,7 +23,6 @@ export function EffortCallout(t0) {
     model,
     onDone
   } = t0;
-  const [saveError, setSaveError] = useState<string | null>(null);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = getOpusDefaultEffortConfig();
@@ -90,16 +89,11 @@ export function EffortCallout(t0) {
   let t8;
   if ($[9] !== defaultLevel) {
     t8 = value => {
-      setSaveError(null);
       const effortLevel = value === defaultLevel ? undefined : value;
-      const result = updateSettingsForSourceWithResult("userSettings", {
+      updateSettingsForSource("userSettings", {
         effortLevel: toPersistableEffort(effortLevel)
       });
-      if (wasSettingsUpdateCommitted(result)) {
-        onDoneRef.current(value);
-      } else {
-        setSaveError(result.error?.message ?? "Could not save effort preference. Try again.");
-      }
+      onDoneRef.current(value);
     };
     $[9] = defaultLevel;
     $[10] = t8;
@@ -160,7 +154,7 @@ export function EffortCallout(t0) {
   } else {
     t14 = $[17];
   }
-  return <>{t14}{saveError ? <Text color="error">{saveError}</Text> : null}</>;
+  return t14;
 }
 function _temp() {
   markV2Dismissed();

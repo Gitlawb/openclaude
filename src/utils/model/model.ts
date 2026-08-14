@@ -436,49 +436,19 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     )
   }
 
-  // Keep provider-aware defaults here: Bedrock, Vertex, and Foundry may map
-  // the aliases to different model generations than built-in Anthropic.
-  if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
-    return getDefaultOpusModel() + (isOpus1mMergeEnabled() ? '[1m]' : '')
-  }
-
-  return getDefaultSonnetModel()
-}
-
-/**
- * Get the built-in Anthropic default without consulting provider-specific
- * settings or environment variables. Provider teardown uses this before the
- * old provider's runtime flags have been cleared.
- */
-export function getDefaultFirstPartyMainLoopModelSetting():
-  | ModelName
-  | ModelAlias {
-  const defaultOpus =
-    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL || getModelStrings().opus48
-  const defaultSonnet =
-    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL || getModelStrings().sonnet46
-
-  // Ants default to defaultModel from flag config, or Opus 1M if not configured
-  if (process.env.USER_TYPE === 'ant') {
-    return (
-      getAntModelOverrideConfig()?.defaultModel ??
-      defaultOpus + '[1m]'
-    )
-  }
-
   // Max users get Opus as default
   if (isMaxSubscriber()) {
-    return defaultOpus + (isOpus1mMergeEnabled() ? '[1m]' : '')
+    return getDefaultOpusModel() + (isOpus1mMergeEnabled() ? '[1m]' : '')
   }
 
   // Team Premium gets Opus (same as Max)
   if (isTeamPremiumSubscriber()) {
-    return defaultOpus + (isOpus1mMergeEnabled() ? '[1m]' : '')
+    return getDefaultOpusModel() + (isOpus1mMergeEnabled() ? '[1m]' : '')
   }
 
   // PAYG (1P and 3P), Enterprise, Team Standard, and Pro get Sonnet as default
   // Note that PAYG (3P) may default to an older Sonnet model
-  return defaultSonnet
+  return getDefaultSonnetModel()
 }
 
 /**

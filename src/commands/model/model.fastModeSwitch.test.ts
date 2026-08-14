@@ -51,7 +51,7 @@ test('returns "off" when target model does not support fast mode and fastMode la
   })
   const mod = await importFreshModule('fast-off')
   expect(mod.reconcileFastModeForSwitch('gpt-5-mini', true)).toBe('off')
-  expect(clearFastModeCooldown).not.toHaveBeenCalled()
+  expect(clearFastModeCooldown).toHaveBeenCalledTimes(1)
 })
 
 test('returns "on" when target supports fast mode and it is available and latched', async () => {

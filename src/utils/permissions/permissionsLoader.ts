@@ -1,3 +1,6 @@
+import { readFileSync } from '../fileRead.js'
+import { getFsImplementation, safeResolvePath } from '../fsOperations.js'
+import { safeParseJSON } from '../json.js'
 import { logError } from '../log.js'
 import {
   type EditableSettingSource,
@@ -5,10 +8,9 @@ import {
   type SettingSource,
 } from '../settings/constants.js'
 import {
-  SETTINGS_UPDATE_NO_CHANGE,
+  getSettingsFilePathForSource,
   getSettingsForSource,
-  updateSettingsForSourceWithFreshSettingsOrNoop,
-  wasSettingsUpdateApplied,
+  updateSettingsForSource,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 import type {
@@ -46,6 +48,39 @@ const SUPPORTED_RULE_BEHAVIORS = [
   'deny',
   'ask',
 ] as const satisfies PermissionBehavior[]
+
+/**
+ * Lenient version of getSettingsForSource that doesn't fail on ANY validation errors.
+ * Simply parses the JSON and returns it as-is without schema validation.
+ *
+ * Used when loading settings to append new rules (avoids losing existing rules
+ * due to validation failures in unrelated fields like hooks).
+ *
+ * FOR EDITING ONLY - do not use this for reading settings for execution.
+ */
+function getSettingsForSourceLenient_FOR_EDITING_ONLY_NOT_FOR_READING(
+  source: SettingSource,
+): SettingsJson | null {
+  const filePath = getSettingsFilePathForSource(source)
+  if (!filePath) {
+    return null
+  }
+
+  try {
+    const { resolvedPath } = safeResolvePath(getFsImplementation(), filePath)
+    const content = readFileSync(resolvedPath)
+    if (content.trim() === '') {
+      return {}
+    }
+
+    const data = safeParseJSON(content, false)
+    // Return raw parsed JSON without validation to preserve all existing settings
+    // This is safe because we're only using this for reading/appending, not for execution
+    return data && typeof data === 'object' ? (data as SettingsJson) : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * Converts permissions JSON to an array of PermissionRule objects
@@ -113,12 +148,6 @@ export type PermissionRuleFromEditableSettings = PermissionRule & {
   source: EditableSettingSource
 }
 
-type AddPermissionRulesDependencies = {
-  shouldAllowManagedRulesOnly?: typeof shouldAllowManagedPermissionRulesOnly
-  updateFreshSettingsOrNoop?:
-    typeof updateSettingsForSourceWithFreshSettingsOrNoop
-}
-
 // Editable sources that can be modified (excludes policySettings and flagSettings)
 const EDITABLE_SOURCES: EditableSettingSource[] = [
   'userSettings',
@@ -162,32 +191,33 @@ export function deletePermissionRuleFromSettings(
   }
 
   try {
-    let removed = false
-    const result = updateSettingsForSourceWithFreshSettingsOrNoop(
-      rule.source,
-      freshSettings => {
-        const freshRules = freshSettings.permissions?.[rule.ruleBehavior] ?? []
-        const filteredRules = freshRules.filter(
+    // Keep a copy of the original permissions data to preserve unrecognized keys
+    const updatedSettingsData = {
+      ...settingsData,
+      permissions: {
+        ...settingsData.permissions,
+        [rule.ruleBehavior]: behaviorArray.filter(
           raw => normalizeEntry(raw) !== ruleString,
-        )
-        removed = filteredRules.length !== freshRules.length
-        if (!removed) return SETTINGS_UPDATE_NO_CHANGE
-        return {
-          permissions: {
-            [rule.ruleBehavior]: filteredRules,
-          },
-        }
+        ),
       },
-    )
-    if (!wasSettingsUpdateApplied(result)) {
+    }
+
+    const { error } = updateSettingsForSource(rule.source, updatedSettingsData)
+    if (error) {
       // Error already logged inside updateSettingsForSource
       return false
     }
 
-    return removed
+    return true
   } catch (error) {
     logError(error)
     return false
+  }
+}
+
+function getEmptyPermissionSettingsJson(): SettingsJson {
+  return {
+    permissions: {},
   }
 }
 
@@ -205,13 +235,9 @@ export function addPermissionRulesToSettings(
     ruleBehavior: PermissionBehavior
   },
   source: EditableSettingSource,
-  dependencies?: AddPermissionRulesDependencies,
 ): boolean {
   // When allowManagedPermissionRulesOnly is enabled, don't persist new permission rules
-  const managedRulesOnly =
-    dependencies?.shouldAllowManagedRulesOnly ??
-    shouldAllowManagedPermissionRulesOnly
-  if (managedRulesOnly()) {
+  if (shouldAllowManagedPermissionRulesOnly()) {
     return false
   }
 
@@ -221,35 +247,45 @@ export function addPermissionRulesToSettings(
   }
 
   const ruleStrings = ruleValues.map(permissionRuleValueToString)
-  try {
-    const updateFreshSettingsOrNoop =
-      dependencies?.updateFreshSettingsOrNoop ??
-      updateSettingsForSourceWithFreshSettingsOrNoop
-    const result = updateFreshSettingsOrNoop(
-      source,
-      freshSettings => {
-        const existingRules = freshSettings.permissions?.[ruleBehavior] ?? []
-        const existingRulesSet = new Set(
-          existingRules.map(raw =>
-            permissionRuleValueToString(permissionRuleValueFromString(raw)),
-          ),
-        )
-        const newRules = ruleStrings.filter(
-          rule => !existingRulesSet.has(rule),
-        )
-        if (newRules.length === 0) {
-          return SETTINGS_UPDATE_NO_CHANGE
-        }
-        return {
-          permissions: {
-            [ruleBehavior]: [...existingRules, ...newRules],
-          },
-        }
-      },
-    )
+  // First try the normal settings loader which validates the schema
+  // If validation fails, fall back to lenient loading to preserve existing rules
+  // even if some fields (like hooks) have validation errors
+  const settingsData =
+    getSettingsForSource(source) ||
+    getSettingsForSourceLenient_FOR_EDITING_ONLY_NOT_FOR_READING(source) ||
+    getEmptyPermissionSettingsJson()
 
-    if (!wasSettingsUpdateApplied(result)) {
-      throw result.error ?? new Error('Settings update was not written')
+  try {
+    // Ensure permissions object exists
+    const existingPermissions = settingsData.permissions || {}
+    const existingRules = existingPermissions[ruleBehavior] || []
+
+    // Filter out duplicates - normalize existing entries via roundtrip
+    // parse→serialize so legacy names match their canonical form.
+    const existingRulesSet = new Set(
+      existingRules.map(raw =>
+        permissionRuleValueToString(permissionRuleValueFromString(raw)),
+      ),
+    )
+    const newRules = ruleStrings.filter(rule => !existingRulesSet.has(rule))
+
+    // If no new rules to add, return success
+    if (newRules.length === 0) {
+      return true
+    }
+
+    // Keep a copy of the original settings data to preserve unrecognized keys
+    const updatedSettingsData = {
+      ...settingsData,
+      permissions: {
+        ...existingPermissions,
+        [ruleBehavior]: [...existingRules, ...newRules],
+      },
+    }
+    const result = updateSettingsForSource(source, updatedSettingsData)
+
+    if (result.error) {
+      throw result.error
     }
 
     return true

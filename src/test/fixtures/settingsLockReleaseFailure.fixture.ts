@@ -92,23 +92,26 @@ setFsImplementation({
   },
 })
 
-const { updateSettingsForSourceWithResult } = await import(
+const { updateSettingsForSource } = await import(
   '../../utils/settings/settings.js'
 )
 try {
-  const first = updateSettingsForSourceWithResult('userSettings', {
+  const first = updateSettingsForSource('userSettings', {
     env: { FIRST_ATTEMPT: mode },
   })
+  const firstWriteLanded = readFileSync(settingsPath, 'utf8').includes(
+    'FIRST_ATTEMPT',
+  )
 
   setOriginalFsImplementation()
-  const retry = updateSettingsForSourceWithResult('userSettings', {
+  const retry = updateSettingsForSource('userSettings', {
     env: { RETRY_AFTER_RELEASE: mode },
   })
 
   const output = {
     firstError: first.error?.message ?? null,
-    firstWritten: first.written,
-    firstWriteLanded: readFileSync(settingsPath, 'utf8').includes('FIRST_ATTEMPT'),
+    firstWritten: firstWriteLanded,
+    firstWriteLanded,
     retryError: retry.error?.message ?? null,
     releaseCalls,
     ownerLeftBehind:

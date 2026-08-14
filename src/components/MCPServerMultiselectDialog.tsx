@@ -3,7 +3,7 @@ import partition from 'lodash-es/partition.js';
 import React, { useCallback } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Text } from '../ink.js';
-import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
+import { getSettings_DEPRECATED, updateSettingsForSource } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { SelectMulti } from './CustomSelect/SelectMulti.js';
 import { Byline } from './design-system/Byline.js';
@@ -15,33 +15,35 @@ type Props = {
   onDone(): void;
 };
 export function MCPServerMultiselectDialog(t0) {
-  const $ = _c(22);
+  const $ = _c(21);
   const {
     serverNames,
     onDone
   } = t0;
-  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1;
   if ($[0] !== onDone || $[1] !== serverNames) {
     t1 = function onSubmit(selectedServers) {
+      const currentSettings = getSettings_DEPRECATED() || {};
+      const enabledServers = currentSettings.enabledMcpjsonServers || [];
+      const disabledServers = currentSettings.disabledMcpjsonServers || [];
       const [approvedServers, rejectedServers] = partition(serverNames, server => selectedServers.includes(server));
       logEvent("tengu_mcp_multidialog_choice", {
         approved: approvedServers.length,
         rejected: rejectedServers.length
       });
-      const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
-        ...(approvedServers.length > 0 ? {
-          enabledMcpjsonServers: [...new Set([...(freshSettings.enabledMcpjsonServers ?? []), ...approvedServers])]
-        } : {}),
-        ...(rejectedServers.length > 0 ? {
-          disabledMcpjsonServers: [...new Set([...(freshSettings.disabledMcpjsonServers ?? []), ...rejectedServers])]
-        } : {})
-      }));
-      if (wasSettingsUpdateCommitted(result)) {
-        onDone();
-      } else {
-        setSaveError(`Could not save MCP server preferences: ${result.error?.message ?? "settings were not written"}`);
+      if (approvedServers.length > 0) {
+        const newEnabledServers = [...new Set([...enabledServers, ...approvedServers])];
+        updateSettingsForSource("localSettings", {
+          enabledMcpjsonServers: newEnabledServers
+        });
       }
+      if (rejectedServers.length > 0) {
+        const newDisabledServers = [...new Set([...disabledServers, ...rejectedServers])];
+        updateSettingsForSource("localSettings", {
+          disabledMcpjsonServers: newDisabledServers
+        });
+      }
+      onDone();
     };
     $[0] = onDone;
     $[1] = serverNames;
@@ -53,14 +55,13 @@ export function MCPServerMultiselectDialog(t0) {
   let t2;
   if ($[3] !== onDone || $[4] !== serverNames) {
     t2 = () => {
-      const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => ({
-        disabledMcpjsonServers: [...new Set([...(freshSettings_0.disabledMcpjsonServers ?? []), ...serverNames])]
-      }));
-      if (wasSettingsUpdateCommitted(result_0)) {
-        onDone();
-      } else {
-        setSaveError(`Could not save MCP server preferences: ${result_0.error?.message ?? "settings were not written"}`);
-      }
+      const currentSettings_0 = getSettings_DEPRECATED() || {};
+      const disabledServers_0 = currentSettings_0.disabledMcpjsonServers || [];
+      const newDisabledServers_0 = [...new Set([...disabledServers_0, ...serverNames])];
+      updateSettingsForSource("localSettings", {
+        disabledMcpjsonServers: newDisabledServers_0
+      });
+      onDone();
     };
     $[3] = onDone;
     $[4] = serverNames;
@@ -97,30 +98,29 @@ export function MCPServerMultiselectDialog(t0) {
     t6 = $[13];
   }
   let t7;
-  if ($[14] !== saveError || $[15] !== handleEscRejectAll || $[16] !== t3 || $[17] !== t6) {
-    t7 = <Dialog title={t3} subtitle="Select any you wish to enable." color="warning" onCancel={handleEscRejectAll} hideInputGuide={true}>{t4}{saveError ? <Text color="error">{saveError}</Text> : null}{t6}</Dialog>;
-    $[14] = saveError;
-    $[15] = handleEscRejectAll;
-    $[16] = t3;
-    $[17] = t6;
-    $[18] = t7;
+  if ($[14] !== handleEscRejectAll || $[15] !== t3 || $[16] !== t6) {
+    t7 = <Dialog title={t3} subtitle="Select any you wish to enable." color="warning" onCancel={handleEscRejectAll} hideInputGuide={true}>{t4}{t6}</Dialog>;
+    $[14] = handleEscRejectAll;
+    $[15] = t3;
+    $[16] = t6;
+    $[17] = t7;
   } else {
-    t7 = $[18];
+    t7 = $[17];
   }
   let t8;
-  if ($[19] === Symbol.for("react.memo_cache_sentinel")) {
+  if ($[18] === Symbol.for("react.memo_cache_sentinel")) {
     t8 = <Box paddingX={1}><Text dimColor={true} italic={true}><Byline><KeyboardShortcutHint shortcut="Space" action="select" /><KeyboardShortcutHint shortcut="Enter" action="confirm" /><ConfigurableShortcutHint action="confirm:no" context="Confirmation" fallback="Esc" description="reject all" /></Byline></Text></Box>;
-    $[19] = t8;
+    $[18] = t8;
   } else {
-    t8 = $[19];
+    t8 = $[18];
   }
   let t9;
-  if ($[20] !== t7) {
+  if ($[19] !== t7) {
     t9 = <>{t7}{t8}</>;
-    $[20] = t7;
-    $[21] = t9;
+    $[19] = t7;
+    $[20] = t9;
   } else {
-    t9 = $[21];
+    t9 = $[20];
   }
   return t9;
 }

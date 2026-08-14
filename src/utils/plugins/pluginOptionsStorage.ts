@@ -18,12 +18,8 @@ import { logForDebugging } from '../debug.js'
 import { logError } from '../log.js'
 import { getSecureStorage } from '../secureStorage/index.js'
 import {
-  SETTINGS_UPDATE_NO_CHANGE,
   getSettings_DEPRECATED,
-  updateSettingsForSourceWithResult,
-  updateSettingsForSourceWithFreshSettingsOrNoop,
-  wasSettingsUpdateApplied,
-  wasSettingsUpdateCommitted,
+  updateSettingsForSource,
 } from '../settings/settings.js'
 import {
   type UserConfigSchema,
@@ -95,10 +91,6 @@ export function savePluginOptions(
   pluginId: string,
   values: PluginOptionValues,
   schema: PluginOptionSchema,
-  dependencies?: {
-    updateUserSettings?: typeof updateSettingsForSourceWithResult
-    secureStorage?: ReturnType<typeof getSecureStorage>
-  },
 ): void {
   const nonSensitive: PluginOptionValues = {}
   const sensitive: Record<string, string> = {}
@@ -119,7 +111,7 @@ export function savePluginOptions(
 
   // secureStorage FIRST — if keychain fails, throw before touching
   // settings.json so old plaintext (if any) stays as fallback.
-  const storage = dependencies?.secureStorage ?? getSecureStorage()
+  const storage = getSecureStorage()
   const existingInSecureStorage =
     storage.read()?.pluginSecrets?.[pluginId] ?? undefined
   const secureScrubbed = existingInSecureStorage
@@ -159,30 +151,41 @@ export function savePluginOptions(
   }
 
   // settings.json AFTER secureStorage — scrub sensitive keys via explicit
-  // undefined (mergeWith deletion pattern). Persist only the requested nested
-  // patch so values from other settings sources or concurrent writers are not
-  // copied into user settings.
+  // undefined (mergeWith deletion pattern).
+  //
+  // TODO: getSettings_DEPRECATED returns MERGED settings across all scopes.
+  // Mutating that and writing to userSettings can leak project-scope
+  // pluginConfigs into ~/.claude/settings.json. Same pattern exists in
+  // saveMcpServerUserConfig. Safe today since pluginConfigs is only ever
+  // written here (user-scope), but will bite if we add project-scoped
+  // plugin options.
+  const settings = getSettings_DEPRECATED()
+  const existingInSettings = settings.pluginConfigs?.[pluginId]?.options ?? {}
+  const keysToScrubFromSettings = Object.keys(existingInSettings).filter(k =>
+    sensitiveKeysInThisSave.has(k),
+  )
   if (
     Object.keys(nonSensitive).length > 0 ||
-    sensitiveKeysInThisSave.size > 0
+    keysToScrubFromSettings.length > 0
   ) {
+    if (!settings.pluginConfigs) {
+      settings.pluginConfigs = {}
+    }
+    if (!settings.pluginConfigs[pluginId]) {
+      settings.pluginConfigs[pluginId] = {}
+    }
     const scrubbed = Object.fromEntries(
-      [...sensitiveKeysInThisSave].map(k => [k, undefined]),
+      keysToScrubFromSettings.map(k => [k, undefined]),
     ) as Record<string, undefined>
-    const result = (dependencies?.updateUserSettings ?? updateSettingsForSourceWithResult)('userSettings', {
-      pluginConfigs: {
-        [pluginId]: {
-          options: {
-            ...nonSensitive,
-            ...scrubbed,
-          } as PluginOptionValues,
-        },
-      },
-    })
-    if (!wasSettingsUpdateCommitted(result)) {
-      if (result.error) logError(result.error)
+    settings.pluginConfigs[pluginId].options = {
+      ...nonSensitive,
+      ...scrubbed,
+    } as PluginOptionValues
+    const result = updateSettingsForSource('userSettings', settings)
+    if (result.error) {
+      logError(result.error)
       throw new Error(
-        `Failed to save plugin options for ${pluginId}: ${result.error?.message ?? 'settings were not written'}`,
+        `Failed to save plugin options for ${pluginId}: ${result.error.message}`,
       )
     }
   }
@@ -200,24 +203,15 @@ export function savePluginOptions(
  * a plugin can be installed in multiple scopes and the user's config should
  * survive removing it from one scope while it remains in another.
  *
- * Cleanup is a prerequisite for deleting the final installation. Keeping the
- * secure copy and plugin data until the plaintext settings scrub commits makes
- * a failed cleanup safe to retry instead of silently stranding credentials.
+ * Best-effort: keychain write failure is logged but doesn't throw, since
+ * the uninstall itself succeeded and we don't want to surface a confusing
+ * "uninstall failed" message for a cleanup side-effect.
  */
-export function deletePluginOptions(
-  pluginId: string,
-  dependencies?: {
-    updateUserSettings?: typeof updateSettingsForSourceWithFreshSettingsOrNoop
-    secureStorage?: ReturnType<typeof getSecureStorage>
-  },
-): {
-  success: boolean
-  error?: string
-} {
+export function deletePluginOptions(pluginId: string): void {
   // Settings side — also wipes the legacy mcpServers sub-key (same story:
   // orphaned on uninstall, never cleaned up before this PR).
   //
-  // Use `undefined` (not `delete`) because `updateSettingsForSourceWithResult` merges
+  // Use `undefined` (not `delete`) because `updateSettingsForSource` merges
   // via `mergeWith` — absent keys are ignored, only `undefined` triggers
   // removal. Cast is deliberate (CLAUDE.md's 10% case): adding z.undefined()
   // to the schema instead (like enabledPlugins:466 does) leaks
@@ -226,40 +220,30 @@ export function deletePluginOptions(
   // mergeWith-deletion contract is internal plumbing — it shouldn't shape
   // the Zod schema. enabledPlugins gets away with it only because its other
   // arms (string[] | boolean) are non-objects that stay distinct.
-  const updateUserSettings =
-    dependencies?.updateUserSettings ??
-    updateSettingsForSourceWithFreshSettingsOrNoop
-  const result = updateUserSettings(
-    'userSettings',
-    freshSettings => {
-      if (!freshSettings.pluginConfigs?.[pluginId]) {
-        return SETTINGS_UPDATE_NO_CHANGE
-      }
-      type PluginConfigs = NonNullable<typeof freshSettings.pluginConfigs>
-      // Partial<Record<K,V>> = Record<K, V | undefined> — gives us the widening
-      // for the undefined value, and Partial-of-X overlaps with X so the cast
-      // is a narrowing TS accepts (same approach as marketplaceManager.ts:1795).
-      const pluginConfigs: Partial<PluginConfigs> = { [pluginId]: undefined }
-      return { pluginConfigs: pluginConfigs as PluginConfigs }
-    },
-  )
-  if (!wasSettingsUpdateApplied(result)) {
-    const error =
-      result.error?.message ?? 'Plugin settings cleanup was not written'
-    logForDebugging(
-      `deletePluginOptions: failed to clear settings.pluginConfigs[${pluginId}]: ${error}`,
-      { level: 'warn' },
-    )
-    return { success: false, error }
+  const settings = getSettings_DEPRECATED()
+  type PluginConfigs = NonNullable<typeof settings.pluginConfigs>
+  if (settings.pluginConfigs?.[pluginId]) {
+    // Partial<Record<K,V>> = Record<K, V | undefined> — gives us the widening
+    // for the undefined value, and Partial-of-X overlaps with X so the cast
+    // is a narrowing TS accepts (same approach as marketplaceManager.ts:1795).
+    const pluginConfigs: Partial<PluginConfigs> = { [pluginId]: undefined }
+    const { error } = updateSettingsForSource('userSettings', {
+      pluginConfigs: pluginConfigs as PluginConfigs,
+    })
+    if (error) {
+      logForDebugging(
+        `deletePluginOptions: failed to clear settings.pluginConfigs[${pluginId}]: ${error.message}`,
+        { level: 'warn' },
+      )
+    }
   }
-  clearPluginOptionsCache()
 
   // Secure storage side — delete both the top-level pluginSecrets[pluginId]
   // and any per-server composite keys `${pluginId}/${server}` (from
   // saveMcpServerUserConfig's sensitive split). `/` prefix match is safe:
   // plugin IDs are `name@marketplace`, never contain `/`, so
   // startsWith(`${id}/`) can't false-positive on a different plugin.
-  const storage = dependencies?.secureStorage ?? getSecureStorage()
+  const storage = getSecureStorage()
   const existing = storage.read()
   if (existing?.pluginSecrets) {
     const prefix = `${pluginId}/`
@@ -277,18 +261,15 @@ export function deletePluginOptions(
             : undefined,
       })
       if (!result.success) {
-        const error = `Failed to clear plugin secrets for ${pluginId} from secure storage`
         logForDebugging(
-          `deletePluginOptions: ${error}`,
+          `deletePluginOptions: failed to clear pluginSecrets for ${pluginId} from keychain`,
           { level: 'warn' },
         )
-        return { success: false, error }
       }
     }
   }
 
   clearPluginOptionsCache()
-  return { success: true }
 }
 
 /**

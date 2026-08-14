@@ -495,20 +495,8 @@ async function runPermissionRequestHooksForHeadlessAgent(
             context.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length) {
-          const persistence = persistPermissionUpdates(permissionUpdates)
-          const appliedUpdates = persistence.appliedUpdates
-          if (appliedUpdates.length === 0) {
-            return {
-              behavior: 'allow',
-              updatedInput: finalInput,
-              decisionReason: {
-                type: 'hook',
-                hookName: 'PermissionRequest',
-              },
-            }
-          }
           // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = appliedUpdates
+          const updatedPermissions = permissionUpdates
           let updatedContext = context.getAppState().toolPermissionContext
           context.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(
@@ -521,6 +509,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
               toolPermissionContext: updatedContext,
             }
           })
+          persistPermissionUpdates(permissionUpdates)
         }
         return {
           behavior: 'allow',

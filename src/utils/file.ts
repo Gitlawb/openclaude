@@ -355,19 +355,14 @@ export function readFileSyncCached(filePath: string): string {
  * Writes to a file and flushes the file to disk
  * @param filePath The path to the file to write to
  * @param content The content to write to the file
- * @param options Options for writing the file, including encoding, mode, and
- * whether a final-component symlink should be preserved.
+ * @param options Options for writing the file, including encoding and mode
  * @deprecated Use `fs.promises.writeFile` with flush option instead for non-blocking writes.
  * Sync file writes block the event loop and cause performance issues.
  */
 export function writeFileSyncAndFlush_DEPRECATED(
   filePath: string,
   content: string | Buffer,
-  options: {
-    encoding: BufferEncoding
-    mode?: number
-    preserveSymlink?: boolean
-  } = { encoding: 'utf-8' },
+  options: { encoding: BufferEncoding; mode?: number } = { encoding: 'utf-8' },
 ): void {
   const fs = getFsImplementation()
 
@@ -375,18 +370,16 @@ export function writeFileSyncAndFlush_DEPRECATED(
   // Note: We don't use safeResolvePath here because we need to manually handle
   // symlinks to ensure we write to the target while preserving the symlink itself
   let targetPath = filePath
-  if (options.preserveSymlink !== false) {
-    try {
-      // Try to read the symlink - if successful, it's a symlink
-      const linkTarget = fs.readlinkSync(filePath)
-      // Resolve to absolute path
-      targetPath = isAbsolute(linkTarget)
-        ? linkTarget
-        : resolve(dirname(filePath), linkTarget)
-      logForDebugging(`Writing through symlink: ${filePath} -> ${targetPath}`)
-    } catch {
-      // ENOENT (doesn't exist) or EINVAL (not a symlink) — keep targetPath = filePath
-    }
+  try {
+    // Try to read the symlink - if successful, it's a symlink
+    const linkTarget = fs.readlinkSync(filePath)
+    // Resolve to absolute path
+    targetPath = isAbsolute(linkTarget)
+      ? linkTarget
+      : resolve(dirname(filePath), linkTarget)
+    logForDebugging(`Writing through symlink: ${filePath} -> ${targetPath}`)
+  } catch {
+    // ENOENT (doesn't exist) or EINVAL (not a symlink) — keep targetPath = filePath
   }
 
   // Try atomic write first
@@ -455,13 +448,6 @@ export function writeFileSyncAndFlush_DEPRECATED(
       fs.unlinkSync(tempPath)
     } catch (cleanupError) {
       logForDebugging(`Failed to clean up temp file: ${cleanupError}`)
-    }
-
-    // Lock-scoped callers already resolved the logical symlink to an exact
-    // physical target. Falling back to a pathname write here could follow a
-    // symlink swapped into that target after their ownership assertion.
-    if (options.preserveSymlink === false) {
-      throw atomicError
     }
 
     // Fallback to non-atomic write

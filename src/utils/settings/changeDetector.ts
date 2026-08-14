@@ -1,5 +1,5 @@
 import chokidar, { type FSWatcher } from 'chokidar'
-import { realpath, stat } from 'fs/promises'
+import { stat } from 'fs/promises'
 import * as platformPath from 'path'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import { registerCleanup } from '../cleanupRegistry.js'
@@ -22,7 +22,6 @@ import {
   setMdmSettingsCache,
 } from './mdm/settings.js'
 import { getSettingsFilePathForSource } from './settings.js'
-import { resolveSettingsFileTarget } from './settingsFileLock.js'
 import { resetSettingsCache } from './settingsCache.js'
 
 /**
@@ -78,16 +77,6 @@ const pendingDeletions = new Map<string, ReturnType<typeof setTimeout>>()
 let settingsDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const pendingSettingsSources = new Map<SettingSource, number>()
 const settingsSourceGenerations = new Map<SettingSource, number>()
-const watchedSettingsSources = new Map<string, Set<SettingSource>>()
-const logicalSettingsPaths = new Map<SettingSource, string>()
-const physicalSettingsPaths = new Map<SettingSource, string>()
-const baseWatchDirectories = new Set<string>()
-const activeWatchDirectories = new Set<string>()
-const watchedSettingsFiles = new Set<string>()
-const targetRefreshGenerations = new Map<string, number>()
-let targetRefreshEpoch = 0
-let targetRefreshQueue: Promise<void> = Promise.resolve()
-let resolveWatcherReady: (() => void) | null = null
 const settingsChanged = createSignal<[source: SettingSource]>()
 
 // Test overrides for timing constants
@@ -106,9 +95,7 @@ const defaultDependencies = {
   getManagedSettingsDropInDir,
   getSettingsFilePathForSource,
   hasBlockingResult,
-  realpath,
   resetSettingsCache,
-  resolveSettingsFileTarget,
   stat,
   watch: chokidar.watch.bind(chokidar),
 }
@@ -150,14 +137,7 @@ export async function initialize(): Promise<void> {
     ignored: (path, stats) => {
       // Ignore special file types (sockets, FIFOs, devices) - they cannot be watched
       // and will error with EOPNOTSUPP on macOS.
-      if (
-        stats &&
-        !stats.isFile() &&
-        !stats.isDirectory() &&
-        !stats.isSymbolicLink()
-      ) {
-        return true
-      }
+      if (stats && !stats.isFile() && !stats.isDirectory()) return true
       // Ignore .git directories
       if (path.split(platformPath.sep).some(dir => dir === '.git')) return true
       // Allow directories (chokidar needs them for directory-level watching)
@@ -180,7 +160,6 @@ export async function initialize(): Promise<void> {
     },
     // Additional options for stability
     ignorePermissionErrors: true,
-    followSymlinks: false,
     usePolling: false, // Use native file system events
     atomic: true, // Handle atomic writes better
   })
@@ -188,14 +167,6 @@ export async function initialize(): Promise<void> {
   watcher.on('change', handleChange)
   watcher.on('unlink', handleDelete)
   watcher.on('add', handleAdd)
-  await new Promise<void>(resolve => {
-    const finish = (): void => {
-      if (resolveWatcherReady === finish) resolveWatcherReady = null
-      resolve()
-    }
-    resolveWatcherReady = finish
-    watcher?.once('ready', finish)
-  })
 }
 
 /**
@@ -206,8 +177,6 @@ export async function initialize(): Promise<void> {
  */
 export function dispose(): Promise<void> {
   disposed = true
-  resolveWatcherReady?.()
-  resolveWatcherReady = null
   if (mdmPollTimer) {
     clearInterval(mdmPollTimer)
     mdmPollTimer = null
@@ -216,15 +185,6 @@ export function dispose(): Promise<void> {
   pendingDeletions.clear()
   clearSettingsDebounce()
   settingsSourceGenerations.clear()
-  watchedSettingsSources.clear()
-  logicalSettingsPaths.clear()
-  physicalSettingsPaths.clear()
-  baseWatchDirectories.clear()
-  activeWatchDirectories.clear()
-  watchedSettingsFiles.clear()
-  targetRefreshGenerations.clear()
-  targetRefreshEpoch++
-  targetRefreshQueue = Promise.resolve()
   lastMdmSnapshot = null
   dependencies.clearInternalWrites()
   settingsChanged.clear()
@@ -248,14 +208,9 @@ async function getWatchTargets(): Promise<{
   settingsFiles: Set<string>
   dropInDir: string | null
 }> {
-  const dirsToWatch = new Set<string>()
-  watchedSettingsSources.clear()
-  logicalSettingsPaths.clear()
-  physicalSettingsPaths.clear()
-  baseWatchDirectories.clear()
-  activeWatchDirectories.clear()
-  watchedSettingsFiles.clear()
-  targetRefreshGenerations.clear()
+  // Map from directory to all potential settings files in that directory
+  const dirToSettingsFiles = new Map<string, Set<string>>()
+  const dirsWithExistingFiles = new Set<string>()
 
   for (const source of SETTING_SOURCES) {
     // Skip flagSettings - they're provided via CLI and won't change during the session.
@@ -265,66 +220,41 @@ async function getWatchTargets(): Promise<{
     if (source === 'flagSettings') {
       continue
     }
-    const rawLogicalPath = dependencies.getSettingsFilePathForSource(source)
-    if (!rawLogicalPath) {
+    const path = dependencies.getSettingsFilePathForSource(source)
+    if (!path) {
       continue
     }
-    const logicalPath = platformPath.normalize(rawLogicalPath)
-    const logicalDir = platformPath.dirname(logicalPath)
-    logicalSettingsPaths.set(source, logicalPath)
 
-    // Watch an existing logical parent even when the settings path is a
-    // dangling symlink. Repairing or retargeting that link must be observable.
-    try {
-      const parentStats = await dependencies.stat(logicalDir)
-      if (parentStats.isDirectory()) {
-        dirsToWatch.add(logicalDir)
-        baseWatchDirectories.add(logicalDir)
-      }
-    } catch {
-      // The parent directory does not exist yet.
+    const dir = platformPath.dirname(path)
+
+    // Track all potential settings files in each directory
+    if (!dirToSettingsFiles.has(dir)) {
+      dirToSettingsFiles.set(dir, new Set())
     }
+    dirToSettingsFiles.get(dir)!.add(path)
 
-    let targetPath: string | null = null
+    // Check if file exists - only watch directories that have at least one existing file
     try {
-      const stats = await dependencies.stat(logicalPath)
+      const stats = await dependencies.stat(path)
       if (stats.isFile()) {
-        try {
-          // Locked writes target the physical file behind a symlink. Watch both
-          // spellings so peer sessions observe those writes as well.
-          targetPath = platformPath.normalize(
-            await dependencies.realpath(logicalPath),
-          )
-        } catch {
-          // The logical directory still covers replacement of a broken link.
-        }
+        dirsWithExistingFiles.add(dir)
       }
     } catch {
-      // stat follows the final symlink, so a dangling link arrives here. The
-      // lock resolver can still identify its prospective physical target.
-      try {
-        const candidate = platformPath.normalize(
-          dependencies.resolveSettingsFileTarget(logicalPath),
-        )
-        if (candidate !== logicalPath) targetPath = candidate
-      } catch {
-        // Malformed or cyclic links remain covered by the logical parent.
-      }
-    }
-
-    if (targetPath) {
-      physicalSettingsPaths.set(source, targetPath)
-      const targetDir = platformPath.dirname(targetPath)
-      try {
-        const targetDirStats = await dependencies.stat(targetDir)
-        if (targetDirStats.isDirectory()) dirsToWatch.add(targetDir)
-      } catch {
-        // A missing target directory cannot be watched directly yet.
-      }
+      // File doesn't exist, that's fine
     }
   }
 
-  rebuildWatchedSettingsPaths()
+  // For watched directories, include ALL potential settings file paths
+  // This ensures files created after init are also detected
+  const settingsFiles = new Set<string>()
+  for (const dir of dirsWithExistingFiles) {
+    const filesInDir = dirToSettingsFiles.get(dir)
+    if (filesInDir) {
+      for (const file of filesInDir) {
+        settingsFiles.add(file)
+      }
+    }
+  }
 
   // Also watch the managed-settings.d/ drop-in directory for policy fragments.
   // We add it as a separate watched directory so chokidar's depth:0 watches
@@ -335,133 +265,14 @@ async function getWatchTargets(): Promise<{
   try {
     const stats = await dependencies.stat(managedDropIn)
     if (stats.isDirectory()) {
-      dirsToWatch.add(managedDropIn)
-      baseWatchDirectories.add(managedDropIn)
+      dirsWithExistingFiles.add(managedDropIn)
       dropInDir = managedDropIn
     }
   } catch {
     // Drop-in directory doesn't exist, that's fine
   }
 
-  for (const dir of dirsToWatch) activeWatchDirectories.add(dir)
-  return { dirs: [...dirsToWatch], settingsFiles: watchedSettingsFiles, dropInDir }
-}
-
-function addWatchedSettingsSource(
-  path: string,
-  source: SettingSource,
-): void {
-  watchedSettingsFiles.add(path)
-  const sources = watchedSettingsSources.get(path)
-  if (sources) {
-    sources.add(source)
-  } else {
-    watchedSettingsSources.set(path, new Set([source]))
-  }
-}
-
-function rebuildWatchedSettingsPaths(): void {
-  watchedSettingsSources.clear()
-  watchedSettingsFiles.clear()
-  for (const source of SETTING_SOURCES) {
-    const logicalPath = logicalSettingsPaths.get(source)
-    if (logicalPath) addWatchedSettingsSource(logicalPath, source)
-    const physicalPath = physicalSettingsPaths.get(source)
-    if (physicalPath) addWatchedSettingsSource(physicalPath, source)
-  }
-}
-
-function refreshPhysicalSettingsTargets(path: string): Promise<boolean> {
-  const epoch = targetRefreshEpoch
-  const refresh = targetRefreshQueue.then(() =>
-    refreshPhysicalSettingsTargetsNow(path, epoch),
-  )
-  const guardedRefresh = refresh.catch(error => {
-    logForDebugging(
-      `Failed to refresh settings symlink target: ${errorMessage(error)}`,
-    )
-    return false
-  })
-  targetRefreshQueue = guardedRefresh.then(() => undefined)
-  return guardedRefresh
-}
-
-async function refreshPhysicalSettingsTargetsNow(
-  path: string,
-  epoch: number,
-): Promise<boolean> {
-  if (epoch !== targetRefreshEpoch) return false
-  const normalizedPath = platformPath.normalize(path)
-  const sources = [...logicalSettingsPaths].flatMap(([source, logicalPath]) =>
-    logicalPath === normalizedPath ? [source] : [],
-  )
-  if (sources.length === 0) return false
-
-  const generation = (targetRefreshGenerations.get(normalizedPath) ?? 0) + 1
-  targetRefreshGenerations.set(normalizedPath, generation)
-  const resolvedTargets = new Map<SettingSource, string>()
-
-  for (const source of sources) {
-    let targetPath: string | null = null
-    try {
-      const stats = await dependencies.stat(normalizedPath)
-      if (!stats.isFile()) continue
-      targetPath = platformPath.normalize(
-        await dependencies.realpath(normalizedPath),
-      )
-    } catch {
-      try {
-        const candidate = platformPath.normalize(
-          dependencies.resolveSettingsFileTarget(normalizedPath),
-        )
-        if (candidate !== normalizedPath) targetPath = candidate
-      } catch {
-        // Malformed or cyclic links remain covered by the logical parent.
-      }
-    }
-    if (targetPath) resolvedTargets.set(source, targetPath)
-  }
-
-  if (
-    disposed ||
-    epoch !== targetRefreshEpoch ||
-    targetRefreshGenerations.get(normalizedPath) !== generation
-  ) {
-    return false
-  }
-
-  const targetChanged = sources.some(
-    source =>
-      (physicalSettingsPaths.get(source) ?? null) !==
-      (resolvedTargets.get(source) ?? null),
-  )
-  for (const source of sources) {
-    const targetPath = resolvedTargets.get(source)
-    if (targetPath) {
-      physicalSettingsPaths.set(source, targetPath)
-    } else {
-      physicalSettingsPaths.delete(source)
-    }
-  }
-  rebuildWatchedSettingsPaths()
-
-  const desiredDirectories = new Set(baseWatchDirectories)
-  for (const targetPath of physicalSettingsPaths.values()) {
-    desiredDirectories.add(platformPath.dirname(targetPath))
-  }
-
-  if (!watcher) return targetChanged
-  for (const dir of desiredDirectories) {
-    if (activeWatchDirectories.has(dir)) continue
-    watcher.add(dir)
-    activeWatchDirectories.add(dir)
-  }
-  for (const dir of [...activeWatchDirectories]) {
-    if (desiredDirectories.has(dir)) continue
-    await watcher.unwatch(dir)
-    activeWatchDirectories.delete(dir)
-  }
-  return targetChanged
+  return { dirs: [...dirsWithExistingFiles], settingsFiles, dropInDir }
 }
 
 function settingSourceToConfigChangeSource(
@@ -482,24 +293,8 @@ function settingSourceToConfigChangeSource(
 
 function handleChange(path: string): void {
   if (disposed) return
-  const normalizedPath = platformPath.normalize(path)
-  if (
-    [...logicalSettingsPaths.values()].some(
-      logicalPath => logicalPath === normalizedPath,
-    )
-  ) {
-    void refreshPhysicalSettingsTargets(normalizedPath).then(targetChanged => {
-      processChange(path, targetChanged)
-    })
-    return
-  }
-  processChange(path)
-}
-
-function processChange(path: string, physicalTargetChanged = false): void {
-  if (disposed) return
-  const sources = getSourcesForPath(path)
-  if (sources.length === 0) return
+  const source = getSourceForPath(path)
+  if (!source) return
 
   // If a deletion was pending for this path (delete-and-recreate pattern),
   // cancel the deletion — we'll process this as a change instead.
@@ -513,10 +308,7 @@ function processChange(path: string, physicalTargetChanged = false): void {
   }
 
   // Check if this was an internal write
-  if (
-    dependencies.consumeInternalWrite(path, INTERNAL_WRITE_WINDOW_MS) &&
-    !physicalTargetChanged
-  ) {
+  if (dependencies.consumeInternalWrite(path, INTERNAL_WRITE_WINDOW_MS)) {
     return
   }
 
@@ -524,24 +316,18 @@ function processChange(path: string, physicalTargetChanged = false): void {
 
   // Fire ConfigChange hook first — if blocked (exit code 2 or decision: 'block'),
   // skip applying the change to the session
-  for (const source of sources) {
-    const generation = nextSettingsSourceGeneration(source)
-    void dependencies
-      .executeConfigChangeHooks(
-        settingSourceToConfigChangeSource(source),
-        path,
-      )
-      .then(results => {
-        if (dependencies.hasBlockingResult(results)) {
-          logForDebugging(
-            `ConfigChange hook blocked ${source} change to ${path}`,
-          )
-          return
-        }
-        if (disposed) return
-        scheduleFanOut(source, generation)
-      })
-  }
+  const generation = nextSettingsSourceGeneration(source)
+  void dependencies.executeConfigChangeHooks(
+    settingSourceToConfigChangeSource(source),
+    path,
+  ).then(results => {
+    if (dependencies.hasBlockingResult(results)) {
+      logForDebugging(`ConfigChange hook blocked change to ${path}`)
+      return
+    }
+    if (disposed) return
+    scheduleFanOut(source, generation)
+  })
 }
 
 /**
@@ -550,7 +336,8 @@ function processChange(path: string, physicalTargetChanged = false): void {
  */
 function handleAdd(path: string): void {
   if (disposed) return
-  if (getSourcesForPath(path).length === 0) return
+  const source = getSourceForPath(path)
+  if (!source) return
 
   // Cancel any pending deletion — the file is back
   const pendingTimer = pendingDeletions.get(path)
@@ -572,78 +359,54 @@ function handleAdd(path: string): void {
  */
 function handleDelete(path: string): void {
   if (disposed) return
-  const sources = getSourcesForPath(path)
-  if (sources.length === 0) return
+  const source = getSourceForPath(path)
+  if (!source) return
 
   logForDebugging(`Detected deletion of ${path}`)
 
   // If there's already a pending deletion for this path, let it run
   if (pendingDeletions.has(path)) return
 
-  const generations = sources.map(
-    source => [source, nextSettingsSourceGeneration(source)] as const,
-  )
+  const generation = nextSettingsSourceGeneration(source)
   const timer = setTimeout(
-    (p, sourceGenerations) => {
+    (p, src, gen) => {
       if (disposed) return
       pendingDeletions.delete(p)
 
-      const processDeletion = (): void => {
-        if (disposed) return
-        for (const [source, generation] of sourceGenerations) {
-          // Fire ConfigChange hook first — if blocked, skip applying the deletion
-          void dependencies
-            .executeConfigChangeHooks(
-              settingSourceToConfigChangeSource(source),
-              p,
-            )
-            .then(results => {
-              if (dependencies.hasBlockingResult(results)) {
-                logForDebugging(
-                  `ConfigChange hook blocked ${source} deletion of ${p}`,
-                )
-                return
-              }
-              if (disposed) return
-              scheduleFanOut(source, generation)
-            })
+      // Fire ConfigChange hook first — if blocked, skip applying the deletion
+      void dependencies.executeConfigChangeHooks(
+        settingSourceToConfigChangeSource(src),
+        p,
+      ).then(results => {
+        if (dependencies.hasBlockingResult(results)) {
+          logForDebugging(`ConfigChange hook blocked deletion of ${p}`)
+          return
         }
-      }
-
-      const normalizedPath = platformPath.normalize(p)
-      if (
-        [...logicalSettingsPaths.values()].some(
-          logicalPath => logicalPath === normalizedPath,
-        )
-      ) {
-        void refreshPhysicalSettingsTargets(normalizedPath).then(processDeletion)
-      } else {
-        processDeletion()
-      }
+        if (disposed) return
+        scheduleFanOut(src, gen)
+      })
     },
     testOverrides?.deletionGrace ?? DELETION_GRACE_MS,
     path,
-    generations,
+    source,
+    generation,
   )
   pendingDeletions.set(path, timer)
 }
 
-function getSourcesForPath(path: string): SettingSource[] {
+function getSourceForPath(path: string): SettingSource | undefined {
   // Normalize path because chokidar uses forward slashes on Windows
   const normalizedPath = platformPath.normalize(path)
-
-  const watchedSources = watchedSettingsSources.get(normalizedPath)
-  if (watchedSources) return [...watchedSources]
 
   // Check if the path is inside the managed-settings.d/ drop-in directory
   const dropInDir = platformPath.normalize(
     dependencies.getManagedSettingsDropInDir(),
   )
   if (normalizedPath.startsWith(dropInDir + platformPath.sep)) {
-    return ['policySettings']
+    return 'policySettings'
   }
 
-  return SETTING_SOURCES.filter(
+  return SETTING_SOURCES.find(
     source =>
       platformPath.normalize(
         dependencies.getSettingsFilePathForSource(source) ?? '',
@@ -786,8 +549,6 @@ export function resetForTesting(overrides?: {
   deletionGrace?: number
   settingsDebounce?: number
 }): Promise<void> {
-  resolveWatcherReady?.()
-  resolveWatcherReady = null
   if (mdmPollTimer) {
     clearInterval(mdmPollTimer)
     mdmPollTimer = null
@@ -796,15 +557,6 @@ export function resetForTesting(overrides?: {
   pendingDeletions.clear()
   clearSettingsDebounce()
   settingsSourceGenerations.clear()
-  watchedSettingsSources.clear()
-  logicalSettingsPaths.clear()
-  physicalSettingsPaths.clear()
-  baseWatchDirectories.clear()
-  activeWatchDirectories.clear()
-  watchedSettingsFiles.clear()
-  targetRefreshGenerations.clear()
-  targetRefreshEpoch++
-  targetRefreshQueue = Promise.resolve()
   lastMdmSnapshot = null
   initialized = false
   disposed = false

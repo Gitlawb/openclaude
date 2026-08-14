@@ -15,7 +15,6 @@ type Props = {
   onAccept(): void
   onDecline?(): void
   onCancel?(): void
-  saveError?: string | null
 }
 
 export function BypassPermissionsModeDialog({
@@ -23,7 +22,6 @@ export function BypassPermissionsModeDialog({
   onAccept,
   onDecline,
   onCancel,
-  saveError,
 }: Props) {
   React.useEffect(() => {
     logEvent('tengu_bypass_permissions_mode_dialog_shown', {})
@@ -86,7 +84,6 @@ export function BypassPermissionsModeDialog({
         ]}
         onChange={value => handleChange(value as 'accept' | 'decline')}
       />
-      {saveError ? <Text color="error">{saveError}</Text> : null}
     </Dialog>
   )
 }

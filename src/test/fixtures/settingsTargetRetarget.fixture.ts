@@ -1,4 +1,3 @@
-import { mock } from 'bun:test'
 import {
   mkdtempSync,
   readFileSync,
@@ -10,12 +9,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import * as lockfile from '../../utils/lockfile.js'
-import * as fileUtils from '../../utils/file.js'
+import { SYNC_KEYS } from '../../services/settingsSync/types.js'
 import {
   getClaudeConfigHomeDir,
   setClaudeConfigHomeDirForTesting,
 } from '../../utils/envUtils.js'
+import {
+  getFsImplementation,
+  setFsImplementation,
+  setOriginalFsImplementation,
+} from '../../utils/fsOperations.js'
 
 if (process.platform === 'win32') {
   process.stdout.write(JSON.stringify({ skipped: true }))
@@ -28,32 +31,8 @@ const configDir = realpathSync(
 const settingsPath = join(configDir, 'settings.json')
 const originalTarget = join(configDir, 'settings-original.json')
 const replacementTarget = join(configDir, 'settings-replacement.json')
-const cyclePeer = join(configDir, 'settings-cycle-peer.json')
 const original = `${JSON.stringify({ env: { ORIGINAL: '1' } }, null, 2)}\n`
 const replacement = `${JSON.stringify({ env: { REPLACEMENT: '1' } }, null, 2)}\n`
-const requestedMode = process.argv[2]
-const mode =
-  requestedMode === 'after-write' ||
-  requestedMode === 'after-write-cycle' ||
-  requestedMode === 'physical-before-write'
-    ? requestedMode
-    : 'before-write'
-
-let output: {
-  skipped: false
-  error: string | null
-  written: boolean
-  committed: boolean
-  originalUnchanged: boolean
-  replacementUnchanged: boolean
-} = {
-  skipped: false,
-  error: 'fixture did not complete',
-  written: false,
-  committed: false,
-  originalUnchanged: false,
-  replacementUnchanged: false,
-}
 
 try {
   setClaudeConfigHomeDirForTesting(configDir)
@@ -61,64 +40,44 @@ try {
   writeFileSync(originalTarget, original, 'utf8')
   writeFileSync(replacementTarget, replacement, 'utf8')
   symlinkSync(originalTarget, settingsPath)
-  const realLockSync = lockfile.lockSync
 
-  if (mode === 'before-write') {
-    mock.module('../../utils/lockfile.js', () => ({
-      ...lockfile,
-      lockSync(file: string, options?: Parameters<typeof lockfile.lockSync>[1]) {
-        const release = realLockSync(file, options)
+  const originalFs = getFsImplementation()
+  let retargeted = false
+  setFsImplementation({
+    ...originalFs,
+    renameSync(oldPath, newPath) {
+      originalFs.renameSync(oldPath, newPath)
+      if (!retargeted && newPath === originalTarget) {
+        retargeted = true
         unlinkSync(settingsPath)
         symlinkSync(replacementTarget, settingsPath)
-        return release
-      },
-    }))
-  } else if (mode === 'after-write' || mode === 'after-write-cycle') {
-    const realWrite = fileUtils.writeFileSyncAndFlush_DEPRECATED
-    mock.module('../../utils/file.js', () => ({
-      ...fileUtils,
-      writeFileSyncAndFlush_DEPRECATED(...args: Parameters<typeof realWrite>) {
-        realWrite(...args)
-        unlinkSync(settingsPath)
-        if (mode === 'after-write-cycle') {
-          symlinkSync(cyclePeer, settingsPath)
-          symlinkSync(settingsPath, cyclePeer)
-        } else {
-          symlinkSync(replacementTarget, settingsPath)
-        }
-      },
-    }))
-  } else {
-    const realWrite = fileUtils.writeFileSyncAndFlush_DEPRECATED
-    mock.module('../../utils/file.js', () => ({
-      ...fileUtils,
-      writeFileSyncAndFlush_DEPRECATED(...args: Parameters<typeof realWrite>) {
-        unlinkSync(originalTarget)
-        symlinkSync(replacementTarget, originalTarget)
-        realWrite(...args)
-      },
-    }))
-  }
+      }
+    },
+  })
 
-  const { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } = await import(
-    '../../utils/settings/settings.js'
+  const { __test: settingsSyncTest } = await import(
+    '../../services/settingsSync/index.js'
   )
-  const result = updateSettingsForSourceWithFreshSettings(
-    'userSettings',
-    () => ({ env: { MUST_NOT_LAND: 'true' } }),
+  const applyResult = await settingsSyncTest.applyRemoteEntriesToLocal(
+    {
+      [SYNC_KEYS.USER_SETTINGS]: `${JSON.stringify({ env: { REMOTE: '1' } })}\n`,
+    },
+    null,
   )
+  const applied =
+    applyResult.settingsSourcesWritten.includes('userSettings')
 
-  output = {
-    skipped: false,
-    error: result.error?.message ?? null,
-    written: result.written,
-    committed: wasSettingsUpdateCommitted(result),
-    originalUnchanged: readFileSync(originalTarget, 'utf8') === original,
-    replacementUnchanged:
-      readFileSync(replacementTarget, 'utf8') === replacement,
-  }
+  process.stdout.write(
+    JSON.stringify({
+      skipped: false,
+      applied,
+      physicalWriteLanded:
+        readFileSync(originalTarget, 'utf8') !== original,
+      logicalTargetUnchanged:
+        readFileSync(replacementTarget, 'utf8') === replacement,
+    }),
+  )
 } finally {
+  setOriginalFsImplementation()
   rmSync(configDir, { recursive: true, force: true })
 }
-
-process.stdout.write(JSON.stringify(output))

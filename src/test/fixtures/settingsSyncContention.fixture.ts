@@ -42,11 +42,10 @@ try {
   })
 
   if (!applyPromise) throw new Error('Settings sync did not start')
-  const applyResult = await applyPromise
-  const applied = applyResult.complete
+  const result = await applyPromise
   process.stdout.write(
     JSON.stringify({
-      applied,
+      result,
       unchanged: readFileSync(settingsPath, 'utf8') === original,
     }),
   )

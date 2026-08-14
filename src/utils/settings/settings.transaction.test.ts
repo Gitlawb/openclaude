@@ -10,18 +10,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve, sep } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { createCurrentSettingsLockOwner } from '../../test/fixtures/settingsLockOwner.js'
 import {
   getFsImplementation,
   setFsImplementation,
   setOriginalFsImplementation,
 } from '../fsOperations.js'
-import {
-  clearInternalWrites,
-  consumeInternalWrite,
-  markInternalWrite,
-} from './internalWrites.js'
 import {
   getSettingsFileLockPath,
   resolveSettingsFileTarget,
@@ -49,13 +44,9 @@ const SETTINGS_SYNC_PARTIAL_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsSyncPartial.fixture.ts',
 )
-const SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE = join(
+const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
   import.meta.dir,
-  '../../test/fixtures/settingsSyncReleaseFailure.fixture.ts',
-)
-const SETTINGS_SYNC_UNAPPLIED_FIXTURE = join(
-  import.meta.dir,
-  '../../test/fixtures/settingsSyncUnapplied.fixture.ts',
+  '../../test/fixtures/settingsReloadNotification.fixture.ts',
 )
 const SETTINGS_LOCK_SYMLINK_SWAP_FIXTURE = join(
   import.meta.dir,
@@ -69,17 +60,9 @@ const SETTINGS_OWNER_WRITE_FAILURE_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsOwnerWriteFailure.fixture.ts',
 )
-const SETTINGS_RELOAD_NOTIFICATION_FIXTURE = join(
-  import.meta.dir,
-  '../../test/fixtures/settingsReloadNotification.fixture.ts',
-)
 const SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsLockReleaseFailure.fixture.ts',
-)
-const SETTINGS_SYMLINK_NOTIFICATION_FIXTURE = join(
-  import.meta.dir,
-  '../../test/fixtures/settingsSymlinkNotification.fixture.ts',
 )
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
 const MISSING_PROCESS_PID = 2_147_483_647
@@ -430,21 +413,6 @@ test('locked update preserves merge semantics, final symlinks, modes, and cache 
       },
       enabledPlugins: { keep: true },
     },
-  })
-})
-
-test('plugin option scrub removes sensitive plaintext through the serialized settings writer', async () => {
-  const result = await getScenario<{
-    final: SettingsJson
-    secureState: { pluginSecrets: Record<string, Record<string, string>> }
-  }>('plugin-option-scrub')
-
-  expect(result.final.pluginConfigs?.['demo@market']?.options).toEqual({
-    keep: 'peer-value',
-    label: 'visible',
-  })
-  expect(result.secureState.pluginSecrets['demo@market']).toEqual({
-    token: 'new-secret',
   })
 })
 
@@ -942,14 +910,12 @@ test('acquisition failure cannot unlink owner metadata through a swapped lock sy
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
-test('a retargeted settings symlink aborts before writing the old or new target', async () => {
+test('settings sync does not report a physical write to a retargeted settings symlink as applied', async () => {
   const result = await collectChild<{
     skipped: boolean
-    error?: string | null
-    written?: boolean
-    committed?: boolean
-    originalUnchanged?: boolean
-    replacementUnchanged?: boolean
+    applied?: boolean
+    physicalWriteLanded?: boolean
+    logicalTargetUnchanged?: boolean
   }>(
     Bun.spawn([process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE], {
       cwd: process.cwd(),
@@ -957,82 +923,14 @@ test('a retargeted settings symlink aborts before writing the old or new target'
       stdout: 'pipe',
     }),
   )
-  if (skipUnsupportedScenario(result.value.skipped, 'settings target retarget')) return
+  if (skipUnsupportedScenario(result.value.skipped, 'post-write settings target retarget')) return
 
   expect(result).toMatchObject({
     exitCode: 0,
     value: {
-      error: expect.stringContaining('target changed during update'),
-      written: false,
-      committed: false,
-      originalUnchanged: true,
-      replacementUnchanged: true,
-    },
-  })
-}, SUBPROCESS_TEST_TIMEOUT_MS)
-
-test('a post-write symlink retarget reports physical bytes without a logical commit', async () => {
-  const result = await collectChild<{
-    skipped: boolean
-    error?: string | null
-    written?: boolean
-    committed?: boolean
-    originalUnchanged?: boolean
-    replacementUnchanged?: boolean
-  }>(
-    Bun.spawn(
-      [process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE, 'after-write'],
-      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
-    ),
-  )
-  if (
-    skipUnsupportedScenario(result.value.skipped, 'reload notification target')
-  )
-    return
-
-  expect(result).toMatchObject({
-    exitCode: 0,
-    value: {
-      error: expect.stringContaining('target changed during update'),
-      written: true,
-      committed: false,
-      originalUnchanged: false,
-      replacementUnchanged: true,
-    },
-  })
-}, SUBPROCESS_TEST_TIMEOUT_MS)
-
-test('a swapped physical-target symlink cannot redirect the locked write', async () => {
-  const result = await collectChild<{
-    skipped: boolean
-    error?: string | null
-    written?: boolean
-    committed?: boolean
-    originalUnchanged?: boolean
-    replacementUnchanged?: boolean
-  }>(
-    Bun.spawn(
-      [
-        process.execPath,
-        SETTINGS_TARGET_RETARGET_FIXTURE,
-        'physical-before-write',
-      ],
-      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
-    ),
-  )
-  if (
-    skipUnsupportedScenario(result.value.skipped, 'symlink notification target')
-  )
-    return
-
-  expect(result).toMatchObject({
-    exitCode: 0,
-    value: {
-      error: null,
-      written: true,
-      committed: true,
-      originalUnchanged: false,
-      replacementUnchanged: true,
+      applied: false,
+      physicalWriteLanded: true,
+      logicalTargetUnchanged: true,
     },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
@@ -1183,30 +1081,6 @@ test('normal release cannot remove a successor acquired after quarantine', async
   })
 })
 
-test('a post-write cyclic symlink retarget is an ownership failure, not a commit', async () => {
-  const result = await collectChild<{
-    skipped: boolean
-    error: string | null
-    written: boolean
-    committed: boolean
-    originalUnchanged: boolean
-  }>(
-    Bun.spawn(
-      [process.execPath, SETTINGS_TARGET_RETARGET_FIXTURE, 'after-write-cycle'],
-      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
-    ),
-  )
-
-  if (skipUnsupportedScenario(result.value.skipped, 'cyclic settings target retarget')) return
-  expect(result.exitCode).toBe(0)
-  expect(result.value).toMatchObject({
-    error: expect.stringContaining('target changed during update'),
-    written: true,
-    committed: false,
-    originalUnchanged: false,
-  })
-})
-
 test.each(['partial', 'empty'] as const)(
   'an owner metadata %s-write failure does not strand or leak the acquired lock',
   async mode => {
@@ -1286,7 +1160,7 @@ for (const mode of ['acquisition', 'release'] as const) {
 
 test('settings sync reports contention as an unapplied download', async () => {
   const result = await collectChild<{
-    applied: boolean
+    result: { complete: boolean; settingsSourcesWritten: string[] }
     unchanged: boolean
   }>(
     Bun.spawn([process.execPath, SETTINGS_SYNC_CONTENTION_FIXTURE], {
@@ -1299,17 +1173,17 @@ test('settings sync reports contention as an unapplied download', async () => {
   expect(result, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toMatchObject(
     {
       exitCode: 0,
-      value: { applied: false, unchanged: true },
+      value: {
+        result: { complete: false, settingsSourcesWritten: [] },
+        unchanged: true,
+      },
     },
   )
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
-test('partial settings sync reports landed writes separately from completeness', async () => {
+test('partial settings sync reports committed sources separately from completeness', async () => {
   const result = await collectChild<{
-    result: {
-      complete: boolean
-      settingsSourcesWritten: string[]
-    }
+    result: { complete: boolean; settingsSourcesWritten: string[] }
     userLanded: boolean
     localUnchanged: boolean
     cachedUser?: string
@@ -1335,49 +1209,7 @@ test('partial settings sync reports landed writes separately from completeness',
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
-test('settings sync reports bytes landed before a release failure', async () => {
-  const result = await collectChild<{
-    complete: boolean
-    settingsSourcesWritten: string[]
-  }>(
-    Bun.spawn([process.execPath, SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE], {
-      cwd: process.cwd(),
-      stderr: 'pipe',
-      stdout: 'pipe',
-    }),
-  )
-
-  expect(result).toMatchObject({
-    exitCode: 0,
-    value: {
-      complete: false,
-      settingsSourcesWritten: ['userSettings'],
-    },
-  })
-}, SUBPROCESS_TEST_TIMEOUT_MS)
-
-test('settings sync reports settings failures as incomplete without changing memory semantics', async () => {
-  const result = await collectChild<{
-    oversized: { complete: boolean; settingsSourcesWritten: string[] }
-    memoryFailure: { complete: boolean; settingsSourcesWritten: string[] }
-  }>(
-    Bun.spawn([process.execPath, SETTINGS_SYNC_UNAPPLIED_FIXTURE], {
-      cwd: process.cwd(),
-      stderr: 'pipe',
-      stdout: 'pipe',
-    }),
-  )
-
-  expect(result).toMatchObject({
-    exitCode: 0,
-    value: {
-      oversized: { complete: false, settingsSourcesWritten: [] },
-      memoryFailure: { complete: true, settingsSourcesWritten: [] },
-    },
-  })
-}, SUBPROCESS_TEST_TIMEOUT_MS)
-
-test('reload plugins notifies every settings source landed by a partial download', async () => {
+test('reload plugins notifies every settings source committed by a partial download', async () => {
   const result = await collectChild<{ notified: string[] }>(
     Bun.spawn(
       [
@@ -1396,44 +1228,6 @@ test('reload plugins notifies every settings source landed by a partial download
   expect(result).toMatchObject({
     exitCode: 0,
     value: { notified: ['userSettings', 'localSettings'] },
-  })
-}, SUBPROCESS_TEST_TIMEOUT_MS)
-
-test('peer writes through a settings symlink notify the watching session', async () => {
-  const result = await collectChild<{
-    skipped: boolean
-    exitCode?: number
-    stderr?: string
-    peerNotified?: string[]
-    internalError?: string | null
-    internalNotified?: string[]
-    retargetExitCode?: number
-    retargetStderr?: string
-    retargetNotified?: string[]
-  }>(
-    Bun.spawn([process.execPath, SETTINGS_SYMLINK_NOTIFICATION_FIXTURE], {
-      cwd: process.cwd(),
-      stderr: 'pipe',
-      stdout: 'pipe',
-    }),
-  )
-  if (
-    skipUnsupportedScenario(result.value.skipped, 'lock release physical target')
-  )
-    return
-
-  expect(result).toMatchObject({
-    exitCode: 0,
-    value: {
-      exitCode: 0,
-      stderr: '',
-      peerNotified: ['userSettings', 'projectSettings'],
-      internalError: null,
-      internalNotified: [],
-      retargetExitCode: 0,
-      retargetStderr: '',
-      retargetNotified: ['userSettings', 'projectSettings'],
-    },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
@@ -1467,14 +1261,4 @@ test('write failure releases the settings lock for a later update', async () => 
   expect(result.final).toEqual({
     env: { BASE: '1', SECOND: 'landed' },
   })
-})
-
-test('internal write suppression normalizes equivalent watcher paths', () => {
-  clearInternalWrites()
-  const canonicalPath = join('settings-root', 'settings.json')
-  const equivalentPath = `settings-root${sep}nested${sep}..${sep}settings.json`
-
-  markInternalWrite(equivalentPath)
-  expect(consumeInternalWrite(canonicalPath, 5_000)).toBe(true)
-  clearInternalWrites()
 })

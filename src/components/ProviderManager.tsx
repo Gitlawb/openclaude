@@ -5,7 +5,6 @@ import { Box, Text, useInput } from '../ink.js'
 import { useTerminalSize } from '../hooks/useTerminalSize.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
 import { useSetAppState } from '../state/AppState.js'
-import { withPrecommittedModelStateUpdate } from '../state/onChangeAppState.js'
 import type {
   OpenAICompatibleApiFormat,
   ProviderProfile,
@@ -96,10 +95,7 @@ import {
   type ProviderProfileInput,
   updateProviderProfile,
 } from '../utils/providerProfiles.js'
-import {
-  getDefaultFirstPartyMainLoopModelSetting,
-  getDefaultMainLoopModelSetting,
-} from '../utils/model/model.js'
+import { getDefaultMainLoopModelSetting } from '../utils/model/model.js'
 import {
   clearGithubModelsToken,
   clearHydratedGithubModelsTokenFromEnv,
@@ -116,21 +112,10 @@ import {
   rankOllamaModels,
   recommendOllamaModel,
 } from '../utils/providerRecommendation.js'
-import {
-  clearStartupProviderOverrides,
-  type StartupProviderOverrideRollback,
-} from '../utils/providerStartupOverrides.js'
+import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
 import { redactSensitiveInfo, redactUrlForDisplay } from '../utils/redaction.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
-import {
-  updateSettingsForSourceWithResult,
-  wasSettingsUpdateCommitted,
-} from '../utils/settings/settings.js'
-import {
-  commitModelSettingsTransition,
-  rollbackModelSettingsTransition,
-  type ModelSettingsTransition,
-} from '../utils/settings/modelTransition.js'
+import { updateSettingsForSource } from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
   Select,
@@ -1455,38 +1440,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     })
   }
 
-  function clearStartupProviderOverrideFromUserSettings(
-    model?: string | null,
-  ): string | null {
-    return clearStartupProviderOverrides(
-      model === undefined ? undefined : { model },
-    )
-  }
-
-  function clearStartupProviderOverrideWithTransition(
-    model: string | null,
-  ): {
-    error: string | null
-    transition?: ModelSettingsTransition
-    rollbackGlobalConfig?: StartupProviderOverrideRollback
-  } {
-    let transition: ModelSettingsTransition | undefined
-    let rollbackGlobalConfig: StartupProviderOverrideRollback | undefined
-    const error = clearStartupProviderOverrides({
-      model,
-      onCommittedTransition(currentTransition, currentGlobalRollback) {
-        transition = currentTransition
-        rollbackGlobalConfig = currentGlobalRollback
-      },
-    })
-    return { error, transition, rollbackGlobalConfig }
-  }
-
-  function rollbackProviderModel(
-    transition: ModelSettingsTransition,
-  ): string | null {
-    const result = rollbackModelSettingsTransition(transition)
-    return result.status === 'failed' ? result.error : null
+  function clearStartupProviderOverrideFromUserSettings(): string | null {
+    return clearStartupProviderOverrides()
   }
 
   function formatWarningsForMessage(warnings: string[]): string {
@@ -1585,7 +1540,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       // Defer sync I/O to next microtask - UI renders loading state first.
       // setActiveProviderProfile(), activateGithubProvider(), and
       // clearStartupProviderOverrideFromUserSettings() all perform sync file writes
-      // (saveGlobalConfig, saveProfileFile, updateSettingsForSourceWithResult) which can
+      // (saveGlobalConfig, saveProfileFile, updateSettingsForSource) which can
       // block the main thread on Windows (antivirus, disk cache, NTFS metadata).
       await new Promise<void>(resolve => queueMicrotask(resolve))
 
@@ -1599,13 +1554,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           return
         }
 
-        withPrecommittedModelStateUpdate(GITHUB_PROVIDER_DEFAULT_MODEL, () => {
-          setAppState(prev => ({
-            ...prev,
-            mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
-            mainLoopModelForSession: null,
-          }))
-        })
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: GITHUB_PROVIDER_DEFAULT_MODEL,
+          mainLoopModelForSession: null,
+        }))
         refreshProfiles()
         setStatusMessage(`Active provider: ${GITHUB_PROVIDER_LABEL}`)
         setIsActivating(false)
@@ -1621,41 +1574,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
       if (profileId === ANTHROPIC_DEFAULT_PROFILE_ID) {
         providerLabel = ANTHROPIC_PROVIDER_LABEL
-        const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
-        const settingsOverride =
-          clearStartupProviderOverrideWithTransition(anthropicModel)
-        if (settingsOverride.error) {
-          setErrorMessage(
-            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${settingsOverride.error}`,
-          )
-          setIsActivating(false)
-          returnToMenu()
-          return
-        }
         // Switch back to built-in Anthropic: clears the managed provider env so
         // it takes effect this session, records the Anthropic sentinel so
         // startup no longer replays a third-party profile, and keeps saved
         // profiles for later re-selection (#1426).
-        try {
-          clearActiveProviderProfile()
-        } catch (error) {
-          const rollbackError = settingsOverride.transition
-            ? rollbackProviderModel(settingsOverride.transition)
-            : null
-          const globalRollbackError =
-            settingsOverride.rollbackGlobalConfig?.() ?? null
-          const detail = error instanceof Error ? error.message : String(error)
-          setErrorMessage(
-            `Could not activate ${ANTHROPIC_PROVIDER_LABEL}: ${detail}` +
-              (rollbackError ? `; model rollback failed: ${rollbackError}` : '') +
-              (globalRollbackError
-                ? `; global override rollback failed: ${globalRollbackError}`
-                : ''),
-          )
-          setIsActivating(false)
-          returnToMenu()
-          return
-        }
+        clearActiveProviderProfile()
         // clearActiveProviderProfile clears the managed provider flags (e.g.
         // CLAUDE_CODE_USE_GITHUB) but not a GitHub Models token hydrated into the
         // session from secure storage. Drop that hydrated token + marker so the
@@ -1667,91 +1590,53 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         // restart does not replay the third-party provider. The saved-profile
         // and GitHub activation paths perform the same cleanup; surface any
         // failure as a warning the same way the saved-profile path does.
-        withPrecommittedModelStateUpdate(anthropicModel, () => {
-          setAppState(prev => ({
-            ...prev,
-            mainLoopModel: anthropicModel,
-            mainLoopModelForSession: null,
-          }))
-        })
+        const settingsOverrideError = clearStartupProviderOverrideFromUserSettings()
+        const anthropicModel = getPrimaryModel(getDefaultMainLoopModelSetting())
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: anthropicModel,
+          mainLoopModelForSession: null,
+        }))
         refreshProfiles()
         setStatusMessage(
-          `Active provider: ${ANTHROPIC_PROVIDER_LABEL}`,
+          settingsOverrideError
+            ? `Active provider: ${ANTHROPIC_PROVIDER_LABEL}. Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Active provider: ${ANTHROPIC_PROVIDER_LABEL}`,
         )
         setIsActivating(false)
         onDone({
           action: 'activated',
           activeProviderName: ANTHROPIC_PROVIDER_LABEL,
           activeProviderModel: anthropicModel,
-          message: `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
+          message: settingsOverrideError
+            ? `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel}). Warning: could not clear startup provider override (${settingsOverrideError}).`
+            : `Provider switched to ${ANTHROPIC_PROVIDER_LABEL} (${anthropicModel})`,
         })
         returnToMenu()
         return
       }
 
-      const selectedProfile = getProviderProfiles().find(
-        profile => profile.id === profileId,
-      )
-      if (!selectedProfile) {
+      const active = setActiveProviderProfile(profileId)
+      if (!active) {
         setErrorMessage('Could not change active provider.')
         setIsActivating(false)
         returnToMenu()
         return
       }
-      const newModel = getPrimaryModel(selectedProfile.model)
-      const modelTransition = commitModelSettingsTransition(newModel)
-      const modelResult = modelTransition.result
-      if (!wasSettingsUpdateCommitted(modelResult)) {
-        setErrorMessage(
-          `Could not activate ${selectedProfile.name}: ${modelResult.error?.message ?? 'model settings were not written'}`,
-        )
-        setIsActivating(false)
-        returnToMenu()
-        return
-      }
-
-      let active: ReturnType<typeof setActiveProviderProfile>
-      try {
-        active = setActiveProviderProfile(profileId)
-      } catch (error) {
-        const rollbackError = rollbackProviderModel(modelTransition.transition!)
-        const detail = error instanceof Error ? error.message : String(error)
-        throw new Error(
-          rollbackError
-            ? `${detail}; rollback failed: ${rollbackError}`
-            : detail,
-        )
-      }
-      if (!active) {
-        const rollbackError = rollbackProviderModel(modelTransition.transition!)
-        setErrorMessage(
-          rollbackError
-            ? `Could not change active provider; rollback failed: ${rollbackError}`
-            : 'Could not change active provider.',
-        )
-        setIsActivating(false)
-        returnToMenu()
-        return
-      }
-
-      // Startup overrides are cleanup, not a prerequisite for a coherent live
-      // transition. Clear them only after provider activation succeeds so a
-      // failed activation never requires restoring stale credentials.
-      const settingsOverrideError =
-        clearStartupProviderOverrideFromUserSettings()
 
       // Update the session model to the new provider's first model.
       // persistActiveProviderProfileModel (called by onChangeAppState) will
       // not overwrite the multi-model list because it checks if the model
       // is already in the provider's configured model list.
-      withPrecommittedModelStateUpdate(newModel, () => {
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: newModel,
-          mainLoopModelForSession: null,
-        }))
-      })
+      const newModel = getPrimaryModel(active.model)
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: newModel,
+        mainLoopModelForSession: null,
+      }))
       providerLabel = active.name
+      const settingsOverrideError =
+        clearStartupProviderOverrideFromUserSettings()
       const isActiveCodexOAuth = isCodexOAuthProfile(
         active,
         storedCodexOAuthProfileId,
@@ -1784,8 +1669,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           ? buildXaiOAuthActivationMessage({
               prefix: `Active provider: ${active.name}`,
               activationWarning,
-            warnings: [
-              activationWarning,
+              warnings: [
+                activationWarning,
                 settingsOverrideError
                   ? `could not clear startup provider override (${settingsOverrideError})`
                   : null,
@@ -1832,8 +1717,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function activateGithubProvider(): string | null {
-    const result = updateSettingsForSourceWithResult('userSettings', {
-      model: GITHUB_PROVIDER_DEFAULT_MODEL,
+    const { error } = updateSettingsForSource('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
@@ -1849,21 +1733,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         CLAUDE_CODE_USE_BEDROCK: undefined as any,
         CLAUDE_CODE_USE_VERTEX: undefined as any,
         CLAUDE_CODE_USE_FOUNDRY: undefined as any,
-        CLAUDE_CODE_USE_MISTRAL: undefined as any,
-        GEMINI_API_KEY: undefined as any,
-        GOOGLE_API_KEY: undefined as any,
-        GEMINI_BASE_URL: undefined as any,
-        GEMINI_MODEL: undefined as any,
-        GEMINI_ACCESS_TOKEN: undefined as any,
-        GEMINI_AUTH_MODE: undefined as any,
-        MISTRAL_BASE_URL: undefined as any,
-        MISTRAL_MODEL: undefined as any,
-        MISTRAL_API_KEY: undefined as any,
-        GITHUB_ENTERPRISE_URL: undefined as any,
       },
     })
-    if (!wasSettingsUpdateCommitted(result)) {
-      return result.error?.message ?? 'Settings update was not written'
+    if (error) {
+      return error.message
     }
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -1880,17 +1753,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     delete process.env.CLAUDE_CODE_USE_BEDROCK
     delete process.env.CLAUDE_CODE_USE_VERTEX
     delete process.env.CLAUDE_CODE_USE_FOUNDRY
-    delete process.env.CLAUDE_CODE_USE_MISTRAL
-    delete process.env.GEMINI_API_KEY
-    delete process.env.GOOGLE_API_KEY
-    delete process.env.GEMINI_BASE_URL
-    delete process.env.GEMINI_MODEL
-    delete process.env.GEMINI_ACCESS_TOKEN
-    delete process.env.GEMINI_AUTH_MODE
-    delete process.env.MISTRAL_BASE_URL
-    delete process.env.MISTRAL_MODEL
-    delete process.env.MISTRAL_API_KEY
-    delete process.env.GITHUB_ENTERPRISE_URL
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
     delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
     delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
@@ -1899,75 +1761,46 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     return null
   }
 
-  function deleteGithubProvider(): {
-    deleted: boolean
-    error?: string
-    credentialWarning?: string
-  } {
+  function deleteGithubProvider(): string | null {
     const storedTokenBeforeClear = readGithubModelsToken()?.trim()
-    const fallbackProfile = getActiveProviderProfile()
-    const replacementModel = fallbackProfile
-      ? getPrimaryModel(fallbackProfile.model)
-      : getDefaultFirstPartyMainLoopModelSetting()
-    const result = updateSettingsForSourceWithResult('userSettings', {
-      model: replacementModel ?? undefined,
+    const cleared = clearGithubModelsToken()
+    if (!cleared.success) {
+      return cleared.warning ?? 'Could not clear GitHub credentials.'
+    }
+
+    const { error } = updateSettingsForSource('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,
         OPENAI_MODEL: undefined as any,
         OPENAI_BASE_URL: undefined as any,
         OPENAI_API_BASE: undefined as any,
-        GITHUB_ENTERPRISE_URL: undefined as any,
       },
     })
-    if (!wasSettingsUpdateCommitted(result)) {
-      return {
-        deleted: false,
-        error: result.error?.message ?? 'Settings update was not written',
-      }
+    if (error) {
+      return error.message
     }
 
-    let credentialError: string | null = null
-    try {
-      const cleared = clearGithubModelsToken()
-      if (!cleared.success) {
-        credentialError =
-          cleared.warning ?? 'Could not clear GitHub credentials.'
-      }
-    } catch (error) {
-      credentialError =
-        error instanceof Error
-          ? error.message
-          : 'Could not clear GitHub credentials.'
-    } finally {
-      // The settings deletion is already committed. Always reconcile transient
-      // process state even if secure-storage cleanup needs to be retried.
-      delete process.env.CLAUDE_CODE_USE_GITHUB
-      clearHydratedGithubModelsTokenFromEnv(storedTokenBeforeClear)
-      delete process.env.OPENAI_MODEL
-      delete process.env.OPENAI_API_KEYS
-      delete process.env.OPENAI_API_KEY
-      delete process.env.OPENAI_ORG
-      delete process.env.OPENAI_PROJECT
-      delete process.env.OPENAI_ORGANIZATION
-      delete process.env.OPENAI_BASE_URL
-      delete process.env.OPENAI_API_BASE
-      delete process.env.GITHUB_ENTERPRISE_URL
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    // Undo any GitHub Models token hydrated into the session from secure
+    // storage and drop the marker. Use the shared helper so both hydration
+    // modes are reverted: GITHUB_TOKEN and the copilot_key blob's
+    // GITHUB_COPILOT_KEY. The old hand-rolled cleanup here only cleared
+    // GITHUB_TOKEN, leaving a hydrated Copilot key behind after the marker was
+    // removed. A user-supplied token is preserved.
+    clearHydratedGithubModelsTokenFromEnv(storedTokenBeforeClear)
+    delete process.env.OPENAI_MODEL
+    delete process.env.OPENAI_API_KEYS
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_ORG
+    delete process.env.OPENAI_PROJECT
+    delete process.env.OPENAI_ORGANIZATION
+    delete process.env.OPENAI_BASE_URL
+    delete process.env.OPENAI_API_BASE
 
-      // Restore active provider profile immediately when one exists.
-      applyActiveProviderProfileFromConfig()
-      withPrecommittedModelStateUpdate(replacementModel, () => {
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: replacementModel,
-          mainLoopModelForSession: null,
-        }))
-      })
-    }
+    // Restore active provider profile immediately when one exists.
+    applyActiveProviderProfileFromConfig()
 
-    return {
-      deleted: true,
-      ...(credentialError ? { credentialWarning: credentialError } : {}),
-    }
+    return null
   }
 
   function startCreateFromPreset(preset: ProviderPreset): void {
@@ -2139,66 +1972,22 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           : undefined,
     }
 
-    const wasActiveProfile = profileId
-      ? getActiveProviderProfile()?.id === profileId
-      : true
-    const isActiveSavedProfile = wasActiveProfile
-    const stagedModel = isActiveSavedProfile
-      ? getPrimaryModel(payload.model)
-      : null
-    const modelTransition = stagedModel
-      ? commitModelSettingsTransition(stagedModel)
-      : null
-    if (
-      modelTransition &&
-      !wasSettingsUpdateCommitted(modelTransition.result)
-    ) {
-      setErrorMessage(
-        `Could not save the current model, so the provider was not changed: ${modelTransition.result.error?.message ?? 'settings were not written'}`,
-      )
-      return
-    }
-
-    let saved: ProviderProfile | null
-    try {
-      // Active edits and new providers activate inside the profile helper, so
-      // its config/profile-file rollback remains coupled to the mutation.
-      saved = profileId
-        ? updateProviderProfile(profileId, payload)
-        : addProviderProfile(payload, { makeActive: true })
-    } catch (error) {
-      const rollbackError = modelTransition
-        ? rollbackProviderModel(modelTransition.transition!)
-        : null
-      const detail = error instanceof Error ? error.message : String(error)
-      setErrorMessage(
-        `Could not save provider: ${detail}` +
-          (rollbackError ? `; model rollback failed: ${rollbackError}` : ''),
-      )
-      refreshProfiles()
-      return
-    }
+    const saved = profileId
+      ? updateProviderProfile(profileId, payload)
+      : addProviderProfile(payload, { makeActive: true })
 
     if (!saved) {
-      const rollbackError = modelTransition
-        ? rollbackProviderModel(modelTransition.transition!)
-        : null
-      setErrorMessage(
-        'Could not save provider. Fill all required fields.' +
-          (rollbackError ? ` Model rollback failed: ${rollbackError}` : ''),
-      )
+      setErrorMessage('Could not save provider. Fill all required fields.')
       return
     }
 
+    const isActiveSavedProfile = getActiveProviderProfile()?.id === saved.id
     if (isActiveSavedProfile) {
-      const savedModel = getPrimaryModel(saved.model)
-      withPrecommittedModelStateUpdate(savedModel, () => {
-        setAppState(prev => ({
-          ...prev,
-          mainLoopModel: savedModel,
-          mainLoopModelForSession: null,
-        }))
-      })
+      setAppState(prev => ({
+        ...prev,
+        mainLoopModel: getPrimaryModel(saved.model),
+        mainLoopModelForSession: null,
+      }))
     }
     const settingsOverrideError = isActiveSavedProfile
       ? clearStartupProviderOverrideFromUserSettings()
@@ -4434,13 +4223,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               storedXaiOAuthProfileId,
             )
             const saved = existing
-              ? updateProviderProfile(existing.id, payload, {
-                  deferActivation: activeProfileId === existing.id,
-                })
-              : addProviderProfile(payload, {
-                  makeActive: false,
-                  deferActivation: true,
-                })
+              ? updateProviderProfile(existing.id, payload)
+              : addProviderProfile(payload, { makeActive: false })
 
             if (!saved) {
               setErrorMessage(
@@ -4450,52 +4234,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            const savedModel = getPrimaryModel(saved.model)
-            const modelTransition = commitModelSettingsTransition(savedModel)
-            const modelResult = modelTransition.result
-            if (!wasSettingsUpdateCommitted(modelResult)) {
-              setErrorMessage(
-                `xAI OAuth profile saved, but the current model could not be activated: ${modelResult.error?.message ?? 'settings were not written'}`,
-              )
-              returnToMenu()
-              return
-            }
-
-            let active: ReturnType<typeof setActiveProviderProfile>
-            try {
-              active = setActiveProviderProfile(saved.id)
-            } catch (error) {
-              const rollbackError = rollbackProviderModel(
-                modelTransition.transition!,
-              )
-              const detail = error instanceof Error ? error.message : String(error)
-              setErrorMessage(
-                `xAI OAuth profile saved, but the provider could not be activated: ${detail}` +
-                  (rollbackError ? `; model rollback failed: ${rollbackError}` : ''),
-              )
-              returnToMenu()
-              return
-            }
+            const active =
+              activeProfileId === saved.id
+                ? saved
+                : setActiveProviderProfile(saved.id)
 
             if (!active) {
-              const rollbackError = rollbackProviderModel(
-                modelTransition.transition!,
-              )
               setErrorMessage(
-                'xAI OAuth login finished, but the provider could not be set as the startup provider.' +
-                  (rollbackError ? ` Model rollback failed: ${rollbackError}` : ''),
+                'xAI OAuth login finished, but the provider could not be set as the startup provider.',
               )
               returnToMenu()
               return
             }
-
-            withPrecommittedModelStateUpdate(savedModel, () => {
-              setAppState(prev => ({
-                ...prev,
-                mainLoopModel: savedModel,
-                mainLoopModelForSession: null,
-              }))
-            })
 
             persistCredentials()
             const settingsOverrideError =
@@ -4503,6 +4253,16 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
             const activationWarning = await activateXaiOAuthSession({
               model: saved.model,
             })
+            // Update the running session's model — otherwise the next
+            // request keeps hitting the previous provider's model name
+            // (e.g. kimi-k2.6) and gets a 400 "Model not found" against
+            // api.x.ai. Mirrors the activateSelectedProvider /
+            // saveAndCloseProvider flows.
+            setAppState(prev => ({
+              ...prev,
+              mainLoopModel: getPrimaryModel(saved.model),
+              mainLoopModelForSession: null,
+            }))
             setHasStoredXaiOAuthCredentials(true)
             setStoredXaiOAuthProfileId(saved.id)
             refreshProfiles()
@@ -4552,13 +4312,8 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               storedCodexOAuthProfileId,
             )
             const saved = existing
-              ? updateProviderProfile(existing.id, payload, {
-                  deferActivation: true,
-                })
-              : addProviderProfile(payload, {
-                  makeActive: false,
-                  deferActivation: true,
-                })
+              ? updateProviderProfile(existing.id, payload)
+              : addProviderProfile(payload, { makeActive: false })
 
             if (!saved) {
               setErrorMessage(
@@ -4568,50 +4323,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            const savedModel = getPrimaryModel(saved.model)
-            const modelTransition = commitModelSettingsTransition(savedModel)
-            if (!wasSettingsUpdateCommitted(modelTransition.result)) {
-              setErrorMessage(
-                `Codex OAuth profile saved, but the current model could not be activated: ${modelTransition.result.error?.message ?? 'settings were not written'}`,
-              )
-              returnToMenu()
-              return
-            }
-
-            let active: ReturnType<typeof setActiveProviderProfile>
-            try {
-              active = setActiveProviderProfile(saved.id)
-            } catch (error) {
-              const rollbackError = rollbackProviderModel(
-                modelTransition.transition!,
-              )
-              const detail = error instanceof Error ? error.message : String(error)
-              setErrorMessage(
-                `Codex OAuth profile saved, but the provider could not be activated: ${detail}` +
-                  (rollbackError ? `; model rollback failed: ${rollbackError}` : ''),
-              )
-              returnToMenu()
-              return
-            }
+            const active =
+              activeProfileId === saved.id
+                ? saved
+                : setActiveProviderProfile(saved.id)
             if (!active) {
-              const rollbackError = rollbackProviderModel(
-                modelTransition.transition!,
-              )
               setErrorMessage(
-                'Codex OAuth login finished, but the provider could not be set as the startup provider.' +
-                  (rollbackError ? ` Model rollback failed: ${rollbackError}` : ''),
+                'Codex OAuth login finished, but the provider could not be set as the startup provider.',
               )
               returnToMenu()
               return
             }
-
-            withPrecommittedModelStateUpdate(savedModel, () => {
-              setAppState(prev => ({
-                ...prev,
-                mainLoopModel: savedModel,
-                mainLoopModelForSession: null,
-              }))
-            })
 
             const persistenceResult = persistCredentials({
               profileId: saved.id,
@@ -4711,20 +4433,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       content = renderProfileSelection(
         'Delete provider',
         'No providers available. Add one first.',
-          profileId => {
+        profileId => {
           if (profileId === GITHUB_PROVIDER_ID) {
-            const githubDelete = deleteGithubProvider()
-            if (!githubDelete.deleted) {
-              setErrorMessage(`Could not delete GitHub provider: ${githubDelete.error}`)
+            const githubDeleteError = deleteGithubProvider()
+            if (githubDeleteError) {
+              setErrorMessage(`Could not delete GitHub provider: ${githubDeleteError}`)
             } else {
               refreshProfiles()
-              if (githubDelete.credentialWarning) {
-                setStatusMessage(
-                  `GitHub provider deleted, but credentials could not be cleared: ${githubDelete.credentialWarning}`,
-                )
-              } else {
-                setStatusMessage('GitHub provider deleted')
-              }
+              setStatusMessage('GitHub provider deleted')
             }
             returnToMenu()
             return

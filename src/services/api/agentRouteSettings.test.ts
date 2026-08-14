@@ -396,11 +396,13 @@ describe('setAgentRoute model-key shadow guard', () => {
 
   let withSources: ReturnType<typeof spyOn> | undefined
   let update: ReturnType<typeof spyOn> | undefined
+  let forSource: ReturnType<typeof spyOn> | undefined
 
   afterEach(() => {
     withSources?.mockRestore()
     update?.mockRestore()
-    withSources = update = undefined
+    forSource?.mockRestore()
+    withSources = update = forSource = undefined
   })
 
   test('rejects a key shadowed by a higher-priority source', () => {
@@ -413,99 +415,33 @@ describe('setAgentRoute model-key shadow guard', () => {
         ['projectSettings', { mini: { model: 'project-model' } }],
       ]),
     )
-    update = spyOn(
-      settingsModule,
-      'updateSettingsForSourceWithFreshSettings',
-    ).mockImplementation((_source, updater) => {
-      try {
-        updater({
-          agentModels: { mini: { model: 'gpt-5-mini' } },
-        } as unknown as SettingsJson)
-        return { error: null, written: true }
-      } catch (error) {
-        return { error: error as Error, written: false }
-      }
-    })
+    update = spyOn(settingsModule, 'updateSettingsForSource')
 
     const { error } = setAgentRoute('verification', 'mini')
     expect(error).toBeInstanceOf(Error)
     expect(error!.message).toContain('projectSettings')
-    // The guard is re-evaluated from the lock-scoped snapshot before a write.
-    expect(update).toHaveBeenCalledTimes(1)
+    // The guard must short-circuit before any write lands.
+    expect(update).not.toHaveBeenCalled()
   })
 
   test('saves a user-only key that nothing higher shadows', () => {
     withSources = spyOn(settingsModule, 'getSettingsWithSources').mockReturnValue(
       sourcesWith([['userSettings', { mine: { model: 'gpt-5-mini' } }]]),
     )
-    update = spyOn(
-      settingsModule,
-      'updateSettingsForSourceWithFreshSettings',
-    ).mockImplementation((source, updater) => {
-      expect(source).toBe('userSettings')
-      const next = updater({
-        agentModels: { mine: { model: 'gpt-5-mini' } },
-      } as unknown as SettingsJson)
-      expect((next.agentRouting as Record<string, string>).verification).toBe(
-        'mine',
-      )
-      return { error: null, written: true }
+    forSource = spyOn(settingsModule, 'getSettingsForSource').mockReturnValue(
+      { agentModels: { mine: { model: 'gpt-5-mini' } } } as unknown as SettingsJson,
+    )
+    update = spyOn(settingsModule, 'updateSettingsForSource').mockReturnValue({
+      error: null,
     })
 
     const { error } = setAgentRoute('verification', 'mine')
     expect(error).toBeNull()
     expect(update).toHaveBeenCalledTimes(1)
+    const [source, next] = update.mock.calls[0] as [string, SettingsJson]
+    expect(source).toBe('userSettings')
+    expect((next.agentRouting as Record<string, string>).verification).toBe('mine')
   })
-})
-
-describe('agent route commit-result handling', () => {
-  const userOnlySources = {
-    effective: {} as SettingsJson,
-    sources: [{ source: 'userSettings', settings: {} as SettingsJson }],
-  } as SettingsWithSources
-
-  for (const operation of ['set', 'clear'] as const) {
-    test(`${operation} handles every committed-write result state`, () => {
-      const withSources = spyOn(
-        settingsModule,
-        'getSettingsWithSources',
-      ).mockReturnValue(userOnlySources)
-      const update = spyOn(
-        settingsModule,
-        'updateSettingsForSourceWithFreshSettings',
-      )
-      const invoke = () =>
-        operation === 'set'
-          ? setAgentRoute('verification', 'mini')
-          : clearAgentRoute('verification')
-
-      try {
-        update.mockImplementation((_source, updater) => {
-          updater({} as SettingsJson)
-          return { error: null, written: false }
-        })
-        expect(invoke().error?.message).toBe(
-          'Settings update was not written',
-        )
-
-        const writeError = new Error('write failed')
-        update.mockImplementation((_source, updater) => {
-          updater({} as SettingsJson)
-          return { error: writeError, written: false }
-        })
-        expect(invoke().error).toBe(writeError)
-
-        update.mockImplementation((_source, updater) => {
-          updater({} as SettingsJson)
-          return { error: new Error('release failed'), written: true }
-        })
-        expect(invoke().error).toBeNull()
-      } finally {
-        update.mockRestore()
-        withSources.mockRestore()
-      }
-    })
-  }
 })
 
 describe('write guard when user settings are disabled', () => {

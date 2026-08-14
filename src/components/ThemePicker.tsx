@@ -10,7 +10,7 @@ import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
 import { useAppState, useSetAppState } from '../state/AppState.js';
 import type { AppState } from '../state/AppStateStore.js';
 import { gracefulShutdown } from '../utils/gracefulShutdown.js';
-import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
+import { updateSettingsForSource } from '../utils/settings/settings.js';
 import type { ThemeSetting } from '../utils/theme.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
@@ -81,21 +81,15 @@ export function ThemePicker({
     (s: AppState) => s.settings.syntaxHighlightingDisabled ?? false
   );
   const setAppState = useSetAppState();
-  const [saveError, setSaveError] = React.useState<string | null>(null)
   useRegisterKeybindingContext("ThemePicker", true);
   const syntaxToggleShortcut = useShortcutDisplay("theme:toggleSyntaxHighlighting", "ThemePicker", "ctrl+t");
 
   const toggleSyntax = React.useCallback(() => {
-    setSaveError(null)
     if (colorModuleUnavailableReason === null) {
       const newValue = !syntaxHighlightingDisabled
-      const result = updateSettingsForSourceWithResult("userSettings", {
+      updateSettingsForSource("userSettings", {
         syntaxHighlightingDisabled: newValue
       });
-      if (!wasSettingsUpdateCommitted(result)) {
-        setSaveError(result.error?.message ?? 'Could not save syntax highlighting preference. Try again.')
-        return;
-      }
       setAppState(prev => ({
         ...prev,
         settings: {
@@ -232,7 +226,6 @@ export function ThemePicker({
           {' '}
           {syntaxHint}
         </Text>
-        {saveError ? <Text color="error">{saveError}</Text> : null}
       </Box>
     </Box>
   )

@@ -45,7 +45,6 @@ import {
 import {
   formatResolutionError,
   installResolvedPlugin,
-  validatePathWithinBase,
 } from '../../utils/plugins/pluginInstallationHelpers.js'
 import {
   cachePlugin,
@@ -65,8 +64,7 @@ import type {
 } from '../../utils/plugins/schemas.js'
 import {
   getSettingsForSource,
-  updateSettingsForSourceWithFreshSettings,
-  wasSettingsUpdateCommitted,
+  updateSettingsForSource,
 } from '../../utils/settings/settings.js'
 import { plural } from '../../utils/stringUtils.js'
 
@@ -143,18 +141,11 @@ export function isPluginEnabledAtProjectScope(pluginId: string): boolean {
 export type PluginOperationResult = {
   success: boolean
   message: string
-  failureKind?: 'not-installed' | 'wrong-scope' | 'settings-write' | 'cleanup'
   pluginId?: string
   pluginName?: string
   scope?: PluginScope
   /** Plugins that declare this plugin as a dependency (warning on uninstall/disable) */
   reverseDependents?: string[]
-}
-
-export function shouldRemoveFailedPluginFromSettings(
-  result: PluginOperationResult,
-): boolean {
-  return !result.success && result.failureKind === 'not-installed'
 }
 
 /**
@@ -472,7 +463,6 @@ export async function uninstallPluginOp(
     if (!resolved) {
       return {
         success: false,
-        failureKind: 'not-installed',
         message: `Plugin "${plugin}" not found in installed plugins`,
       }
     }
@@ -497,19 +487,16 @@ export async function uninstallPluginOp(
       if (actualScope === 'project') {
         return {
           success: false,
-          failureKind: 'wrong-scope',
           message: `Plugin "${plugin}" is enabled at project scope (.openclaude/settings.json, shared with your team). To disable just for you: claude plugin disable ${plugin} --scope local`,
         }
       }
       return {
         success: false,
-        failureKind: 'wrong-scope',
         message: `Plugin "${plugin}" is installed in ${actualScope} scope, not ${scope}. Use --scope ${actualScope} to uninstall.`,
       }
     }
     return {
       success: false,
-      failureKind: 'not-installed',
       message: `Plugin "${plugin}" is not installed in ${scope} scope. Use --scope to specify the correct scope.`,
     }
   }
@@ -518,52 +505,38 @@ export async function uninstallPluginOp(
 
   // Remove the plugin from the appropriate settings file (delete key entirely)
   // Use undefined to signal deletion via mergeWith in updateSettingsForSource
-  const settingsResult = updateSettingsForSourceWithFreshSettings(
-    settingSource,
-    freshSettings => ({
-      // Cast: undefined signals key deletion to updateSettingsForSource's
-      // mergeWith customizer; the zod-derived SettingsJson type can't express that.
-      enabledPlugins: {
-        ...freshSettings.enabledPlugins,
-        [pluginId]: undefined,
-      } as Record<string, boolean | string[]>,
-    }),
-  )
-  if (!wasSettingsUpdateCommitted(settingsResult)) {
-    return {
-      success: false,
-      failureKind: 'settings-write',
-      message: `Failed to uninstall plugin: ${settingsResult.error?.message ?? 'settings were not written'}`,
-    }
+  const newEnabledPlugins: Record<string, boolean | string[] | undefined> = {
+    ...settings?.enabledPlugins,
   }
+  newEnabledPlugins[pluginId] = undefined
+  updateSettingsForSource(settingSource, {
+    // Cast: undefined signals key deletion to updateSettingsForSource's
+    // mergeWith customizer; the zod-derived SettingsJson type can't express that.
+    enabledPlugins: newEnabledPlugins as Record<string, boolean | string[]>,
+  })
 
   clearAllCaches()
 
-  // Cleanup and final-scope removal share the installed-plugins lock. A failed
-  // secure-storage scrub leaves the registration intact so the user can retry;
-  // a concurrent replacement is serialized behind this decision.
-  let removal: ReturnType<typeof removePluginInstallation>
-  try {
-    removal = removePluginInstallation(pluginId, scope, projectPath, {
-      beforeLastRemoval() {
-        const cleanup = deletePluginOptions(pluginId)
-        if (!cleanup.success) {
-          throw new Error(cleanup.error ?? 'cleanup did not complete')
-        }
-      },
-    })
-  } catch (error) {
-    return {
-      success: false,
-      failureKind: 'cleanup',
-      message: `Plugin settings were disabled, but final cleanup could not complete; the installation remains registered for retry: ${error instanceof Error ? error.message : String(error)}`,
-    }
-  }
+  // Remove from installed_plugins_v2.json for this scope
+  removePluginInstallation(pluginId, scope, projectPath)
 
-  if (removal.removedLastScope) {
-    if (removal.installPath ?? installPath) {
-      await markPluginVersionOrphaned(removal.installPath ?? installPath)
-    }
+  const updatedData = loadInstalledPluginsV2()
+  const remainingInstallations = updatedData.plugins[pluginId]
+  const isLastScope =
+    !remainingInstallations || remainingInstallations.length === 0
+  if (isLastScope && installPath) {
+    await markPluginVersionOrphaned(installPath)
+  }
+  // Separate from the `&& installPath` guard above — deletePluginOptions only
+  // needs pluginId, not installPath. Last scope removed → wipe stored options
+  // and secrets. Before this, uninstalling left orphaned entries in
+  // settings.pluginConfigs (including the legacy ungated mcpServers sub-key
+  // from the MCPB Configure flow) and keychain pluginSecrets forever. No
+  // feature gate: deletePluginOptions no-ops when nothing is stored, and
+  // pluginConfigs.mcpServers is written ungated so its cleanup must run
+  // ungated too.
+  if (isLastScope) {
+    deletePluginOptions(pluginId)
     if (deleteDataDir) {
       await deletePluginDataDir(pluginId)
     }
@@ -609,19 +582,16 @@ export async function setPluginEnabledOp(
   // Built-in plugins: always use user-scope settings, bypass the normal
   // scope-resolution + installed_plugins lookup (they're not installed).
   if (isBuiltinPluginId(plugin)) {
-    const result = updateSettingsForSourceWithFreshSettings(
-      'userSettings',
-      freshSettings => ({
-        enabledPlugins: {
-          ...freshSettings.enabledPlugins,
-          [plugin]: enabled,
-        },
-      }),
-    )
-    if (!wasSettingsUpdateCommitted(result)) {
+    const { error } = updateSettingsForSource('userSettings', {
+      enabledPlugins: {
+        ...getSettingsForSource('userSettings')?.enabledPlugins,
+        [plugin]: enabled,
+      },
+    })
+    if (error) {
       return {
         success: false,
-        message: `Failed to ${operation} built-in plugin: ${result.error?.message ?? 'settings were not written'}`,
+        message: `Failed to ${operation} built-in plugin: ${error.message}`,
       }
     }
     clearAllCaches()
@@ -751,19 +721,16 @@ export async function setPluginEnabledOp(
   }
 
   // ── ACTION: write settings ──
-  const result = updateSettingsForSourceWithFreshSettings(
-    settingSource,
-    freshSettings => ({
-      enabledPlugins: {
-        ...freshSettings.enabledPlugins,
-        [pluginId]: enabled,
-      },
-    }),
-  )
-  if (!wasSettingsUpdateCommitted(result)) {
+  const { error } = updateSettingsForSource(settingSource, {
+    enabledPlugins: {
+      ...getSettingsForSource(settingSource)?.enabledPlugins,
+      [pluginId]: enabled,
+    },
+  })
+  if (error) {
     return {
       success: false,
-      message: `Failed to ${operation} plugin: ${result.error?.message ?? 'settings were not written'}`,
+      message: `Failed to ${operation} plugin: ${error.message}`,
     }
   }
 
@@ -995,7 +962,7 @@ async function performPluginUpdate({
     const marketplaceDir = marketplaceStats.isDirectory()
       ? marketplaceInstallLocation
       : dirname(marketplaceInstallLocation)
-    sourcePath = validatePathWithinBase(marketplaceDir, entry.source)
+    sourcePath = join(marketplaceDir, entry.source)
 
     // Verify sourcePath exists. This stat is required — neither downstream
     // op reliably surfaces ENOENT:

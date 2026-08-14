@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
 import {
+  chmodSync,
   closeSync,
   constants,
   fstatSync,
@@ -25,7 +26,6 @@ import {
 } from '../fsOperations.js'
 import * as lockfile from '../lockfile.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
-import { writeFileSyncAndFlush_DEPRECATED } from '../file.js'
 import { markInternalWrite } from './internalWrites.js'
 import { resetSettingsCache } from './settingsCache.js'
 
@@ -156,6 +156,7 @@ const locallyAbandonedSettingsLocks = new Map<
 export type SettingsFileLockContext = {
   targetPath: string
   assertOwned(): void
+  writeFile(content: string | Buffer): void
 }
 
 export class SettingsFileLockOwnershipError extends Error {}
@@ -792,6 +793,45 @@ export function resolveSettingsFileTarget(filePath: string): string {
   throw new Error(`Settings symlink depth exceeded for ${filePath}`)
 }
 
+function writeSettingsTargetAtomically(
+  targetPath: string,
+  content: string | Buffer,
+): void {
+  const fs = getFsImplementation()
+  const tempPath = join(
+    dirname(targetPath),
+    `.openclaude-settings-write-${process.pid}-${randomUUID()}.tmp`,
+  )
+  let targetMode: number | undefined
+  try {
+    targetMode = fs.statSync(targetPath).mode & 0o777
+  } catch (error) {
+    if (getErrnoCode(error) !== 'ENOENT') throw error
+  }
+
+  try {
+    writeFileSync(tempPath, content, {
+      encoding: 'utf8',
+      flag: 'wx',
+      flush: true,
+      ...(targetMode !== undefined ? { mode: targetMode } : {}),
+    })
+    if (targetMode !== undefined) {
+      chmodSync(tempPath, targetMode)
+    }
+    // Rename replaces a symlink at targetPath rather than following it, so a
+    // concurrent target swap cannot redirect the guarded write elsewhere.
+    fs.renameSync(tempPath, targetPath)
+  } catch (error) {
+    try {
+      fs.unlinkSync(tempPath)
+    } catch {
+      // Best-effort cleanup; preserve the original write error.
+    }
+    throw error
+  }
+}
+
 function acquireSettingsFileLock(filePath: string): {
   context: SettingsFileLockContext
   release(): void
@@ -905,9 +945,15 @@ function acquireSettingsFileLock(filePath: string): {
     }
   }
 
+  const writeFile = (content: string | Buffer): void => {
+    assertOwned()
+    writeSettingsTargetAtomically(targetPath, content)
+    assertOwned()
+  }
+
   let released = false
   return {
-    context: { targetPath, assertOwned },
+    context: { targetPath, assertOwned, writeFile },
     release(): void {
       if (released) return
       let quarantined: QuarantinedSettingsLock | null = null
@@ -997,7 +1043,10 @@ export function withSettingsFileLockSync<T>(
 }
 
 export type SettingsFileReplacementResult = {
+  /** Bytes reached the acquired physical target. */
   written: boolean
+  /** The logical target remained owned through the transaction boundary. */
+  committed: boolean
   error?: Error
 }
 
@@ -1006,20 +1055,20 @@ export function replaceSettingsFileSync(
   content: string,
 ): SettingsFileReplacementResult {
   let written = false
+  let committed = false
   try {
-    withSettingsFileLockSync(filePath, ({ targetPath, assertOwned }) => {
-      assertOwned()
-      writeFileSyncAndFlush_DEPRECATED(targetPath, content, {
-        encoding: 'utf-8',
-        preserveSymlink: false,
-      })
+    withSettingsFileLockSync(filePath, ({ targetPath, writeFile }) => {
+      writeFile(content)
       written = true
       markInternalWrite(filePath)
       markInternalWrite(targetPath)
       resetSettingsCache()
     })
-    return { written: true }
+    committed = written
+    return { written, committed }
   } catch (error) {
-    return { written, error: toError(error) }
+    committed =
+      written && !(error instanceof SettingsFileLockOwnershipError)
+    return { written, committed, error: toError(error) }
   }
 }

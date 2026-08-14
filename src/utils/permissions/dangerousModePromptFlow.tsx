@@ -13,34 +13,6 @@ type DangerousModePromptFlowDeps = {
   persistAcceptance: typeof persistDangerousModeAcceptance
 }
 
-function PersistingDangerousModeDialog({
-  DialogComponent,
-  mode,
-  persistAcceptance,
-  done,
-}: {
-  DialogComponent: typeof BypassPermissionsModeDialog
-  mode: Exclude<ReturnType<typeof getStartupDangerousPermissionPromptState>['mode'], null>
-  persistAcceptance: typeof persistDangerousModeAcceptance
-  done: () => void
-}): React.ReactNode {
-  const [saveError, setSaveError] = React.useState<string | null>(null)
-  return (
-    <DialogComponent
-      mode={mode}
-      saveError={saveError}
-      onAccept={() => {
-        const error = persistAcceptance(mode)
-        if (error) {
-          setSaveError(error)
-          return
-        }
-        done()
-      }}
-    />
-  )
-}
-
 export async function showDangerousModePromptIfNeeded(
   root: Root,
   permissionMode: PermissionMode,
@@ -69,11 +41,12 @@ export async function showDangerousModePromptIfNeeded(
   const dangerousMode = dangerousPromptState.mode
 
   await showSetupDialog(root, done => (
-    <PersistingDangerousModeDialog
-      DialogComponent={DialogComponent}
+    <DialogComponent
       mode={dangerousMode}
-      persistAcceptance={persistAcceptance}
-      done={done}
+      onAccept={() => {
+        persistAcceptance(dangerousMode)
+        done()
+      }}
     />
   ))
   return true

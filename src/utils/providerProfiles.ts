@@ -9,7 +9,6 @@ import {
 import {
   getGlobalConfig,
   saveGlobalConfig,
-  type GlobalConfig,
   type ProviderProfile,
 } from './config.js'
 import type { ModelOption } from './model/modelOptions.js'
@@ -17,6 +16,7 @@ import { getPrimaryModel, parseModelList } from './providerModels.js'
 import {
   buildCompatibilityProcessEnv,
   createProfileFile,
+  saveProfileFile,
   buildBedrockProfileEnv,
   buildGeminiProfileEnv,
   buildGithubProfileEnv,
@@ -32,8 +32,6 @@ import {
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   deleteProfileFile,
-  loadProfileFile,
-  saveProfileFile,
   type ProfileFileLocation,
   type ProfileEnv,
   type ProviderProfile as ProviderProfileStartup,
@@ -71,7 +69,6 @@ import {
 } from './providerCustomHeaders.js'
 import { sanitizeApiKey } from './providerSecrets.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
-import { stableStringify } from './stableStringify.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
 
@@ -877,10 +874,6 @@ export function clearActiveProviderProfile(
   options?: ProfileFileLocation,
 ): boolean {
   const hadActiveProfile = getActiveProviderProfile() !== undefined
-  const previousConfig = getGlobalConfig()
-  const previousActiveProviderProfileId =
-    previousConfig.activeProviderProfileId
-  const previousModelOptions = previousConfig.openaiAdditionalModelOptionsCache
 
   saveGlobalConfig(config => ({
     ...config,
@@ -888,51 +881,8 @@ export function clearActiveProviderProfile(
     openaiAdditionalModelOptionsCache: [],
   }))
 
-  const committedConfig = getGlobalConfig()
-  if (
-    committedConfig.activeProviderProfileId !==
-      ANTHROPIC_DEFAULT_PROFILE_ID ||
-    stableStringify(committedConfig.openaiAdditionalModelOptionsCache) !== '[]'
-  ) {
-    throw new Error('Global provider profile selection was not saved')
-  }
-
-  try {
-    // Delete only after the global selection is durably committed. Otherwise a
-    // failed global write could destroy the only valid startup profile file.
-    deleteProfileFile(options)
-  } catch (error) {
-    try {
-      saveGlobalConfig(current =>
-        current.activeProviderProfileId === ANTHROPIC_DEFAULT_PROFILE_ID &&
-        stableStringify(current.openaiAdditionalModelOptionsCache) === '[]'
-          ? {
-              ...current,
-              activeProviderProfileId: previousActiveProviderProfileId,
-              openaiAdditionalModelOptionsCache: previousModelOptions,
-            }
-          : current,
-      )
-    } catch (rollbackError) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; global provider selection rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-      )
-    }
-    const restoredConfig = getGlobalConfig()
-    const rollbackSucceeded =
-      restoredConfig.activeProviderProfileId ===
-        previousActiveProviderProfileId &&
-      stableStringify(restoredConfig.openaiAdditionalModelOptionsCache) ===
-        stableStringify(previousModelOptions)
-    if (!rollbackSucceeded) {
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; global provider selection rollback failed`,
-      )
-    }
-    throw error
-  }
-
   clearProviderProfileEnvFromProcessEnv()
+  deleteProfileFile(options)
 
   return hadActiveProfile
 }
@@ -1251,7 +1201,7 @@ export function applyActiveProviderProfileFromConfig(
 
 export function addProviderProfile(
   input: ProviderProfileInput,
-  options?: { makeActive?: boolean; deferActivation?: boolean },
+  options?: { makeActive?: boolean },
 ): ProviderProfile | null {
   const profile = toProfile(input)
   if (!profile) {
@@ -1259,13 +1209,11 @@ export function addProviderProfile(
   }
 
   const makeActive = options?.makeActive ?? true
-  let previousActiveId: string | undefined
 
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
     const nextProfiles = [...currentProfiles, profile]
     const currentActive = trimOrUndefined(current.activeProviderProfileId)
-    previousActiveId = currentActive
     // Resolve the *effective* active id the same way getActiveProviderProfile
     // does, so adding a profile with makeActive:false preserves whatever is
     // actually active now rather than silently switching the user (#1426):
@@ -1286,11 +1234,8 @@ export function addProviderProfile(
     } else {
       effectiveActiveId = undefined
     }
-    const nextActiveId = options?.deferActivation
-      ? effectiveActiveId ?? ANTHROPIC_DEFAULT_PROFILE_ID
-      : makeActive || effectiveActiveId === undefined
-        ? profile.id
-        : effectiveActiveId
+    const nextActiveId =
+      makeActive || effectiveActiveId === undefined ? profile.id : effectiveActiveId
 
     return {
       ...current,
@@ -1299,37 +1244,9 @@ export function addProviderProfile(
     }
   })
 
-  if (
-    !getProviderProfiles().some(
-      candidate => stableStringify(candidate) === stableStringify(profile),
-    )
-  ) {
-    return null
-  }
-
   const activeProfile = getActiveProviderProfile()
-  if (activeProfile?.id === profile.id && !options?.deferActivation) {
-    try {
-      setActiveProviderProfile(profile.id)
-    } catch (error) {
-      saveGlobalConfig(latest => {
-        const latestProfiles = getProviderProfiles(latest)
-        const stillOurProfile = latestProfiles.some(
-          candidate => stableStringify(candidate) === stableStringify(profile),
-        )
-        if (!stillOurProfile) return latest
-        return {
-          ...latest,
-          providerProfiles: latestProfiles.filter(
-            candidate => candidate.id !== profile.id,
-          ),
-          ...(latest.activeProviderProfileId === profile.id
-            ? { activeProviderProfileId: previousActiveId }
-            : {}),
-        }
-      })
-      throw error
-    }
+  if (activeProfile?.id === profile.id) {
+    setActiveProviderProfile(profile.id)
     clearActiveOpenAIModelOptionsCache()
   }
 
@@ -1339,7 +1256,6 @@ export function addProviderProfile(
 export function updateProviderProfile(
   profileId: string,
   input: ProviderProfileInput,
-  options?: { deferActivation?: boolean },
 ): ProviderProfile | null {
   const updatedProfile = toProfile(input, profileId)
   if (!updatedProfile) {
@@ -1348,7 +1264,6 @@ export function updateProviderProfile(
 
   let wasUpdated = false
   let shouldApply = false
-  let previousProfile: ProviderProfile | undefined
 
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
@@ -1361,7 +1276,6 @@ export function updateProviderProfile(
     }
 
     wasUpdated = true
-    previousProfile = currentProfiles[profileIndex]
 
     const nextProfiles = [...currentProfiles]
     nextProfiles[profileIndex] = updatedProfile
@@ -1398,36 +1312,8 @@ export function updateProviderProfile(
     return null
   }
 
-  if (
-    !getProviderProfiles().some(
-      candidate =>
-        stableStringify(candidate) === stableStringify(updatedProfile),
-    )
-  ) {
-    return null
-  }
-
-  if (shouldApply && !options?.deferActivation) {
-    try {
-      setActiveProviderProfile(profileId)
-    } catch (error) {
-      saveGlobalConfig(latest => {
-        if (!previousProfile) return latest
-        const latestProfiles = getProviderProfiles(latest)
-        const index = latestProfiles.findIndex(profile => profile.id === profileId)
-        if (
-          index < 0 ||
-          stableStringify(latestProfiles[index]) !==
-            stableStringify(updatedProfile)
-        ) {
-          return latest
-        }
-        const restoredProfiles = [...latestProfiles]
-        restoredProfiles[index] = previousProfile
-        return { ...latest, providerProfiles: restoredProfiles }
-      })
-      throw error
-    }
+  if (shouldApply) {
+    setActiveProviderProfile(profileId)
   }
 
   return updatedProfile
@@ -1876,65 +1762,27 @@ export function setActiveProviderProfile(
 
   const profileModelOptions = getProfileModelOptions(activeProfile, current)
 
-  // Persist the startup profile before changing global or live process state.
-  // A profile-file failure must leave the current provider fully active.
-  const startupProfile = buildStartupProfileFromActiveProfile(activeProfile)
-  const previousStartupProfile = startupProfile
-    ? loadProfileFile(options)
-    : null
+  saveGlobalConfig(config => ({
+    ...config,
+    activeProviderProfileId: profileId,
+    openaiAdditionalModelOptionsCache: profileModelOptions,
+    openaiAdditionalModelOptionsCacheByProfile: {
+      ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
+      [profileId]: profileModelOptions,
+    },
+  }))
 
-  const restoreStartupProfile = (): void => {
-    if (!startupProfile) return
-    if (previousStartupProfile) {
-      saveProfileFile(previousStartupProfile, options)
-    } else {
-      deleteProfileFile(options)
-    }
-  }
+  applyProviderProfileToProcessEnv(activeProfile)
+  triggerStartupDiscoveryRefreshForProfile(activeProfile)
+
+  // Keep startup persisted provider profile in sync so initial startup
+  // uses the selected provider/model.
+  const startupProfile = buildStartupProfileFromActiveProfile(activeProfile)
 
   if (startupProfile) {
     const file = createProfileFile(startupProfile.profile, startupProfile.env)
     saveProfileFile(file, options)
   }
-
-  try {
-    saveGlobalConfig(config => ({
-      ...config,
-      activeProviderProfileId: profileId,
-      openaiAdditionalModelOptionsCache: profileModelOptions,
-      openaiAdditionalModelOptionsCacheByProfile: {
-        ...(config.openaiAdditionalModelOptionsCacheByProfile ?? {}),
-        [profileId]: profileModelOptions,
-      },
-    }))
-
-    // saveGlobalConfig intentionally absorbs read-only filesystem errors. A
-    // provider switch cannot: its startup credential file was already written,
-    // so verify the corresponding config transition before touching live env.
-    const persistedConfig = getGlobalConfig()
-    if (
-      persistedConfig.activeProviderProfileId !== profileId ||
-      stableStringify(persistedConfig.openaiAdditionalModelOptionsCache) !==
-        stableStringify(profileModelOptions) ||
-      stableStringify(
-        persistedConfig.openaiAdditionalModelOptionsCacheByProfile?.[profileId],
-      ) !== stableStringify(profileModelOptions)
-    ) {
-      throw new Error('Global provider profile selection was not saved')
-    }
-  } catch (error) {
-    try {
-      restoreStartupProfile()
-    } catch (rollbackError) {
-      throw new Error(
-        `Could not activate provider profile: ${error instanceof Error ? error.message : String(error)}; startup profile rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-      )
-    }
-    throw error
-  }
-
-  applyProviderProfileToProcessEnv(activeProfile)
-  triggerStartupDiscoveryRefreshForProfile(activeProfile)
 
   return activeProfile
 }
@@ -1947,8 +1795,6 @@ export function deleteProviderProfile(profileId: string): {
   let deletedProfile: ProviderProfile | undefined
   let nextActiveProfile: ProviderProfile | undefined
   let activeProfileWasDeleted = false
-  let previousConfig: GlobalConfig | undefined
-  let committedDeletion: GlobalConfig | undefined
 
   saveGlobalConfig(current => {
     const currentProfiles = getProviderProfiles(current)
@@ -1957,8 +1803,6 @@ export function deleteProviderProfile(profileId: string): {
     if (!existing) {
       return current
     }
-
-    previousConfig = structuredClone(current)
 
     removed = true
     deletedProfile = existing
@@ -1987,7 +1831,7 @@ export function deleteProviderProfile(profileId: string): {
     }
     delete cacheByProfile[profileId]
 
-    const nextConfig = {
+    return {
       ...current,
       providerProfiles: nextProfiles,
       activeProviderProfileId: nextActiveId,
@@ -2005,23 +1849,10 @@ export function deleteProviderProfile(profileId: string): {
           )
         : [],
     }
-    committedDeletion = structuredClone(nextConfig)
-    return nextConfig
   })
 
   if (nextActiveProfile) {
-    try {
-      setActiveProviderProfile(nextActiveProfile.id)
-    } catch (error) {
-      if (previousConfig && committedDeletion) {
-        saveGlobalConfig(current =>
-          stableStringify(current) === stableStringify(committedDeletion)
-            ? previousConfig!
-            : current,
-        )
-      }
-      throw error
-    }
+    setActiveProviderProfile(nextActiveProfile.id)
   } else if (deletedProfile && activeProfileWasDeleted) {
     if (
       isProcessEnvAlignedWithProfile(process.env, deletedProfile, {

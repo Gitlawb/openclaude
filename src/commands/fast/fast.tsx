@@ -9,72 +9,36 @@ import { Box, Link, Text } from '../../ink.js';
 import { useKeybindings } from '../../keybindings/useKeybinding.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { type AppState, useAppState, useSetAppState } from '../../state/AppState.js';
-import { withPrecommittedModelStateUpdate } from '../../state/onChangeAppState.js';
 import type { LocalJSXCommandOnDone } from '../../types/command.js';
-import { clearFastModeCooldown, clearFastModeModelRestore, clearFastModeOveragePreferenceCleanup, FAST_MODE_MODEL_DISPLAY, getFastModeModel, getFastModeModelRestore, getFastModeRuntimeState, getFastModeUnavailableReason, isFastModeEnabled, isFastModeSupportedByModel, prefetchFastModeStatus, setFastModeModelRestore } from '../../utils/fastMode.js';
+import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, getFastModeModel, getFastModeRuntimeState, getFastModeUnavailableReason, isFastModeEnabled, isFastModeSupportedByModel, prefetchFastModeStatus } from '../../utils/fastMode.js';
 import { formatDuration } from '../../utils/format.js';
 import { getDefaultOpusModel } from '../../utils/model/model.js';
 import { getModelPricingString } from '../../utils/modelCost.js';
-import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
-type ApplyFastModeDependencies = {
-  updateFresh?: typeof updateSettingsForSourceWithFreshSettings;
-  getFastModel?: typeof getFastModeModel;
-  isSupported?: typeof isFastModeSupportedByModel;
-  clearCooldown?: typeof clearFastModeCooldown;
-};
-export function applyFastMode(enable: boolean, currentModel: string | null, setAppState: (f: (prev: AppState) => AppState) => void, dependencies: ApplyFastModeDependencies = {}): boolean {
-  const isSupported = dependencies.isSupported ?? isFastModeSupportedByModel;
-  const getFastModel = dependencies.getFastModel ?? getFastModeModel;
-  const nextModel = enable && !isSupported(currentModel) ? getFastModel() : null;
-  const restoreModel = enable ? null : getFastModeModelRestore();
-  let persistedModel: string | undefined;
-  const result = (dependencies.updateFresh ?? updateSettingsForSourceWithFreshSettings)('userSettings', freshSettings => {
-    persistedModel = freshSettings.model;
-    return {
-      fastMode: enable ? true : undefined,
-      ...(nextModel ? {
-        model: nextModel
-      } : restoreModel ? {
-        model: restoreModel.persistedModel
-      } : {})
-    };
+import { updateSettingsForSource } from '../../utils/settings/settings.js';
+function applyFastMode(enable: boolean, setAppState: (f: (prev: AppState) => AppState) => void): void {
+  clearFastModeCooldown();
+  updateSettingsForSource('userSettings', {
+    fastMode: enable ? true : undefined
   });
-  if (!wasSettingsUpdateCommitted(result)) {
-    return false;
-  }
-  (dependencies.clearCooldown ?? clearFastModeCooldown)();
   if (enable) {
-    clearFastModeOveragePreferenceCleanup();
-    if (nextModel) {
-      setFastModeModelRestore({
-        persistedModel,
-        liveModel: currentModel
-      });
-    }
-    const updateState = () => setAppState(prev => ({
-      ...prev,
-      ...(nextModel ? {
-        mainLoopModel: nextModel,
-        mainLoopModelForSession: null
-      } : {}),
-      fastMode: true
-    }));
-    if (nextModel) withPrecommittedModelStateUpdate(nextModel, updateState);
-    else updateState();
+    setAppState(prev => {
+      // Only switch model if current model doesn't support fast mode
+      const needsModelSwitch = !isFastModeSupportedByModel(prev.mainLoopModel);
+      return {
+        ...prev,
+        ...(needsModelSwitch ? {
+          mainLoopModel: getFastModeModel(),
+          mainLoopModelForSession: null
+        } : {}),
+        fastMode: true
+      };
+    });
   } else {
-    const restoredModel = restoreModel?.liveModel ?? null;
-    const updateState = () => setAppState(prev => ({
+    setAppState(prev => ({
       ...prev,
-      ...(restoreModel ? {
-        mainLoopModel: restoredModel,
-        mainLoopModelForSession: null
-      } : {}),
       fastMode: false
     }));
-    if (restoreModel) withPrecommittedModelStateUpdate(restoredModel, updateState);else updateState();
-    clearFastModeModelRestore();
   }
-  return true;
 }
 export function FastModePicker(t0) {
   const $ = _c(30);
@@ -108,10 +72,7 @@ export function FastModePicker(t0) {
       if (isUnavailable) {
         return;
       }
-      if (!applyFastMode(enableFastMode, model, setAppState)) {
-        onDone("Failed to save Fast mode settings");
-        return;
-      }
+      applyFastMode(enableFastMode, setAppState);
       logEvent("tengu_fast_mode_toggled", {
         enabled: enableFastMode,
         source: "picker" as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -143,10 +104,7 @@ export function FastModePicker(t0) {
     t4 = function handleCancel() {
       if (isUnavailable) {
         if (initialFastMode) {
-          if (!applyFastMode(false, null, setAppState)) {
-            onDone("Failed to save Fast mode settings");
-            return;
-          }
+          applyFastMode(false, setAppState);
         }
         onDone("Fast mode OFF", {
           display: "system"
@@ -270,9 +228,7 @@ export async function handleFastModeShortcut(enable: boolean, getAppState: () =>
   const {
     mainLoopModel
   } = getAppState();
-  if (!applyFastMode(enable, mainLoopModel, setAppState)) {
-    return 'Failed to save Fast mode settings';
-  }
+  applyFastMode(enable, setAppState);
   logEvent('tengu_fast_mode_toggled', {
     enabled: enable,
     source: 'shortcut' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS

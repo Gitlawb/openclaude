@@ -5,8 +5,7 @@ import { logError } from '../utils/log.js'
 import { getAutoModeEnabledState } from '../utils/permissions/permissionSetup.js'
 import {
   getSettingsForSource,
-  updateSettingsForSourceWithResult,
-  wasSettingsUpdateCommitted,
+  updateSettingsForSource,
 } from '../utils/settings/settings.js'
 
 /**
@@ -35,10 +34,9 @@ export function resetAutoModeOptInForDefaultOffer(): void {
         user?.skipAutoPermissionPrompt &&
         user?.permissions?.defaultMode !== 'auto'
       ) {
-        const result = updateSettingsForSourceWithResult('userSettings', {
+        updateSettingsForSource('userSettings', {
           skipAutoPermissionPrompt: undefined,
         })
-        if (!wasSettingsUpdateCommitted(result)) return
         logEvent('tengu_migrate_reset_auto_opt_in_for_default_offer', {})
       }
 

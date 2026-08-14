@@ -20,8 +20,7 @@ import { logEvent, type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPAT
 import { isBridgeEnabled } from '../../bridge/bridgeEnabled.js';
 import { ThemePicker } from '../ThemePicker.js';
 import { useAppState, useSetAppState, useAppStateStore } from '../../state/AppState.js';
-import { withPrecommittedModelStateUpdate } from '../../state/onChangeAppState.js';
-import { ModelPicker, type ModelPickerPersistence } from '../ModelPicker.js';
+import { ModelPicker } from '../ModelPicker.js';
 import { modelDisplayString, isOpus1mMergeEnabled } from '../../utils/model/model.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
 import { ClaudeMdExternalIncludesDialog } from '../ClaudeMdExternalIncludesDialog.js';
@@ -38,9 +37,7 @@ import { useTabHeaderFocus } from '../design-system/Tabs.js';
 import { useIsInsideModal } from '../../context/modalContext.js';
 import { SearchBox } from '../SearchBox.js';
 import { isSupportedTerminal, hasAccessToIDEExtensionDiffFeature } from '../../utils/ide.js';
-import { getInitialSettings, getSettingsForSource, updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
-import type { SettingsJson } from '../../utils/settings/types.js';
-import { commitModelSettingsTransition, commitSettingsTransition, mergeSettingsTransitions, rollbackModelSettingsTransition, type ModelSettingsTransition } from '../../utils/settings/modelTransition.js';
+import { getInitialSettings, getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
 import { getUserMsgOptIn, setUserMsgOptIn } from '../../bootstrap/state.js';
 import { DEFAULT_OUTPUT_STYLE_NAME } from 'src/constants/outputStyles.js';
 import { isEnvTruthy, isRunningOnHomespace } from 'src/utils/envUtils.js';
@@ -51,7 +48,7 @@ import { getCliTeammateModeOverride, clearCliTeammateModeOverride } from '../../
 import { getHardcodedTeammateModelFallback } from '../../utils/swarm/teammateModel.js';
 import { useSearchInput } from '../../hooks/useSearchInput.js';
 import { useTerminalSize } from '../../hooks/useTerminalSize.js';
-import { clearFastModeCooldown, clearFastModeOveragePreferenceCleanup, FAST_MODE_MODEL_DISPLAY, getFastModeModel, getFastModeModelRestore, isFastModeAvailable, isFastModeEnabled, isFastModeSupportedByModel, setFastModeModelRestore } from '../../utils/fastMode.js';
+import { clearFastModeCooldown, FAST_MODE_MODEL_DISPLAY, isFastModeAvailable, isFastModeEnabled, getFastModeModel, isFastModeSupportedByModel } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import { getDefaultPermissionModeOptions } from '../../utils/permissions/defaultPermissionModeOptions.js';
 type Props = {
@@ -73,18 +70,18 @@ type SettingBase = {
 };
 type Setting = (SettingBase & {
   value: boolean;
-  onChange(value: boolean): boolean | void;
+  onChange(value: boolean): void;
   type: 'boolean';
 }) | (SettingBase & {
   value: string;
   options: string[];
-  onChange(value: string): boolean | void;
+  onChange(value: string): void;
   type: 'enum';
 }) | (SettingBase & {
   // For enums that are set by a custom component, we don't need to pass options,
   // but we still need a value to display in the top-level config menu
   value: string;
-  onChange(value: string): boolean | void;
+  onChange(value: string): void;
   type: 'managedEnum';
 });
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
@@ -146,7 +143,7 @@ export function Config({
   const initialThinkingEnabled = React.useRef(thinkingEnabled);
   // Per-source settings snapshots for revert-on-escape. getInitialSettings()
   // returns merged-across-sources which can't tell us what to delete vs
-  // restore; per-source snapshots + updateSettingsForSourceWithResult's
+  // restore; per-source snapshots + updateSettingsForSource's
   // undefined-deletes-key semantics can. Lazy-init via useState (no setter) to
   // avoid reading settings files on every render — useRef evaluates its arg
   // eagerly even though only the first result is kept.
@@ -160,7 +157,6 @@ export function Config({
     return {
       mainLoopModel: s_4.mainLoopModel,
       mainLoopModelForSession: s_4.mainLoopModelForSession,
-      effortValue: s_4.effortValue,
       verbose: s_4.verbose,
       thinkingEnabled: s_4.thinkingEnabled,
       fastMode: s_4.fastMode,
@@ -180,21 +176,8 @@ export function Config({
   // Set on first user-visible change; gates revertChanges() on Escape so
   // opening-then-closing doesn't trigger redundant disk writes.
   const isDirty = React.useRef(false);
-  const settingsRollbackTransition = React.useRef<ModelSettingsTransition | null>(null);
-  const initialFastModeRestoreModel = React.useRef(getFastModeModelRestore());
-  const fastModeRestoreModel = React.useRef(initialFastModeRestoreModel.current);
   const [showThinkingWarning, setShowThinkingWarning] = useState(false);
   const [showSubmenu, setShowSubmenu] = useState<SubMenu | null>(null);
-  const [revertError, setRevertError] = useState<string | null>(null);
-  function persistSettingsForSource(source: 'userSettings' | 'localSettings', settings: SettingsJson): boolean {
-    const result = updateSettingsForSourceWithResult(source, settings);
-    if (!wasSettingsUpdateCommitted(result)) {
-      setRevertError(`Could not save setting: ${result.error?.message ?? 'settings were not written'}`);
-      return false;
-    }
-    setRevertError(result.error ? `Setting was saved, but cleanup failed: ${result.error.message}` : null);
-    return true;
-  }
   const {
     query: searchQuery,
     setQuery: setSearchQuery,
@@ -229,37 +212,17 @@ export function Config({
   const pendingScope = getPendingExternalIncludesScope();
   const shouldShowExternalIncludesToggle = pendingScope !== null;
   const autoUpdaterDisabledReason = getAutoUpdaterDisabledReason();
-  function applyMainModelConfig(
-    value: string | null,
-    persistence?: ModelPickerPersistence,
-  ): { success: boolean; error?: string } {
+  function onChangeMainModelConfig(value: string | null): void {
     const previousModel = mainLoopModel;
-    const modelTransition = commitModelSettingsTransition(value, persistence?.settingsPatch);
-    if (!wasSettingsUpdateCommitted(modelTransition.result)) {
-      const error = `Could not save model and effort preference: ${modelTransition.result.error?.message ?? 'settings were not written'}`;
-      return { success: false, error };
-    }
-    settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, modelTransition.transition!);
-    if (fastModeRestoreModel.current) {
-      fastModeRestoreModel.current = {
-        persistedModel: value ?? undefined,
-        liveModel: value
-      };
-      setFastModeModelRestore(fastModeRestoreModel.current);
-    }
-    withPrecommittedModelStateUpdate(value, () => {
-      setAppState(prev => ({
-        ...prev,
-        mainLoopModel: value,
-        mainLoopModelForSession: null,
-        ...(persistence ? { effortValue: persistence.effortValue } : {})
-      }));
-    });
-    setRevertError(null);
     logEvent('tengu_config_model_changed', {
       from_model: previousModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       to_model: value as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
+    setAppState(prev => ({
+      ...prev,
+      mainLoopModel: value,
+      mainLoopModelForSession: null
+    }));
     setChanges(prev_0 => {
       const valStr = modelDisplayString(value) + (isBilledAsExtraUsage(value, false, isOpus1mMergeEnabled()) ? ' · Billed as extra usage' : '');
       if ('model' in prev_0) {
@@ -277,10 +240,6 @@ export function Config({
         model: valStr
       };
     });
-    return { success: true };
-  }
-  function onChangeMainModelConfig(value: string | null): boolean {
-    return applyMainModelConfig(value).success;
   }
   function onChangeVerbose(value_0: boolean): void {
     // Update the global config to persist the setting
@@ -469,9 +428,9 @@ export function Config({
     value: settingsData?.spinnerTipsEnabled ?? true,
     type: 'boolean' as const,
     onChange(spinnerTipsEnabled: boolean) {
-      if (!persistSettingsForSource('localSettings', {
+      updateSettingsForSource('localSettings', {
         spinnerTipsEnabled
-      })) return false;
+      });
       // Update local state to reflect the change immediately
       setSettingsData(prev_3 => ({
         ...prev_3,
@@ -487,9 +446,9 @@ export function Config({
     value: settingsData?.prefersReducedMotion ?? false,
     type: 'boolean' as const,
     onChange(prefersReducedMotion: boolean) {
-      if (!persistSettingsForSource('localSettings', {
+      updateSettingsForSource('localSettings', {
         prefersReducedMotion
-      })) return false;
+      });
       setSettingsData(prev_4 => ({
         ...prev_4,
         prefersReducedMotion
@@ -512,13 +471,13 @@ export function Config({
     value: thinkingEnabled ?? true,
     type: 'boolean' as const,
     onChange(enabled: boolean) {
-      if (!persistSettingsForSource('userSettings', {
-        alwaysThinkingEnabled: enabled ? undefined : false
-      })) return false;
       setAppState(prev_6 => ({
         ...prev_6,
         thinkingEnabled: enabled
       }));
+      updateSettingsForSource('userSettings', {
+        alwaysThinkingEnabled: enabled ? undefined : false
+      });
       logEvent('tengu_thinking_toggled', {
         enabled
       });
@@ -531,59 +490,31 @@ export function Config({
     value: !!isFastMode,
     type: 'boolean' as const,
     onChange(enabled_0: boolean) {
-      const fastModeModel = getFastModeModel();
-      const restoreModel = fastModeRestoreModel.current;
-      const transition = commitSettingsTransition({
-        fastMode: enabled_0 ? true : undefined,
-        ...(enabled_0 ? { model: fastModeModel } : restoreModel ? { model: restoreModel.persistedModel } : {})
-      });
-      if (!wasSettingsUpdateCommitted(transition.result)) {
-        setRevertError(`Could not save Fast mode: ${transition.result.error?.message ?? 'settings were not written'}`);
-        return false;
-      }
-      setRevertError(null);
-      settingsRollbackTransition.current = mergeSettingsTransitions(settingsRollbackTransition.current, transition.transition!);
       clearFastModeCooldown();
+      updateSettingsForSource('userSettings', {
+        fastMode: enabled_0 ? true : undefined
+      });
       if (enabled_0) {
-        clearFastModeOveragePreferenceCleanup();
-        fastModeRestoreModel.current = {
-          persistedModel: transition.transition!.previous.model,
-          liveModel: mainLoopModel
-        };
-        setFastModeModelRestore(fastModeRestoreModel.current);
-        withPrecommittedModelStateUpdate(fastModeModel, () => {
-          setAppState(prev_7 => ({
-            ...prev_7,
-            mainLoopModel: fastModeModel,
-            mainLoopModelForSession: null,
-            fastMode: true
-          }));
-        });
+        setAppState(prev_7 => ({
+          ...prev_7,
+          mainLoopModel: getFastModeModel(),
+          mainLoopModelForSession: null,
+          fastMode: true
+        }));
         setChanges(prev_8 => ({
           ...prev_8,
-          model: fastModeModel,
+          model: getFastModeModel(),
           'Fast mode': 'ON'
         }));
       } else {
-        const restoredModel = restoreModel?.liveModel ?? null;
-        const updateState = () => setAppState(prev_9 => ({
-            ...prev_9,
-            ...(restoreModel ? {
-              mainLoopModel: restoredModel,
-              mainLoopModelForSession: null
-            } : {}),
-            fastMode: false
-          }));
-        if (restoreModel) withPrecommittedModelStateUpdate(restoredModel, updateState);else updateState();
+        setAppState(prev_9 => ({
+          ...prev_9,
+          fastMode: false
+        }));
         setChanges(prev_10 => ({
           ...prev_10,
-          ...(restoreModel ? {
-            model: modelDisplayString(restoredModel)
-          } : {}),
           'Fast mode': 'OFF'
         }));
-        fastModeRestoreModel.current = null;
-        setFastModeModelRestore(null);
       }
     }
   }] : []), ...(getFeatureValue_CACHED_MAY_BE_STALE('tengu_chomp_inflection', false) ? [{
@@ -592,13 +523,13 @@ export function Config({
     value: promptSuggestionEnabled,
     type: 'boolean' as const,
     onChange(enabled_1: boolean) {
-      if (!persistSettingsForSource('userSettings', {
-        promptSuggestionEnabled: enabled_1 ? undefined : false
-      })) return false;
       setAppState(prev_11 => ({
         ...prev_11,
         promptSuggestionEnabled: enabled_1
       }));
+      updateSettingsForSource('userSettings', {
+        promptSuggestionEnabled: enabled_1 ? undefined : false
+      });
     }
   }] : []),
   ...(isFileCheckpointingAvailable ? [{
@@ -707,11 +638,16 @@ export function Config({
       const parsedMode = permissionModeFromString(mode);
       // Internal modes (e.g. auto) are stored directly
       const validatedMode = isExternalPermissionMode(parsedMode) ? toExternalPermissionMode(parsedMode) : parsedMode;
-      if (!persistSettingsForSource('userSettings', {
+      const result = updateSettingsForSource('userSettings', {
         permissions: {
+          ...settingsData?.permissions,
           defaultMode: validatedMode as ExternalPermissionMode
         }
-      })) return false;
+      });
+      if (result.error) {
+        logError(result.error);
+        return;
+      }
 
       // Update local state to reflect the change immediately.
       // validatedMode is typed as the wide PermissionMode union but at
@@ -742,9 +678,9 @@ export function Config({
     } | undefined)?.useAutoModeDuringPlan ?? true,
     type: 'boolean' as const,
     onChange(useAutoModeDuringPlan: boolean) {
-      if (!persistSettingsForSource('userSettings', {
+      updateSettingsForSource('userSettings', {
         useAutoModeDuringPlan
-      })) return false;
+      });
       setSettingsData(prev_14 => ({
         ...prev_14,
         useAutoModeDuringPlan
@@ -943,9 +879,9 @@ export function Config({
     type: 'enum' as const,
     onChange(selected: string) {
       const defaultView = selected === 'default' ? undefined : selected as 'chat' | 'transcript';
-      if (!persistSettingsForSource('localSettings', {
+      updateSettingsForSource('localSettings', {
         defaultView
-      })) return false;
+      });
       setSettingsData(prev_17 => ({
         ...prev_17,
         defaultView
@@ -1432,17 +1368,18 @@ export function Config({
       }
     }
     // Settings files: restore each key Config may have touched. undefined
-    // deletes the key (updateSettingsForSourceWithResult customizer at settings.ts:368).
+    // deletes the key (updateSettingsForSource customizer at settings.ts:368).
     const il = initialLocalSettings;
-    const localRollback = updateSettingsForSourceWithResult('localSettings', {
+    updateSettingsForSource('localSettings', {
       spinnerTipsEnabled: il?.spinnerTipsEnabled,
       prefersReducedMotion: il?.prefersReducedMotion,
       defaultView: il?.defaultView,
       outputStyle: il?.outputStyle
     });
     const iu = initialUserSettings;
-    const userRollback = updateSettingsForSourceWithResult('userSettings', {
+    updateSettingsForSource('userSettings', {
       alwaysThinkingEnabled: iu?.alwaysThinkingEnabled,
+      fastMode: iu?.fastMode,
       promptSuggestionEnabled: iu?.promptSuggestionEnabled,
       autoUpdatesChannel: iu?.autoUpdatesChannel,
       minimumVersion: iu?.minimumVersion,
@@ -1455,63 +1392,41 @@ export function Config({
       // ThemePicker's Ctrl+T writes this key directly — include it so the
       // disk state reverts along with the in-memory AppState.settings restore.
       syntaxHighlightingDisabled: iu?.syntaxHighlightingDisabled,
-      // Restore only the key Config owns so concurrent permission-rule edits
-      // made while the dialog is open remain intact.
-      permissions: {
-        defaultMode: iu?.permissions?.defaultMode
+      // permissions: the defaultMode onChange (above) spreads the MERGED
+      // settingsData.permissions into userSettings — project/policy allow/deny
+      // arrays can leak to disk. Spread the full initial snapshot so the
+      // mergeWith array-customizer (settings.ts:375) replaces leaked arrays.
+      // Explicitly include defaultMode so undefined triggers the customizer's
+      // delete path even when iu.permissions lacks that key.
+      permissions: iu?.permissions === undefined ? undefined : {
+        ...iu.permissions,
+        defaultMode: iu.permissions.defaultMode
       }
     });
-    const expectedSettings = settingsRollbackTransition.current;
-    const settingsRollback = expectedSettings ? rollbackModelSettingsTransition(expectedSettings) : { status: 'restored' as const };
-    const transitionRestored = settingsRollback.status === 'restored';
-    const modelRestored = transitionRestored && expectedSettings !== null && 'model' in expectedSettings.attempted;
-    const effortRestored = transitionRestored && expectedSettings !== null && 'effortLevel' in expectedSettings.attempted;
-    const fastModeRestored = transitionRestored && expectedSettings !== null && 'fastMode' in expectedSettings.attempted;
-    if (
-      [localRollback, userRollback].some(result => !wasSettingsUpdateCommitted(result)) ||
-      settingsRollback.status !== 'restored'
-    ) {
-      setRevertError(settingsRollback.status === 'superseded' ? 'Settings changed in another process and were not overwritten. Press Enter to close.' : 'Could not restore settings. Press Esc to retry. Press Enter to close.');
-      return false;
-    }
-    setRevertError(null);
     // AppState: batch-restore all possibly-touched fields.
     const ia = initialAppState;
-    const restoreAppState = () => {
-      setAppState(prev_23 => ({
-        ...prev_23,
-        ...(modelRestored ? {
-          mainLoopModel: ia.mainLoopModel,
-          mainLoopModelForSession: ia.mainLoopModelForSession
-        } : {}),
-        ...(effortRestored ? { effortValue: ia.effortValue } : {}),
-        verbose: ia.verbose,
-        thinkingEnabled: ia.thinkingEnabled,
-        ...(fastModeRestored ? { fastMode: ia.fastMode } : {}),
-        promptSuggestionEnabled: ia.promptSuggestionEnabled,
-        isBriefOnly: ia.isBriefOnly,
-        replBridgeEnabled: ia.replBridgeEnabled,
-        replBridgeOutboundOnly: ia.replBridgeOutboundOnly,
-        settings: ia.settings,
-        // Reconcile auto-mode state after useAutoModeDuringPlan revert above —
-        // the onChange handler may have activated/deactivated auto mid-plan.
-        toolPermissionContext: transitionPlanAutoMode(prev_23.toolPermissionContext)
-      }));
-    };
-    if (modelRestored) {
-      withPrecommittedModelStateUpdate(ia.mainLoopModel, restoreAppState);
-    } else {
-      restoreAppState();
-    }
+    setAppState(prev_23 => ({
+      ...prev_23,
+      mainLoopModel: ia.mainLoopModel,
+      mainLoopModelForSession: ia.mainLoopModelForSession,
+      verbose: ia.verbose,
+      thinkingEnabled: ia.thinkingEnabled,
+      fastMode: ia.fastMode,
+      promptSuggestionEnabled: ia.promptSuggestionEnabled,
+      isBriefOnly: ia.isBriefOnly,
+      replBridgeEnabled: ia.replBridgeEnabled,
+      replBridgeOutboundOnly: ia.replBridgeOutboundOnly,
+      settings: ia.settings,
+      // Reconcile auto-mode state after useAutoModeDuringPlan revert above —
+      // the onChange handler may have activated/deactivated auto mid-plan.
+      toolPermissionContext: transitionPlanAutoMode(prev_23.toolPermissionContext)
+    }));
     // Bootstrap state: restore userMsgOptIn. Only touched by the defaultView
     // onChange above, so no feature() guard needed here (that path only
     // exists when showDefaultViewPicker is true).
     if (getUserMsgOptIn() !== initialUserMsgOptIn) {
       setUserMsgOptIn(initialUserMsgOptIn);
     }
-    fastModeRestoreModel.current = initialFastModeRestoreModel.current;
-    setFastModeModelRestore(initialFastModeRestoreModel.current);
-    return true;
   }, [themeSetting, setTheme, initialLocalSettings, initialUserSettings, initialAppState, initialUserMsgOptIn, setAppState]);
 
   // Escape: revert all changes (if any) and close.
@@ -1520,7 +1435,7 @@ export function Config({
       return;
     }
     if (isDirty.current) {
-      if (!revertChanges()) return;
+      revertChanges();
     }
     onClose('Config dialog dismissed', {
       display: 'system'
@@ -1549,9 +1464,8 @@ export function Config({
       return;
     }
     if (setting_0.type === 'boolean') {
-      const changeApplied = setting_0.onChange(!setting_0.value);
-      if (changeApplied === false) return;
       isDirty.current = true;
+      setting_0.onChange(!setting_0.value);
       if (setting_0.id === 'thinkingEnabled') {
         const newValue = !setting_0.value;
         const backToInitial = newValue === initialThinkingEnabled.current;
@@ -1611,11 +1525,11 @@ export function Config({
         setTabsHidden(true);
       } else {
         // Switching to latest - just do it and clear minimumVersion
-        if (!persistSettingsForSource('userSettings', {
+        isDirty.current = true;
+        updateSettingsForSource('userSettings', {
           autoUpdatesChannel: 'latest',
           minimumVersion: undefined
-        })) return;
-        isDirty.current = true;
+        });
         setSettingsData(prev_24 => ({
           ...prev_24,
           autoUpdatesChannel: 'latest',
@@ -1628,11 +1542,10 @@ export function Config({
       return;
     }
     if (setting_0.type === 'enum') {
+      isDirty.current = true;
       const currentIndex = setting_0.options.indexOf(setting_0.value);
       const nextIndex = (currentIndex + 1) % setting_0.options.length;
-      const changeApplied = setting_0.onChange(setting_0.options[nextIndex]!);
-      if (changeApplied === false) return;
-      isDirty.current = true;
+      setting_0.onChange(setting_0.options[nextIndex]!);
       return;
     }
   }, [autoUpdaterDisabledReason, filteredSettingsItems, selectedIndex, settingsData?.autoUpdatesChannel, setTabsHidden]);
@@ -1738,20 +1651,15 @@ export function Config({
             </Text>
           </Box>
         </> : showSubmenu === 'Model' ? <>
-          <ModelPicker initial={mainLoopModel} onSelect={(model_0, _effort, _switchToProfileId, persistence) => {
-        const result = applyMainModelConfig(model_0, persistence);
-        if (!result.success) return result.error ?? 'Could not save model selection';
+          <ModelPicker initial={mainLoopModel} onSelect={(model_0, _effort) => {
         isDirty.current = true;
+        onChangeMainModelConfig(model_0);
         setShowSubmenu(null);
         setTabsHidden(false);
-        return null;
       }} onCancel={() => {
         setShowSubmenu(null);
         setTabsHidden(false);
       }} showFastModeNotice={isFastModeEnabled() ? isFastMode && isFastModeSupportedByModel(mainLoopModel) && isFastModeAvailable() : false} />
-          {revertError ? <Text color="error">
-              {revertError}
-            </Text> : null}
           <Text dimColor>
             <Byline>
               <KeyboardShortcutHint shortcut="Enter" action="confirm" />
@@ -1846,13 +1754,15 @@ export function Config({
           </Text>
         </> : showSubmenu === 'OutputStyle' ? <>
           <OutputStylePicker initialStyle={currentOutputStyle} onComplete={style => {
-        if (!persistSettingsForSource('localSettings', {
-          outputStyle: style
-        })) return;
         isDirty.current = true;
         setCurrentOutputStyle(style ?? DEFAULT_OUTPUT_STYLE_NAME);
         setShowSubmenu(null);
         setTabsHidden(false);
+
+        // Save to local settings
+        updateSettingsForSource('localSettings', {
+          outputStyle: style
+        });
         void logEvent('tengu_output_style_changed', {
           style: (style ?? DEFAULT_OUTPUT_STYLE_NAME) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
           source: 'config_panel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1870,13 +1780,15 @@ export function Config({
           </Text>
         </> : showSubmenu === 'Language' ? <>
           <LanguagePicker initialLanguage={currentLanguage} onComplete={language => {
-        if (!persistSettingsForSource('userSettings', {
-          language
-        })) return;
         isDirty.current = true;
         setCurrentLanguage(language);
         setShowSubmenu(null);
         setTabsHidden(false);
+
+        // Save to user settings
+        updateSettingsForSource('userSettings', {
+          language
+        });
         void logEvent('tengu_language_changed', {
           language: (language ?? 'default') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
           source: 'config_panel' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
@@ -1910,10 +1822,6 @@ export function Config({
         label: 'Enable with stable channel',
         value: 'stable'
       }]} onChange={(channel: string) => {
-        if (!persistSettingsForSource('userSettings', {
-          autoUpdatesChannel: channel as 'latest' | 'stable',
-          minimumVersion: undefined
-        })) return;
         isDirty.current = true;
         setShowSubmenu(null);
         setTabsHidden(false);
@@ -1925,6 +1833,10 @@ export function Config({
           ...getGlobalConfig(),
           autoUpdates: true
         });
+        updateSettingsForSource('userSettings', {
+          autoUpdatesChannel: channel as 'latest' | 'stable',
+          minimumVersion: undefined
+        });
         setSettingsData(prev_26 => ({
           ...prev_26,
           autoUpdatesChannel: channel as 'latest' | 'stable',
@@ -1935,12 +1847,13 @@ export function Config({
         });
       }} />}
         </Dialog> : showSubmenu === 'ChannelDowngrade' ? <ChannelDowngradeDialog currentVersion={MACRO.VERSION} onChoice={(choice: ChannelDowngradeChoice) => {
+      setShowSubmenu(null);
+      setTabsHidden(false);
       if (choice === 'cancel') {
         // User cancelled - don't change anything
-        setShowSubmenu(null);
-        setTabsHidden(false);
         return;
       }
+      isDirty.current = true;
       // Switch to stable channel
       const newSettings: {
         autoUpdatesChannel: 'stable';
@@ -1952,10 +1865,7 @@ export function Config({
         // User wants to stay on current version until stable catches up
         newSettings.minimumVersion = MACRO.VERSION;
       }
-      if (!persistSettingsForSource('userSettings', newSettings)) return;
-      isDirty.current = true;
-      setShowSubmenu(null);
-      setTabsHidden(false);
+      updateSettingsForSource('userSettings', newSettings);
       setSettingsData(prev_27 => ({
         ...prev_27,
         ...newSettings
@@ -2024,9 +1934,6 @@ export function Config({
                   </Text>}
               </>}
           </Box>
-          {revertError ? <Text color="error">
-              {revertError}
-            </Text> : null}
           {headerFocused ? <Text dimColor>
               <Byline>
                 <KeyboardShortcutHint shortcut="←/→ tab" action="switch" />

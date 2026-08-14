@@ -40,7 +40,6 @@ import {
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
 import { createCurrentSettingsLockOwner } from './settingsLockOwner.js'
-import { savePluginOptions } from '../../utils/plugins/pluginOptionsStorage.js'
 
 const scenario = process.argv[2]
 const configDir = realpathSync(
@@ -192,43 +191,6 @@ function semanticsScenario(): unknown {
     final: readSettings(targetPath),
     cached: getSettingsForSource('userSettings'),
   }
-}
-
-function pluginOptionScrubScenario(): unknown {
-  const pluginId = 'demo@market'
-  writeSettings({
-    pluginConfigs: {
-      [pluginId]: {
-        options: {
-          token: 'legacy-plaintext',
-          keep: 'peer-value',
-        },
-      },
-    },
-  })
-  let secureState = {
-    pluginSecrets: { [pluginId]: { token: 'old-secret' } },
-  }
-
-  savePluginOptions(
-    pluginId,
-    { token: 'new-secret', label: 'visible' },
-    {
-      token: { sensitive: true },
-      label: { sensitive: false },
-    } as never,
-    {
-      secureStorage: {
-        read: () => structuredClone(secureState),
-        update: next => {
-          secureState = next as typeof secureState
-          return { success: true }
-        },
-      } as never,
-    },
-  )
-
-  return { final: readSettings(), secureState }
 }
 
 function liveLockScenario(): unknown {
@@ -882,7 +844,6 @@ const individualScenarios: Record<string, () => unknown> = {
   metadata: ownerMetadataScenario,
   'orphaned-recovery-claim': orphanedRecoveryClaimScenario,
   'pid-one': pidOneScenario,
-  'plugin-option-scrub': pluginOptionScrubScenario,
   'prior-boot-owner': priorBootOwnerScenario,
   'public-result': publicResultScenario,
   'reused-pid-owner': reusedPidOwnerScenario,

@@ -66,7 +66,6 @@ function OverridesSelect(t0) {
     onComplete,
     currentMode
   } = t0;
-  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [theme] = useTheme();
   const {
     headerFocused,
@@ -119,16 +118,11 @@ function OverridesSelect(t0) {
   if ($[9] !== onComplete) {
     t7 = async function handleSelect(value) {
       const mode = value as OverrideMode;
-      setSaveError(null);
-      try {
-        await SandboxManager.setSandboxSettings({
-          allowUnsandboxedCommands: mode === "open"
-        });
-        const message = mode === "open" ? "\u2713 Unsandboxed fallback allowed - commands can run outside sandbox when necessary" : "\u2713 Strict sandbox mode - all commands must run in sandbox or be excluded via the `excludedCommands` option";
-        onComplete(message);
-      } catch (error) {
-        setSaveError(`Failed to update sandbox overrides: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      await SandboxManager.setSandboxSettings({
+        allowUnsandboxedCommands: mode === "open"
+      });
+      const message = mode === "open" ? "\u2713 Unsandboxed fallback allowed - commands can run outside sandbox when necessary" : "\u2713 Strict sandbox mode - all commands must run in sandbox or be excluded via the `excludedCommands` option";
+      onComplete(message);
     };
     $[9] = onComplete;
     $[10] = t7;
@@ -194,5 +188,5 @@ function OverridesSelect(t0) {
   } else {
     t14 = $[24];
   }
-  return <Box flexDirection="column">{t14}{saveError ? <Text color="error">{saveError}</Text> : null}</Box>;
+  return t14;
 }
