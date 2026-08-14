@@ -53,7 +53,7 @@ const DEFAULT_MAX_RETRIES = 3
 const MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB per file (matches backend limit)
 
 export type SettingsDownloadResult = {
-  /** True when every requested settings file was applied. */
+  /** True when every requested settings or memory file was applied. */
   complete: boolean
   /** Logical settings sources whose writes committed. */
   settingsSourcesWritten: Array<'userSettings' | 'localSettings'>
@@ -567,10 +567,14 @@ async function applyRemoteEntriesToLocal(
   const userMemoryContent = entries[SYNC_KEYS.USER_MEMORY]
   if (userMemoryContent) {
     const userMemoryPath = getMemoryPath('User')
-    if (!exceedsSizeLimit(userMemoryContent, userMemoryPath)) {
+    if (exceedsSizeLimit(userMemoryContent, userMemoryPath)) {
+      applyFailed = true
+    } else {
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
         memoryWritten = true
+      } else {
+        applyFailed = true
       }
     }
   }
@@ -606,10 +610,14 @@ async function applyRemoteEntriesToLocal(
     const projectMemoryContent = entries[projectMemoryKey]
     if (projectMemoryContent) {
       const localMemoryPath = getMemoryPath('Local')
-      if (!exceedsSizeLimit(projectMemoryContent, localMemoryPath)) {
+      if (exceedsSizeLimit(projectMemoryContent, localMemoryPath)) {
+        applyFailed = true
+      } else {
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
           memoryWritten = true
+        } else {
+          applyFailed = true
         }
       }
     }

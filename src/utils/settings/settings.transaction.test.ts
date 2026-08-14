@@ -386,12 +386,15 @@ test('locked update preserves merge semantics, final symlinks, modes, and cache 
     error?: string | null
     symlink?: boolean
     mode?: number
+    ownershipTested?: boolean
+    gidBefore?: number
+    gidAfter?: number
     final?: unknown
     cached?: unknown
   }>('semantics')
   if (skipUnsupportedScenario(result.skipped, 'symlink merge semantics')) return
 
-  expect(result).toEqual({
+  expect(result).toMatchObject({
     skipped: false,
     warmed: { KEEP: '1', REMOVE: 'stale' },
     error: null,
@@ -413,6 +416,32 @@ test('locked update preserves merge semantics, final symlinks, modes, and cache 
       },
       enabledPlugins: { keep: true },
     },
+  })
+  if (result.ownershipTested) {
+    expect(result.gidAfter).toBe(result.gidBefore)
+  } else {
+    console.warn(
+      '[settings transaction test] skipped supplementary-group ownership preservation',
+    )
+  }
+})
+
+test('atomic replacement refuses a target swapped after metadata capture', async () => {
+  const result = await getScenario<{
+    skipped: boolean
+    writeError?: string | null
+    targetStatCalls?: number
+    finalBytes?: string
+    writeTemps?: string[]
+  }>('publication-target-race')
+  if (skipUnsupportedScenario(result.skipped, 'publication target race')) return
+
+  expect(result).toEqual({
+    skipped: false,
+    writeError: 'Settings file changed during atomic replacement',
+    targetStatCalls: 2,
+    finalBytes: '{"env":{"EXTERNAL":"wins"}}\n',
+    writeTemps: [],
   })
 })
 
@@ -1208,6 +1237,42 @@ test('partial settings sync reports committed sources separately from completene
     },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test.each([
+  'user-oversized',
+  'user-unwritable',
+  'project-oversized',
+  'project-unwritable',
+] as const)(
+  'settings sync reports %s memory entries as incomplete without hiding committed settings',
+  async scenario => {
+    const result = await collectChild<{
+      result: { complete: boolean; settingsSourcesWritten: string[] }
+      settingsLanded: boolean
+    }>(
+      Bun.spawn(
+        [process.execPath, SETTINGS_SYNC_PARTIAL_FIXTURE, scenario],
+        {
+          cwd: process.cwd(),
+          stderr: 'pipe',
+          stdout: 'pipe',
+        },
+      ),
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      value: {
+        result: {
+          complete: false,
+          settingsSourcesWritten: ['userSettings'],
+        },
+        settingsLanded: true,
+      },
+    })
+  },
+  SUBPROCESS_TEST_TIMEOUT_MS,
+)
 
 test('reload plugins notifies every settings source committed by a partial download', async () => {
   const result = await collectChild<{ notified: string[] }>(

@@ -1,10 +1,12 @@
 import {
   chmodSync,
+  chownSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -172,6 +174,20 @@ function semanticsScenario(): unknown {
     'utf8',
   )
   chmodSync(targetPath, 0o640)
+  const originalStats = statSync(targetPath)
+  const alternateGroup = process
+    .getgroups?.()
+    .find(group => group !== process.getegid?.())
+  let ownershipTested = false
+  if (alternateGroup !== undefined) {
+    try {
+      chownSync(targetPath, originalStats.uid, alternateGroup)
+      ownershipTested = true
+    } catch {
+      // Some filesystems reject supplementary-group ownership changes.
+    }
+  }
+  const gidBefore = statSync(targetPath).gid
   symlinkSync(targetPath, settingsPath, 'file')
 
   const warmed = getSettingsForSource('userSettings')?.env
@@ -188,8 +204,59 @@ function semanticsScenario(): unknown {
     error: result.error?.message ?? null,
     symlink: lstatSync(settingsPath).isSymbolicLink(),
     mode: statSync(targetPath).mode & 0o777,
+    ownershipTested,
+    gidBefore,
+    gidAfter: statSync(targetPath).gid,
     final: readSettings(targetPath),
     cached: getSettingsForSource('userSettings'),
+  }
+}
+
+function publicationTargetRaceScenario(): unknown {
+  if (process.platform === 'win32') {
+    return { skipped: true }
+  }
+
+  writeSettings({ env: { BASE: '1' } })
+  const originalFs = getFsImplementation()
+  const externalPath = join(configDir, 'external-settings.json')
+  const externalBytes = '{"env":{"EXTERNAL":"wins"}}\n'
+  let targetStatCalls = 0
+  let writeError: string | null = null
+
+  withSettingsFileLockSync(settingsPath, ({ targetPath, writeFile }) => {
+    setFsImplementation({
+      ...originalFs,
+      statSync(path) {
+        if (path === targetPath) {
+          targetStatCalls++
+          if (targetStatCalls === 1) {
+            const capturedStats = originalFs.statSync(path)
+            writeFileSync(externalPath, externalBytes, 'utf8')
+            originalFs.renameSync(externalPath, targetPath)
+            return capturedStats
+          }
+        }
+        return originalFs.statSync(path)
+      },
+    })
+    try {
+      writeFile('{"env":{"LOCAL":"must-not-land"}}\n')
+    } catch (error) {
+      writeError = error instanceof Error ? error.message : String(error)
+    } finally {
+      setOriginalFsImplementation()
+    }
+  })
+
+  return {
+    skipped: false,
+    writeError,
+    targetStatCalls,
+    finalBytes: readFileSync(settingsPath, 'utf8'),
+    writeTemps: readdirSync(configDir).filter(name =>
+      name.startsWith('.openclaude-settings-write-'),
+    ),
   }
 }
 
@@ -845,6 +912,7 @@ const individualScenarios: Record<string, () => unknown> = {
   'orphaned-recovery-claim': orphanedRecoveryClaimScenario,
   'pid-one': pidOneScenario,
   'prior-boot-owner': priorBootOwnerScenario,
+  'publication-target-race': publicationTargetRaceScenario,
   'public-result': publicResultScenario,
   'reused-pid-owner': reusedPidOwnerScenario,
   'separator-recovery-token': separatorRecoveryTokenScenario,

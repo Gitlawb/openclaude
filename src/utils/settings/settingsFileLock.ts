@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import {
   chmodSync,
+  chownSync,
   closeSync,
   constants,
   fstatSync,
@@ -802,9 +803,24 @@ function writeSettingsTargetAtomically(
     dirname(targetPath),
     `.openclaude-settings-write-${process.pid}-${randomUUID()}.tmp`,
   )
-  let targetMode: number | undefined
+  let targetMetadata:
+    | {
+        dev: number
+        ino: number
+        mode: number
+        uid: number
+        gid: number
+      }
+    | undefined
   try {
-    targetMode = fs.statSync(targetPath).mode & 0o777
+    const stats = fs.statSync(targetPath)
+    targetMetadata = {
+      dev: stats.dev,
+      ino: stats.ino,
+      mode: stats.mode & 0o777,
+      uid: stats.uid,
+      gid: stats.gid,
+    }
   } catch (error) {
     if (getErrnoCode(error) !== 'ENOENT') throw error
   }
@@ -814,10 +830,55 @@ function writeSettingsTargetAtomically(
       encoding: 'utf8',
       flag: 'wx',
       flush: true,
-      ...(targetMode !== undefined ? { mode: targetMode } : {}),
+      ...(targetMetadata ? { mode: 0o600 } : {}),
     })
-    if (targetMode !== undefined) {
-      chmodSync(tempPath, targetMode)
+    if (targetMetadata) {
+      if (process.platform !== 'win32') {
+        try {
+          chownSync(tempPath, targetMetadata.uid, targetMetadata.gid)
+        } catch (error) {
+          const code = getErrnoCode(error)
+          if (code === 'EACCES' || code === 'EPERM') {
+            throw new Error(
+              `Refusing to replace settings file because ownership ${targetMetadata.uid}:${targetMetadata.gid} cannot be preserved: ${toError(error).message}`,
+            )
+          }
+          throw error
+        }
+      }
+      chmodSync(tempPath, targetMetadata.mode)
+    }
+    let currentMetadata:
+      | {
+          dev: number
+          ino: number
+          mode: number
+          uid: number
+          gid: number
+        }
+      | undefined
+    try {
+      const stats = fs.statSync(targetPath)
+      currentMetadata = {
+        dev: stats.dev,
+        ino: stats.ino,
+        mode: stats.mode & 0o777,
+        uid: stats.uid,
+        gid: stats.gid,
+      }
+    } catch (error) {
+      if (getErrnoCode(error) !== 'ENOENT') throw error
+    }
+    if (
+      targetMetadata?.dev !== currentMetadata?.dev ||
+      targetMetadata?.ino !== currentMetadata?.ino ||
+      targetMetadata?.mode !== currentMetadata?.mode ||
+      targetMetadata?.uid !== currentMetadata?.uid ||
+      targetMetadata?.gid !== currentMetadata?.gid
+    ) {
+      throw new SettingsFileLockOwnershipError(
+        'Settings file changed during atomic replacement',
+      )
     }
     // Rename replaces a symlink at targetPath rather than following it, so a
     // concurrent target swap cannot redirect the guarded write elsewhere.
