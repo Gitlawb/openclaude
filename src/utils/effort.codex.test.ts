@@ -1166,12 +1166,12 @@ test('direct Z.AI GLM-5.3 resolves effort from explicit catalog metadata', async
     controllable: true,
     source: 'metadata',
     mode: 'levels',
-    levels: ['high', 'xhigh'],
+    levels: ['low', 'high', 'xhigh'],
     defaultLevel: undefined,
     wireFormat: 'zai_compatible',
   })
-  expect(getAvailableEffortLevels('glm-5.3')).toEqual(['high', 'xhigh'])
-  expect(resolveAppliedEffort('glm-5.3', 'low')).toBe('high')
+  expect(getAvailableEffortLevels('glm-5.3')).toEqual(['low', 'high', 'xhigh'])
+  expect(resolveAppliedEffort('glm-5.3', 'low')).toBe('low')
   expect(resolveAppliedEffort('glm-5.3', 'xhigh')).toBe('xhigh')
 })
 
@@ -1368,6 +1368,27 @@ test('explicit compat metadata wire formats are controllable and feed the reques
   expect(resolveOpenAIShimReasoningRequestPlan({
     model: 'custom-zai-low-only',
     requestedEffort: 'low',
+    reasoningControl: zaiLowOnlyControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'low',
+    wireFormat: 'zai_compatible',
+    source: 'metadata',
+  })
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-low-only',
+    requestThinkingType: 'disabled',
+    reasoningControl: zaiLowOnlyControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'low',
+    wireFormat: 'zai_compatible',
+    source: 'metadata',
+  })
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-low-only',
+    requestedEffort: 'high',
+    requestThinkingType: 'disabled',
     reasoningControl: zaiLowOnlyControl,
   })).toEqual({
     thinkingType: 'enabled',

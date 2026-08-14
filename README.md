@@ -343,7 +343,7 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 - Some providers impose lower output caps than the CLI defaults, and OpenClaude adapts where possible
 - AI/ML API uses the OpenAI-compatible route, defaults to `gpt-4o`, and only surfaces chat-capable models from its public catalog
 - Gitlawb Opengateway is the fresh-install startup default and requires an API key from https://gitlawb.com/opengateway/keys. It uses one OpenAI-compatible base URL; switch between `mimo-*` and `google/gemini-3.1-flash-lite-preview` with `/model`, and do not pin the base URL to `/v1/xiaomi-mimo`.
-- Z.AI GLM Coding Plan uses `https://api.z.ai/api/coding/paas/v4` with `glm-5.2` by default. GLM-5.3 is selectable as `glm-5.3`; use `glm-5.3?reasoning=high` or `glm-5.3?reasoning=xhigh` to request its documented high or maximum effort, and `glm-5.3?thinking=disabled` to request low/lightweight thinking. The existing GLM-5.2 query controls remain supported.
+- Z.AI GLM Coding Plan uses `https://api.z.ai/api/coding/paas/v4` with `glm-5.2` by default. GLM-5.3 is selectable as `glm-5.3`; use `glm-5.3?reasoning=low`, `glm-5.3?reasoning=high`, or `glm-5.3?reasoning=xhigh` to request its documented low, high, or maximum effort. The existing GLM-5.2 query controls remain supported.
 - Xiaomi MiMo uses `api-key` header auth on the direct OpenAI-compatible route and currently does not support `/usage` reporting in OpenClaude
 - GitHub Copilot serializes sub-agent execution by default to reduce Premium Request consumption — see [Agent Routing and Step Limits](docs/agent-routing.md#github-copilot-sub-agent-optimization) for tuning
 

@@ -5439,9 +5439,11 @@ test.each([
 
 test.each([
   ['glm-5.3', undefined, undefined],
+  ['glm-5.3?reasoning=low', 'enabled', 'low'],
   ['glm-5.3?reasoning=high', 'enabled', 'high'],
   ['glm-5.3?reasoning=xhigh', 'enabled', 'max'],
-  ['glm-5.3?thinking=disabled', 'disabled', undefined],
+  ['glm-5.3?thinking=disabled', 'enabled', 'low'],
+  ['glm-5.3?thinking=disabled&reasoning=high', 'enabled', 'high'],
 ] as const)('Z.AI GLM-5.3 serializes the verified request contract for %s', async (
   model,
   thinkingType,

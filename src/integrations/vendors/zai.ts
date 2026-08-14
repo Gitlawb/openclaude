@@ -51,7 +51,7 @@ export default defineVendor({
         modelDescriptorId: 'glm-5.3',
         reasoning: {
           mode: 'levels',
-          levels: ['high', 'xhigh'],
+          levels: ['low', 'high', 'xhigh'],
           wireFormat: 'zai_compatible',
         },
         transportOverrides: {

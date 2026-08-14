@@ -55,7 +55,7 @@ describe('Z.AI GLM-5.3 descriptor contract', () => {
       modelDescriptorId: 'glm-5.3',
       reasoning: {
         mode: 'levels',
-        levels: ['high', 'xhigh'],
+        levels: ['low', 'high', 'xhigh'],
         wireFormat: 'zai_compatible',
       },
       transportOverrides: {
@@ -168,6 +168,7 @@ describe('resolveModelRuntimeLimits', () => {
   })
   it.each([
     'glm-5.3',
+    'glm-5.3?reasoning=low',
     'glm-5.3?reasoning=xhigh',
     'glm-5.3?thinking=disabled',
   ])('uses verified Z.AI GLM-5.3 runtime limits for %s', model => {
