@@ -71,7 +71,7 @@ For each agent, the prompt must be fully self-contained. Include:
 ${WORKER_INSTRUCTIONS}
 \`\`\`
 
-Use \`subagent_type: "general-purpose"\` unless a more specific agent type fits.
+Use \`subagent_type\` only when a specific custom agent fits. Omit \`subagent_type\` to use the default worker.
 
 ## Phase 3: Track Progress
 

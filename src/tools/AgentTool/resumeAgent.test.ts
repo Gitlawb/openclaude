@@ -10,6 +10,7 @@ let mockTranscript: any = {
 
 let mockMetadata: any = {
   agentType: 'code-reviewer',
+  source: 'built-in',
 }
 
 mock.module('../../utils/sessionStorage.js', () => ({
@@ -36,6 +37,7 @@ beforeEach(() => {
   }
   mockMetadata = {
     agentType: 'code-reviewer',
+    source: 'built-in',
   }
 })
 
@@ -120,5 +122,31 @@ test('rejects resume when agent definition source does not match metadata', asyn
     }),
   ).rejects.toThrow(
     "Cannot resume agent: identity mismatch. Expected source 'built-in', found 'projectSettings' for type 'code-reviewer'."
+  )
+})
+
+test('rejects resume when legacy metadata lacks a source', async () => {
+  mockMetadata = {
+    agentType: 'code-reviewer',
+    // Legacy metadata lacks a source field
+  }
+
+  const codeReviewer = {
+    agentType: 'code-reviewer',
+    source: 'built-in',
+    getSystemPrompt: () => 'review code',
+  } as unknown as AgentDefinition
+
+  const context = makeToolUseContext([codeReviewer])
+
+  await expect(
+    resumeAgentBackground({
+      agentId: 'test-agent',
+      prompt: 'continue',
+      toolUseContext: context,
+      canUseTool: async () => ({ behavior: 'allow' } as any),
+    }),
+  ).rejects.toThrow(
+    "Cannot resume agent: identity mismatch. Expected source 'undefined', found 'built-in' for type 'code-reviewer'."
   )
 })

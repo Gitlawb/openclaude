@@ -1,39 +1,54 @@
-import { expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import type { AgentDefinition } from './loadAgentsDir.js'
-import { runAgent } from './runAgent.js'
 import type { ToolUseContext } from '../../Tool.js'
 
 // Track how many times each storage function is called
 let metadataWriteCount = 0
 let transcriptWriteCount = 0
 
-mock.module('../../utils/sessionStorage.js', () => ({
-  writeAgentMetadata: async () => {
-    metadataWriteCount++
-    throw new Error('Simulated disk error during metadata write')
-  },
-  recordSidechainTranscript: async () => {
-    transcriptWriteCount++
-  },
-  getAgentMetadataPath: () => '/mock/path',
-}))
-
-mock.module('../../query.js', () => ({
-  query: async function* () {
-    yield {
-      type: 'assistant',
-      uuid: 'msg-1',
-      message: { role: 'assistant', content: 'test' },
-    }
-    yield {
-      reason: 'done',
-    }
-  },
-}))
-
-test('skips transcript write if identity metadata fails to persist', async () => {
+beforeEach(() => {
   metadataWriteCount = 0
   transcriptWriteCount = 0
+})
+
+afterEach(() => {
+  mock.restore()
+})
+
+async function importRunAgentWithMocks() {
+  const sessionStorageMock = {
+    writeAgentMetadata: async () => {
+      metadataWriteCount++
+      throw new Error('Simulated disk error during metadata write')
+    },
+    recordSidechainTranscript: async () => {
+      transcriptWriteCount++
+    },
+    getAgentMetadataPath: () => '/mock/path',
+  }
+
+  const queryMock = {
+    query: async function* () {
+      yield {
+        type: 'assistant',
+        uuid: 'msg-1',
+        message: { role: 'assistant', content: 'test' },
+      }
+      yield {
+        reason: 'done',
+      }
+    },
+  }
+
+  mock.module('../../utils/sessionStorage.js', () => sessionStorageMock)
+  mock.module('../../query.js', () => queryMock)
+
+  const module = await import(`./runAgent.js?persistence=${Date.now()}-${Math.random()}`)
+  return module.runAgent
+}
+
+test('skips transcript write if identity metadata fails to persist', async () => {
+  const runAgent = await importRunAgentWithMocks()
 
   const agentDefinition: AgentDefinition = {
     agentType: 'code-reviewer',

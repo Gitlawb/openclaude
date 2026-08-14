@@ -77,7 +77,7 @@ test('normal subagent prompt metadata uses routed effective model', async () => 
     {
       description: 'Inspect implementation',
       prompt: 'Find the bug',
-      subagent_type: 'general-purpose',
+      
     },
     createToolUseContext('parent-model', [createAgentDefinition()]),
     mock(async () => ({ behavior: 'allow' })) as never,
@@ -124,7 +124,7 @@ test('agent invocation entering plan mode during MCP wait stays synchronous', as
     {
       description: 'Inspect implementation',
       prompt: 'Find the bug',
-      subagent_type: 'general-purpose',
+      
     },
     createToolUseContext('parent-model', [agent], 'default', 'plan'),
     mock(async () => ({ behavior: 'allow' })) as never,
@@ -193,7 +193,7 @@ test('sync agents forward long-running tool progress to the parent tool call', a
     {
       description: 'Inspect implementation',
       prompt: 'Find the bug',
-      subagent_type: 'general-purpose',
+      
     },
     createToolUseContext('parent-model', [createAgentDefinition()]),
     mock(async () => ({ behavior: 'allow' })) as never,
@@ -236,7 +236,7 @@ test('a throwing parent progress consumer does not change the subagent outcome',
     {
       description: 'Inspect implementation',
       prompt: 'Find the bug',
-      subagent_type: 'general-purpose',
+      
     },
     createToolUseContext('parent-model', [createAgentDefinition()]),
     mock(async () => ({ behavior: 'allow' })) as never,
