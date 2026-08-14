@@ -360,6 +360,26 @@ function hasLiveMintOrExchangeLease(state: AimlapiPersistedTopup): boolean {
   )
 }
 
+/**
+ * Shared shape check for a lease pair (exchangeLease{Owner,At} or
+ * keyMintLease{Owner,At}): protects a non-idempotent mutation's in-flight
+ * marker, so a malformed or one-sided pair (an owner with no timestamp, or
+ * vice versa) must fail the WHOLE receipt closed rather than being silently
+ * accepted and then read by isLeaseLive as merely "not currently live" —
+ * that would let claimTopupStateOperation treat a receipt that could not be
+ * trusted as safe to replace, or a peer treat it as safe to mint/exchange
+ * into, exactly the outcome the fail-closed contract exists to prevent.
+ */
+function isValidLeasePair(owner: unknown, at: unknown): boolean {
+  if (owner === undefined && at === undefined) return true
+  return (
+    typeof owner === 'string' &&
+    Boolean(owner.trim()) &&
+    typeof at === 'number' &&
+    Number.isFinite(at)
+  )
+}
+
 function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
   if (typeof value !== 'object' || value === null) return false
   const state = value as Record<string, unknown>
@@ -391,11 +411,8 @@ function isPersistedTopup(value: unknown): value is AimlapiPersistedTopup {
     (state.model === undefined || typeof state.model === 'string') &&
     (state.settled === undefined || typeof state.settled === 'boolean') &&
     (state.exchange === undefined || typeof state.exchange === 'boolean') &&
-    (state.exchangeLeaseOwner === undefined ||
-      (typeof state.exchangeLeaseOwner === 'string' &&
-        Boolean(state.exchangeLeaseOwner.trim()))) &&
-    (state.exchangeLeaseAt === undefined ||
-      (typeof state.exchangeLeaseAt === 'number' && Number.isFinite(state.exchangeLeaseAt)))
+    isValidLeasePair(state.exchangeLeaseOwner, state.exchangeLeaseAt) &&
+    isValidLeasePair(state.keyMintLeaseOwner, state.keyMintLeaseAt)
   )
 }
 
@@ -681,42 +698,70 @@ function saveTopupStateOperation(state: AimlapiPersistedTopup): void {
 }
 
 /**
+ * Thrown by recordAimlapiMintedKeyAsync when this call's result cannot be
+ * trusted as authoritative: the checkout was cleared/reset (no matching
+ * record), or the key-mint lease moved to a different owner before this
+ * call landed and no key is recorded yet to adopt instead. See
+ * recordAimlapiMintedKeyAsync for why writing anyway would be unsafe.
+ */
+export class AimlapiKeyMintOwnershipLostError extends Error {}
+
+/**
  * Record a freshly minted existing-account key under the same CAS, and —
  * only while the key-mint lease is still held by THIS call's `owner` —
- * retire it in the same update. createKey (unlike the sign-in/exchange
- * leases) is never refreshed while the caller waits on it, so a slow
- * response can let the lease go stale and be reclaimed by a peer before this
- * save lands. Checking ownership before clearing matters precisely then: the
- * peer's own mint may still be genuinely in flight, and clearing THEIR live
- * lease would let a differently-amounted claim proceed as though minting
- * were done — see claimTopupStateOperation's hasLiveMintOrExchangeLease
- * guard — discarding the record the peer's still-pending save needs to land
- * in. First-writer-wins on the key itself, same as saveAimlapiTopupState: a
- * losing caller's own key is adopted, never overwritten.
+ * retire it in the same update. Returns the credential now durably on
+ * record, which is NOT always this call's own: if a peer already recorded
+ * one first, that peer's key is returned instead (first-writer-wins, same
+ * as saveAimlapiTopupState) so the caller never reports having saved a key
+ * that was actually discarded.
+ *
+ * createKey (unlike the sign-in/exchange leases) is never refreshed while
+ * the caller waits on it, so a slow response can let the lease go stale and
+ * be reclaimed by a peer before this save lands. If no key is recorded yet
+ * AND the lease has moved to a different owner, this call's own result is
+ * REJECTED (throws AimlapiKeyMintOwnershipLostError) rather than written:
+ * the new owner's mint may still be genuinely in flight, and writing this
+ * (superseded) result now would let that owner's later, equally
+ * first-writer-wins save silently discard ITS OWN just-minted key once it
+ * lands — turning one lost credential into two. The caller should surface
+ * this as a fail-closed recovery error (the key this call minted still
+ * exists server-side) rather than retry blindly.
  */
 export function recordAimlapiMintedKeyAsync(
   expected: AimlapiTopupIntent & Pick<AimlapiPersistedTopup, 'paymentSessionId'>,
   key: { apiKey: string; apiKeyId?: string },
   owner: string,
-): Promise<void> {
+): Promise<{ apiKey: string; apiKeyId?: string }> {
   return withStateLockAsync(() => {
     const current = matchingStateOrNull(expected)
-    if (!current) return
-    const existingApiKeyWins = Boolean(current.apiKey?.trim())
-    const trimmedApiKey = existingApiKeyWins ? current.apiKey : key.apiKey.trim() || undefined
-    const retiresOwnLease = !existingApiKeyWins && current.keyMintLeaseOwner === owner
+    if (!current) {
+      throw new AimlapiKeyMintOwnershipLostError(
+        'The checkout for this key mint no longer exists (cleared, reset, or claimed anew).',
+      )
+    }
+    if (current.apiKey?.trim()) {
+      // Someone already recorded a key for this checkout — adopt it rather
+      // than attempt to overwrite it; first writer wins regardless of who
+      // currently holds (or held) the lease.
+      return { apiKey: current.apiKey, apiKeyId: current.apiKeyId }
+    }
+    const leaseOwner = current.keyMintLeaseOwner
+    if (leaseOwner !== undefined && leaseOwner !== owner) {
+      throw new AimlapiKeyMintOwnershipLostError(
+        'The key-mint lease was reclaimed by another process before this result could be ' +
+          'committed; its own mint may still be in flight.',
+      )
+    }
+    const trimmedApiKey = key.apiKey.trim() || undefined
     writeAimlapiTopupStateUnlocked({
       ...current,
       resumeSessionToken: current.resumeSessionToken?.trim() || '',
       apiKey: trimmedApiKey,
-      apiKeyId: existingApiKeyWins
-        ? current.apiKeyId
-        : trimmedApiKey
-          ? key.apiKeyId?.trim() || undefined
-          : undefined,
-      keyMintLeaseOwner: retiresOwnLease ? undefined : current.keyMintLeaseOwner,
-      keyMintLeaseAt: retiresOwnLease ? undefined : current.keyMintLeaseAt,
+      apiKeyId: trimmedApiKey ? key.apiKeyId?.trim() || undefined : undefined,
+      keyMintLeaseOwner: undefined,
+      keyMintLeaseAt: undefined,
     })
+    return { apiKey: trimmedApiKey ?? '', apiKeyId: key.apiKeyId }
   })
 }
 

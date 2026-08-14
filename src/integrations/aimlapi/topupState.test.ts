@@ -635,7 +635,7 @@ test('recordAimlapiMintedKeyAsync retires its own key-mint lease so a differentl
   expect(next.apiKeyId).toBe('minted-id')
 })
 
-test('recordAimlapiMintedKeyAsync must not clear a reclaimed peer\'s live lease from a stale owner\'s delayed save', async () => {
+test('recordAimlapiMintedKeyAsync rejects a stale owner\'s delayed result instead of recording it beside a reclaimed peer\'s live lease', async () => {
   const directory = useTemporaryConfig()
   const claimed = claimAimlapiTopupState(intent)
   const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
@@ -655,21 +655,23 @@ test('recordAimlapiMintedKeyAsync must not clear a reclaimed peer\'s live lease 
   expect(reclaimed.status).toBe('acquired')
 
   // owner-a's own (very delayed) createKey response finally lands and tries
-  // to record its result — but owner-a no longer holds the lease, so this
-  // must not clear owner-b's now-live one.
-  await recordAimlapiMintedKeyAsync(
-    expected,
-    { apiKey: 'owner-a-key', apiKeyId: 'owner-a-id' },
-    'owner-a',
-  )
+  // to record its result — but owner-a no longer holds the lease, and no key
+  // is recorded yet to adopt instead, so this must be REJECTED rather than
+  // written: owner-b's own mint may still be genuinely in flight, and
+  // writing owner-a's result now would let owner-b's later, equally
+  // first-writer-wins save silently discard ITS OWN just-minted key once it
+  // lands — turning one lost credential into two.
+  await expect(
+    recordAimlapiMintedKeyAsync(
+      expected,
+      { apiKey: 'owner-a-key', apiKeyId: 'owner-a-id' },
+      'owner-a',
+    ),
+  ).rejects.toThrow(/reclaimed by another process/i)
 
   const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
-  // The stale owner still minted a real key server-side: the receipt must
-  // retain it regardless of who currently holds the lease, or that
-  // credential (createKey is non-idempotent — there is no other copy) is
-  // unrecoverable.
-  expect(saved.apiKey).toBe('owner-a-key')
-  expect(saved.apiKeyId).toBe('owner-a-id')
+  // Neither owner-a's key nor owner-b's lease were touched by the rejection.
+  expect(saved.apiKey).toBeUndefined()
   expect(saved.keyMintLeaseOwner).toBe('owner-b')
   expect(saved.keyMintLeaseAt).toBeGreaterThan(Date.now() - 5_000)
 
@@ -679,6 +681,46 @@ test('recordAimlapiMintedKeyAsync must not clear a reclaimed peer\'s live lease 
   expect(() =>
     claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 }, { abandonExisting: true }),
   ).toThrow(/minting or exchanging/i)
+
+  // owner-b's own result then lands normally: it still owns the lease, so
+  // its key is recorded and the lease retires with it — the checkout
+  // recovers cleanly from the takeover instead of being stuck.
+  const recorded = await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'owner-b-key', apiKeyId: 'owner-b-id' },
+    'owner-b',
+  )
+  expect(recorded).toEqual({ apiKey: 'owner-b-key', apiKeyId: 'owner-b-id' })
+  const finalState = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(finalState.apiKey).toBe('owner-b-key')
+  expect(finalState.keyMintLeaseOwner).toBeUndefined()
+})
+
+test('recordAimlapiMintedKeyAsync lets a late caller adopt a key a peer already recorded, instead of overwriting it', async () => {
+  const directory = useTemporaryConfig()
+  const claimed = claimAimlapiTopupState(intent)
+  const expected = { ...intent, paymentSessionId: claimed.paymentSessionId }
+
+  const winner = await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'winner-key', apiKeyId: 'winner-id' },
+    'owner-a',
+  )
+  expect(winner).toEqual({ apiKey: 'winner-key', apiKeyId: 'winner-id' })
+
+  // A second (losing) caller's own result — regardless of which owner it
+  // claims, since a key is already durably recorded — must adopt the
+  // winner's key rather than throw or overwrite it.
+  const loser = await recordAimlapiMintedKeyAsync(
+    expected,
+    { apiKey: 'loser-key', apiKeyId: 'loser-id' },
+    'owner-b',
+  )
+  expect(loser).toEqual({ apiKey: 'winner-key', apiKeyId: 'winner-id' })
+
+  const directoryStatePath = join(directory, 'aimlapi-topup.json')
+  const saved = JSON.parse(readFileSync(directoryStatePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.apiKey).toBe('winner-key')
 })
 
 test('claiming a different intent replaces a never-advanced claim', () => {
@@ -864,6 +906,89 @@ test('a receipt that fails schema validation fails closed instead of being claim
     /does not match the expected format/,
   )
 })
+
+for (const leasePairField of ['exchangeLease', 'keyMintLease'] as const) {
+  test(`a receipt with a malformed ${leasePairField}Owner fails closed instead of being claimed over as empty`, () => {
+    const directory = useTemporaryConfig()
+    const claimed = claimAimlapiTopupState(intent)
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'live-resume-token',
+    })
+    const statePath = join(directory, 'aimlapi-topup.json')
+    const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+    // A non-string owner: isLeaseLive would read this as merely "not
+    // currently live" on its own, but the whole receipt must still be
+    // rejected as untrustworthy rather than silently claimed over.
+    seeded[`${leasePairField}Owner`] = 12345
+    seeded[`${leasePairField}At`] = Date.now()
+    writeFileSync(statePath, JSON.stringify(seeded))
+
+    expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+      /does not match the expected format/,
+    )
+  })
+
+  test(`a receipt with a malformed ${leasePairField}At fails closed instead of being claimed over as empty`, () => {
+    const directory = useTemporaryConfig()
+    const claimed = claimAimlapiTopupState(intent)
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'live-resume-token',
+    })
+    const statePath = join(directory, 'aimlapi-topup.json')
+    const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+    seeded[`${leasePairField}Owner`] = 'some-owner'
+    seeded[`${leasePairField}At`] = 'not-a-number'
+    writeFileSync(statePath, JSON.stringify(seeded))
+
+    expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+      /does not match the expected format/,
+    )
+  })
+
+  test(`a receipt with a one-sided ${leasePairField} pair (owner with no timestamp) fails closed`, () => {
+    const directory = useTemporaryConfig()
+    const claimed = claimAimlapiTopupState(intent)
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'live-resume-token',
+    })
+    const statePath = join(directory, 'aimlapi-topup.json')
+    const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+    seeded[`${leasePairField}Owner`] = 'some-owner'
+    // No matching *At field — the old, independent-field validation would
+    // have accepted this (each field was only checked in isolation).
+    delete seeded[`${leasePairField}At`]
+    writeFileSync(statePath, JSON.stringify(seeded))
+
+    expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+      /does not match the expected format/,
+    )
+  })
+
+  test(`a receipt with a one-sided ${leasePairField} pair (timestamp with no owner) fails closed`, () => {
+    const directory = useTemporaryConfig()
+    const claimed = claimAimlapiTopupState(intent)
+    saveAimlapiTopupState({
+      ...intent,
+      paymentSessionId: claimed.paymentSessionId,
+      resumeSessionToken: 'live-resume-token',
+    })
+    const statePath = join(directory, 'aimlapi-topup.json')
+    const seeded = JSON.parse(readFileSync(statePath, 'utf8'))
+    delete seeded[`${leasePairField}Owner`]
+    seeded[`${leasePairField}At`] = Date.now()
+    writeFileSync(statePath, JSON.stringify(seeded))
+
+    expect(() => claimAimlapiTopupState({ ...intent, amountUsdMinor: 5000 })).toThrow(
+      /does not match the expected format/,
+    )
+  })
+}
 
 // By-key checkouts (a saved profile or an env-sourced credential) have no
 // passwordless account email to key the intent on, so the intent's `email`

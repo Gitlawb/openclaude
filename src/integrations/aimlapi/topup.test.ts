@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import { setClaudeConfigHomeDirForTesting } from '../../utils/envUtils.js'
 import {
+  acquireAimlapiExchangeLeaseAsync,
   acquireAimlapiKeyMintLeaseAsync,
   claimAimlapiTopupState,
   loadAimlapiTopupState,
@@ -440,6 +441,123 @@ test('a receipt-write failure right after a successful key mint stops the flow i
   }
 })
 
+test('a stale-lease takeover mints exactly once: the reclaiming run succeeds and the delayed original is rejected, not silently double-recorded', async () => {
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_AUTH_URL = 'https://auth.example.test'
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+  process.env.AIMLAPI_PAY_URL = 'https://pay.example.test'
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+
+  let keyMints = 0
+  let firstMintStarted: () => void
+  const firstMintStartedPromise = new Promise<void>(resolve => {
+    firstMintStarted = resolve
+  })
+  let releaseFirstMint: () => void
+  const firstMintHeld = new Promise<void>(resolve => {
+    releaseFirstMint = resolve
+  })
+  let secondMintStarted: () => void
+  const secondMintStartedPromise = new Promise<void>(resolve => {
+    secondMintStarted = resolve
+  })
+  let releaseSecondMint: () => void
+  const secondMintHeld = new Promise<void>(resolve => {
+    releaseSecondMint = resolve
+  })
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v1/auth/account')) return Response.json({ action: 'sign-in' })
+    if (url.endsWith('/sign-in/code')) return new Response(null, { status: 204 })
+    if (url.endsWith('/code/verify')) return Response.json({ token: 'account-token', exp: 1 })
+    if (url.endsWith('/v1/keys')) {
+      keyMints += 1
+      if (keyMints === 1) {
+        // The first run's createKey response is held open (simulating a very
+        // slow/suspended request) so its lease can be reclaimed while it is
+        // still in flight.
+        firstMintStarted()
+        await firstMintHeld
+        return Response.json({ key: 'first-key', id: 'first-id' })
+      }
+      // The second (reclaiming) run's response is ALSO held open, so its own
+      // checkpoint has not landed yet when the first run's delayed result is
+      // released — otherwise the first run would simply adopt the second
+      // run's already-recorded key instead of exercising the rejection this
+      // test is for.
+      secondMintStarted()
+      await secondMintHeld
+      return Response.json({ key: 'second-key', id: 'second-id' })
+    }
+    // Neither run should reach checkout/payment in this test.
+    if (url.endsWith('/v3/partner-checkout/sessions')) {
+      throw new Error('checkout must not start in this test')
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const firstRun = runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+  await firstMintStartedPromise
+
+  // Age the first run's lease past KEY_MINT_LEASE_STALE_MS (75s) — mirrors a
+  // real client-side timeout or suspended process, not an abandoned attempt.
+  const aged = JSON.parse(readFileSync(statePath, 'utf8'))
+  aged.keyMintLeaseAt = Date.now() - 100_000
+  writeFileSync(statePath, JSON.stringify(aged))
+
+  // A second, independent run reclaims the now-stale lease and starts
+  // minting too — this is what the reclaim mechanism exists to allow.
+  const secondRun = runAimlapiTopup({
+    email: 'user@example.com',
+    code: '123456',
+    amountUsd: '25',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+  await secondMintStartedPromise
+
+  // Release the FIRST run's long-delayed response while the second run's own
+  // checkpoint has NOT landed yet: no key is recorded, and the lease belongs
+  // to the second run's owner — this is exactly the "ownership lost, nothing
+  // to adopt" case that must be rejected rather than written.
+  releaseFirstMint!()
+  const firstRunResult = await firstRun
+  expect(firstRunResult).toBeInstanceOf(Error)
+  expect((firstRunResult as Error).message).toMatch(/recovery receipt could not be saved/i)
+  expect((firstRunResult as Error).message).toContain('first-id')
+
+  // The rejection must not have touched the still-in-flight second run's
+  // lease or recorded the first run's key.
+  const midState = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(midState.apiKey ?? '').toBe('')
+  expect(midState.keyMintLeaseOwner).toBeTruthy()
+
+  // Now let the second run's response land — it still owns the lease, so its
+  // key is recorded normally and the checkout recovers cleanly.
+  releaseSecondMint!()
+  const secondRunResult = await secondRun
+  expect((secondRunResult as Error)?.message).toContain('checkout must not start')
+
+  // Exactly two createKey calls total — never a third from any retry the
+  // first run's rejection might have triggered.
+  expect(keyMints).toBe(2)
+
+  // The second run's key is the one durably recorded — the first run's own
+  // (equally real, equally minted) key was correctly rejected rather than
+  // silently overwriting or being overwritten by it.
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.apiKey).toBe('second-key')
+  expect(saved.apiKeyId).toBe('second-id')
+  expect(saved.keyMintLeaseOwner).toBeUndefined()
+}, 10_000)
+
 test('a 2xx createKey response with an unusable body holds the checkout key-mint lease too', async () => {
   // POST /v1/keys is non-idempotent: a 2xx status means the server received
   // and likely committed the request, even when the body that would have
@@ -629,6 +747,87 @@ test('a successful exchange persists the settled receipt before returning it', a
   expect(saved?.apiKeyId).toBe('exchanged_id')
 })
 
+test('provisionAimlapiKey itself fails when the post-exchange settled-receipt commit fails — not just its caller', async () => {
+  // Isolates exchangeKeyWithLease's OWN checkpoint from the CLI's separate,
+  // already-fatal outer save (runAimlapiTopup's saveAimlapiTopupState call,
+  // which would also fail against the same broken directory and could mask
+  // a regression here): provisionAimlapiKey has no outer save of its own, so
+  // if IT throws, the failure can only have come from
+  // recordAimlapiSettledKeyAsync being treated as a required commit.
+  const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-exch-'))
+  temporaryDirectories.push(configDirectory)
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  process.env.AIMLAPI_APP_URL = 'https://app.example.test'
+
+  const intent = {
+    email: 'user@example.com',
+    amountUsdMinor: 2500,
+    autoTopUp: false,
+    partnerId: 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    partnerName: 'OpenClaude',
+    appBaseUrl: 'https://app.example.test',
+    inferenceBaseUrl: 'https://api.aimlapi.com/v1',
+    payBaseUrl: 'https://pay.example.test',
+    verificationBaseUrl: 'https://front.example.test',
+  }
+  const claimed = claimAimlapiTopupState(intent)
+  saveAimlapiTopupState({
+    ...intent,
+    paymentSessionId: claimed.paymentSessionId,
+    resumeSessionToken: 'paid-session',
+  })
+
+  // A file (not a directory) at the path the config dir is switched to right
+  // as the exchange settles — forces the checkpoint's own mkdirSync
+  // (ensureOwnerOnlyDir) to fail with ENOTDIR deterministically and
+  // portably, without relying on OS-specific permission semantics.
+  const brokenParent = join(configDirectory, 'not-a-directory')
+  writeFileSync(brokenParent, '')
+  const brokenConfigDir = join(brokenParent, 'nested')
+
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url.endsWith('/v3/partner-checkout/sessions/paid-session')) {
+      return sessionJson({ sessionToken: 'paid-session', status: 'paid' })
+    }
+    if (url.endsWith('/exchange')) {
+      setClaudeConfigHomeDirForTesting(brokenConfigDir)
+      return Response.json({ apiKey: 'exchanged_key', apiKeyId: 'exchanged_id' })
+    }
+    throw new Error(`Unexpected request: ${url}`)
+  }) as unknown as typeof fetch
+
+  const error = await provisionAimlapiKey({
+    sessionToken: 'account-session',
+    resumeSessionToken: 'paid-session',
+    paymentSessionId: claimed.paymentSessionId,
+    exchange: true,
+    intent,
+    amountUsd: '25',
+    model: 'gpt-4o',
+    noOpen: true,
+  }).catch((caught: unknown) => caught)
+
+  expect(error).toBeInstanceOf(Error)
+  const message = (error as Error).message
+  expect(message).toMatch(/recovery receipt could not be saved/i)
+  expect(message).toContain('exchanged_id')
+
+  // Restore the good directory: the exchange lease was acquired there before
+  // the switch, and the write that would have cleared it never landed — it
+  // must still be held, blocking a retry from sending a second /exchange for
+  // this already-spent, one-shot session while the key remains unrecorded.
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  const saved = loadAimlapiTopupState(intent)
+  expect(saved?.settled ?? false).toBe(false)
+  expect(saved?.apiKey ?? '').toBe('')
+  const retryLease = await acquireAimlapiExchangeLeaseAsync(
+    { ...intent, paymentSessionId: claimed.paymentSessionId },
+    'retry-owner',
+  )
+  expect(retryLease.status).toBe('held')
+})
+
 test('a receipt-write failure right after a successful exchange stops the flow instead of stranding the key', async () => {
   const configDirectory = mkdtempSync(join(tmpdir(), 'openclaude-aimlapi-cli-'))
   temporaryDirectories.push(configDirectory)
@@ -699,6 +898,23 @@ test('a receipt-write failure right after a successful exchange stops the flow i
   // silent loss if that write had also failed or the process had exited
   // right after.
   expect(lastSavedProfileEnv).toBeUndefined()
+
+  // The exchange lease was acquired in the ORIGINAL (good) directory before
+  // the switch, and the write that would have cleared it never landed — it
+  // must still be held, blocking a retry from sending a second /exchange for
+  // this already-spent, one-shot session while the key remains unrecorded.
+  setClaudeConfigHomeDirForTesting(configDirectory)
+  const statePath = join(configDirectory, 'aimlapi-topup.json')
+  const saved = JSON.parse(readFileSync(statePath, 'utf8')) as AimlapiPersistedTopup
+  expect(saved.settled ?? false).toBe(false)
+  expect(saved.apiKey ?? '').toBe('')
+  expect(saved.exchangeLeaseOwner).toBeTruthy()
+  expect(saved.exchangeLeaseAt).toBeGreaterThan(0)
+  const retryLease = await acquireAimlapiExchangeLeaseAsync(
+    { ...saved, paymentSessionId: saved.paymentSessionId },
+    'retry-owner',
+  )
+  expect(retryLease.status).toBe('held')
 })
 
 test('a sibling that cleared the checkout aborts instead of paying twice', async () => {

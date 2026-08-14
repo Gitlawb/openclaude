@@ -789,14 +789,17 @@ async function mintExistingAccountKeyWithLease(
       // function's caller lands — the window between the two can be minutes
       // long (the user paying in a browser). Unlike a genuinely optional
       // resume aid, a failure here must stop the flow with a recovery-
-      // oriented error instead of returning the key only in memory: leave the
-      // key-mint lease held (do not release it) so a peer can't reclaim it
-      // and mint a second key while this one is still unrecorded, and let the
-      // caller's retry see it as still in flight rather than absent.
+      // oriented error instead of returning the key only in memory.
+      // recordAimlapiMintedKeyAsync rejects (throws) instead of writing this
+      // result if the key-mint lease moved to a different owner with no key
+      // recorded yet — that owner's own mint may still be in flight, and
+      // writing anyway risks THEIR key being silently discarded once it
+      // lands. The credential it returns on success is not always this
+      // call's own, either: a peer that recorded first wins, and that key is
+      // what must be reported as saved.
+      let recorded: { apiKey: string; apiKeyId?: string }
       try {
-        // Owner-checked: retires the key-mint lease only while it is still
-        // this call's own — see recordAimlapiMintedKeyAsync.
-        await recordAimlapiMintedKeyAsync(
+        recorded = await recordAimlapiMintedKeyAsync(
           expected,
           { apiKey: minted.apiKey, apiKeyId: minted.apiKeyId },
           owner,
@@ -809,7 +812,7 @@ async function mintExistingAccountKeyWithLease(
           { cause: error },
         )
       }
-      return minted
+      return { apiKey: recorded.apiKey, apiKeyId: recorded.apiKeyId ?? '' }
     }
     // held: a live peer is minting; back off and re-attempt rather than
     // minting in parallel and orphaning a credential.
@@ -980,22 +983,32 @@ async function exchangeKeyWithLease(
         throw error
       }
       // The /exchange succeeded and is non-idempotent: persist the key under the
-      // same CAS BEFORE returning it, so a crash before the caller writes the
-      // receipt can still recover the paid key instead of re-running the spent
-      // exchange (which the server would reject as already-exchanged, stranding
-      // it). Best-effort — the exchange already succeeded, so a persist failure
-      // must not discard the key: the caller writes it too, and the lease this
-      // would have cleared expires on its own.
-      await recordAimlapiSettledKeyAsync(expected, {
-        apiKey: exchanged.apiKey,
-        apiKeyId: exchanged.apiKeyId,
-        model: options.model,
-      }).catch((persistError: unknown) => {
-        logForDebugging(
-          `Failed to persist the AI/ML API exchanged key receipt: ${String(persistError)}`,
-          { level: 'warn' },
+      // same CAS BEFORE returning it, so a crash before the caller writes its
+      // own (later) receipt can still recover the paid key instead of
+      // re-running the spent exchange (which the server would reject as
+      // already-exchanged, stranding it). This is the ONLY durable record of
+      // the key until that later save lands — the window between the two can
+      // be as long as the caller takes to run, including process exit — so a
+      // failure here must stop the flow with a recovery-oriented error
+      // instead of returning the key only in memory: the exchange lease is
+      // left exactly as it is (still held), so a retry sees this checkout as
+      // still in flight and cannot send a second /exchange for the spent
+      // session rather than falling through to the discovers-it-was-already-
+      // exchanged case, which has no automatic recovery.
+      try {
+        await recordAimlapiSettledKeyAsync(expected, {
+          apiKey: exchanged.apiKey,
+          apiKeyId: exchanged.apiKeyId,
+          model: options.model,
+        })
+      } catch (error) {
+        throw new Error(
+          `Payment succeeded and a key was issued (id ${exchanged.apiKeyId}), but the local ` +
+            `recovery receipt could not be saved (${error instanceof Error ? error.message : String(error)}). ` +
+            `Open https://aimlapi.com/app and rotate the issued key to recover access.`,
+          { cause: error },
         )
-      })
+      }
       return exchanged
     }
     // held: a live peer is exchanging the one-shot session; back off and
