@@ -1,6 +1,9 @@
 import { PassThrough } from 'node:stream'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   afterEach,
+  beforeEach,
   describe,
   expect,
   mock,
@@ -22,6 +25,10 @@ import {
 } from '../state/AppStateStore.js'
 import { CancelRequestHandler } from './useCancelRequest.js'
 import type { LocalAgentTaskState } from '../tasks/LocalAgentTask/LocalAgentTask.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 import {
   __getInterruptionTraceSnapshotForTests,
   __resetInterruptionTraceForTests,
@@ -45,8 +52,8 @@ function TestKeybindingProvider({
   const [pendingChord, setPendingChord] = React.useState<
     ParsedKeystroke[] | null
   >(null)
-  const activeContexts = React.useRef(
-    new Set<KeybindingContextName>(['Chat', 'Global']),
+  const [activeContexts] = React.useState(
+    () => new Set<KeybindingContextName>(['Chat', 'Global']),
   )
   return (
     <KeybindingProvider
@@ -54,9 +61,9 @@ function TestKeybindingProvider({
       pendingChordRef={pendingChordRef}
       pendingChord={pendingChord}
       setPendingChord={setPendingChord}
-      activeContexts={activeContexts.current}
-      registerActiveContext={context => activeContexts.current.add(context)}
-      unregisterActiveContext={context => activeContexts.current.delete(context)}
+      activeContexts={activeContexts}
+      registerActiveContext={context => activeContexts.add(context)}
+      unregisterActiveContext={context => activeContexts.delete(context)}
       handlerRegistryRef={registry}
     >
       {children}
@@ -82,6 +89,7 @@ function createTestStreams() {
 
 async function waitFor(
   predicate: () => boolean,
+  label: string,
   timeoutMs = 2_000,
 ): Promise<void> {
   const startedAt = Date.now()
@@ -89,7 +97,7 @@ async function waitFor(
     if (predicate()) return
     await Bun.sleep(10)
   }
-  throw new Error('Timed out waiting for cancel keybinding registration')
+  throw new Error(`Timed out waiting for ${label}`)
 }
 
 async function renderCancelHandler(
@@ -140,6 +148,7 @@ async function renderCancelHandler(
         registry.current.has('app:interrupt') &&
         (initialState.viewSelectionMode === 'viewing-agent' ||
           registry.current.has('chat:cancel')),
+      'cancel keybinding registration',
     )
   } catch (error) {
     await cleanup()
@@ -158,15 +167,28 @@ async function renderCancelHandler(
 }
 
 const originalInterruptionTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+let hasSharedMutationLock = false
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('hooks/useCancelRequest.test.tsx')
+  hasSharedMutationLock = true
+})
 
 afterEach(async () => {
-  mock.restore()
-  await __waitForInterruptionTraceFlushForTests()
-  __resetInterruptionTraceForTests()
-  if (originalInterruptionTrace === undefined) {
-    delete process.env.OPENCLAUDE_INTERRUPT_TRACE
-  } else {
-    process.env.OPENCLAUDE_INTERRUPT_TRACE = originalInterruptionTrace
+  try {
+    mock.restore()
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalInterruptionTrace === undefined) {
+      delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    } else {
+      process.env.OPENCLAUDE_INTERRUPT_TRACE = originalInterruptionTrace
+    }
+  } finally {
+    if (hasSharedMutationLock) {
+      releaseSharedMutationLock()
+      hasSharedMutationLock = false
+    }
   }
 })
 
@@ -234,7 +256,7 @@ describe('CancelRequestHandler interruption sources', () => {
       status: 'running',
       description: 'trace test agent',
       startTime: Date.now(),
-      outputFile: '/tmp/openclaude-trace-test-agent.output',
+      outputFile: join(tmpdir(), 'openclaude-trace-test-agent.output'),
       outputOffset: 0,
       notified: false,
       agentId: 'agent-1',
@@ -257,7 +279,10 @@ describe('CancelRequestHandler interruption sources', () => {
     })
     try {
       rendered.invoke('app:interrupt')
-      await waitFor(() => agentAbortController.signal.aborted)
+      await waitFor(
+        () => agentAbortController.signal.aborted,
+        'background-agent abort',
+      )
 
       const trace = __getInterruptionTraceSnapshotForTests()
       const input = trace.find(entry => entry.event === 'input.ctrl_c')

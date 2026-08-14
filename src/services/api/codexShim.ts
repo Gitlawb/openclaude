@@ -1282,13 +1282,13 @@ async function* codexStreamToAnthropicWithReadOptions(
     traceInterruptionEvent('codex_stream.converter_closed', {
       subsystem: 'codex_stream',
       transport: 'codex_responses',
-      outcome: streamComplete || terminalComplete
-        ? 'complete'
+      outcome: signal?.aborted
+        ? 'root_aborted'
         : converterFailed
           ? 'failed'
-        : signal?.aborted
-          ? 'root_aborted'
-          : 'incomplete',
+          : streamComplete || terminalComplete
+            ? 'complete'
+            : 'incomplete',
       reason: signal?.reason,
       causalEventId:
         (signal && getInterruptionSignalAbortEventId(signal)) ??

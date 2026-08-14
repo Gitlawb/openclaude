@@ -1,7 +1,7 @@
 import { buildAnthropicUsageFromRawUsage } from '../cacheMetrics.js'
 import type { AnthropicStreamEvent, AnthropicUsage } from '../codexShim.js'
 import { logForDebugging } from '../../../utils/debug.js'
-import { createProviderStreamTrace } from './streamControl.js'
+import type { createProviderStreamTrace } from './streamControl.js'
 
 type ReaderCanceller = {
   cancel(error?: unknown): void
@@ -17,6 +17,7 @@ export type GeminiStreamDependencies = {
     reader: ReadableStreamDefaultReader<Uint8Array>,
     signal?: AbortSignal,
   ): ReaderCanceller
+  createProviderStreamTrace: typeof createProviderStreamTrace
   createStreamAbortError(): DOMException
   getStreamIdleTimeoutMs(): number
   makeMessageId(): string
@@ -40,6 +41,7 @@ export async function* geminiSseToAnthropic(
 ): AsyncGenerator<AnthropicStreamEvent> {
   const {
     createReaderCanceller,
+    createProviderStreamTrace,
     createStreamAbortError,
     getStreamIdleTimeoutMs,
     makeMessageId,

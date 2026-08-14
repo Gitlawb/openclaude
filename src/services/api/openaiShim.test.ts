@@ -7,6 +7,10 @@ import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } f
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import {
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
+import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
@@ -4784,6 +4788,8 @@ test('interruption tracing preserves the native AbortSignal.any request path', a
     )
     expect(nativeAnyCalls).toBe(1)
   } finally {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
     if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
     else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
     if (originalAbortSignalAny) {

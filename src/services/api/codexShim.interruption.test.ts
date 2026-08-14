@@ -1,4 +1,8 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import type { AnthropicStreamEvent } from './codexShim.js'
 import {
   __codexStreamToAnthropicForTests,
@@ -13,6 +17,25 @@ import {
   __waitForInterruptionTraceFlushForTests,
   requestAbort,
 } from '../../utils/interruptionTrace.js'
+
+const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+const originalDateNow = Date.now
+
+beforeEach(async () => {
+  await acquireSharedMutationLock('codexShim.interruption.test.ts')
+})
+
+afterEach(async () => {
+  try {
+    Date.now = originalDateNow
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+  } finally {
+    releaseSharedMutationLock()
+  }
+})
 
 async function bounded<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -481,6 +504,42 @@ describe('issue #1830 Codex interruption ownership', () => {
         process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
       }
     }
+  })
+
+  test('reports root_aborted when cancellation follows terminal evidence', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const controller = new AbortController()
+    const response = responseFromText([
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[]}}',
+      '',
+      '',
+    ].join('\n'))
+    const iterator = codexStreamToAnthropic(
+      response,
+      'gpt-test',
+      controller.signal,
+    )
+
+    let next: IteratorResult<AnthropicStreamEvent>
+    do {
+      next = await bounded(iterator.next())
+    } while (!next.done && next.value.type !== 'message_stop')
+    expect(next.done).toBe(false)
+
+    requestAbort(controller, undefined, {
+      source: 'test_root_abort',
+      subsystem: 'query_engine',
+      controllerRole: 'query-root',
+    })
+    await bounded(iterator.return(undefined))
+
+    expect(
+      __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'codex_stream.converter_closed',
+      )?.outcome,
+    ).toBe('root_aborted')
   })
 
   test('keeps terminal ownership when the consumer returns after message_delta', async () => {

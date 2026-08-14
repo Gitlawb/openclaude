@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -20,6 +20,14 @@ const originalIdleTimeout = process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
 beforeAll(async () => {
   await acquireSharedMutationLock('providerStreamInterruptionTrace.test.ts')
   process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+})
+
+afterEach(() => {
+  if (originalIdleTimeout === undefined) {
+    delete process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
+  } else {
+    process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = originalIdleTimeout
+  }
 })
 
 afterAll(() => {

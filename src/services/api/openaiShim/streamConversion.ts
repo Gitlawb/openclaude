@@ -16,7 +16,7 @@ import {
   getStreamStats,
   processStreamChunk,
 } from '../../../utils/streamingOptimizer.js'
-import { createProviderStreamTrace } from './streamControl.js'
+import type { createProviderStreamTrace } from './streamControl.js'
 
 type ParsedRawToolCall = { id: string; name: string; argumentsJson: string }
 type ParsedTextToolCall = { id: string; name: string; arguments: unknown }
@@ -66,6 +66,7 @@ export type StreamConversionDependencies = {
     reader: ReadableStreamDefaultReader<Uint8Array>,
     signal?: AbortSignal,
   ): ReaderCanceller
+  createProviderStreamTrace: typeof createProviderStreamTrace
   createStreamAbortError(): DOMException
   findXmlToolCallOpener(text: string, allowHy3: boolean): number
   geminiThoughtSignatureFromExtraContent(extraContent: unknown): string | undefined
@@ -117,6 +118,7 @@ export async function* openaiStreamToAnthropic(
     convertNonStreamingResponseToAnthropicMessage,
     couldBeRawToolCallsRequestedPrefix,
     createReaderCanceller,
+    createProviderStreamTrace,
     createStreamAbortError,
     findXmlToolCallOpener,
     geminiThoughtSignatureFromExtraContent,

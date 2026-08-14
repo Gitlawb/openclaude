@@ -840,7 +840,7 @@ describe('interruptionTrace', () => {
     await __waitForInterruptionTraceFlushForTests()
   })
 
-  test('delegates trace-file output on non-Windows POSIX platforms', async () => {
+  test('discards trace-file batches without retrying on unsupported platforms', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let appendCalls = 0
@@ -859,7 +859,10 @@ describe('interruptionTrace', () => {
       traceInterruptionEvent('pending')
       flushInterruptionTrace('posix-platform')
       await __waitForInterruptionTraceFlushForTests()
-      expect(appendCalls).toBe(1)
+      traceInterruptionEvent('later')
+      flushInterruptionTrace('posix-platform-later')
+      await __waitForInterruptionTraceFlushForTests()
+      expect(appendCalls).toBe(0)
     } finally {
       if (platformDescriptor) {
         Object.defineProperty(process, 'platform', platformDescriptor)
@@ -885,5 +888,26 @@ describe('interruptionTrace', () => {
     expect(serialized).not.toContain('server')
     expect(serialized).not.toContain('/srv/private/project')
     expect(serialized).not.toContain('message content')
+  })
+
+  test('never serializes secret-shaped or path-shaped abort reasons', () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    const secretReason = 'github_pat_1234567890abcdef'
+    const pathReason = '/srv/private/project/abort-reason'
+
+    traceInterruptionEvent('abort.requested', { reason: secretReason })
+    traceInterruptionEvent('abort.repeated', {
+      existingReason: pathReason,
+      attemptedReason: secretReason,
+    })
+
+    const snapshot = __getInterruptionTraceSnapshotForTests()
+    const serialized = JSON.stringify(snapshot)
+    expect(snapshot).toHaveLength(2)
+    expect(snapshot[0]?.normalizedReason).toBe('unknown-abort')
+    expect(snapshot[1]?.existingNormalizedReason).toBe('unknown-abort')
+    expect(snapshot[1]?.attemptedNormalizedReason).toBe('unknown-abort')
+    expect(serialized).not.toContain(secretReason)
+    expect(serialized).not.toContain(pathReason)
   })
 })

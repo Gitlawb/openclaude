@@ -1,4 +1,8 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from './test/sharedMutationLock.js'
 import { QueryEngine } from './QueryEngine.js'
 import {
   __getInterruptionTraceSnapshotForTests,
@@ -9,14 +13,39 @@ import {
 
 const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
 
+beforeEach(async () => {
+  await acquireSharedMutationLock('QueryEngine.interruptionTrace.test.ts')
+})
+
 afterEach(async () => {
-  await __waitForInterruptionTraceFlushForTests()
-  __resetInterruptionTraceForTests()
-  if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
-  else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+  try {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 describe('QueryEngine interruption tracing', () => {
+  test('does not record lifecycle entries while tracing is disabled', async () => {
+    delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    const engine = Object.create(QueryEngine.prototype) as QueryEngine
+    const controller = new AbortController()
+    ;(engine as unknown as { abortController: AbortController }).abortController =
+      controller
+    ;(engine as unknown as {
+      submitMessageImpl(): AsyncGenerator<never, void, unknown>
+    }).submitMessageImpl = async function* () {}
+
+    for await (const _message of engine.submitMessage('hello')) {
+      // The stub deliberately yields nothing.
+    }
+
+    expect(__getInterruptionTraceSnapshotForTests()).toEqual([])
+  })
+
   test('records a programmatic query-root interruption before aborting', () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     const controller = new AbortController()

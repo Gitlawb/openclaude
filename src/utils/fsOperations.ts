@@ -553,8 +553,8 @@ export const NodeFsOperations: FsOperations = {
   },
 
   async appendRegularFile(path, data, options) {
-    if (process.platform === 'win32') {
-      throw new Error('Secure diagnostic file output is unavailable on Windows')
+    if (process.platform !== 'linux') {
+      throw new Error('Secure diagnostic file output is available on Linux only')
     }
     if (!nodePath.isAbsolute(path)) {
       throw new Error('Secure diagnostic file output requires an absolute path')
@@ -568,11 +568,10 @@ export const NodeFsOperations: FsOperations = {
     const directoryFlags = fs.constants.O_RDONLY |
       fs.constants.O_DIRECTORY |
       fs.constants.O_NOFOLLOW
-    const descriptorDirectory = process.platform === 'linux'
-      ? '/proc/self/fd'
-      : '/dev/fd'
+    const descriptorDirectory = '/proc/self/fd'
     let directoryHandle = await open('/', directoryFlags)
     let committed = false
+    let operationError: unknown
 
     try {
       for (const component of components) {
@@ -601,7 +600,7 @@ export const NodeFsOperations: FsOperations = {
       fs.constants.O_WRONLY |
       fs.constants.O_NOFOLLOW
       const handle = await open(descriptorPath, flags, options?.mode ?? 0o600)
-      let operationError: unknown
+      let fileOperationError: unknown
       try {
         const stats = await handle.stat()
         if (!stats.isFile()) {
@@ -625,25 +624,29 @@ export const NodeFsOperations: FsOperations = {
           throw error
         }
       } catch (error) {
-        operationError = error
+        fileOperationError = error
       }
       try {
         await handle.close()
       } catch (error) {
         // A close failure after writeFile completed cannot safely be interpreted
         // as a failed append; replaying would duplicate the committed batch.
-        if (!committed && operationError === undefined) operationError = error
+        if (!committed && fileOperationError === undefined) {
+          fileOperationError = error
+        }
       }
-      if (operationError !== undefined) throw operationError
-    } finally {
-      try {
-        await directoryHandle.close()
-      } catch (error) {
-        // Once writeFile commits, a directory-close failure cannot make replay
-        // safe; report success rather than duplicating the append batch.
-        if (!committed) throw error
-      }
+      if (fileOperationError !== undefined) throw fileOperationError
+    } catch (error) {
+      operationError = error
     }
+    try {
+      await directoryHandle.close()
+    } catch (error) {
+      // Preserve an earlier operation error so a cleanup failure cannot hide an
+      // uncertain commit and cause the caller to replay the same batch.
+      if (!committed && operationError === undefined) operationError = error
+    }
+    if (operationError !== undefined) throw operationError
   },
 
   copyFileSync(src, dest) {

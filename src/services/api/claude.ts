@@ -1164,6 +1164,21 @@ async function* queryModel(
   void
 > {
   const providerRequestModel = options.requestModel ?? options.model
+  function traceFallbackSettlement(
+    outcome: 'superseded' | 'aborted' | 'failed' | 'completed',
+    causalEventId: string | undefined,
+    error?: unknown,
+  ): void {
+    traceInterruptionEvent('claude_stream.fallback_settled', {
+      subsystem: 'claude_stream',
+      transport: 'anthropic_messages',
+      model: options.model,
+      outcome,
+      causalEventId,
+      ...(error === undefined ? {} : { error }),
+    })
+    flushInterruptionTrace('claude_stream_fallback_settled')
+  }
   // Check cheap conditions first — the off-switch await blocks on GrowthBook
   // init (~10ms). For non-Opus models (haiku, sonnet) this skips the await
   // entirely. Subscribers don't hit this path at all.
@@ -2999,14 +3014,7 @@ async function* queryModel(
         )
 
         if (result === null) {
-          traceInterruptionEvent('claude_stream.fallback_settled', {
-            subsystem: 'claude_stream',
-            transport: 'anthropic_messages',
-            model: options.model,
-            outcome: 'superseded',
-            causalEventId: fallbackStartedEventId,
-          })
-          flushInterruptionTrace('claude_stream_fallback_settled')
+          traceFallbackSettlement('superseded', fallbackStartedEventId)
           return
         }
 
@@ -3034,25 +3042,14 @@ async function* queryModel(
         newMessages.push(fallbackResultMessage)
         fallbackMessage = fallbackResultMessage
       } catch (error) {
-        traceInterruptionEvent('claude_stream.fallback_settled', {
-          subsystem: 'claude_stream',
-          transport: 'anthropic_messages',
-          model: options.model,
-          outcome: signal.aborted ? 'aborted' : 'failed',
-          causalEventId: fallbackStartedEventId,
+        traceFallbackSettlement(
+          signal.aborted ? 'aborted' : 'failed',
+          fallbackStartedEventId,
           error,
-        })
-        flushInterruptionTrace('claude_stream_fallback_settled')
+        )
         throw error
       }
-      traceInterruptionEvent('claude_stream.fallback_settled', {
-        subsystem: 'claude_stream',
-        transport: 'anthropic_messages',
-        model: options.model,
-        outcome: 'completed',
-        causalEventId: fallbackStartedEventId,
-      })
-      flushInterruptionTrace('claude_stream_fallback_settled')
+      traceFallbackSettlement('completed', fallbackStartedEventId)
       yield fallbackResultMessage
     } finally {
       clearStreamIdleTimers()
@@ -3174,14 +3171,7 @@ async function* queryModel(
         )
 
         if (result === null) {
-          traceInterruptionEvent('claude_stream.fallback_settled', {
-            subsystem: 'claude_stream',
-            transport: 'anthropic_messages',
-            model: options.model,
-            outcome: 'superseded',
-            causalEventId: fallbackStartedEventId,
-          })
-          flushInterruptionTrace('claude_stream_fallback_settled')
+          traceFallbackSettlement('superseded', fallbackStartedEventId)
           return
         }
 
@@ -3204,27 +3194,16 @@ async function* queryModel(
         }
         newMessages.push(m)
         fallbackMessage = m
-        traceInterruptionEvent('claude_stream.fallback_settled', {
-          subsystem: 'claude_stream',
-          transport: 'anthropic_messages',
-          model: options.model,
-          outcome: 'completed',
-          causalEventId: fallbackStartedEventId,
-        })
-        flushInterruptionTrace('claude_stream_fallback_settled')
+        traceFallbackSettlement('completed', fallbackStartedEventId)
         yield m
 
         // Continue to success logging below
       } catch (fallbackError) {
-        traceInterruptionEvent('claude_stream.fallback_settled', {
-          subsystem: 'claude_stream',
-          transport: 'anthropic_messages',
-          model: options.model,
-          outcome: signal.aborted ? 'aborted' : 'failed',
-          causalEventId: fallbackStartedEventId,
-          error: fallbackError,
-        })
-        flushInterruptionTrace('claude_stream_fallback_settled')
+        traceFallbackSettlement(
+          signal.aborted ? 'aborted' : 'failed',
+          fallbackStartedEventId,
+          fallbackError,
+        )
         // Propagate model-fallback signal to query.ts (see comment above).
         if (fallbackError instanceof FallbackTriggeredError) {
           throw fallbackError

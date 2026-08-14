@@ -7,6 +7,7 @@ import {
   expect,
   mock,
   test,
+  vi,
 } from 'bun:test'
 import { randomUUID } from 'crypto'
 import { unlink } from 'fs/promises'
@@ -19,6 +20,11 @@ import {
 } from '../../test/sharedMutationLock.js'
 import type { Message } from '../../types/message.js'
 import * as realConfig from '../../utils/config.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
 
 // Several earlier test files in the smoke suite call
 // mock.module('../../utils/model/providers.js', ...) to stub getAPIProvider.
@@ -815,6 +821,51 @@ afterAll(async () => {
 })
 
 describe('compactConversation provider gate', () => {
+  test('attributes cache-sharing timeout aborts to the compact fork', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    vi.useFakeTimers()
+    try {
+      const runForkedAgent = mock(() => new Promise(() => {}))
+      const { compactConversation } = await importCompact({ runForkedAgent })
+      const messages = [userMessage('Hello'), assistantMessage('Hi there!')]
+      const compactPromise = compactConversation(
+        messages,
+        toolUseContext(),
+        cacheSafeParams(messages),
+        false,
+      )
+
+      for (let attempt = 0; attempt < 10 && runForkedAgent.mock.calls.length === 0; attempt++) {
+        await Promise.resolve()
+      }
+      expect(runForkedAgent).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(120_000)
+      await compactPromise
+
+      expect(
+        __getInterruptionTraceSnapshotForTests().find(
+          entry => entry.event === 'abort.requested',
+        ),
+      ).toMatchObject({
+        source: 'compact_timeout',
+        subsystem: 'compact',
+        controllerRole: 'compact-fork',
+      })
+    } finally {
+      vi.useRealTimers()
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
+    }
+  })
+
   test('skips forked-agent cache-sharing for non-Anthropic providers', async () => {
     // Simulate a non-Anthropic provider (e.g. OpenAI) via env vars.
     // The real isAnthropicProvider() reads from process.env and returns false.

@@ -23,11 +23,13 @@ async function exerciseInterruption(
   const submitBlocked = new Promise<void>(resolve => {
     releaseSubmit = resolve
   })
+  let submitEntered = false
   const submitMessage = spyOn(
     QueryEngine.prototype,
     'submitMessage',
   ).mockImplementation(
     async function* () {
+      submitEntered = true
       await submitBlocked
     },
   )
@@ -45,16 +47,24 @@ async function exerciseInterruption(
         model: 'sonnet',
       },
     })
+    let interruptionEmitted = false
     for (
       let attempts = 0;
       attempts < 100 && interrupt.mock.calls.length === 0;
       attempts++
     ) {
-      if (event === 'cancel' && attempts === 1) {
+      if (event === 'cancel' && submitEntered && !interruptionEmitted) {
         call.emit('data', { cancel: {} })
+        interruptionEmitted = true
       }
-      if (event === 'end' && attempts === 1) call.emit('end')
+      if (event === 'end' && submitEntered && !interruptionEmitted) {
+        call.emit('end')
+        interruptionEmitted = true
+      }
       await Bun.sleep(10)
+    }
+    if (!submitEntered) {
+      throw new Error('submitMessage was never entered')
     }
     return interrupt.mock.calls[0]?.[0]
   } finally {

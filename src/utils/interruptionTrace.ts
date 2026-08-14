@@ -278,16 +278,18 @@ function toSafeFields(fields: InterruptionTraceFields): SafeTraceFields {
       .slice(0, 4)
   }
   if (reason !== undefined) {
-    safe.normalizedReason = normalizeAbortReason(reason)
+    safe.normalizedReason = safeString(normalizeAbortReason(reason))
     safe.rawReasonType = getRawReasonType(reason)
   }
   if (fields.existingReason !== undefined) {
-    safe.existingNormalizedReason = normalizeAbortReason(fields.existingReason)
+    safe.existingNormalizedReason = safeString(
+      normalizeAbortReason(fields.existingReason),
+    )
     safe.existingRawReasonType = getRawReasonType(fields.existingReason)
   }
   if (fields.attemptedReason !== undefined) {
-    safe.attemptedNormalizedReason = normalizeAbortReason(
-      fields.attemptedReason,
+    safe.attemptedNormalizedReason = safeString(
+      normalizeAbortReason(fields.attemptedReason),
     )
     safe.attemptedRawReasonType = getRawReasonType(fields.attemptedReason)
   }

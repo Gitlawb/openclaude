@@ -9,6 +9,7 @@ import {
   geminiSseToAnthropic,
   type GeminiStreamDependencies,
 } from './geminiStreamConversion.js'
+import { createProviderStreamTrace } from './streamControl.js'
 
 function makeSseResponse(frames: unknown[]): Response {
   const encoder = new TextEncoder()
@@ -77,6 +78,7 @@ async function readWithSignal(
 }
 
 const commonControlDependencies: GeminiStreamDependencies = {
+  createProviderStreamTrace,
   createReaderCanceller,
   createStreamAbortError: () => new DOMException('Aborted', 'AbortError'),
   getStreamIdleTimeoutMs: () => 1_000,

@@ -173,12 +173,29 @@ test('OpenAIShimStream cancels the response before iteration starts', () => {
 })
 
 test('OpenAIShimStream aborts its controller when a consumer returns early', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-closure-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
   const stream = new OpenAIShimStream(async function* () {
     yield { type: 'first' }
     yield { type: 'second' }
   })
-  for await (const _event of stream) break
-  expect(stream.controller.signal.aborted).toBe(true)
+  try {
+    for await (const _event of stream) break
+    expect(stream.controller.signal.aborted).toBe(true)
+    expect(
+      __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'abort.requested',
+      ),
+    ).toMatchObject({ source: 'iterator_closed' })
+  } finally {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
 })
 
 test('OpenAIShimStream does not relabel a provider exception as consumer closure', async () => {

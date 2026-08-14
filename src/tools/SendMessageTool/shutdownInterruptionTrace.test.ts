@@ -1,17 +1,31 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import {
   __getInterruptionTraceSnapshotForTests,
   __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
   registerInterruptionController,
 } from '../../utils/interruptionTrace.js'
 import { abortApprovedInProcessTeammate } from './shutdownInterruptionTrace.js'
 
 const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
 
-afterEach(() => {
-  __resetInterruptionTraceForTests()
-  if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
-  else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+beforeEach(async () => {
+  await acquireSharedMutationLock('shutdownInterruptionTrace.test.ts')
+})
+
+afterEach(async () => {
+  try {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+  } finally {
+    releaseSharedMutationLock()
+  }
 })
 
 test('shutdown approval records its input before requesting the teammate abort', () => {

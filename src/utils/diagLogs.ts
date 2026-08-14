@@ -1,4 +1,5 @@
 import { dirname } from 'path'
+import { getErrnoCode } from './errors.js'
 import { getFsImplementation } from './fsOperations.js'
 import { jsonStringify } from './slowOperations.js'
 
@@ -11,6 +12,12 @@ type DiagnosticLogEntry = {
   data: Record<string, unknown>
 }
 
+export type DiagnosticAppendResult =
+  | 'committed'
+  | 'unsupported'
+  | 'retryable_failure'
+  | 'uncertain_failure'
+
 /**
  * Append already-sanitized diagnostic records to an explicit file.
  *
@@ -21,20 +28,19 @@ type DiagnosticLogEntry = {
 export async function appendDiagnosticsNoPII(
   logFile: string,
   entries: readonly Record<string, unknown>[],
-): Promise<'committed' | 'retryable_failure' | 'uncertain_failure'> {
+): Promise<DiagnosticAppendResult> {
   if (entries.length === 0) return 'committed'
-  // Windows has no descriptor-relative directory namespace. POSIX platforms
-  // pin every traversed parent through /proc/self/fd or /dev/fd below.
-  if (process.platform === 'win32') return 'retryable_failure'
+  // Node exposes the descriptor-relative namespace required by the secure
+  // append implementation through /proc/self/fd on Linux only.
+  if (process.platform !== 'linux') return 'unsupported'
 
-  const fs = getFsImplementation()
-  const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
   try {
+    const fs = getFsImplementation()
+    const lines = entries.map(entry => jsonStringify(entry)).join('\n') + '\n'
     await fs.appendRegularFile(logFile, lines, { mode: 0o600 })
     return 'committed'
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code ===
-      'ERR_DIAGNOSTIC_APPEND_UNCERTAIN'
+    return getErrnoCode(error) === 'ERR_DIAGNOSTIC_APPEND_UNCERTAIN'
       ? 'uncertain_failure'
       : 'retryable_failure'
   }

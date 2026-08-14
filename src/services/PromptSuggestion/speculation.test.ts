@@ -4,6 +4,10 @@ import { IDLE_SPECULATION_STATE } from '../../state/AppStateStore.js'
 import type { ToolUseContext } from '../../Tool.js'
 import type { REPLHookContext } from '../../utils/hooks/postSamplingHooks.js'
 import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+} from '../../utils/interruptionTrace.js'
+import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
@@ -59,6 +63,9 @@ afterAll(() => {
 
 describe('startSpeculation', () => {
   test('stops speculative writes in plan mode even when bypass is available', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
     let appState = {
       speculation: IDLE_SPECULATION_STATE,
       toolPermissionContext: {
@@ -103,8 +110,23 @@ describe('startSpeculation', () => {
           toolName: 'Write',
         },
       })
+      expect(
+        __getInterruptionTraceSnapshotForTests().find(
+          entry => entry.event === 'abort.requested',
+        ),
+      ).toMatchObject({
+        source: 'speculation_edit_boundary',
+        subsystem: 'prompt_suggestion',
+        controllerRole: 'speculation',
+      })
     } finally {
       abortSpeculation(setAppState)
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
     }
   })
 })
