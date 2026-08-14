@@ -74,7 +74,7 @@ bun run web:typecheck
 bun run web:build
 ```
 
-Website release notes live on GitHub Releases; do not add a manually maintained release-notes data source to the static site.
+Do not “fix” a web CI npm-freshness failure by editing `web/src/data/releases.ts` in an unrelated PR. That file is release/web-owned; leave version drift for the dedicated release/web path.
 
 Diagnostics and PR hygiene:
 
@@ -102,18 +102,3 @@ When modifying provider behavior:
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review.
 - Do not edit `web/src/data/releases.ts` in ordinary feature or bugfix PRs. That curated `/changelog` list is owned by the release/web process (release automation and dedicated web release PRs). If web CI fails because npm is ahead of the site version, leave `releases.ts` alone in your unrelated PR and let the release/web path update it.
-
-<!-- BEGIN OPENLORE (managed — edits inside this block will be overwritten) -->
-<!-- openlore-fingerprint: 54119b1928fb28c9 -->
-This project supports OpenLore for persistent architectural memory, though it is strictly optional.
-
-If you have the OpenLore MCP server configured, you may call `orient()` to quickly find
-relevant functions and specs before reading source files. If you do not use MCP, you can
-optionally use `npx --yes openlore@2.1.9 orient --json` if you are online.
-
-If you are offline, on a clean checkout, or simply do not wish to use OpenLore, you MUST
-skip this step. It is non-blocking. Proceed directly with standard file exploration using
-the provided tools.
-
-For the MCP setup, see https://github.com/clay-good/OpenLore for details.
-<!-- END OPENLORE -->
