@@ -17,8 +17,54 @@ import {
   getRouteDiscoveryHeaders,
 } from './discoveryService'
 import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
+import glmBrand from './brands/glm.js'
+import glmModels from './models/glm.js'
+import zaiVendor from './vendors/zai.js'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+
+describe('Z.AI GLM-5.3 descriptor contract', () => {
+  it('wires the verified shared model, brand, and direct catalog entry without changing the default', () => {
+    const model = glmModels.find(candidate => candidate.id === 'glm-5.3')
+    expect(model).toMatchObject({
+      id: 'glm-5.3',
+      label: 'GLM 5.3',
+      vendorId: 'zai',
+      brandId: 'glm',
+      classification: ['chat', 'reasoning', 'coding'],
+      defaultModel: 'glm-5.3',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+      runtimeMetadataScope: 'catalog',
+      capabilities: {
+        supportsVision: false,
+        supportsStreaming: true,
+        supportsFunctionCalling: true,
+        supportsJsonMode: true,
+        supportsReasoning: true,
+        supportsPreciseTokenCount: false,
+      },
+    })
+    expect(glmBrand.modelIds?.[0]).toBe('glm-5.3')
+
+    const catalogEntry = zaiVendor.catalog?.models?.[0]
+    expect(catalogEntry).toMatchObject({
+      id: 'glm-5.3',
+      apiName: 'glm-5.3',
+      label: 'GLM-5.3',
+      modelDescriptorId: 'glm-5.3',
+      reasoning: {
+        mode: 'levels',
+        levels: ['high', 'xhigh'],
+        wireFormat: 'zai_compatible',
+      },
+      transportOverrides: {
+        openaiShim: { enableToolStreaming: true },
+      },
+    })
+    expect(zaiVendor.defaultModel).toBe('glm-5.2')
+  })
+})
 
 async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
   await acquireSharedMutationLock('integrations/runtimeMetadata.test.ts')
@@ -120,7 +166,24 @@ describe('resolveModelRuntimeLimits', () => {
       }
     })
   })
-  it('uses built-in Z.AI GLM-5.2 runtime limits', () => {
+  it.each([
+    'glm-5.3',
+    'glm-5.3?reasoning=xhigh',
+    'glm-5.3?thinking=disabled',
+  ])('uses verified Z.AI GLM-5.3 runtime limits for %s', model => {
+    const limits = resolveModelRuntimeLimits({
+      model,
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4',
+      },
+    })
+
+    expect(limits.contextWindow).toBe(1_000_000)
+    expect(limits.maxOutputTokens).toBe(131_072)
+  })
+
+  it('keeps the built-in Z.AI GLM-5.2 runtime limits', () => {
     const limits = resolveModelRuntimeLimits({
       model: 'glm-5.2',
       processEnv: {
@@ -130,6 +193,23 @@ describe('resolveModelRuntimeLimits', () => {
 
     expect(limits.contextWindow).toBe(1_000_000)
     expect(limits.maxOutputTokens).toBe(131_072)
+  })
+
+  it.each([
+    ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', { NVIDIA_NIM: '1' }],
+    ['OpenRouter', 'https://openrouter.ai/api/v1', { CLAUDE_CODE_USE_OPENAI: '1' }],
+    ['custom endpoint', 'https://proxy.example.test/v1', { CLAUDE_CODE_USE_OPENAI: '1' }],
+  ] as const)('does not leak direct Z.AI GLM-5.3 limits onto %s', (_name, baseUrl, routeEnv) => {
+    expect(resolveModelRuntimeLimits({
+      model: 'glm-5.3',
+      processEnv: {
+        ...routeEnv,
+        OPENAI_BASE_URL: baseUrl,
+      },
+    })).toEqual({
+      contextWindow: undefined,
+      maxOutputTokens: undefined,
+    })
   })
   it('uses the applied provider profile route before generic custom base URL fallback', () => {
     expect(
@@ -305,6 +385,29 @@ describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
     expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
     expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
+  })
+})
+
+describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.3', () => {
+  it.each([
+    'glm-5.3',
+    'glm-5.3?reasoning=xhigh',
+    'glm-5.3?thinking=disabled',
+  ])('uses the explicit direct-route GLM-5.3 contract for %s', model => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model,
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      processEnv: {},
+    })
+
+    expect(result.routeId).toBe('zai')
+    expect(result.catalogEntry?.id).toBe('glm-5.3')
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toContain('store')
     expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
   })
 })

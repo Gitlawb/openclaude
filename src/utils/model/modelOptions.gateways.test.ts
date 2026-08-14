@@ -116,6 +116,21 @@ test('Kimi Code keeps context variants distinct in the active route picker', asy
   expect(options.find(option => option.value === 'k3-256k')?.label).toBe('Kimi K3 (256K)')
 })
 
+test('Z.AI surfaces GLM-5.3 exactly once ahead of GLM-5.2 without changing the default', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_MODEL = 'glm-5.2'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const options = await getOpenAIModelOptions()
+  const values = options.map(option => option.value)
+
+  expect(values.filter(value => value === 'glm-5.3')).toHaveLength(1)
+  expect(values.indexOf('glm-5.3')).toBeLessThan(values.indexOf('glm-5.2'))
+  expect(options.find(option => option.value === 'glm-5.3')?.label).toBe('GLM-5.3')
+  expect(options.find(option => option.value === null)?.description).toContain('glm-5.2')
+})
+
 test('custom Anthropic endpoints use the third-party default description', async () => {
   process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
   process.env.ANTHROPIC_MODEL = 'proxy-model'
