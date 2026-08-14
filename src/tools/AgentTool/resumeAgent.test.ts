@@ -150,3 +150,27 @@ test('rejects resume when legacy metadata lacks a source', async () => {
     "Cannot resume agent: identity mismatch. Expected source 'undefined', found 'built-in' for type 'code-reviewer'."
   )
 })
+
+test('successfully resumes when legacy metadata lacks a source and agent is not built-in', async () => {
+  mockMetadata = {
+    agentType: 'custom-agent',
+    // Legacy metadata lacks a source field
+  }
+
+  const customAgent = {
+    agentType: 'custom-agent',
+    source: 'projectSettings', // Non-built-in source
+    getSystemPrompt: () => 'do custom work',
+  } as unknown as AgentDefinition
+
+  const context = makeToolUseContext([customAgent])
+
+  const result = await resumeAgentBackground({
+    agentId: 'test-agent',
+    prompt: 'continue',
+    toolUseContext: context,
+    canUseTool: async () => ({ behavior: 'allow' } as any),
+  })
+
+  expect(result.agentId).toBe('test-agent')
+})
