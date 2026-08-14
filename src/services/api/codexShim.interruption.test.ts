@@ -19,7 +19,6 @@ import {
 } from '../../utils/interruptionTrace.js'
 
 const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
-const originalDateNow = Date.now
 
 beforeEach(async () => {
   await acquireSharedMutationLock('codexShim.interruption.test.ts')
@@ -27,7 +26,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   try {
-    Date.now = originalDateNow
     await __waitForInterruptionTraceFlushForTests()
     __resetInterruptionTraceForTests()
     if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
@@ -410,13 +408,11 @@ describe('issue #1830 Codex interruption ownership', () => {
     }
   })
 
-  test('idle evidence stays non-negative when the wall clock moves backwards', async () => {
+  test('reports non-negative idle evidence and forwards its causal event id', async () => {
     const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
-    const originalDateNow = Date.now
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     __resetInterruptionTraceForTests()
-    let wallNow = 10_000
-    Date.now = () => wallNow
+    const causalEventIds: string[] = []
     const encoder = new TextEncoder()
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -429,23 +425,25 @@ describe('issue #1830 Codex interruption ownership', () => {
       response,
       'gpt-test',
       undefined,
-      { idleTimeoutMs: 25 },
+      {
+        idleTimeoutMs: 25,
+        onCausalEventId: eventId => causalEventIds.push(eventId),
+      },
     )[Symbol.asyncIterator]()
 
     try {
       expect((await bounded(iterator.next())).value?.type).toBe('message_start')
       const pending = iterator.next().catch(error => error)
-      await Bun.sleep(5)
-      wallNow = 1_000
       await bounded(pending)
 
       const idleTimeout = __getInterruptionTraceSnapshotForTests().find(
         entry => entry.event === 'codex_stream.idle_timeout',
       )
+      expect(idleTimeout).toBeDefined()
       expect(idleTimeout?.sinceLastRawByteMs).toBeGreaterThanOrEqual(0)
       expect(idleTimeout?.sinceLastParsedFrameMs).toBeGreaterThanOrEqual(0)
+      expect(causalEventIds).toEqual([idleTimeout!.eventId])
     } finally {
-      Date.now = originalDateNow
       await bounded(iterator.return?.(undefined) ?? Promise.resolve()).catch(
         () => {},
       )

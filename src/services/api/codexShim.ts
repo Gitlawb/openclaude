@@ -1062,6 +1062,7 @@ async function* codexStreamToAnthropicWithReadOptions(
       ...readOptions,
       onCausalEventId: eventId => {
         streamCausalEventId = eventId
+        readOptions.onCausalEventId?.(eventId)
       },
     })) {
       throwIfStreamAborted(signal)

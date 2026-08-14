@@ -66,7 +66,6 @@ function requestSpeculationAbort(
   controller: AbortController,
   source: string,
 ): void {
-  if (controller.signal.aborted) return
   requestAbort(controller, undefined, {
     source,
     subsystem: 'prompt_suggestion',

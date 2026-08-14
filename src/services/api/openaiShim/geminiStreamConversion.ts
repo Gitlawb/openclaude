@@ -166,14 +166,14 @@ export async function* geminiSseToAnthropic(
           const value: unknown = JSON.parse(rawData)
           if (!value || typeof value !== 'object' || Array.isArray(value)) {
             streamTrace.recordIgnored()
-            continue
+          } else {
+            streamTrace.recordParsed()
           }
           parsed = value as Record<string, unknown>
         } catch {
           streamTrace.recordIgnored()
           continue
         }
-        streamTrace.recordParsed()
 
         yield* emitMessageStart()
 

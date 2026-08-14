@@ -59,7 +59,11 @@ export type InterruptionTraceFields = {
 
 type SafeTraceFields = Omit<
   InterruptionTraceFields,
-  'reason' | 'error' | 'parentControllerIds'
+  | 'reason'
+  | 'existingReason'
+  | 'attemptedReason'
+  | 'error'
+  | 'parentControllerIds'
 > & {
   normalizedReason?: string
   rawReasonType?: string

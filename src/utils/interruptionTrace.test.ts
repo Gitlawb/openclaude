@@ -228,7 +228,7 @@ describe('interruptionTrace', () => {
     })
   })
 
-  test('observes and flushes a query-root controller already aborted when registered', async () => {
+  testLinuxTraceFile('observes and flushes a query-root controller already aborted when registered', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let writes = 0
@@ -254,7 +254,7 @@ describe('interruptionTrace', () => {
     expect(writes).toBe(1)
   })
 
-  test('preserves an established query-root role when creating a child', async () => {
+  testLinuxTraceFile('preserves an established query-root role when creating a child', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let writes = 0
@@ -493,7 +493,7 @@ describe('interruptionTrace', () => {
     expect(entries.at(-1)?.event).toBe('trace.flush')
   })
 
-  test('retains pending records after a failed write and retries them', async () => {
+  testLinuxTraceFile('retains pending records after a failed write and retries them', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let failWrites = true
@@ -529,7 +529,7 @@ describe('interruptionTrace', () => {
     expect(events).toEqual(['first', 'trace.flush', 'second', 'trace.flush'])
   })
 
-  test('captures the enabled output target before a detached flush starts', async () => {
+  testLinuxTraceFile('captures the enabled output target before a detached flush starts', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/captured/trace.jsonl'
     const writes: Array<{ path: string; data: string }> = []
@@ -552,7 +552,7 @@ describe('interruptionTrace', () => {
     expect(writes[0]?.data).toContain('"event":"trace.flush"')
   })
 
-  test('keeps a retry batch bound to its original output target', async () => {
+  testLinuxTraceFile('keeps a retry batch bound to its original output target', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/first/trace.jsonl'
     const writes: Array<{ path: string; data: string }> = []
@@ -582,7 +582,7 @@ describe('interruptionTrace', () => {
     expect(writes[2]?.data).not.toContain('"event":"first_target"')
   })
 
-  test('retains an in-flight failed batch outside the bounded ring', async () => {
+  testLinuxTraceFile('retains an in-flight failed batch outside the bounded ring', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let rejectFirstWrite!: (error: Error) => void
@@ -622,7 +622,7 @@ describe('interruptionTrace', () => {
     expect(writes[1]).toContain('"event":"must_survive"')
   })
 
-  test('does not replay a batch after an uncertain append failure', async () => {
+  testLinuxTraceFile('does not replay a batch after an uncertain append failure', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     const writes: string[] = []
@@ -766,7 +766,7 @@ describe('interruptionTrace', () => {
     }
   })
 
-  test('keeps sequence IDs unique and drains later events during an async flush', async () => {
+  testLinuxTraceFile('keeps sequence IDs unique and drains later events during an async flush', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
     let releaseFirstWrite!: () => void
@@ -843,11 +843,11 @@ describe('interruptionTrace', () => {
   test('discards trace-file batches without retrying on unsupported platforms', async () => {
     process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
     process.env.OPENCLAUDE_INTERRUPT_TRACE_FILE = '/trace.jsonl'
-    let appendCalls = 0
+    const writtenData: string[] = []
     setFsImplementation({
       ...originalFs,
-      appendRegularFile: async () => {
-        appendCalls++
+      appendRegularFile: async (_path, data) => {
+        writtenData.push(data)
       },
     })
     const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
@@ -862,11 +862,21 @@ describe('interruptionTrace', () => {
       traceInterruptionEvent('later')
       flushInterruptionTrace('posix-platform-later')
       await __waitForInterruptionTraceFlushForTests()
-      expect(appendCalls).toBe(0)
+      expect(writtenData).toEqual([])
     } finally {
       if (platformDescriptor) {
         Object.defineProperty(process, 'platform', platformDescriptor)
       }
+    }
+    if (process.platform === 'linux') {
+      traceInterruptionEvent('after_restore')
+      flushInterruptionTrace('restored-platform')
+      await __waitForInterruptionTraceFlushForTests()
+      expect(writtenData).toHaveLength(1)
+      const restoredWrite = writtenData[0] ?? ''
+      expect(restoredWrite).toContain('"event":"after_restore"')
+      expect(restoredWrite).not.toContain('"event":"pending"')
+      expect(restoredWrite).not.toContain('"event":"later"')
     }
   })
 

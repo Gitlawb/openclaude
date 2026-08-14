@@ -97,7 +97,13 @@ export type FsOperations = {
   }
   /** Appends string to file */
   appendFileSync(path: string, data: string, options?: { mode?: number }): void
-  /** Atomically opens a regular file without following the final symlink and appends data. */
+  /**
+   * Opens a regular file without following path symlinks and appends data.
+   *
+   * Linux only and requires an absolute path; throws on unsupported platforms
+   * or relative paths. A partial write that cannot be rolled back rejects with
+   * `ERR_DIAGNOSTIC_APPEND_UNCERTAIN`.
+   */
   appendRegularFile(
     path: string,
     data: string,

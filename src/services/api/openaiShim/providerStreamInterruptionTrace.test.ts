@@ -88,7 +88,7 @@ test('all non-Codex readers distinguish raw, parsed, control, and ignored frames
       text: [
         ': keepalive',
         'data: not-json',
-        'data: null',
+        'data: []',
         'data: {"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}',
         'data: [DONE]',
         '',
@@ -104,7 +104,7 @@ test('all non-Codex readers distinguish raw, parsed, control, and ignored frames
         '',
         'data: not-json',
         '',
-        'data: null',
+        'data: []',
         '',
         'data: {"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}]}',
         '',
@@ -155,6 +155,59 @@ test('all non-Codex readers distinguish raw, parsed, control, and ignored frames
     })
   }
 })
+
+for (const traceEnabled of [false, true]) {
+  test(`OpenAI-compatible and Gemini null payloads fail with tracing ${traceEnabled ? 'enabled' : 'disabled'}`, async () => {
+    const previousTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    try {
+      if (traceEnabled) process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+      else delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+
+      const cases = [
+        {
+          transport: 'openai_chat_completions',
+          stream: () =>
+            openaiStreamToAnthropic(
+              responseFromText('data: null\n\ndata: [DONE]\n\n'),
+              'test-model',
+            ),
+        },
+        {
+          transport: 'gemini_sse',
+          stream: () =>
+            geminiSseToAnthropic(
+              responseFromText('data: null\n\ndata: [DONE]\n\n'),
+              'gemini-test',
+            ),
+        },
+      ]
+
+      for (const scenario of cases) {
+        __resetInterruptionTraceForTests()
+        await expect(collect(scenario.stream())).rejects.toBeInstanceOf(TypeError)
+        const snapshot = __getInterruptionTraceSnapshotForTests()
+        if (!traceEnabled) {
+          expect(snapshot).toEqual([])
+          continue
+        }
+        expect(
+          snapshot.find(
+            entry =>
+              entry.event === 'provider_stream.reader_closed' &&
+              entry.transport === scenario.transport,
+          ),
+        ).toMatchObject({
+          outcome: 'failed',
+          ignoredFrameCount: 1,
+        })
+      }
+    } finally {
+      __resetInterruptionTraceForTests()
+      if (previousTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = previousTrace
+    }
+  })
+}
 
 test('Anthropic terminal consumer closure cancels an open response body', async () => {
   __resetInterruptionTraceForTests()

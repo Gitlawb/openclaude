@@ -119,6 +119,18 @@ describe('startSpeculation', () => {
         subsystem: 'prompt_suggestion',
         controllerRole: 'speculation',
       })
+      abortSpeculation(setAppState)
+      expect(
+        __getInterruptionTraceSnapshotForTests().find(
+          entry => entry.event === 'abort.repeated',
+        ),
+      ).toMatchObject({
+        source: 'speculation_cancelled',
+        subsystem: 'prompt_suggestion',
+        controllerRole: 'speculation',
+        outcome: 'ignored_first_abort_wins',
+        repeatedCount: 1,
+      })
     } finally {
       abortSpeculation(setAppState)
       __resetInterruptionTraceForTests()

@@ -516,14 +516,14 @@ export async function* openaiStreamToAnthropic(
         const parsed: unknown = JSON.parse(trimmed.slice(6))
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           streamTrace.recordIgnored()
-          continue
+        } else {
+          streamTrace.recordParsed()
         }
         chunk = parsed as OpenAIStreamChunk
       } catch {
         streamTrace.recordIgnored()
         continue
       }
-      streamTrace.recordParsed()
 
       // In-stream error event. Used by OpenAI when a stream fails after
       // headers have been sent, and by intermediaries (e.g. gateways) that

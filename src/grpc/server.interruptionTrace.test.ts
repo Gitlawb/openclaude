@@ -66,6 +66,11 @@ async function exerciseInterruption(
     if (!submitEntered) {
       throw new Error('submitMessage was never entered')
     }
+    if (interrupt.mock.calls.length === 0) {
+      throw new Error(
+        `Timed out waiting for QueryEngine.interrupt after the '${event}' event`,
+      )
+    }
     return interrupt.mock.calls[0]?.[0]
   } finally {
     releaseSubmit()
