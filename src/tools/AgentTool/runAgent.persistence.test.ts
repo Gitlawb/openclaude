@@ -68,13 +68,13 @@ test('skips transcript write if identity metadata fails to persist', async () =>
   } as any
 
   const iterator = runAgent(runParams)
-  const chunks = []
-  for await (const chunk of iterator) {
-    chunks.push(chunk)
+  let chunkCount = 0
+  for await (const _ of iterator) {
+    chunkCount++
   }
 
   // The generator should still produce output despite the storage error
-  expect(chunks.length).toBeGreaterThan(0)
+  expect(chunkCount).toBeGreaterThan(0)
 
   // We should have attempted to write metadata and failed
   expect(metadataWriteCount).toBe(1)

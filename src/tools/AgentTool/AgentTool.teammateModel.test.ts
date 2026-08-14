@@ -465,6 +465,16 @@ test('rejects built-in agents from being spawned as teammates even when built-in
     ).rejects.toThrow(
       "Built-in agent type 'code-reviewer' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
     )
+
+    await expect(
+      callTeammateAgentTool(
+        AgentTool,
+        { subagent_type: 'claude-code-guide' },
+        { activeAgents: definitions.activeAgents, allAgents: definitions.allAgents },
+      ),
+    ).rejects.toThrow(
+      "Built-in agent type 'claude-code-guide' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.",
+    )
     expect(spawnTeammate).not.toHaveBeenCalled()
   } finally {
     setIsInteractive(prevInteractive)

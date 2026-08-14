@@ -74,13 +74,13 @@ export function getBuiltInAgents(): AgentDefinition[] {
 }
 
 const BUILT_IN_AGENT_TYPES = new Set([
-  'general-purpose',
-  'statusline-setup',
-  'code-reviewer',
-  'Explore',
-  'Plan',
-  'guide',
-  'verification'
+  GENERAL_PURPOSE_AGENT.agentType,
+  STATUSLINE_SETUP_AGENT.agentType,
+  CODE_REVIEWER_AGENT.agentType,
+  EXPLORE_AGENT.agentType,
+  PLAN_AGENT.agentType,
+  CLAUDE_CODE_GUIDE_AGENT.agentType,
+  VERIFICATION_AGENT.agentType
 ])
 
 export function isBuiltInAgentType(agentType: string): boolean {
