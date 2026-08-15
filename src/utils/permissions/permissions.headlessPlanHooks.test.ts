@@ -694,6 +694,47 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     ])
   })
 
+  test('labels interactive permission hook interrupts as query-root aborts', async () => {
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const tool = createToolFixture(z.object({}), {
+      name: 'InteractiveHookInterruptTool',
+      isReadOnly: () => true,
+    })
+    const state = planContext({ mode: 'default' })
+    const permissionContext = createPermissionContext(
+      tool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'interactive-hook-interrupt',
+      state.setPermissionContext,
+    )
+    hookDecision = {
+      behavior: 'deny',
+      message: 'Stop the query',
+      interrupt: true,
+    }
+
+    const result = await permissionContext.runHooks(undefined, undefined)
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Stop the query',
+    })
+    expect(state.context.abortController.signal.aborted).toBe(true)
+    expect(
+      __getInterruptionTraceSnapshotForTests().find(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.source === 'permission_hook',
+      ),
+    ).toMatchObject({
+      subsystem: 'tool_permission',
+      controllerRole: 'query-root',
+    })
+  })
+
   test('interactive PermissionRequest hooks cannot rewrite a read into a mutation', async () => {
     const conditionalTool = createToolFixture(
       z.object({ operation: z.enum(['read', 'write']) }),
