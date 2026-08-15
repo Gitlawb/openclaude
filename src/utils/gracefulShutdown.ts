@@ -35,6 +35,7 @@ import {
   logEvent,
 } from '../services/analytics/index.js'
 import type { AppState } from '../state/AppState.js'
+import { noteBackgroundSessionTerminationSignal } from './backgroundSessionTermination.js'
 import { runCleanupFunctions } from './cleanupRegistry.js'
 import { createCombinedAbortSignal } from './combinedAbortSignal.js'
 import { logForDebugging } from './debug.js'
@@ -267,15 +268,18 @@ export const setupGracefulShutdown = memoize(() => {
     if (process.argv.includes('-p') || process.argv.includes('--print')) {
       return
     }
+    noteBackgroundSessionTerminationSignal('SIGINT')
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGINT' })
     void gracefulShutdown(0)
   })
   process.on('SIGTERM', () => {
+    noteBackgroundSessionTerminationSignal('SIGTERM')
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGTERM' })
     void gracefulShutdown(143) // Exit code 143 (128 + 15) for SIGTERM
   })
   if (process.platform !== 'win32') {
     process.on('SIGHUP', () => {
+      noteBackgroundSessionTerminationSignal('SIGHUP')
       logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGHUP' })
       void gracefulShutdown(129) // Exit code 129 (128 + 1) for SIGHUP
     })

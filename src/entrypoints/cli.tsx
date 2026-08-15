@@ -249,6 +249,7 @@ type CliEntrypointOptions = {
 type CliEntrypointImporters = {
   startupProfiler: () => Promise<typeof import('../utils/startupProfiler.js')>
   bg: () => Promise<typeof import('../cli/bg.js')>
+  bgFinalizer: () => Promise<typeof import('../cli/bgFinalizer.js')>
   providerFlag: () => Promise<typeof import('../utils/providerFlag.js')>
   envFile: () => Promise<typeof import('../utils/envFile.js')>
   config: () => Promise<typeof import('../utils/config.js')>
@@ -276,6 +277,7 @@ type CliEntrypointImporters = {
 const defaultCliEntrypointImporters: CliEntrypointImporters = {
   startupProfiler: () => import('../utils/startupProfiler.js'),
   bg: () => import('../cli/bg.js'),
+  bgFinalizer: () => import('../cli/bgFinalizer.js'),
   providerFlag: () => import('../utils/providerFlag.js'),
   envFile: () => import('../utils/envFile.js'),
   config: () => import('../utils/config.js'),
@@ -312,8 +314,18 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
-  const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
+  // The detached CLI is the registered background-session PID. Establish
+  // exact registry ownership and install its terminal finalizer before any
+  // fast path or startup validation can call process.exit(). The private env
+  // value only routes this check; the registry's exact ID/PID match is the
+  // authority.
+  if (process.env.OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID) {
+    const { prepareBackgroundSessionFinalizer } = await importers.bgFinalizer()
+    await prepareBackgroundSessionFinalizer()
+  }
+
+  const bgSessionsEnabled = isBgSessionsEnabled(options)
   let reapplyProviderEnvFileValues = () => {}
   let reapplyProviderFlagValues = () => {}
   const reapplyExplicitProviderInputs = () => {

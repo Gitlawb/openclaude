@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as backgroundSessionRegistry from './bgRegistry.js'
 import {
   _setBackgroundSessionsRootForTesting,
   createBackgroundSession,
@@ -16,12 +17,38 @@ import {
   type BackgroundSession,
 } from './bgRegistry.js'
 
+const {
+  recordBackgroundSessionNaturalTermination,
+  recordBackgroundSessionNaturalTerminationSync,
+} = backgroundSessionRegistry
+
 describe('background session registry', () => {
   let configDir: string
 
   function nameReservationPath(name: string): string {
     const digest = createHash('sha256').update(name).digest('hex')
     return join(configDir, 'bg-sessions', 'names', `${digest}.json`)
+  }
+
+  function terminalFactPath(
+    id: string,
+    kind: 'natural' | 'killed',
+  ): string {
+    return join(configDir, 'bg-sessions', 'terminal', `${id}.${kind}.json`)
+  }
+
+  async function writeTerminalFact(
+    id: string,
+    kind: 'natural' | 'killed',
+    fact: Record<string, unknown>,
+  ): Promise<void> {
+    await mkdir(join(configDir, 'bg-sessions', 'terminal'), {
+      recursive: true,
+    })
+    await writeFile(
+      terminalFactPath(id, kind),
+      JSON.stringify({ version: 1, id, ...fact }),
+    )
   }
 
   async function writeNameReservation(
@@ -632,6 +659,435 @@ describe('background session registry', () => {
     })
   })
 
+  it('reads metadata written without optional terminal fields', async () => {
+    await createBackgroundSession({
+      id: 'bg-old-metadata',
+      pid: 332,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-old-metadata',
+    })
+
+    const oldMetadata = (await listBackgroundSessions())[0]!
+    expect(oldMetadata).toMatchObject({
+      id: 'bg-old-metadata',
+      status: 'running',
+    })
+    expect('finishedAt' in oldMetadata).toBe(false)
+    expect('exitCode' in oldMetadata).toBe(false)
+    expect('terminalReason' in oldMetadata).toBe(false)
+  })
+
+  it('keeps an authoritative successful completion stronger than a stale refresh', async () => {
+    await createBackgroundSession({
+      id: 'bg-natural-success',
+      pid: 333,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-success',
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+    await writeTerminalFact('bg-natural-success', 'natural', {
+      pid: 333,
+      status: 'exited',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 0,
+      terminalReason: 'exit_code',
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => false,
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-natural-success',
+      status: 'exited',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 0,
+      terminalReason: 'exit_code',
+    })
+    expect((await listBackgroundSessions())[0]?.status).toBe('exited')
+  })
+
+  it('preserves an authoritative nonzero completion and exact exit code', async () => {
+    await createBackgroundSession({
+      id: 'bg-natural-failure',
+      pid: 334,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-failure',
+    })
+    await writeTerminalFact('bg-natural-failure', 'natural', {
+      pid: 334,
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    })
+
+    expect(await resolveBackgroundSession('bg-natural-failure')).toMatchObject({
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    })
+  })
+
+  it('gives explicit kill precedence without erasing observed natural details', async () => {
+    await createBackgroundSession({
+      id: 'bg-kill-precedence',
+      pid: 335,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-kill-precedence',
+    })
+    await writeTerminalFact('bg-kill-precedence', 'natural', {
+      pid: 335,
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 17,
+      terminalReason: 'exit_code',
+    })
+    await writeTerminalFact('bg-kill-precedence', 'killed', {
+      pid: 335,
+      status: 'killed',
+      finishedAt: '2026-06-15T08:05:00.000Z',
+      terminalReason: 'explicit_kill',
+    })
+
+    expect(await resolveBackgroundSession('bg-kill-precedence')).toMatchObject({
+      status: 'killed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 17,
+      terminalReason: 'explicit_kill',
+    })
+  })
+
+  it('releases a name when an authoritative natural completion is present', async () => {
+    await createBackgroundSession({
+      id: 'bg-natural-name-old',
+      name: 'natural-name',
+      pid: 336,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'old'],
+      sessionId: 'conversation-natural-name-old',
+    })
+    await writeTerminalFact('bg-natural-name-old', 'natural', {
+      pid: 336,
+      status: 'exited',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 0,
+      terminalReason: 'exit_code',
+    })
+
+    const replacement = await createBackgroundSession({
+      id: 'bg-natural-name-new',
+      name: 'natural-name',
+      pid: 337,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'new'],
+      sessionId: 'conversation-natural-name-new',
+    })
+
+    expect(replacement.name).toBe('natural-name')
+    expect((await resolveBackgroundSession('natural-name')).id).toBe(
+      'bg-natural-name-new',
+    )
+  })
+
+  it('records natural completion only for the exact owning PID', async () => {
+    await createBackgroundSession({
+      id: 'bg-owner-checked',
+      pid: 338,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-owner-checked',
+    })
+
+    await expect(
+      recordBackgroundSessionNaturalTermination(
+        'bg-owner-checked',
+        { exitCode: 0 },
+        { ownerPid: 339 },
+      ),
+    ).rejects.toThrow('does not own')
+    expect((await resolveBackgroundSession('bg-owner-checked')).status).toBe(
+      'running',
+    )
+
+    const completed = await recordBackgroundSessionNaturalTermination(
+      'bg-owner-checked',
+      { exitCode: 0 },
+      {
+        ownerPid: 338,
+        now: new Date('2026-06-15T08:06:00.000Z'),
+      },
+    )
+    expect(completed).toMatchObject({
+      status: 'exited',
+      finishedAt: '2026-06-15T08:06:00.000Z',
+      exitCode: 0,
+    })
+  })
+
+  it('does not let a late natural finalizer replace the first valid fact', async () => {
+    await createBackgroundSession({
+      id: 'bg-first-fact',
+      pid: 340,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-first-fact',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      'bg-first-fact',
+      { exitCode: 19 },
+      {
+        ownerPid: 340,
+        now: new Date('2026-06-15T08:07:00.000Z'),
+      },
+    )
+    await recordBackgroundSessionNaturalTermination(
+      'bg-first-fact',
+      { exitCode: 0 },
+      {
+        ownerPid: 340,
+        now: new Date('2026-06-15T08:08:00.000Z'),
+      },
+    )
+
+    expect(await resolveBackgroundSession('bg-first-fact')).toMatchObject({
+      status: 'failed',
+      finishedAt: '2026-06-15T08:07:00.000Z',
+      exitCode: 19,
+    })
+  })
+
+  it('converges concurrent natural finalizers on one immutable fact', async () => {
+    await createBackgroundSession({
+      id: 'bg-concurrent-natural',
+      pid: 346,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-concurrent-natural',
+    })
+
+    const results = await Promise.all([
+      recordBackgroundSessionNaturalTermination(
+        'bg-concurrent-natural',
+        { exitCode: 31 },
+        {
+          ownerPid: 346,
+          now: new Date('2026-06-15T08:10:00.000Z'),
+        },
+      ),
+      recordBackgroundSessionNaturalTermination(
+        'bg-concurrent-natural',
+        { exitCode: 0 },
+        {
+          ownerPid: 346,
+          now: new Date('2026-06-15T08:11:00.000Z'),
+        },
+      ),
+    ])
+
+    const facts = results.map(result => {
+      if (result.finishedAt === undefined || result.exitCode === undefined) {
+        throw new Error('natural terminal fact was incomplete')
+      }
+      return {
+        status: result.status,
+        finishedAt: result.finishedAt,
+        exitCode: result.exitCode,
+      }
+    })
+    expect(new Set(facts.map(fact => JSON.stringify(fact))).size).toBe(1)
+    expect([
+      {
+        status: 'failed',
+        finishedAt: '2026-06-15T08:10:00.000Z',
+        exitCode: 31,
+      },
+      {
+        status: 'exited',
+        finishedAt: '2026-06-15T08:11:00.000Z',
+        exitCode: 0,
+      },
+    ]).toContainEqual(facts[0])
+    expect(await resolveBackgroundSession('bg-concurrent-natural')).toMatchObject(
+      facts[0]!,
+    )
+  })
+
+  it('corrects a stale guess with a later exact-owner natural fact', async () => {
+    await createBackgroundSession({
+      id: 'bg-stale-correction',
+      pid: 341,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-stale-correction',
+    })
+    await refreshBackgroundSessionStatuses({ isProcessAlive: () => false })
+
+    const corrected = await recordBackgroundSessionNaturalTermination(
+      'bg-stale-correction',
+      { exitCode: 0 },
+      { ownerPid: 341 },
+    )
+    expect(corrected).toMatchObject({ status: 'exited', exitCode: 0 })
+  })
+
+  it('does not return or persist stale over a finalizer racing the refresh write', async () => {
+    await createBackgroundSession({
+      id: 'bg-refresh-race',
+      pid: 343,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-refresh-race',
+    })
+    let releaseWrite!: () => void
+    const writeMayContinue = new Promise<void>(resolve => {
+      releaseWrite = resolve
+    })
+    let refreshReachedWrite!: () => void
+    const refreshAtWrite = new Promise<void>(resolve => {
+      refreshReachedWrite = resolve
+    })
+
+    const refreshing = refreshBackgroundSessionStatuses({
+      isProcessAlive: () => false,
+      beforeStatusWrite: async () => {
+        refreshReachedWrite()
+        await writeMayContinue
+      },
+    })
+    await refreshAtWrite
+    await recordBackgroundSessionNaturalTermination(
+      'bg-refresh-race',
+      { exitCode: 0 },
+      { ownerPid: 343 },
+    )
+    releaseWrite()
+
+    expect((await refreshing)[0]).toMatchObject({
+      status: 'exited',
+      exitCode: 0,
+    })
+    expect((await listBackgroundSessions())[0]).toMatchObject({
+      status: 'exited',
+      exitCode: 0,
+    })
+  })
+
+  it('records a bounded observed signal without inventing an exit code', async () => {
+    await createBackgroundSession({
+      id: 'bg-observed-signal',
+      pid: 344,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-observed-signal',
+    })
+    const failed = await recordBackgroundSessionNaturalTermination(
+      'bg-observed-signal',
+      { signal: 'SIGTERM' },
+      { ownerPid: 344 },
+    )
+
+    expect(failed).toMatchObject({
+      status: 'failed',
+      signal: 'SIGTERM',
+      terminalReason: 'signal',
+    })
+    expect('exitCode' in failed).toBe(false)
+  })
+
+  it('does not let a late natural finalizer overwrite an explicit kill fact', async () => {
+    await createBackgroundSession({
+      id: 'bg-killed-absorbing',
+      pid: 342,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-killed-absorbing',
+    })
+    await markBackgroundSessionKilled('bg-killed-absorbing', {
+      now: new Date('2026-06-15T08:09:00.000Z'),
+    })
+
+    const late = await recordBackgroundSessionNaturalTermination(
+      'bg-killed-absorbing',
+      { exitCode: 0 },
+      { ownerPid: 342 },
+    )
+    expect(late).toMatchObject({
+      status: 'killed',
+      finishedAt: '2026-06-15T08:09:00.000Z',
+      terminalReason: 'explicit_kill',
+    })
+    expect(
+      await Bun.file(
+        terminalFactPath('bg-killed-absorbing', 'natural'),
+      ).exists(),
+    ).toBe(false)
+  })
+
+  it('does not let the sync finalizer overwrite an explicit kill fact', async () => {
+    await createBackgroundSession({
+      id: 'bg-sync-killed-absorbing',
+      pid: 347,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-sync-killed-absorbing',
+    })
+    await markBackgroundSessionKilled('bg-sync-killed-absorbing', {
+      now: new Date('2026-06-15T08:09:30.000Z'),
+    })
+
+    recordBackgroundSessionNaturalTerminationSync(
+      'bg-sync-killed-absorbing',
+      { exitCode: 0 },
+      { ownerPid: 347 },
+    )
+
+    expect(
+      await resolveBackgroundSession('bg-sync-killed-absorbing'),
+    ).toMatchObject({
+      status: 'killed',
+      finishedAt: '2026-06-15T08:09:30.000Z',
+      terminalReason: 'explicit_kill',
+    })
+    expect(
+      await Bun.file(
+        terminalFactPath('bg-sync-killed-absorbing', 'natural'),
+      ).exists(),
+    ).toBe(false)
+  })
+
+  it('keeps killed strongest when kill and natural completion race', async () => {
+    await createBackgroundSession({
+      id: 'bg-kill-natural-race',
+      pid: 345,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-kill-natural-race',
+    })
+
+    await Promise.all([
+      recordBackgroundSessionNaturalTermination(
+        'bg-kill-natural-race',
+        { exitCode: 0 },
+        { ownerPid: 345 },
+      ),
+      markBackgroundSessionKilled('bg-kill-natural-race'),
+    ])
+
+    expect(await resolveBackgroundSession('bg-kill-natural-race')).toMatchObject(
+      {
+        status: 'killed',
+        terminalReason: 'explicit_kill',
+      },
+    )
+  })
+
   it('keeps running sessions fresh when their process identity still matches', async () => {
     await createBackgroundSession({
       id: 'bg-running',
@@ -729,6 +1185,7 @@ describe('background session registry', () => {
   it('marks a session killed without deleting its logs or metadata', async () => {
     await createBackgroundSession({
       id: 'bg-kill',
+      name: 'reusable-after-kill',
       pid: 444,
       cwd: '/repo',
       command: ['openclaude', '--print', 'work'],
@@ -742,6 +1199,16 @@ describe('background session registry', () => {
     expect(killed.status).toBe('killed')
     expect(killed.updatedAt).toBe('2026-06-15T08:10:00.000Z')
     expect((await listBackgroundSessions()).map(s => s.id)).toEqual(['bg-kill'])
+
+    const replacement = await createBackgroundSession({
+      id: 'bg-after-kill',
+      name: 'reusable-after-kill',
+      pid: 445,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'new work'],
+      sessionId: 'conversation-after-kill',
+    })
+    expect(replacement.name).toBe('reusable-after-kill')
   })
 
   it('ignores malformed metadata files instead of returning unsafe sessions', async () => {

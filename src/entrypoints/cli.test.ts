@@ -37,6 +37,7 @@ const mockLogsHandler = mock(async (_args: string[]) => {})
 const mockAttachHandler = mock(async (_args: string[]) => {})
 const mockKillHandler = mock(async (_args: string[]) => {})
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
+const mockPrepareBackgroundSessionFinalizer = mock(async () => 'installed')
 const mockLoadEnvFile = mock((_filePath: string) => ({}))
 const mockParseProviderEnvFileArgs = mock((_args: string[]) => ({ paths: [] }))
 const mockReapplyRememberedEnvFileValues = mock(() => {})
@@ -74,6 +75,7 @@ const runtimeMocks = [
   mockAttachHandler,
   mockKillHandler,
   mockHandleBgFlag,
+  mockPrepareBackgroundSessionFinalizer,
   mockLoadEnvFile,
   mockParseProviderEnvFileArgs,
   mockReapplyRememberedEnvFileValues,
@@ -334,6 +336,10 @@ describe('cli.tsx — background routing behavior', () => {
         killHandler: mockKillHandler,
         handleBgFlag: mockHandleBgFlag,
       }),
+      bgFinalizer: async () => ({
+        prepareBackgroundSessionFinalizer:
+          mockPrepareBackgroundSessionFinalizer,
+      }),
       envFile: async () => ({
         loadEnvFile: mockLoadEnvFile,
         parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
@@ -425,6 +431,24 @@ describe('cli.tsx — background routing behavior', () => {
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
       expect(mockCliMain).not.toHaveBeenCalled()
     }
+  })
+
+  it('establishes background finalizer ownership before any command path', async () => {
+    process.env.OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID = 'bg-entrypoint'
+    mockPrepareBackgroundSessionFinalizer.mockImplementationOnce(async () => {
+      throw new Error('finalizer ownership not ready')
+    })
+    try {
+      await expect(runCliEntrypoint(['ps'], bgOptions)).rejects.toThrow(
+        'finalizer ownership not ready',
+      )
+    } finally {
+      delete process.env.OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID
+    }
+
+    expect(mockPrepareBackgroundSessionFinalizer).toHaveBeenCalledTimes(1)
+    expect(mockPsHandler).not.toHaveBeenCalled()
+    expect(mockEnableConfigs).not.toHaveBeenCalled()
   })
 
   it('keeps management commands on the management path even with --bg arguments', async () => {

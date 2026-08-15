@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
+  confirmBackgroundSessionLaunch,
   followLogFile,
   killBackgroundSession,
   printExistingLog,
@@ -453,7 +454,7 @@ describe('background session CLI parsing', () => {
     })
   })
 
-  it('preserves Node exec flags and lets the launcher manage heap relaunch state', () => {
+  it('preserves Node exec flags while keeping the registered child PID stable', () => {
     const config = buildBackgroundChildProcessConfig({
       execPath: '/usr/bin/node',
       execArgv: ['--max-old-space-size=8192', '--expose-gc'],
@@ -465,6 +466,8 @@ describe('background session CLI parsing', () => {
       },
       sessionName: 'tests',
       stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-tests',
+      launcherPid: 700,
     })
 
     expect(config.command).toBe('/usr/bin/node')
@@ -475,11 +478,37 @@ describe('background session CLI parsing', () => {
       '--print',
       'fix failing tests',
     ])
-    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBeUndefined()
+    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBe('1')
     expect(config.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB).toBe('8192')
     expect(config.env.CLAUDE_CODE_SESSION_KIND).toBe('bg')
     expect(config.env.CLAUDE_CODE_SESSION_LOG).toBe('/tmp/bg.out.log')
     expect(config.env.CLAUDE_CODE_SESSION_NAME).toBe('tests')
+    expect(config.env.OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID).toBe(
+      'bg-tests',
+    )
+    expect(config.env.OPENCLAUDE_INTERNAL_BACKGROUND_LAUNCHER_PID).toBe('700')
+  })
+
+  it('supplies launcher heap flags instead of relaunching to a different PID', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/bin/node',
+      execArgv: [],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'fix failing tests'],
+      processEnv: {
+        OPENCLAUDE_HEAP_RELAUNCHED: '1',
+        OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB: '4096',
+      },
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-no-wrapper',
+      launcherPid: 701,
+    })
+
+    expect(config.args.slice(0, 2)).toEqual([
+      '--max-old-space-size=4096',
+      '--expose-gc',
+    ])
+    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBe('1')
   })
 
   it('escalates process-tree termination and waits for exit before returning', async () => {
@@ -501,6 +530,42 @@ describe('background session CLI parsing', () => {
     })
 
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+
+  it('fails a detached launch that becomes stale before finalizer installation', async () => {
+    const session: BackgroundSession = {
+      id: 'bg-finalizer-not-installed',
+      pid: 4243,
+      cwd: '/repo',
+      status: 'running',
+      startedAt: '2026-07-10T08:00:00.000Z',
+      updatedAt: '2026-07-10T08:00:00.000Z',
+      sessionId: 'conversation-finalizer-not-installed',
+      command: ['node', 'openclaude', '--print', 'work'],
+      stdoutLogPath: '/tmp/bg-finalizer-not-installed.out.log',
+      stderrLogPath: '/tmp/bg-finalizer-not-installed.err.log',
+    }
+    const calls: string[] = []
+
+    await expect(
+      confirmBackgroundSessionLaunch(session, {
+        isProcessAlive: () => false,
+        refreshStatuses: async () => {
+          calls.push('refresh')
+          return []
+        },
+        resolveSession: async id => {
+          calls.push(`resolve:${id}`)
+          return { ...session, status: 'stale' }
+        },
+      }),
+    ).rejects.toThrow(
+      'Background session bg-finalizer-not-installed exited before finalization was installed',
+    )
+    expect(calls).toEqual([
+      'refresh',
+      'resolve:bg-finalizer-not-installed',
+    ])
   })
 })
 

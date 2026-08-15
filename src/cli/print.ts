@@ -16,6 +16,7 @@ import {
 } from 'src/commands.js'
 import { createStreamlinedTransformer } from 'src/utils/streamlinedTransform.js'
 import { installStreamJsonStdoutGuard } from 'src/utils/streamJsonStdoutGuard.js'
+import { noteBackgroundSessionTerminationSignal } from 'src/utils/backgroundSessionTermination.js'
 import type { ToolPermissionContext } from 'src/Tool.js'
 import type { ThinkingConfig } from 'src/utils/thinking.js'
 import { assembleToolPool, filterToolsByDenyRules } from 'src/tools.js'
@@ -1211,6 +1212,7 @@ function runHeadlessStreaming(
   // gracefulShutdown persists session state and flushes analytics, with a
   // failsafe timer that force-exits if cleanup hangs.
   const sigintHandler = () => {
+    noteBackgroundSessionTerminationSignal('SIGINT')
     logForDiagnosticsNoPII('info', 'shutdown_signal', { signal: 'SIGINT' })
     options.heartbeat?.setPhase('shutting_down')
     if (abortController && !abortController.signal.aborted) {

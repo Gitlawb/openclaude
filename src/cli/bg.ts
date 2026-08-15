@@ -50,6 +50,8 @@ export type BuildBackgroundChildProcessConfigInput = {
   processEnv: NodeJS.ProcessEnv
   sessionName?: string
   stdoutLogPath: string
+  backgroundSessionId: string
+  launcherPid?: number
 }
 
 type PrResumeSelector = true | string
@@ -61,6 +63,12 @@ export type BuildBackgroundSessionLaunchDeps = {
 }
 
 const HEAP_RELAUNCHED_ENV = 'OPENCLAUDE_HEAP_RELAUNCHED'
+const HEAP_SIZE_ENV = 'OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB'
+const DEFAULT_HEAP_SIZE_MB = 8192
+const BACKGROUND_SESSION_ID_ENV =
+  'OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID'
+const BACKGROUND_SESSION_LAUNCHER_PID_ENV =
+  'OPENCLAUDE_INTERNAL_BACKGROUND_LAUNCHER_PID'
 const DEFAULT_TERM_GRACE_MS = 2_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_KILL_POLL_INTERVAL_MS = 100
@@ -165,13 +173,43 @@ const SPACE_OPTIONAL_VALUE_FLAGS = new Set([
   '-r',
 ])
 
-function safeNodeExecArgvForBackground(execArgv: string[]): string[] {
-  return execArgv.filter(
+function isNodeExecutable(execPath: string): boolean {
+  return /^node(?:\.exe)?$/i.test(basename(execPath))
+}
+
+function hasNodeFlag(args: string[], flag: string): boolean {
+  return args.some(arg => arg === flag || arg.startsWith(`${flag}=`))
+}
+
+function safeNodeExecArgvForBackground(
+  execPath: string,
+  execArgv: string[],
+  processEnv: NodeJS.ProcessEnv,
+): string[] {
+  const safeArgs = execArgv.filter(
     arg =>
       arg === '--expose-gc' ||
       arg.startsWith('--max-old-space-size') ||
       arg.startsWith('--heapsnapshot-near-heap-limit'),
   )
+  if (!isNodeExecutable(execPath)) return safeArgs
+
+  const nodeOptions = (processEnv.NODE_OPTIONS ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+  const effectiveArgs = [...safeArgs, ...nodeOptions]
+  if (!hasNodeFlag(effectiveArgs, '--max-old-space-size')) {
+    const configuredHeap = Number.parseInt(processEnv[HEAP_SIZE_ENV] ?? '', 10)
+    const heapSize =
+      Number.isSafeInteger(configuredHeap) && configuredHeap > 0
+        ? configuredHeap
+        : DEFAULT_HEAP_SIZE_MB
+    safeArgs.push(`--max-old-space-size=${heapSize}`)
+  }
+  if (!hasNodeFlag(effectiveArgs, '--expose-gc')) {
+    safeArgs.push('--expose-gc')
+  }
+  return safeArgs
 }
 
 export function buildBackgroundChildProcessConfig(
@@ -185,13 +223,28 @@ export function buildBackgroundChildProcessConfig(
     ...(input.sessionName
       ? { CLAUDE_CODE_SESSION_NAME: input.sessionName }
       : {}),
+    [BACKGROUND_SESSION_ID_ENV]: input.backgroundSessionId,
+    [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: String(
+      input.launcherPid ?? process.pid,
+    ),
   }
-  delete env[HEAP_RELAUNCHED_ENV]
+  if (isNodeExecutable(input.execPath)) {
+    // Keep the registered detached PID stable. The installed launcher normally
+    // already supplied these flags to its parent; safeNodeExecArgvForBackground
+    // fills either one if needed before preventing another spawnSync relaunch.
+    env[HEAP_RELAUNCHED_ENV] = '1'
+  } else {
+    delete env[HEAP_RELAUNCHED_ENV]
+  }
 
   return {
     command: input.execPath,
     args: [
-      ...safeNodeExecArgvForBackground(input.execArgv),
+      ...safeNodeExecArgvForBackground(
+        input.execPath,
+        input.execArgv,
+        input.processEnv,
+      ),
       input.entrypoint,
       ...input.childArgs,
     ],
@@ -882,6 +935,30 @@ export async function killBackgroundSession(
   return await markKilled(session)
 }
 
+type ConfirmBackgroundSessionLaunchOptions = {
+  isProcessAlive?: (pid: number) => boolean
+  refreshStatuses?: () => Promise<BackgroundSession[]>
+  resolveSession?: (id: string) => Promise<BackgroundSession>
+}
+
+export async function confirmBackgroundSessionLaunch(
+  session: BackgroundSession,
+  options: ConfirmBackgroundSessionLaunchOptions = {},
+): Promise<BackgroundSession> {
+  if ((options.isProcessAlive ?? isProcessRunning)(session.pid)) return session
+
+  await (options.refreshStatuses ?? refreshBackgroundSessionStatuses)()
+  const resolved = await (
+    options.resolveSession ?? resolveBackgroundSession
+  )(session.id)
+  if (resolved.status === 'stale') {
+    throw new Error(
+      `Background session ${session.id} exited before finalization was installed`,
+    )
+  }
+  return resolved
+}
+
 export async function psHandler(_args: string[]): Promise<void> {
   const sessions = await refreshBackgroundSessionStatuses()
   printSessionTable(sessions)
@@ -978,6 +1055,8 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     processEnv: process.env,
     sessionName: parsed.name,
     stdoutLogPath: logPaths.stdoutLogPath,
+    backgroundSessionId: id,
+    launcherPid: process.pid,
   })
 
   let stdoutFd: number | undefined
@@ -1023,7 +1102,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
   }
 
   const command = [childConfig.command, ...childConfig.args]
-  const session = await createBackgroundSession({
+  let session = await createBackgroundSession({
     id,
     name: parsed.name,
     pid: child.pid,
@@ -1041,7 +1120,15 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     fail(errorMessage(error))
   })
 
-  console.log(`Started background session ${session.id}.`)
+  session = await confirmBackgroundSessionLaunch(session).catch(error => {
+    fail(errorMessage(error))
+  })
+
+  console.log(
+    isTerminalBackgroundSession(session)
+      ? `Background session ${session.id} finished with status ${session.status}.`
+      : `Started background session ${session.id}.`,
+  )
   if (session.name) console.log(`Name: ${session.name}`)
   console.log(`PID: ${session.pid}`)
   console.log(`Logs: ${session.stdoutLogPath}`)
