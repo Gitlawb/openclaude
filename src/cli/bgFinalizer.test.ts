@@ -55,6 +55,14 @@ describe('background session finalizer', () => {
       await prepareBackgroundSessionFinalizer({ env: {} }),
     ).toBe('not-background')
 
+    const partialEnv = {
+      [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: '123',
+    }
+    expect(
+      await prepareBackgroundSessionFinalizer({ env: partialEnv }),
+    ).toBe('invalid-routing')
+    expect(partialEnv[BACKGROUND_SESSION_LAUNCHER_PID_ENV]).toBeUndefined()
+
     const env = {
       [BACKGROUND_SESSION_ID_ENV]: '../unsafe',
       [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: '123',
@@ -201,7 +209,7 @@ describe('background session finalizer', () => {
     expect(reads).toBe(3)
     expect(env[BACKGROUND_SESSION_ID_ENV]).toBeUndefined()
     const previousExitCode = process.exitCode
-    process.exitCode = '7'
+    process.exitCode = '7' as unknown as number
     try {
       await beforeExitListener?.()
       await cleanup?.()
@@ -436,24 +444,27 @@ describe('background session finalizer', () => {
       childExitCode: 143,
     },
   ]) {
-    it(`records an observed ${expectation.signal} as a failed signal fact`, async () => {
-      const { id, child, readyPath } = await runFixture(expectation.mode)
-      await waitForFile(readyPath)
-      child.kill(expectation.signal)
-      const [code, signal] = (await once(child, 'exit')) as [
-        number,
-        NodeJS.Signals | null,
-      ]
-      expect(code).toBe(expectation.childExitCode)
-      expect(signal).toBeNull()
-      expect((await listBackgroundSessions())[0]).toMatchObject({
-        id,
-        status: 'failed',
-        signal: expectation.signal,
-        terminalReason: 'signal',
-      })
-      expect('exitCode' in (await listBackgroundSessions())[0]!).toBe(false)
-    })
+    it.skipIf(process.platform === 'win32')(
+      `records an observed ${expectation.signal} as a failed signal fact`,
+      async () => {
+        const { id, child, readyPath } = await runFixture(expectation.mode)
+        await waitForFile(readyPath)
+        child.kill(expectation.signal)
+        const [code, signal] = (await once(child, 'exit')) as [
+          number,
+          NodeJS.Signals | null,
+        ]
+        expect(code).toBe(expectation.childExitCode)
+        expect(signal).toBeNull()
+        expect((await listBackgroundSessions())[0]).toMatchObject({
+          id,
+          status: 'failed',
+          signal: expectation.signal,
+          terminalReason: 'signal',
+        })
+        expect('exitCode' in (await listBackgroundSessions())[0]!).toBe(false)
+      },
+    )
   }
 
   for (const expectation of [
@@ -511,17 +522,20 @@ describe('background session finalizer', () => {
     expect(stdout).toMatch(/bg-built-failure\s+failed/)
   })
 
-  it('does not invent success when a fixture is forcibly destroyed', async () => {
-    const { child, readyPath } = await runFixture('wait')
-    await waitForFile(readyPath)
-    child.kill('SIGKILL')
-    await once(child, 'exit')
+  it.skipIf(process.platform === 'win32')(
+    'does not invent success when a fixture is forcibly destroyed',
+    async () => {
+      const { child, readyPath } = await runFixture('wait')
+      await waitForFile(readyPath)
+      child.kill('SIGKILL')
+      await once(child, 'exit')
 
-    const refreshed = await refreshBackgroundSessionStatuses({
-      isProcessAlive: () => false,
-    })
-    expect(refreshed[0]?.status).toBe('stale')
-    expect('exitCode' in refreshed[0]!).toBe(false)
-    expect('terminalReason' in refreshed[0]!).toBe(false)
-  })
+      const refreshed = await refreshBackgroundSessionStatuses({
+        isProcessAlive: () => false,
+      })
+      expect(refreshed[0]?.status).toBe('stale')
+      expect('exitCode' in refreshed[0]!).toBe(false)
+      expect('terminalReason' in refreshed[0]!).toBe(false)
+    },
+  )
 })

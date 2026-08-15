@@ -771,7 +771,7 @@ export async function refreshBackgroundSessionStatuses(options?: {
   isProcessAlive?: (pid: number) => boolean
   getProcessCommand?: (pid: number) => string | null
   now?: Date
-  beforeStatusWrite?: (
+  _beforeStatusWriteForTesting?: (
     session: BackgroundSession,
     nextStatus: BackgroundSessionStatus,
   ) => Promise<void>
@@ -803,7 +803,7 @@ export async function refreshBackgroundSessionStatuses(options?: {
         status: nextStatus,
         updatedAt: timestamp,
       }
-      await options?.beforeStatusWrite?.(session, nextStatus)
+      await options?._beforeStatusWriteForTesting?.(session, nextStatus)
       await writeSession(updated)
       refreshed.push(await applyAuthoritativeTerminalFacts(updated))
       continue
@@ -1037,6 +1037,8 @@ export async function recordBackgroundSessionNaturalTermination(
     session.status !== 'unknown' &&
     session.status !== 'stale'
   ) {
+    // Retain an exhaustive guard so future status additions require a deliberate
+    // natural-finalization policy.
     throw new Error('Background session is not eligible for natural finalization')
   }
 
@@ -1070,6 +1072,8 @@ export function recordBackgroundSessionNaturalTerminationSync(
     session.status !== 'unknown' &&
     session.status !== 'stale'
   ) {
+    // Retain an exhaustive guard so future status additions require a deliberate
+    // natural-finalization policy.
     throw new Error('Background session is not eligible for natural finalization')
   }
 

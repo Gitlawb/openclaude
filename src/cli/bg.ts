@@ -23,6 +23,10 @@ import {
   type BackgroundSessionProcessIdentity,
   type BackgroundSessionProcessIdentityOptions,
 } from './bgRegistry.js'
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from './bgRouting.js'
 
 export type ParsedBackgroundInvocation = {
   name?: string
@@ -65,10 +69,6 @@ export type BuildBackgroundSessionLaunchDeps = {
 const HEAP_RELAUNCHED_ENV = 'OPENCLAUDE_HEAP_RELAUNCHED'
 const HEAP_SIZE_ENV = 'OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB'
 const DEFAULT_HEAP_SIZE_MB = 8192
-const BACKGROUND_SESSION_ID_ENV =
-  'OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID'
-const BACKGROUND_SESSION_LAUNCHER_PID_ENV =
-  'OPENCLAUDE_INTERNAL_BACKGROUND_LAUNCHER_PID'
 const DEFAULT_TERM_GRACE_MS = 2_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_KILL_POLL_INTERVAL_MS = 100
@@ -228,14 +228,10 @@ export function buildBackgroundChildProcessConfig(
       input.launcherPid ?? process.pid,
     ),
   }
-  if (isNodeExecutable(input.execPath)) {
-    // Keep the registered detached PID stable. The installed launcher normally
-    // already supplied these flags to its parent; safeNodeExecArgvForBackground
-    // fills either one if needed before preventing another spawnSync relaunch.
-    env[HEAP_RELAUNCHED_ENV] = '1'
-  } else {
-    delete env[HEAP_RELAUNCHED_ENV]
-  }
+  // Keep the registered detached PID stable under every runtime. The installed
+  // launcher otherwise relaunches itself before finalizer ownership is checked.
+  // Node-only heap flags are still supplied by safeNodeExecArgvForBackground.
+  env[HEAP_RELAUNCHED_ENV] = '1'
 
   return {
     command: input.execPath,
@@ -953,7 +949,8 @@ export async function confirmBackgroundSessionLaunch(
   )(session.id)
   if (resolved.status === 'stale') {
     throw new Error(
-      `Background session ${session.id} exited before finalization was installed`,
+      `Background session ${session.id} exited before finalization was installed. ` +
+        `Logs were retained at ${session.stdoutLogPath} and ${session.stderrLogPath}.`,
     )
   }
   return resolved

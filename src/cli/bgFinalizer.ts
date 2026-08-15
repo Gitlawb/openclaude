@@ -11,11 +11,15 @@ import {
   recordBackgroundSessionNaturalTerminationSync,
   type BackgroundSession,
 } from './bgRegistry.js'
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from './bgRouting.js'
 
-export const BACKGROUND_SESSION_ID_ENV =
-  'OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID'
-export const BACKGROUND_SESSION_LAUNCHER_PID_ENV =
-  'OPENCLAUDE_INTERNAL_BACKGROUND_LAUNCHER_PID'
+export {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from './bgRouting.js'
 
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
 const DEFAULT_REGISTRATION_WAIT_MS = 5_000
@@ -143,12 +147,13 @@ export async function prepareBackgroundSessionFinalizer(
 ): Promise<BackgroundSessionFinalizerPreparation> {
   const env = options.env ?? process.env
   const id = env[BACKGROUND_SESSION_ID_ENV]
-  if (!id) return 'not-background'
+  const launcherPidValue = env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]
+  if (id === undefined && launcherPidValue === undefined) {
+    return 'not-background'
+  }
 
-  const launcherPid = parsePositivePid(
-    env[BACKGROUND_SESSION_LAUNCHER_PID_ENV],
-  )
-  if (!SAFE_ID_RE.test(id) || launcherPid === undefined) {
+  const launcherPid = parsePositivePid(launcherPidValue)
+  if (!id || !SAFE_ID_RE.test(id) || launcherPid === undefined) {
     scrubRoutingEnvironment(env)
     return 'invalid-routing'
   }

@@ -1,4 +1,8 @@
 import { feature } from 'bun:bundle';
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from '../cli/bgRouting.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -320,7 +324,10 @@ export async function main(
   // fast path or startup validation can call process.exit(). The private env
   // value only routes this check; the registry's exact ID/PID match is the
   // authority.
-  if (process.env.OPENCLAUDE_INTERNAL_BACKGROUND_SESSION_ID) {
+  if (
+    process.env[BACKGROUND_SESSION_ID_ENV] !== undefined ||
+    process.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV] !== undefined
+  ) {
     const { prepareBackgroundSessionFinalizer } = await importers.bgFinalizer()
     await prepareBackgroundSessionFinalizer()
   }

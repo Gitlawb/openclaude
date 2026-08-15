@@ -678,6 +678,48 @@ describe('background session registry', () => {
     expect('terminalReason' in oldMetadata).toBe(false)
   })
 
+  it('ignores a terminal fact owned by a different PID', async () => {
+    await createBackgroundSession({
+      id: 'bg-fact-pid-mismatch',
+      pid: 350,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-fact-pid-mismatch',
+    })
+    await writeTerminalFact('bg-fact-pid-mismatch', 'natural', {
+      pid: 351,
+      status: 'exited',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 0,
+      terminalReason: 'exit_code',
+    })
+
+    const session = await resolveBackgroundSession('bg-fact-pid-mismatch')
+    expect(session.status).toBe('running')
+    expect('exitCode' in session).toBe(false)
+  })
+
+  it('ignores a killed terminal fact that carries an exit code', async () => {
+    await createBackgroundSession({
+      id: 'bg-fact-malformed-kill',
+      pid: 352,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-fact-malformed-kill',
+    })
+    await writeTerminalFact('bg-fact-malformed-kill', 'killed', {
+      pid: 352,
+      status: 'killed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      terminalReason: 'explicit_kill',
+      exitCode: 0,
+    })
+
+    const session = await resolveBackgroundSession('bg-fact-malformed-kill')
+    expect(session.status).toBe('running')
+    expect('exitCode' in session).toBe(false)
+  })
+
   it('keeps an authoritative successful completion stronger than a stale refresh', async () => {
     await createBackgroundSession({
       id: 'bg-natural-success',
@@ -956,7 +998,7 @@ describe('background session registry', () => {
 
     const refreshing = refreshBackgroundSessionStatuses({
       isProcessAlive: () => false,
-      beforeStatusWrite: async () => {
+      _beforeStatusWriteForTesting: async () => {
         refreshReachedWrite()
         await writeMayContinue
       },

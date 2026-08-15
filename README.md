@@ -189,7 +189,11 @@ name. A naturally finished session is recorded as `exited` when its process
 returns zero and `failed` when it returns nonzero or handles a termination
 signal. `stale` remains the conservative result when the process disappears
 without an observed outcome; an explicit successful `openclaude kill` is
-recorded as `killed`. OpenClaude does not infer POSIX signal names on Windows.
+recorded as `killed`, and `killed` takes precedence over a natural `exited` or
+`failed` outcome for the same process. Terminal outcomes are stored separately
+under `bg-sessions/terminal/`; deleting that directory makes finished sessions
+fall back to liveness-derived status. OpenClaude does not infer POSIX signal
+names on Windows.
 Unobservable force termination, host crashes, and power loss remain `stale` on
 every platform.
 
