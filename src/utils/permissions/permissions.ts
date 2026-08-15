@@ -528,7 +528,7 @@ async function runPermissionRequestHooksForHeadlessAgent(
           requestAbort(context.abortController, 'interrupt', {
             source: 'permission_hook',
             subsystem: 'tool_permission',
-            controllerRole: 'tool',
+            controllerRole: 'query-root',
           })
         }
         return {

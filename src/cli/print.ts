@@ -352,6 +352,7 @@ import {
   type HeadlessHeartbeatEvent,
   type HeadlessHeartbeatState,
 } from './headlessHeartbeat.js'
+import { abortPrintModeControlRequest } from './printInterruption.js'
 import {
   isTeamLead,
   hasActiveInProcessTeammates,
@@ -3043,8 +3044,12 @@ function runHeadlessStreaming(
               },
             }))
           }
-          abortActiveQuery('sdk_control_interrupt', 'interrupt')
-          suggestionState.abortController?.abort()
+          abortPrintModeControlRequest(
+            abortController,
+            suggestionState.abortController,
+            'sdk_control_interrupt',
+            'interrupt',
+          )
           suggestionState.abortController = null
           suggestionState.lastEmitted = null
           suggestionState.pendingSuggestion = null
@@ -3053,8 +3058,12 @@ function runHeadlessStreaming(
           logForDebugging(
             `[print.ts] end_session received, reason=${message.request.reason ?? 'unspecified'}`,
           )
-          abortActiveQuery('sdk_end_session', undefined)
-          suggestionState.abortController?.abort()
+          abortPrintModeControlRequest(
+            abortController,
+            suggestionState.abortController,
+            'sdk_end_session',
+            undefined,
+          )
           suggestionState.abortController = null
           suggestionState.lastEmitted = null
           suggestionState.pendingSuggestion = null

@@ -228,7 +228,7 @@ function createPermissionContext(
           source: abortTrace?.source ?? 'permission_abort',
           causalEventId: abortTrace?.causalEventId,
           subsystem: 'tool_permission',
-          controllerRole: 'tool',
+          controllerRole: 'query-root',
         })
       }
       return { behavior: 'ask', message, contentBlocks }
@@ -377,7 +377,7 @@ function createPermissionContext(
               requestAbort(toolUseContext.abortController, 'interrupt', {
                 source: 'permission_hook',
                 subsystem: 'tool_permission',
-                controllerRole: 'tool',
+                controllerRole: 'query-root',
               })
             }
             return this.buildDeny(

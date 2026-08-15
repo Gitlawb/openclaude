@@ -163,7 +163,7 @@ export async function permissionPromptToolResultToPermissionDecision(
     requestAbort(toolUseContext.abortController, 'interrupt', {
       source: 'sdk_permission_interrupt',
       subsystem: 'tool_permission',
-      controllerRole: 'tool',
+      controllerRole: 'query-root',
     })
   }
   return {

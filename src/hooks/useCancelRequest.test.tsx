@@ -207,7 +207,7 @@ describe('CancelRequestHandler interruption sources', () => {
     expect(cleanupCount).toBe(1)
   })
 
-  test('chat:cancel emits cancel_keybinding and calls onCancel with that source', async () => {
+  test('chat:cancel preserves escape analytics and passes the precise cancel source', async () => {
     const logEvent = spyOn(analytics, 'logEvent').mockImplementation(() => {})
     const rendered = await renderCancelHandler(getDefaultAppState())
     try {
@@ -219,14 +219,14 @@ describe('CancelRequestHandler interruption sources', () => {
       )
       expect(logEvent).toHaveBeenCalledWith(
         'tengu_cancel',
-        expect.objectContaining({ source: 'cancel_keybinding' }),
+        expect.objectContaining({ source: 'escape' }),
       )
     } finally {
       await rendered.cleanup()
     }
   })
 
-  test('app:interrupt exits teammate view and emits ctrl_c', async () => {
+  test('app:interrupt preserves escape analytics while passing ctrl_c', async () => {
     const logEvent = spyOn(analytics, 'logEvent').mockImplementation(() => {})
     const rendered = await renderCancelHandler({
       ...getDefaultAppState(),
@@ -239,7 +239,7 @@ describe('CancelRequestHandler interruption sources', () => {
       expect(rendered.getState().viewSelectionMode).toBe('none')
       expect(logEvent).toHaveBeenCalledWith(
         'tengu_cancel',
-        expect.objectContaining({ source: 'ctrl_c' }),
+        expect.objectContaining({ source: 'escape' }),
       )
     } finally {
       await rendered.cleanup()

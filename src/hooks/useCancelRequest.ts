@@ -92,7 +92,8 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     causalEventId?: string,
   ) => {
     const cancelProps = {
-      source: source as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      source:
+        'escape' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       streamMode:
         streamMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     }
