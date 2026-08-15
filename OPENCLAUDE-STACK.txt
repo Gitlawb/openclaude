@@ -1,0 +1,76 @@
+OPENCLAUDE MAIN — INSTALLED STACK
+=================================
+Updated: 2026-07-27 (tune-up)
+Editable stack folders live in this repo. Apply them into the live profile.
+
+DAILY LAUNCHERS
+---------------
+  run.bat       → local qwen3.8-oc-code:27b @ 160k (Ollama)
+  run-opus.bat  → Anthropic claude-opus-4-8 (API key + credits)
+
+EDIT HERE (source of truth in openclaude-main)
+---------------------------------------------
+  Skills\     software pack + custom skills
+              Named entry skills:
+                software-building, software-architecture, software-editing,
+                software-creator, software-design
+  MCPs\       servers.json (parked cloud MCPs — keep empty for speed)
+  Tools\      permissions.json (built-in tool allow/deny)
+  Plugins\    README only (marketplaces stay empty on purpose)
+
+Apply after any edit:
+  powershell -ExecutionPolicy Bypass -File setup\apply-stack.ps1
+
+LIVE PROFILE (lean after park-army)
+-----------------------------------
+  %USERPROFILE%\.openclaude\skills   (~16 keep)
+  %USERPROFILE%\.openclaude\agents   (~11 keep)
+  Parked: %USERPROFILE%\.openclaude\_parked-army\
+  Cursor-* skills are parked (useless in OpenClaude)
+
+Keep skills (core):
+  software-building, software-architecture, software-editing,
+  software-creator, software-design,
+  openclaude-self-repair, openclaude-context-compact, working-with-robert,
+  systematic-debugging, verification-before-completion, code-review-and-quality,
+  writing-plans, executing-plans, incremental-implementation,
+  windows-desktop-apps, full-output-enforcement
+
+Keep agents (core):
+  capability-dispatcher, project-planner, pragmatic-coder, full-stack-builder,
+  debugging-detective, software-architect, code-reviewer-elite,
+  quality-gatekeeper, openclaude-self-healer, windows-shell-master,
+  windows-desktop-product-lead
+
+TOOLS (built-in OpenClaude)
+---------------------------
+Edit: Tools\permissions.json then apply-stack.
+
+Allow:
+  Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch,
+  NotebookEdit, Agent, Skill
+
+Deny (freeze protection):
+  Task* tools, TodoWrite
+
+MCPs
+----
+Default: EMPTY (speed).
+Parked list (do not apply unless needed):
+  notion, figma, linear, neon, atlan, vantage, paradedb,
+  twilio-docs, cockroachdb-cloud
+See: .mcp.json.parked and MCPs\servers.json
+
+CONTEXT / MODEL
+---------------
+  Local: qwen3.8-oc-code:27b — OLLAMA_CONTEXT_LENGTH=163840 — never bare 256k/262k
+  Opus:  claude-opus-4-8 — CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+  Autocompact local window: 143360
+
+SAFE REPAIR
+-----------
+  setup\DO-NOT-RUN.txt
+  setup\_quarantine\   (old stable/harden/snappy scripts)
+  node setup\verify-local-stack.mjs
+  node setup\park-army-for-context.mjs
+  node setup\measure-prompt-bloat.mjs

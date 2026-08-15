@@ -1,0 +1,53 @@
+OPENCLAUDE — START HERE (Robert)
+================================
+
+TWO DAILY LAUNCHERS
+-------------------
+1) LOCAL (free GPU — Qwen)
+   Double-click:
+     C:\Users\GoldenBoy\Desktop\openclaude\openclaude-main\run.bat
+   Model: qwen3.8-oc-code:27b
+   Context: 160k — effort max — thinking on
+   Never run bare qwen3.8:27b in Ollama (256k = crashy)
+
+2) OPUS 4.8 (best coding results — Anthropic API)
+   Double-click:
+     C:\Users\GoldenBoy\Desktop\openclaude\openclaude-main\run-opus.bat
+   Model: claude-opus-4-8
+   Needs: ANTHROPIC_API_KEY + API credits (not Claude Pro chat)
+   Effort max + thinking on + 64k output
+
+Do NOT use daily: run-coder.bat / run-websites.bat / run-software-ai.bat
+(see PROFILE-BATS-PARKED.txt)
+
+HEALTH / REPAIR
+---------------
+  openclaude-health.bat
+  openclaude-maintain.bat
+  node setup\verify-local-stack.mjs
+  setup\golden-path-smoke.ps1
+
+If Ollama feels disconnected: quit Ollama tray, start Ollama, wait 10s,
+then: node setup\verify-local-stack.mjs
+
+Read setup\DO-NOT-RUN.txt before running old harden/stable scripts
+(they are quarantined under setup\_quarantine\).
+
+LEAN STACK (after tune-up)
+--------------------------
+  Live skills ~16, agents ~11 (Bobby Tech core)
+  Full army parked: node setup\park-army-for-context.mjs (already done)
+  Restore all (bloated): node setup\restore-army.mjs
+  MCPs: empty by default (faster). Do not re-apply MCPs\servers.json unless needed.
+
+EDIT YOUR STACK
+---------------
+  Skills\   MCPs\   Tools\
+  Then: powershell -ExecutionPolicy Bypass -File setup\apply-stack.ps1
+  Restart OpenClaude after applying.
+
+IF IT FAILS
+-----------
+1. Start Ollama (for local) or check API credits (for Opus)
+2. Read the ERROR line in the black window
+3. openclaude-health.bat
