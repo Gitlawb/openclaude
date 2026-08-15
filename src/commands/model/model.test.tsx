@@ -16,10 +16,10 @@ import { encodeSwitchProfileValue } from '../../utils/model/modelOptions.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { ModelCatalogEntry } from '../../integrations/descriptors.js'
 import {
   filterAvailableCatalogEntries,
   getRouteDescriptor,
-  type ModelCatalogEntry,
 } from '../../integrations/index.js'
 import { mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
 import * as actualFastModeForModelTest from '../../utils/fastMode.js'
