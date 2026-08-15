@@ -485,6 +485,36 @@ describe('discoverModelsForRoute', () => {
     expect(result?.models.some(m => m.apiName === 'custom-og/mimo-v3')).toBe(true)
   })
 
+  test('opengateway hybrid discovery filters expired static models and live duplicates after availableUntil cutoff', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    setMockFetch(mock((input, init) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'inclusionai/ling-3.0-tiny:free', name: 'Ling 3.0 Tiny Live' },
+              { id: 'moonshotai/kimi-k3', name: 'Kimi K3' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    const apiNames = result?.models.map(
+      (model: { apiName: string }) => model.apiName,
+    )
+    expect(apiNames).toContain('mimo-v2.5-pro')
+    expect(apiNames).toContain('moonshotai/kimi-k3')
+    expect(apiNames).not.toContain('inclusionai/ling-3.0-tiny:free')
+  })
+
   test('openai-compatible discovery applies descriptor static headers with auth', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 

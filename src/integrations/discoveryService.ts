@@ -12,6 +12,7 @@ import type {
   ReadinessProbeKind,
 } from './descriptors.js'
 import { resolveRouteIdFromBaseUrl } from './index.js'
+import { filterAvailableCatalogEntries } from './registry.js'
 import {
   getRouteDescriptor,
   isCanonicalApismartInferenceBaseUrl,
@@ -404,7 +405,7 @@ export async function discoverModelsForRoute(
   if (!catalog.discovery) {
     return {
       routeId,
-      models: staticEntries,
+      models: filterAvailableCatalogEntries(staticEntries),
       stale: false,
       error: null,
       source: 'static',
@@ -424,7 +425,9 @@ export async function discoverModelsForRoute(
     if (cached) {
       return {
         routeId,
-        models: mergeCatalogEntries(staticEntries, cached.models),
+        models: filterAvailableCatalogEntries(
+          mergeCatalogEntries(staticEntries, cached.models),
+        ),
         discoveredModelCount: cached.models.length,
         stale: false,
         error: cached.error,
@@ -442,7 +445,9 @@ export async function discoverModelsForRoute(
       const stale = await isCacheStale(cacheKey, ttlMs)
       return {
         routeId,
-        models: mergeCatalogEntries(staticEntries, staleEntry.models),
+        models: filterAvailableCatalogEntries(
+          mergeCatalogEntries(staticEntries, staleEntry.models),
+        ),
         discoveredModelCount: staleEntry.models.length,
         stale,
         error: staleEntry.error,
@@ -452,7 +457,7 @@ export async function discoverModelsForRoute(
 
     return {
       routeId,
-      models: staticEntries,
+      models: filterAvailableCatalogEntries(staticEntries),
       stale: false,
       error: null,
       source: 'static',
@@ -470,7 +475,9 @@ export async function discoverModelsForRoute(
     await setCachedModels(discoveryCacheKey, { models: discovered })
     return {
       routeId,
-      models: mergeCatalogEntries(staticEntries, discovered),
+      models: filterAvailableCatalogEntries(
+        mergeCatalogEntries(staticEntries, discovered),
+      ),
       discoveredModelCount: discovered.length,
       stale: false,
       error: null,
@@ -486,7 +493,9 @@ export async function discoverModelsForRoute(
     if (staleEntry) {
       return {
         routeId,
-        models: mergeCatalogEntries(staticEntries, staleEntry.models),
+        models: filterAvailableCatalogEntries(
+          mergeCatalogEntries(staticEntries, staleEntry.models),
+        ),
         discoveredModelCount: staleEntry.models.length,
         stale: true,
         error: staleEntry.error,
@@ -496,7 +505,7 @@ export async function discoverModelsForRoute(
 
     return {
       routeId,
-      models: staticEntries,
+      models: filterAvailableCatalogEntries(staticEntries),
       stale: false,
       error: {
         message: error instanceof Error ? error.message : String(error),
@@ -530,7 +539,9 @@ export async function refreshStartupDiscoveryForRoute(
     if (cached) {
       return {
         routeId,
-        models: mergeCatalogEntries(getCatalogEntries(routeId), cached.models),
+        models: filterAvailableCatalogEntries(
+          mergeCatalogEntries(getCatalogEntries(routeId), cached.models),
+        ),
         stale: false,
         error: cached.error,
         source: 'cache',
