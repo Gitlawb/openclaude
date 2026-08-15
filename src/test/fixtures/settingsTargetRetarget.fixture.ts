@@ -58,6 +58,20 @@ try {
   const { __test: settingsSyncTest } = await import(
     '../../services/settingsSync/index.js'
   )
+  const { replaceSettingsFileSync } = await import(
+    '../../utils/settings/settingsFileLock.js'
+  )
+  const directResult = replaceSettingsFileSync(
+    settingsPath,
+    `${JSON.stringify({ env: { DIRECT: '1' } })}\n`,
+  )
+
+  unlinkSync(settingsPath)
+  writeFileSync(originalTarget, original, 'utf8')
+  writeFileSync(replacementTarget, replacement, 'utf8')
+  symlinkSync(originalTarget, settingsPath)
+  retargeted = false
+
   const applyResult = await settingsSyncTest.applyRemoteEntriesToLocal(
     {
       [SYNC_KEYS.USER_SETTINGS]: `${JSON.stringify({ env: { REMOTE: '1' } })}\n`,
@@ -71,6 +85,13 @@ try {
     JSON.stringify({
       skipped: false,
       applied,
+      directResult: {
+        status: directResult.status,
+        bytesOnDisk: directResult.bytesOnDisk,
+        committed: directResult.committed,
+        cacheInvalidated: directResult.cacheInvalidated,
+        error: directResult.error !== null,
+      },
       physicalWriteLanded:
         readFileSync(originalTarget, 'utf8') !== original,
       logicalTargetUnchanged:

@@ -47,24 +47,37 @@ import {
   SYNC_KEYS,
   UserSyncDataSchema,
 } from './types.js'
+import {
+  createSettingsDownloadCoordinator,
+  type SettingsDownloadResult,
+} from './downloadLifecycle.js'
+
+export {
+  assertHeadlessPluginPreparationReady,
+  handleSettingsDownloadResult,
+  prepareHeadlessPluginsAfterSettingsDownload,
+} from './downloadLifecycle.js'
+export type {
+  HeadlessPluginPreparationResult,
+  SettingsDownloadFailureKind,
+  SettingsDownloadResult,
+  SettingsDownloadSource,
+} from './downloadLifecycle.js'
 
 const SETTINGS_SYNC_TIMEOUT_MS = 10000 // 10 seconds
 const DEFAULT_MAX_RETRIES = 3
 const MAX_FILE_SIZE_BYTES = 500 * 1024 // 500 KB per file (matches backend limit)
 
-export type SettingsDownloadResult = {
-  /** True when every requested settings or memory file was applied. */
-  complete: boolean
-  /** Logical settings sources whose writes committed. */
-  settingsSourcesWritten: Array<'userSettings' | 'localSettings'>
-}
-
 function noOpSettingsDownloadResult(): SettingsDownloadResult {
-  return { complete: true, settingsSourcesWritten: [] }
+  return { complete: true, failureKind: null, settingsSourcesWritten: [] }
 }
 
 function failedSettingsDownloadResult(): SettingsDownloadResult {
-  return { complete: false, settingsSourcesWritten: [] }
+  return {
+    complete: false,
+    failureKind: 'fetch_failed',
+    settingsSourcesWritten: [],
+  }
 }
 
 /**
@@ -125,13 +138,83 @@ export async function uploadUserSettingsInBackground(): Promise<void> {
   }
 }
 
+type SettingsDownloadDependencies = {
+  shouldDownload(): boolean
+  isEligible(): boolean
+  fetchUserSettings(maxRetries: number): Promise<SettingsSyncFetchResult>
+  getRepoRemoteHash(): Promise<string | null>
+  applyRemoteEntriesToLocal(
+    entries: Record<string, string>,
+    projectId: string | null,
+  ): Promise<SettingsDownloadResult>
+}
+
+function isSettingsDownloadEnabled(): boolean {
+  if (feature('DOWNLOAD_USER_SETTINGS')) return true
+  return false
+}
+
+const defaultSettingsDownloadDependencies: SettingsDownloadDependencies = {
+  shouldDownload: isSettingsDownloadEnabled,
+  isEligible: () =>
+    getFeatureValue_CACHED_MAY_BE_STALE('tengu_strap_foyer', false) &&
+    isUsingOAuth(),
+  fetchUserSettings,
+  getRepoRemoteHash,
+  applyRemoteEntriesToLocal,
+}
+
+function createDownloadCoordinator(
+  dependencies: SettingsDownloadDependencies,
+) {
+  let applicationTail = Promise.resolve()
+
+  return createSettingsDownloadCoordinator(
+    DEFAULT_MAX_RETRIES,
+    (maxRetries, isCurrent) => {
+      const applyCurrentEntries: SettingsDownloadDependencies['applyRemoteEntriesToLocal'] =
+        async (entries, projectId) => {
+          const previousApplication = applicationTail
+          let releaseApplication: () => void
+          applicationTail = new Promise<void>(resolve => {
+            releaseApplication = resolve
+          })
+          await previousApplication
+          try {
+            if (!isCurrent()) {
+              logForDiagnosticsNoPII(
+                'info',
+                'settings_sync_download_superseded',
+              )
+              return noOpSettingsDownloadResult()
+            }
+            return await dependencies.applyRemoteEntriesToLocal(
+              entries,
+              projectId,
+            )
+          } finally {
+            releaseApplication!()
+          }
+        }
+
+      return doDownloadUserSettings(maxRetries, isCurrent, {
+        ...dependencies,
+        applyRemoteEntriesToLocal: applyCurrentEntries,
+      })
+    },
+  )
+}
+
 // Cached so the fire-and-forget at runHeadless entry and the await in
-// installPluginsAndApplyMcpInBackground share one fetch.
-let downloadPromise: Promise<SettingsDownloadResult> | null = null
+// installPluginsAndApplyMcpInBackground share one fetch. Explicit redownloads
+// supersede older generations before their fetched entries can be applied.
+const downloadCoordinator = createDownloadCoordinator(
+  defaultSettingsDownloadDependencies,
+)
 
 /** Test-only: clear the cached download promise between tests. */
 export function _resetDownloadPromiseForTesting(): void {
-  downloadPromise = null
+  downloadCoordinator.reset()
 }
 
 /**
@@ -143,11 +226,7 @@ export function _resetDownloadPromiseForTesting(): void {
  * committed so mid-session callers can apply successful partial downloads.
  */
 export function downloadUserSettings(): Promise<SettingsDownloadResult> {
-  if (downloadPromise) {
-    return downloadPromise
-  }
-  downloadPromise = doDownloadUserSettings()
-  return downloadPromise
+  return downloadCoordinator.download()
 }
 
 /**
@@ -166,26 +245,24 @@ export function downloadUserSettings(): Promise<SettingsDownloadResult> {
  * settingsSync → changeDetector cycle edge.
  */
 export function redownloadUserSettings(): Promise<SettingsDownloadResult> {
-  downloadPromise = doDownloadUserSettings(0)
-  return downloadPromise
+  return downloadCoordinator.redownload()
 }
 
 async function doDownloadUserSettings(
-  maxRetries = DEFAULT_MAX_RETRIES,
+  maxRetries: number,
+  isCurrent: () => boolean,
+  dependencies: SettingsDownloadDependencies,
 ): Promise<SettingsDownloadResult> {
-  if (feature('DOWNLOAD_USER_SETTINGS')) {
+  if (dependencies.shouldDownload()) {
     try {
-      if (
-        !getFeatureValue_CACHED_MAY_BE_STALE('tengu_strap_foyer', false) ||
-        !isUsingOAuth()
-      ) {
+      if (!dependencies.isEligible()) {
         logForDiagnosticsNoPII('info', 'settings_sync_download_skipped')
         logEvent('tengu_settings_sync_download_skipped', {})
         return noOpSettingsDownloadResult()
       }
 
       logForDiagnosticsNoPII('info', 'settings_sync_download_starting')
-      const result = await fetchUserSettings(maxRetries)
+      const result = await dependencies.fetchUserSettings(maxRetries)
       if (!result.success) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_fetch_failed')
         logEvent('tengu_settings_sync_download_fetch_failed', {})
@@ -199,12 +276,23 @@ async function doDownloadUserSettings(
       }
 
       const entries = result.data!.content.entries
-      const projectId = await getRepoRemoteHash()
+      const projectId = await dependencies.getRepoRemoteHash()
       const entryCount = Object.keys(entries).length
       logForDiagnosticsNoPII('info', 'settings_sync_download_applying', {
         entryCount,
       })
-      const applyResult = await applyRemoteEntriesToLocal(entries, projectId)
+      if (!isCurrent()) {
+        logForDiagnosticsNoPII('info', 'settings_sync_download_superseded')
+        return noOpSettingsDownloadResult()
+      }
+      const applyResult = await dependencies.applyRemoteEntriesToLocal(
+        entries,
+        projectId,
+      )
+      if (!isCurrent()) {
+        logForDiagnosticsNoPII('info', 'settings_sync_download_superseded')
+        return noOpSettingsDownloadResult()
+      }
       if (!applyResult.complete) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_apply_failed')
         logEvent('tengu_settings_sync_download_apply_failed', { entryCount })
@@ -634,11 +722,21 @@ async function applyRemoteEntriesToLocal(
   logForDiagnosticsNoPII('info', 'settings_sync_applied', {
     appliedCount,
   })
-  return {
-    complete: !applyFailed,
-    settingsSourcesWritten,
-  }
+  return applyFailed
+    ? {
+        complete: false,
+        failureKind: 'apply_failed',
+        settingsSourcesWritten,
+      }
+    : {
+        complete: true,
+        failureKind: null,
+        settingsSourcesWritten,
+      }
 }
 
 /** Test-only surface for transaction-level settings-sync coverage. */
-export const __test = { applyRemoteEntriesToLocal }
+export const __test = {
+  applyRemoteEntriesToLocal,
+  createDownloadCoordinator,
+}

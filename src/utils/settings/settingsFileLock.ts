@@ -157,7 +157,7 @@ const locallyAbandonedSettingsLocks = new Map<
 export type SettingsFileLockContext = {
   targetPath: string
   assertOwned(): void
-  writeFile(content: string | Buffer): void
+  writeFile(content: string | Buffer, onPublished?: () => void): void
 }
 
 export class SettingsFileLockOwnershipError extends Error {}
@@ -797,6 +797,7 @@ export function resolveSettingsFileTarget(filePath: string): string {
 function writeSettingsTargetAtomically(
   targetPath: string,
   content: string | Buffer,
+  onPublished?: () => void,
 ): void {
   const fs = getFsImplementation()
   const tempPath = join(
@@ -883,6 +884,7 @@ function writeSettingsTargetAtomically(
     // Rename replaces a symlink at targetPath rather than following it, so a
     // concurrent target swap cannot redirect the guarded write elsewhere.
     fs.renameSync(tempPath, targetPath)
+    onPublished?.()
   } catch (error) {
     try {
       fs.unlinkSync(tempPath)
@@ -1006,9 +1008,12 @@ function acquireSettingsFileLock(filePath: string): {
     }
   }
 
-  const writeFile = (content: string | Buffer): void => {
+  const writeFile = (
+    content: string | Buffer,
+    onPublished?: () => void,
+  ): void => {
     assertOwned()
-    writeSettingsTargetAtomically(targetPath, content)
+    writeSettingsTargetAtomically(targetPath, content, onPublished)
     assertOwned()
   }
 
@@ -1103,33 +1108,90 @@ export function withSettingsFileLockSync<T>(
   return value as T
 }
 
-export type SettingsFileReplacementResult = {
+export type SettingsWriteResult = {
+  /** One lifecycle classification shared by every synchronous settings writer. */
+  status: 'not-requested' | 'rejected' | 'written-uncommitted' | 'committed'
   /** Bytes reached the acquired physical target. */
-  written: boolean
+  bytesOnDisk: boolean
   /** The logical target remained owned through the transaction boundary. */
   committed: boolean
-  error?: Error
+  /** The path cache was invalidated after bytes reached disk. */
+  cacheInvalidated: boolean
+  /** These primitives suppress watcher delivery; callers own session adoption. */
+  sessionNotified: boolean
+  /** Includes cleanup/release errors even when the write committed. */
+  error: Error | null
+}
+
+export function settingsWriteNotRequestedResult(): SettingsWriteResult {
+  return {
+    status: 'not-requested',
+    bytesOnDisk: false,
+    committed: false,
+    cacheInvalidated: false,
+    sessionNotified: false,
+    error: null,
+  }
+}
+
+/**
+ * Runs the complete synchronous write transaction and classifies its outcome.
+ * A non-ownership release error after publication is committed-with-error;
+ * an ownership error after publication is written-but-uncommitted. Neither
+ * primitive advances session state: callers must consume `committed` explicitly.
+ */
+export function runSettingsWriteTransactionSync(
+  filePath: string,
+  operation: (context: SettingsFileLockContext) => void,
+): SettingsWriteResult {
+  let bytesOnDisk = false
+  let cacheInvalidated = false
+  try {
+    withSettingsFileLockSync(filePath, context => {
+      operation({
+        ...context,
+        writeFile(content) {
+          context.writeFile(content, () => {
+            bytesOnDisk = true
+          })
+        },
+      })
+      markInternalWrite(filePath)
+      markInternalWrite(context.targetPath)
+      resetSettingsCache()
+      cacheInvalidated = true
+    })
+    return {
+      status: 'committed',
+      bytesOnDisk,
+      committed: true,
+      cacheInvalidated,
+      sessionNotified: false,
+      error: null,
+    }
+  } catch (error) {
+    const committed =
+      bytesOnDisk && !(error instanceof SettingsFileLockOwnershipError)
+    return {
+      status: committed
+        ? 'committed'
+        : bytesOnDisk
+          ? 'written-uncommitted'
+          : 'rejected',
+      bytesOnDisk,
+      committed,
+      cacheInvalidated,
+      sessionNotified: false,
+      error: toError(error),
+    }
+  }
 }
 
 export function replaceSettingsFileSync(
   filePath: string,
   content: string,
-): SettingsFileReplacementResult {
-  let written = false
-  let committed = false
-  try {
-    withSettingsFileLockSync(filePath, ({ targetPath, writeFile }) => {
-      writeFile(content)
-      written = true
-      markInternalWrite(filePath)
-      markInternalWrite(targetPath)
-      resetSettingsCache()
-    })
-    committed = written
-    return { written, committed }
-  } catch (error) {
-    committed =
-      written && !(error instanceof SettingsFileLockOwnershipError)
-    return { written, committed, error: toError(error) }
-  }
+): SettingsWriteResult {
+  return runSettingsWriteTransactionSync(filePath, ({ writeFile }) => {
+    writeFile(content)
+  })
 }

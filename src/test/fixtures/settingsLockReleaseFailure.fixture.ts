@@ -22,8 +22,15 @@ import {
 } from '../../utils/fsOperations.js'
 
 const mode = process.argv[2]
+const writer = process.argv[3] ?? 'update'
 if (mode !== 'acquisition' && mode !== 'release') {
   process.stderr.write('usage: <acquisition|release>\n')
+  process.exit(2)
+}
+if (writer !== 'update' && writer !== 'replace' && writer !== 'public') {
+  process.stderr.write(
+    'usage: <acquisition|release> <update|replace|public>\n',
+  )
   process.exit(2)
 }
 
@@ -92,26 +99,54 @@ setFsImplementation({
   },
 })
 
-const { updateSettingsForSource } = await import(
-  '../../utils/settings/settings.js'
+const { updateSettingsForSource, updateSettingsForSourceWithResult } =
+  await import('../../utils/settings/settings.js')
+const { replaceSettingsFileSync } = await import(
+  '../../utils/settings/settingsFileLock.js'
 )
+const writeSetting = (key: string, value: string) => {
+  if (writer === 'replace') {
+    return replaceSettingsFileSync(
+      settingsPath,
+      `${JSON.stringify({ env: { [key]: value } }, null, 2)}\n`,
+    )
+  }
+  const settings = { env: { [key]: value } }
+  if (writer === 'update') {
+    return updateSettingsForSourceWithResult('userSettings', settings)
+  }
+  const result = updateSettingsForSource('userSettings', settings)
+  const bytesOnDisk = readFileSync(settingsPath, 'utf8').includes(key)
+  return {
+    status: result.error ? 'rejected' : 'committed',
+    bytesOnDisk,
+    committed: result.error === null,
+    cacheInvalidated: bytesOnDisk,
+    sessionNotified: false,
+    error: result.error,
+  } as const
+}
 try {
-  const first = updateSettingsForSource('userSettings', {
-    env: { FIRST_ATTEMPT: mode },
-  })
+  const first = writeSetting('FIRST_ATTEMPT', mode)
   const firstWriteLanded = readFileSync(settingsPath, 'utf8').includes(
     'FIRST_ATTEMPT',
   )
 
   setOriginalFsImplementation()
-  const retry = updateSettingsForSource('userSettings', {
-    env: { RETRY_AFTER_RELEASE: mode },
-  })
+  const retry = writeSetting('RETRY_AFTER_RELEASE', mode)
 
   const output = {
     firstError: first.error?.message ?? null,
-    firstWritten: firstWriteLanded,
+    firstWritten: first.bytesOnDisk,
     firstWriteLanded,
+    firstResult: {
+      status: first.status,
+      bytesOnDisk: first.bytesOnDisk,
+      committed: first.committed,
+      cacheInvalidated: first.cacheInvalidated,
+      sessionNotified: first.sessionNotified,
+      error: first.error !== null,
+    },
     retryError: retry.error?.message ?? null,
     releaseCalls,
     ownerLeftBehind:

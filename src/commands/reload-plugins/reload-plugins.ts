@@ -1,6 +1,9 @@
 import { feature } from 'bun:bundle'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
-import { redownloadUserSettings } from '../../services/settingsSync/index.js'
+import {
+  handleSettingsDownloadResult,
+  redownloadUserSettings,
+} from '../../services/settingsSync/index.js'
 import type { LocalCommandCall } from '../../types/command.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { refreshActivePlugins } from '../../utils/plugins/refresh.js'
@@ -8,6 +11,7 @@ import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import { plural } from '../../utils/stringUtils.js'
 
 export const call: LocalCommandCall = async (_args, context) => {
+  let downloadWarning: string | null = null
   // CCR: re-pull user settings before the cache sweep so enabledPlugins /
   // extraKnownMarketplaces pushed from the user's local CLI (settingsSync)
   // take effect. Non-CCR headless (e.g. vscode SDK subprocess) shares disk
@@ -29,15 +33,20 @@ export const call: LocalCommandCall = async (_args, context) => {
     // applyRemoteEntriesToLocal uses markInternalWrite to suppress the
     // file watcher (correct for startup, nothing listening yet); fire
     // notifyChange here so mid-session applySettingsChange runs.
-    for (const source of result.settingsSourcesWritten) {
-      settingsChangeDetector.notifyChange(source)
-    }
-    if (!result.complete) {
+    const decision = handleSettingsDownloadResult(result, {
+      notify: source => settingsChangeDetector.notifyChange(source),
+      failOpenOnFetchFailure: true,
+    })
+    if (!decision.proceed) {
       return {
         type: 'text',
         value:
-          'Could not reload plugins because remote settings were only partially downloaded. Retry /reload-plugins.',
+          'Could not reload plugins because remote settings were only partially applied. Retry /reload-plugins.',
       }
+    }
+    if (decision.failureKind === 'fetch_failed') {
+      downloadWarning =
+        'Remote settings could not be downloaded; plugins were refreshed from local disk.'
     }
   }
 
@@ -55,6 +64,9 @@ export const call: LocalCommandCall = async (_args, context) => {
     n(r.lsp_count, 'plugin LSP server'),
   ]
   let msg = `Reloaded: ${parts.join(' · ')}`
+  if (downloadWarning) {
+    msg = `${downloadWarning}\n${msg}`
+  }
 
   if (r.error_count > 0) {
     msg += `\n${n(r.error_count, 'error')} during load. Run /doctor for details.`

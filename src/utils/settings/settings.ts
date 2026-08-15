@@ -27,8 +27,11 @@ import {
   getEnabledSettingSources,
   type SettingSource,
 } from './constants.js'
-import { markInternalWrite } from './internalWrites.js'
-import { withSettingsFileLockSync } from './settingsFileLock.js'
+import {
+  runSettingsWriteTransactionSync,
+  settingsWriteNotRequestedResult,
+  type SettingsWriteResult,
+} from './settingsFileLock.js'
 import {
   getManagedFilePath,
   getManagedSettingsDropInDir,
@@ -430,91 +433,104 @@ export function updateSettingsForSource(
   source: EditableSettingSource,
   settings: SettingsJson,
 ): { error: Error | null } {
+  const result = updateSettingsForSourceWithResult(source, settings)
+  // Preserve the legacy error-only surface while aligning its success policy
+  // with the structured writer: a cleanup error after commit is diagnostic,
+  // not a rejected settings update.
+  return { error: result.committed ? null : result.error }
+}
+
+/**
+ * Structured settings-write lifecycle for internal callers that must
+ * distinguish publication from cleanup. The legacy public wrapper above keeps
+ * its synchronous `{ error }`-only compatibility surface.
+ */
+export function updateSettingsForSourceWithResult(
+  source: EditableSettingSource,
+  settings: SettingsJson,
+): SettingsWriteResult {
   if (
     (source as unknown) === 'policySettings' ||
     (source as unknown) === 'flagSettings'
   ) {
-    return { error: null }
+    return settingsWriteNotRequestedResult()
   }
 
   // Create the folder if needed
   const filePath = getSettingsFilePathForSource(source)
   if (!filePath) {
-    return { error: null }
+    return settingsWriteNotRequestedResult()
   }
 
-  try {
-    withSettingsFileLockSync(
-      filePath,
-      ({ targetPath, writeFile }) => {
-        // Always re-read after acquiring the physical-target lock. The public
-        // parser's path cache may describe an older external write.
-        let existingSettings = parseSettingsFileUncached(filePath, targetPath)
-          .settings
+  const writeResult = runSettingsWriteTransactionSync(
+    filePath,
+    ({ targetPath, writeFile }) => {
+      // Always re-read after acquiring the physical-target lock. The public
+      // parser's path cache may describe an older external write.
+      let existingSettings = parseSettingsFileUncached(filePath, targetPath)
+        .settings
 
-        // If validation failed, check if file exists with a JSON syntax error
-        if (!existingSettings) {
-          let content: string | null = null
-          try {
-            content = readFileSync(targetPath)
-          } catch (e) {
-            if (!isENOENT(e)) {
-              throw e
-            }
-            // File doesn't exist — fall through to merge with empty settings
+      // If validation failed, check if file exists with a JSON syntax error
+      if (!existingSettings) {
+        let content: string | null = null
+        try {
+          content = readFileSync(targetPath)
+        } catch (e) {
+          if (!isENOENT(e)) {
+            throw e
           }
-          if (content !== null) {
-            const rawData = safeParseJSON(content)
-            if (rawData === null) {
-              // JSON syntax error - return validation error instead of overwriting
-              // safeParseJSON will already log the error, so we'll just return the error here
-              throw new Error(
-                `Invalid JSON syntax in settings file at ${filePath}`,
-              )
-            }
-            if (rawData && typeof rawData === 'object') {
-              // safeParseJSON memoizes small inputs and returns the cached object
-              // by reference. mergeWith mutates its destination, so do not let a
-              // failed transaction mutate a cached parse result.
-              existingSettings = structuredClone(rawData) as SettingsJson
-              logForDebugging(
-                `Using raw settings from ${filePath} due to validation failure`,
-              )
-            }
+          // File doesn't exist — fall through to merge with empty settings
+        }
+        if (content !== null) {
+          const rawData = safeParseJSON(content)
+          if (rawData === null) {
+            // JSON syntax error - return validation error instead of overwriting
+            // safeParseJSON will already log the error, so we'll just return the error here
+            throw new Error(
+              `Invalid JSON syntax in settings file at ${filePath}`,
+            )
+          }
+          if (rawData && typeof rawData === 'object') {
+            // safeParseJSON memoizes small inputs and returns the cached object
+            // by reference. mergeWith mutates its destination, so do not let a
+            // failed transaction mutate a cached parse result.
+            existingSettings = structuredClone(rawData) as SettingsJson
+            logForDebugging(
+              `Using raw settings from ${filePath} due to validation failure`,
+            )
           }
         }
+      }
 
-        const updatedSettings = mergeWith(
-          existingSettings || {},
-          settings,
-          (
-            _objValue: unknown,
-            srcValue: unknown,
-            key: string | number | symbol,
-            object: Record<string | number | symbol, unknown>,
-          ) => {
-            // Handle undefined as deletion
-            if (srcValue === undefined && object && typeof key === 'string') {
-              delete object[key]
-              return undefined
-            }
-            // For arrays, always replace with the provided array
-            // This puts the responsibility on the caller to compute the desired final state
-            if (Array.isArray(srcValue)) {
-              return srcValue
-            }
-            // For non-arrays, let lodash handle the default merge behavior
+      const updatedSettings = mergeWith(
+        existingSettings || {},
+        settings,
+        (
+          _objValue: unknown,
+          srcValue: unknown,
+          key: string | number | symbol,
+          object: Record<string | number | symbol, unknown>,
+        ) => {
+          // Handle undefined as deletion
+          if (srcValue === undefined && object && typeof key === 'string') {
+            delete object[key]
             return undefined
-          },
-        )
+          }
+          // For arrays, always replace with the provided array
+          // This puts the responsibility on the caller to compute the desired final state
+          if (Array.isArray(srcValue)) {
+            return srcValue
+          }
+          // For non-arrays, let lodash handle the default merge behavior
+          return undefined
+        },
+      )
 
-        writeFile(jsonStringify(updatedSettings, null, 2) + '\n')
-        markInternalWrite(filePath)
-        markInternalWrite(targetPath)
-        resetSettingsCache()
-      },
-    )
+      writeFile(jsonStringify(updatedSettings, null, 2) + '\n')
+    },
+  )
 
+  if (writeResult.committed) {
     if (source === 'localSettings') {
       // Okay to add to gitignore async without awaiting
       void addFileGlobRuleToGitignore(
@@ -522,15 +538,19 @@ export function updateSettingsForSource(
         getOriginalCwd(),
       )
     }
-  } catch (e) {
-    const error = new Error(
-      `Failed to update settings at ${filePath}: ${e}`,
-    )
-    logError(error)
-    return { error }
   }
 
-  return { error: null }
+  if (writeResult.error) {
+    const error = new Error(
+      writeResult.committed
+        ? `Settings update committed but cleanup failed at ${filePath}: ${writeResult.error}`
+        : `Failed to update settings at ${filePath}: ${writeResult.error}`,
+    )
+    logError(error)
+    return { ...writeResult, error }
+  }
+
+  return writeResult
 }
 
 /**

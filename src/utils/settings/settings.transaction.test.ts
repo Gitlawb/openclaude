@@ -943,6 +943,13 @@ test('settings sync does not report a physical write to a retargeted settings sy
   const result = await collectChild<{
     skipped: boolean
     applied?: boolean
+    directResult?: {
+      status: string
+      bytesOnDisk: boolean
+      committed: boolean
+      cacheInvalidated: boolean
+      error: boolean
+    }
     physicalWriteLanded?: boolean
     logicalTargetUnchanged?: boolean
   }>(
@@ -958,6 +965,13 @@ test('settings sync does not report a physical write to a retargeted settings sy
     exitCode: 0,
     value: {
       applied: false,
+      directResult: {
+        status: 'written-uncommitted',
+        bytesOnDisk: true,
+        committed: false,
+        cacheInvalidated: false,
+        error: true,
+      },
       physicalWriteLanded: true,
       logicalTargetUnchanged: true,
     },
@@ -1151,6 +1165,14 @@ for (const mode of ['acquisition', 'release'] as const) {
       firstError: string | null
       firstWritten: boolean
       firstWriteLanded: boolean
+      firstResult: {
+        status: string
+        bytesOnDisk: boolean
+        committed: boolean
+        cacheInvalidated: boolean
+        sessionNotified: boolean
+        error: boolean
+      }
       retryError: string | null
       releaseCalls: number
       ownerLeftBehind: boolean
@@ -1170,11 +1192,9 @@ for (const mode of ['acquisition', 'release'] as const) {
       value: {
         firstError: expect.stringMatching(
           new RegExp(
-            `^Failed to update settings at .*${
-              mode === 'acquisition'
-                ? 'ownership changed during acquisition'
-                : 'injected release quarantine failure'
-            }`,
+            mode === 'acquisition'
+              ? '^Failed to update settings at .*ownership changed during acquisition'
+              : '^Settings update committed but cleanup failed at .*injected release quarantine failure',
           ),
         ),
         firstWritten: mode === 'release',
@@ -1186,6 +1206,90 @@ for (const mode of ['acquisition', 'release'] as const) {
     })
   }, SUBPROCESS_TEST_TIMEOUT_MS)
 }
+
+test('sync replacement and interactive update classify a release failure identically', async () => {
+  type ReleaseFailureResult = {
+    firstResult: {
+      status: string
+      bytesOnDisk: boolean
+      committed: boolean
+      cacheInvalidated: boolean
+      sessionNotified: boolean
+      error: boolean
+    }
+    firstWriteLanded: boolean
+    retryError: string | null
+  }
+  const collect = (writer: 'update' | 'replace') =>
+    collectChild<ReleaseFailureResult>(
+      Bun.spawn(
+        [
+          process.execPath,
+          SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE,
+          'release',
+          writer,
+        ],
+        {
+          cwd: process.cwd(),
+          stderr: 'pipe',
+          stdout: 'pipe',
+        },
+      ),
+    )
+
+  const [interactive, sync] = await Promise.all([
+    collect('update'),
+    collect('replace'),
+  ])
+  expect(interactive.exitCode, interactive.stderr).toBe(0)
+  expect(sync.exitCode, sync.stderr).toBe(0)
+  expect(interactive.value).toMatchObject({
+    firstResult: {
+      status: 'committed',
+      bytesOnDisk: true,
+      committed: true,
+      cacheInvalidated: true,
+      sessionNotified: false,
+      error: true,
+    },
+    firstWriteLanded: true,
+    retryError: null,
+  })
+  expect(sync.value).toMatchObject({
+    firstResult: interactive.value.firstResult,
+    firstWriteLanded: true,
+    retryError: null,
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('legacy settings updates report a committed release-cleanup failure as success', async () => {
+  const result = await collectChild<{
+    firstError: string | null
+    firstWriteLanded: boolean
+    retryError: string | null
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE,
+        'release',
+        'public',
+      ],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    ),
+  )
+
+  expect(result.exitCode, result.stderr).toBe(0)
+  expect(result.value).toMatchObject({
+    firstError: null,
+    firstWriteLanded: true,
+    retryError: null,
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
 
 test('settings sync reports contention as an unapplied download', async () => {
   const result = await collectChild<{
@@ -1205,6 +1309,78 @@ test('settings sync reports contention as an unapplied download', async () => {
       value: {
         result: { complete: false, settingsSourcesWritten: [] },
         unchanged: true,
+      },
+    },
+  )
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('a superseded startup download cannot overwrite a newer redownload', async () => {
+  const result = await collectChild<{
+    finalValue: string
+    sameResult: boolean
+    redownloadResult: {
+      complete: boolean
+      failureKind: string | null
+      settingsSourcesWritten: string[]
+    }
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_PARTIAL_FIXTURE, 'supersession'], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toMatchObject(
+    {
+      exitCode: 0,
+      value: {
+        finalValue: 'new',
+        sameResult: true,
+        redownloadResult: {
+          complete: true,
+          failureKind: null,
+          settingsSourcesWritten: ['userSettings'],
+        },
+      },
+    },
+  )
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('a newer settings generation applies after an in-flight older generation', async () => {
+  const result = await collectChild<{
+    applyEvents: string[]
+    finalValue: string
+    newerStartedBeforeRelease: boolean
+    sameResult: boolean
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        SETTINGS_SYNC_PARTIAL_FIXTURE,
+        'supersession-inflight',
+      ],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    ),
+  )
+
+  expect(result, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toMatchObject(
+    {
+      exitCode: 0,
+      value: {
+        applyEvents: [
+          'started:stale',
+          'finished:stale',
+          'started:new',
+          'finished:new',
+        ],
+        finalValue: 'new',
+        newerStartedBeforeRelease: false,
+        sameResult: true,
       },
     },
   )
@@ -1274,13 +1450,18 @@ test.each([
   SUBPROCESS_TEST_TIMEOUT_MS,
 )
 
-test('reload plugins notifies every settings source committed by a partial download', async () => {
-  const result = await collectChild<{ notified: string[] }>(
+test('reload plugins notifies committed sources and blocks after a partial apply', async () => {
+  const result = await collectChild<{
+    notified: string[]
+    refreshed: number
+    result: { type: string; value: string }
+  }>(
     Bun.spawn(
       [
         process.execPath,
         '--feature=DOWNLOAD_USER_SETTINGS',
         SETTINGS_RELOAD_NOTIFICATION_FIXTURE,
+        'partial',
       ],
       {
         cwd: process.cwd(),
@@ -1292,7 +1473,50 @@ test('reload plugins notifies every settings source committed by a partial downl
 
   expect(result).toMatchObject({
     exitCode: 0,
-    value: { notified: ['userSettings', 'localSettings'] },
+    value: {
+      notified: ['userSettings', 'localSettings'],
+      refreshed: 0,
+      result: {
+        value: expect.stringContaining(
+          'remote settings were only partially applied',
+        ),
+      },
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('reload plugins fails open to local disk after a total fetch failure', async () => {
+  const result = await collectChild<{
+    notified: string[]
+    refreshed: number
+    result: { type: string; value: string }
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        '--feature=DOWNLOAD_USER_SETTINGS',
+        SETTINGS_RELOAD_NOTIFICATION_FIXTURE,
+        'fetch-failed',
+      ],
+      {
+        cwd: process.cwd(),
+        stderr: 'pipe',
+        stdout: 'pipe',
+      },
+    ),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      notified: [],
+      refreshed: 1,
+      result: {
+        value: expect.stringContaining(
+          'Remote settings could not be downloaded; plugins were refreshed from local disk.',
+        ),
+      },
+    },
   })
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
