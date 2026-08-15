@@ -524,7 +524,7 @@ export function updateSettingsForSource(
 }
 
 /**
- * Custom merge function for arrays - concatenate and deduplicate
+ * Custom merge function for structured settings values.
  */
 function mergeArrays<T>(targetArray: T[], sourceArray: T[]): T[] {
   return uniq([...targetArray, ...sourceArray])
@@ -532,15 +532,44 @@ function mergeArrays<T>(targetArray: T[], sourceArray: T[]): T[] {
 
 /**
  * Custom merge function for lodash mergeWith when merging settings.
- * Arrays are concatenated and deduplicated; other values use default lodash merge behavior.
+ * Arrays are concatenated and deduplicated. Model-pricing maps preserve
+ * arbitrary exact keys and replace complete entries. Other values use default
+ * lodash merge behavior.
  * Exported for testing.
  */
 export function settingsMergeCustomizer(
   objValue: unknown,
   srcValue: unknown,
+  key?: PropertyKey,
 ): unknown {
   if (Array.isArray(objValue) && Array.isArray(srcValue)) {
     return mergeArrays(objValue, srcValue)
+  }
+  if (
+    key === 'modelPricing' &&
+    typeof srcValue === 'object' &&
+    srcValue !== null &&
+    !Array.isArray(srcValue)
+  ) {
+    // Model ids are arbitrary strings, including Object.prototype names.
+    // Copy into a null-prototype map so mergeWith cannot interpret them as
+    // structure. Replace each complete higher-priority entry atomically: a
+    // missing optional webSearchRequests field must use its documented
+    // default, not inherit a lower-priority source's value.
+    const merged = Object.create(null) as Record<string, unknown>
+    if (
+      typeof objValue === 'object' &&
+      objValue !== null &&
+      !Array.isArray(objValue)
+    ) {
+      for (const [model, entry] of Object.entries(objValue)) {
+        merged[model] = entry
+      }
+    }
+    for (const [model, entry] of Object.entries(srcValue)) {
+      merged[model] = entry
+    }
+    return merged
   }
   // Return undefined to let lodash handle default merge behavior
   return undefined

@@ -526,6 +526,70 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   metadata (a known catalog model keeps its catalog limit unless you set an
   *exact* env override for it).
 
+### Exact-model pricing overrides (`settings.json`)
+
+Use `modelPricing` when a gateway's real price differs from OpenClaude's
+built-in price or unknown-model estimate. Keys match the exact, case-sensitive
+model identifier sent to the API. They are not prefixes, aliases, globs, or
+route/profile-qualified keys.
+
+The four token fields are USD per 1,000,000 tokens. `webSearchRequests` is USD
+per request; it defaults to `$0.01` when omitted. All four token fields are
+required so an omitted cache rate never falls through to an unrelated built-in
+price. Explicit zero is supported, including fully free gateways. The GLM
+entry below is an illustrative paid estimate; replace it with your actual
+gateway rates:
+
+```json
+{
+  "modelPricing": {
+    "nvidia/llama-3.1-nemotron-70b-instruct": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "promptCacheReadTokens": 0,
+      "promptCacheWriteTokens": 0,
+      "webSearchRequests": 0
+    },
+    "z-ai/glm-5.2": {
+      "inputTokens": 0.6,
+      "outputTokens": 2.2,
+      "promptCacheReadTokens": 0.06,
+      "promptCacheWriteTokens": 0.75,
+      "webSearchRequests": 0.01
+    }
+  }
+}
+```
+
+Set this in user settings (`~/.openclaude/settings.json`), local gitignored
+settings (`.openclaude/settings.local.json`), a `--settings`/SDK settings
+source, or managed settings. Shared project settings
+(`.openclaude/settings.json`) are deliberately ignored for `modelPricing`, so
+repository content cannot silently change personal USD accounting. Under the
+current architecture, one key applies to that exact model id across every
+route and profile; route-specific prices are not represented yet.
+
+Pricing precedence is:
+
+1. exact trusted `modelPricing` entry;
+2. built-in known-model pricing, including fast-mode pricing;
+3. the existing unknown-model estimate and warning.
+
+For ordinary provider routes, find the exact pre-canonicalization identifier by
+running with `OPENCLAUDE_LOG_TOKEN_USAGE=verbose` and copying the JSON log
+line's `model` field. Use that value verbatim. Bedrock application inference
+profiles are the exception: cost calculation uses the profile's resolved
+backing model id. For example, an override for `claude-opus-4-8` does not match
+a resolved id such as `claude-opus-4-8-20260815`; dated, backing, or
+provider-suffixed ids need their own exact keys.
+
+Rates must be finite and nonnegative. Token rates are capped at `$100,000` per
+million tokens, web-search rates at `$1,000` per request, model ids at 512
+characters, and the map at 256 entries. These deliberately generous bounds
+reject accidental absurd values. An invalid pricing map is ignored without
+discarding unrelated settings from the same file. `/config` does not currently
+edit record-valued settings, so edit the JSON file directly.
+
 ## Safety strictness
 
 OpenClaude runs several "safety" checks: a model-level refusal directive, bash

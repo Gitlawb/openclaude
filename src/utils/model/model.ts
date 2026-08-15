@@ -20,7 +20,7 @@ import {
 } from '../context.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
-import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
+import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import {
@@ -562,9 +562,15 @@ export function renderDefaultModelSetting(
   return renderModelName(parseUserSpecifiedModel(setting))
 }
 
-export function getOpus46PricingSuffix(fastMode: boolean): string {
+export function getOpus46PricingSuffix(
+  fastMode: boolean,
+  model: string = getModelStrings().opus48,
+): string {
   if (!isFirstPartyAnthropicProvider()) return ''
-  const pricing = formatModelPricing(getOpus46CostTier(fastMode))
+  const pricing = getModelPricingString(model, {
+    speed: fastMode ? 'fast' : 'standard',
+  })
+  if (!pricing) return ''
   const fastModeIndicator = fastMode ? ` (${LIGHTNING_BOLT})` : ''
   return ` ·${fastModeIndicator} ${pricing}`
 }
