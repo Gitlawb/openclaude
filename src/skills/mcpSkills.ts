@@ -3,6 +3,7 @@ import { parseFrontmatter } from '../utils/frontmatterParser.js'
 import { memoizeWithLRU } from '../utils/memoize.js'
 import { recursivelySanitizeUnicode } from '../utils/sanitization.js'
 import { normalizeNameForMCP } from '../services/mcp/normalization.js'
+import { paginateMcpList } from '../services/mcp/pagination.js'
 import type { MCPServerConnection, ServerResource } from '../services/mcp/types.js'
 import { getMCPSkillBuilders } from './mcpSkillBuilders.js'
 import { logForDebugging } from '../utils/debug.js'
@@ -94,12 +95,16 @@ export const fetchMcpSkillsForClient = memoizeWithLRU(
     if (!client.capabilities?.resources) return []
 
     try {
-      const result = await client.client.request(
-        { method: 'resources/list' },
-        ListResourcesResultSchema,
-      )
+      const listedResources = await paginateMcpList({
+        method: 'resources/list',
+        resultSchema: ListResourcesResultSchema,
+        requestPage: (request, resultSchema) =>
+          client.client.request(request, resultSchema),
+        getItems: result => result.resources,
+        getNextCursor: result => result.nextCursor,
+      })
 
-      const resources = (result.resources ?? []).map(r => ({
+      const resources = listedResources.map(r => ({
         ...r,
         server: client.name,
       })) as ServerResource[]

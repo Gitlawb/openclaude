@@ -112,6 +112,7 @@ import {
 } from './elicitationHandler.js'
 import { buildMcpToolName } from './mcpStringUtils.js'
 import { normalizeNameForMCP } from './normalization.js'
+import { paginateMcpList } from './pagination.js'
 import { getLoggingSafeMcpBaseUrl } from './utils.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -1847,35 +1848,43 @@ export const fetchToolsForClient = memoizeWithLRU(
         return []
       }
 
-      // Retry tool list fetch up to 2 times on transient failures.
-      // Without retry, a single timeout during tools/list makes all MCP tools
-      // silently disappear from the model's context until the next reconnect.
-      let result: ListToolsResult | undefined
-      let lastError: unknown
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          result = (await client.client.request(
-            { method: 'tools/list' },
-            ListToolsResultSchema,
-          )) as ListToolsResult
-          break
-        } catch (err) {
-          lastError = err
-          if (attempt < 2) {
-            logMCPDebug(
-              client.name,
-              `tools/list failed (attempt ${attempt + 1}/3): ${errorMessage(err)}. Retrying...`,
-            )
-            await sleep(1000 * (attempt + 1))
+      const tools = await paginateMcpList({
+        method: 'tools/list',
+        resultSchema: ListToolsResultSchema,
+        // Preserve the existing three-attempt 1s/2s policy independently for
+        // each page. A page-two retry must not replay the successful first page.
+        requestPage: async (request, resultSchema) => {
+          let result: ListToolsResult | undefined
+          let lastError: unknown
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              result = (await client.client.request(
+                request,
+                resultSchema,
+              )) as ListToolsResult
+              break
+            } catch (err) {
+              lastError = err
+              if (attempt < 2) {
+                logMCPDebug(
+                  client.name,
+                  `tools/list failed (attempt ${attempt + 1}/3): ${errorMessage(err)}. Retrying...`,
+                )
+                await sleep(1000 * (attempt + 1))
+              }
+            }
           }
-        }
-      }
-      if (!result) {
-        throw lastError ?? new Error('tools/list failed after 3 attempts')
-      }
+          if (!result) {
+            throw lastError ?? new Error('tools/list failed after 3 attempts')
+          }
+          return result
+        },
+        getItems: result => result.tools,
+        getNextCursor: result => result.nextCursor,
+      })
 
-      // Sanitize tool data from MCP server
-      const toolsToProcess = recursivelySanitizeUnicode(result.tools)
+      // Sanitize tool data from MCP server after the complete list succeeds.
+      const toolsToProcess = recursivelySanitizeUnicode(tools)
 
       // Check if we should skip the mcp__ prefix for SDK MCP servers
       const skipPrefix =
@@ -2221,15 +2230,17 @@ export const fetchResourcesForClient = memoizeWithLRU(
         return []
       }
 
-      const result = await client.client.request(
-        { method: 'resources/list' },
-        ListResourcesResultSchema,
-      )
-
-      if (!result.resources) return []
+      const resources = await paginateMcpList({
+        method: 'resources/list',
+        resultSchema: ListResourcesResultSchema,
+        requestPage: (request, resultSchema) =>
+          client.client.request(request, resultSchema),
+        getItems: result => result.resources,
+        getNextCursor: result => result.nextCursor,
+      })
 
       // Add server name to each resource
-      return result.resources.map(resource => ({
+      return resources.map(resource => ({
         ...resource,
         server: client.name,
       }))
@@ -2254,16 +2265,20 @@ export const fetchCommandsForClient = memoizeWithLRU(
         return []
       }
 
-      // Request prompts list from client
-      const result = (await client.client.request(
-        { method: 'prompts/list' },
-        ListPromptsResultSchema,
-      )) as ListPromptsResult
+      const prompts = await paginateMcpList({
+        method: 'prompts/list',
+        resultSchema: ListPromptsResultSchema,
+        requestPage: async (request, resultSchema) =>
+          (await client.client.request(
+            request,
+            resultSchema,
+          )) as ListPromptsResult,
+        getItems: result => result.prompts,
+        getNextCursor: result => result.nextCursor,
+      })
 
-      if (!result.prompts) return []
-
-      // Sanitize prompt data from MCP server
-      const promptsToProcess = recursivelySanitizeUnicode(result.prompts)
+      // Sanitize prompt data from MCP server after the complete list succeeds.
+      const promptsToProcess = recursivelySanitizeUnicode(prompts)
 
       // Convert MCP prompts to our Command format
       return promptsToProcess.map(prompt => {
