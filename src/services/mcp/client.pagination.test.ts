@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { feature } from 'bun:bundle'
 import {
   PromptListChangedNotificationSchema,
@@ -18,6 +18,20 @@ type ListRequest = {
   params?: { cursor?: string }
 }
 type PageStep = unknown | Error
+
+async function flushMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 5; turn++) {
+    await Promise.resolve()
+  }
+}
+
+async function advanceRetryTimers(...delays: number[]): Promise<void> {
+  await flushMicrotasks()
+  for (const delay of delays) {
+    vi.advanceTimersByTime(delay)
+    await flushMicrotasks()
+  }
+}
 
 function makePaginatedConnection(
   name: string,
@@ -56,6 +70,11 @@ function makePaginatedConnection(
 }
 
 describe('MCP list cursor pagination', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
   test('legacy single-page responses omit params for all list methods', async () => {
     const { connection, requests } = makePaginatedConnection('legacy-pages', {
       'tools/list': [
@@ -457,6 +476,7 @@ describe('MCP list cursor pagination', () => {
   })
 
   test('tools retry only the transient later page and never duplicate page one', async () => {
+    vi.useFakeTimers()
     const requests: ListRequest[] = []
     let secondPageAttempts = 0
     const client = {
@@ -489,7 +509,9 @@ describe('MCP list cursor pagination', () => {
       cleanup: async () => {},
     } as unknown as ConnectedMCPServer
 
-    const tools = await fetchToolsForClient(connection)
+    const toolsPromise = fetchToolsForClient(connection)
+    await advanceRetryTimers(1_000)
+    const tools = await toolsPromise
 
     expect(tools.map(tool => tool.mcpInfo?.toolName)).toEqual([
       'first',
@@ -503,6 +525,7 @@ describe('MCP list cursor pagination', () => {
   })
 
   test('a terminal later tools page retries that cursor three times and returns no prefix', async () => {
+    vi.useFakeTimers()
     const requests: ListRequest[] = []
     const connection = {
       type: 'connected',
@@ -527,12 +550,112 @@ describe('MCP list cursor pagination', () => {
       cleanup: async () => {},
     } as unknown as ConnectedMCPServer
 
-    expect(await fetchToolsForClient(connection)).toEqual([])
+    const toolsPromise = fetchToolsForClient(connection)
+    await advanceRetryTimers(1_000, 2_000)
+
+    expect(await toolsPromise).toEqual([])
     expect(requests).toEqual([
       { method: 'tools/list' },
       { method: 'tools/list', params: { cursor: 'terminal-page' } },
       { method: 'tools/list', params: { cursor: 'terminal-page' } },
       { method: 'tools/list', params: { cursor: 'terminal-page' } },
+    ])
+  })
+
+  test('tools share one retry deadline across all paginated pages', async () => {
+    vi.useFakeTimers()
+    const requests: ListRequest[] = []
+    let firstPageAttempts = 0
+    const connection = {
+      type: 'connected',
+      name: 'tools-traversal-retry-deadline',
+      config: { type: 'sdk', scope: 'local' },
+      capabilities: { tools: {} },
+      client: {
+        request: async (
+          request: ListRequest,
+          resultSchema: { parse: (value: unknown) => unknown },
+        ) => {
+          requests.push(request)
+          if (!('params' in request)) {
+            firstPageAttempts++
+            if (firstPageAttempts === 1) {
+              throw new Error('transient first-page failure')
+            }
+            return resultSchema.parse({
+              tools: [{ name: 'prefix', inputSchema: { type: 'object' } }],
+              nextCursor: 'terminal-page',
+            })
+          }
+          throw new Error('terminal later-page failure')
+        },
+      },
+      cleanup: async () => {},
+    } as unknown as ConnectedMCPServer
+
+    const toolsPromise = fetchToolsForClient(connection)
+    await advanceRetryTimers(1_000, 1_000, 1_000)
+    const requestsAtTraversalDeadline = [...requests]
+    // Let the base implementation's per-page 2s backoff finish too, so the
+    // red/green proof never leaves a pending promise or timer behind.
+    await advanceRetryTimers(1_000)
+
+    expect(requestsAtTraversalDeadline).toHaveLength(5)
+    expect(await toolsPromise).toEqual([])
+    expect(requests).toEqual([
+      { method: 'tools/list' },
+      { method: 'tools/list' },
+      { method: 'tools/list', params: { cursor: 'terminal-page' } },
+      { method: 'tools/list', params: { cursor: 'terminal-page' } },
+      { method: 'tools/list', params: { cursor: 'terminal-page' } },
+    ])
+  })
+
+  test('an overdue retry timer cannot start a post-deadline request', async () => {
+    vi.useFakeTimers()
+    let nowMs = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => nowMs)
+    const requests: ListRequest[] = []
+    const connection = {
+      type: 'connected',
+      name: 'tools-overdue-retry-deadline',
+      config: { type: 'sdk', scope: 'local' },
+      capabilities: { tools: {} },
+      client: {
+        request: async (
+          request: ListRequest,
+          resultSchema: { parse: (value: unknown) => unknown },
+        ) => {
+          requests.push(request)
+          if (!('params' in request)) {
+            return resultSchema.parse({
+              tools: [{ name: 'prefix', inputSchema: { type: 'object' } }],
+              nextCursor: 'late-page',
+            })
+          }
+          throw new Error('terminal later-page failure')
+        },
+      },
+      cleanup: async () => {},
+    } as unknown as ConnectedMCPServer
+
+    const toolsPromise = fetchToolsForClient(connection)
+    await flushMicrotasks()
+    nowMs = 1_100
+    vi.advanceTimersByTime(1_000)
+    await flushMicrotasks()
+    nowMs = 3_200
+    vi.advanceTimersByTime(1_900)
+    await flushMicrotasks()
+    // Drain the final 100ms that the base implementation still has pending;
+    // the corrected implementation has already rejected the traversal.
+    await advanceRetryTimers(100)
+
+    expect(await toolsPromise).toEqual([])
+    expect(requests).toEqual([
+      { method: 'tools/list' },
+      { method: 'tools/list', params: { cursor: 'late-page' } },
+      { method: 'tools/list', params: { cursor: 'late-page' } },
     ])
   })
 

@@ -1,3 +1,9 @@
+import {
+  type ListResourcesResult,
+  ListResourcesResultSchema,
+} from '@modelcontextprotocol/sdk/types.js'
+import type { MCPServerConnection, ServerResource } from './types.js'
+
 /**
  * MCP discovery responses are controlled by external servers. One hundred
  * pages matches the repository's other bounded cursor traversal, while 10,000
@@ -83,4 +89,27 @@ export async function paginateMcpList<
     usedCursors.add(nextCursor)
     cursor = nextCursor
   }
+}
+
+/**
+ * List and annotate every resource exposed by one connected MCP server. Both
+ * ordinary resource discovery and resource-backed skills share this exact
+ * cursor traversal so their protocol behavior cannot drift.
+ */
+export async function listAllMcpResources(
+  client: Extract<MCPServerConnection, { type: 'connected' }>,
+): Promise<ServerResource[]> {
+  const resources = await paginateMcpList({
+    method: 'resources/list',
+    resultSchema: ListResourcesResultSchema,
+    requestPage: async (request, resultSchema) =>
+      (await client.client.request(request, resultSchema)) as ListResourcesResult,
+    getItems: result => result.resources,
+    getNextCursor: result => result.nextCursor,
+  })
+
+  return resources.map(resource => ({
+    ...resource,
+    server: client.name,
+  }))
 }

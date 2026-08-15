@@ -28,7 +28,6 @@ import {
   type JSONRPCMessage,
   type ListPromptsResult,
   ListPromptsResultSchema,
-  ListResourcesResultSchema,
   ListRootsRequestSchema,
   type ListToolsResult,
   ListToolsResultSchema,
@@ -112,7 +111,7 @@ import {
 } from './elicitationHandler.js'
 import { buildMcpToolName } from './mcpStringUtils.js'
 import { normalizeNameForMCP } from './normalization.js'
-import { paginateMcpList } from './pagination.js'
+import { listAllMcpResources, paginateMcpList } from './pagination.js'
 import { getLoggingSafeMcpBaseUrl } from './utils.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -1823,6 +1822,7 @@ export function areMcpConfigsEqual(
 // Max cache size for fetch* caches. Keyed by server name (stable across
 // reconnects), bounded to prevent unbounded growth with many MCP servers.
 const MCP_FETCH_CACHE_SIZE = 20
+export const MCP_TOOLS_LIST_RETRY_BUDGET_MS = 3_000
 
 /**
  * Encode MCP tool input for the auto-mode security classifier.
@@ -1848,11 +1848,14 @@ export const fetchToolsForClient = memoizeWithLRU(
         return []
       }
 
+      const retryDeadline =
+        performance.now() + MCP_TOOLS_LIST_RETRY_BUDGET_MS
       const tools = await paginateMcpList({
         method: 'tools/list',
         resultSchema: ListToolsResultSchema,
-        // Preserve the existing three-attempt 1s/2s policy independently for
-        // each page. A page-two retry must not replay the successful first page.
+        // Preserve the existing three-attempt 1s/2s policy for each page while
+        // one traversal-wide deadline has retry budget remaining. A page-two
+        // retry must not replay the successful first page.
         requestPage: async (request, resultSchema) => {
           let result: ListToolsResult | undefined
           let lastError: unknown
@@ -1866,11 +1869,25 @@ export const fetchToolsForClient = memoizeWithLRU(
             } catch (err) {
               lastError = err
               if (attempt < 2) {
+                const remainingRetryBudget =
+                  retryDeadline - performance.now()
+                if (remainingRetryBudget <= 0) {
+                  break
+                }
                 logMCPDebug(
                   client.name,
                   `tools/list failed (attempt ${attempt + 1}/3): ${errorMessage(err)}. Retrying...`,
                 )
-                await sleep(1000 * (attempt + 1))
+                await sleep(
+                  Math.min(1000 * (attempt + 1), remainingRetryBudget),
+                )
+                // A timer can wake after its scheduled deadline when the event
+                // loop is busy. Do not turn that overdue wake-up into another
+                // request; a wake exactly at the deadline preserves the legacy
+                // third attempt after the full 1s/2s backoff.
+                if (performance.now() > retryDeadline) {
+                  break
+                }
               }
             }
           }
@@ -2230,20 +2247,7 @@ export const fetchResourcesForClient = memoizeWithLRU(
         return []
       }
 
-      const resources = await paginateMcpList({
-        method: 'resources/list',
-        resultSchema: ListResourcesResultSchema,
-        requestPage: (request, resultSchema) =>
-          client.client.request(request, resultSchema),
-        getItems: result => result.resources,
-        getNextCursor: result => result.nextCursor,
-      })
-
-      // Add server name to each resource
-      return resources.map(resource => ({
-        ...resource,
-        server: client.name,
-      }))
+      return await listAllMcpResources(client)
     } catch (error) {
       logMCPError(
         client.name,
