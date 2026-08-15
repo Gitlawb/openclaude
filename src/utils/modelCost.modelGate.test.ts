@@ -14,7 +14,10 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import * as realFastMode from './fastMode.js'
+import * as realModel from './model/model.js'
 import { resetSettingsCache } from './settings/settingsCache.js'
+
+const realModelSnapshot = { ...realModel }
 
 type PricingOverride = {
   inputTokens: number
@@ -49,6 +52,7 @@ afterEach(() => {
   try {
     mock.restore()
     mock.module('./fastMode.js', () => realFastMode)
+    mock.module('./model/model.js', () => realModelSnapshot)
     setAllowedSettingSources(originalSources)
     setFlagSettingsPath(originalFlagPath)
     setFlagSettingsInline(originalFlagInline)
@@ -218,6 +222,9 @@ test('all-zero exact override is authoritative for unknown and fast-mode known m
 })
 
 test('custom pricing matches exact resolved ids only, including unusual own keys', async () => {
+  mock.restore()
+  mock.module('./fastMode.js', () => realFastMode)
+  mock.module('./model/model.js', () => realModelSnapshot)
   const configured = {
     inputTokens: 7,
     outputTokens: 11,
@@ -235,8 +242,12 @@ test('custom pricing matches exact resolved ids only, including unusual own keys
       writable: true,
     })
   }
-  const { calculateUSDCost, getModelCosts, COST_TIER_5_25 } =
-    await importFreshModelCost()
+  const {
+    calculateUSDCost,
+    getModelCosts,
+    COST_TIER_5_25,
+    DEFAULT_UNKNOWN_MODEL_COST,
+  } = await importFreshModelCost()
   const usage = {
     input_tokens: 1_000_000,
     output_tokens: 0,
@@ -245,12 +256,21 @@ test('custom pricing matches exact resolved ids only, including unusual own keys
   for (const model of [exact, 'constructor', 'toString', '__proto__']) {
     expect(calculateUSDCost(model, usage)).toBe(7)
   }
+  resetCostState()
   for (const nearMatch of [
     exact.toLowerCase(),
     exact.slice(0, -1),
     `${exact}/child`,
-    'claude-opus-4-8-20260815',
   ]) {
-    expect(getModelCosts(nearMatch, usage)).toEqual(COST_TIER_5_25)
+    expect(getModelCosts(nearMatch, usage)).toEqual(
+      DEFAULT_UNKNOWN_MODEL_COST,
+    )
   }
+  expect(hasUnknownModelCost()).toBe(true)
+
+  resetCostState()
+  expect(getModelCosts('claude-opus-4-8-20260815', usage)).toEqual(
+    COST_TIER_5_25,
+  )
+  expect(hasUnknownModelCost()).toBe(false)
 })

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { CommandResultDisplay, LocalJSXCommandContext } from '../../commands.js';
 import { Dialog } from '../../components/design-system/Dialog.js';
 import { FastIcon, getFastIconString } from '../../components/FastIcon.js';
+import { useSettings } from '../../hooks/useSettings.js';
 import { Box, Link, Text } from '../../ink.js';
 import { useKeybindings } from '../../keybindings/useKeybinding.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
@@ -48,6 +49,7 @@ export function FastModePicker(t0) {
   const model = useAppState(_temp);
   const initialFastMode = useAppState(_temp2);
   const setAppState = useSetAppState();
+  useSettings();
   const [enableFastMode, setEnableFastMode] = useState(initialFastMode ?? false);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {

@@ -1,6 +1,6 @@
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -18,15 +18,12 @@ import {
 } from '../../bootstrap/state.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 
-// Preserve real source reads for modelPricing while preventing the shortcut
-// fixture from writing the user's settings file.
-// @ts-expect-error -- query suffix intentionally bypasses Bun's module cache.
-import * as realSettings from '../../utils/settings/settings.js?pricingDisplayRealSettings'
+const originalOpenClaudeConfigDir = process.env.OPENCLAUDE_CONFIG_DIR
+const fixtureDir = mkdtempSync(join(tmpdir(), 'openclaude-pricing-display-'))
+const userConfigDir = join(fixtureDir, 'user-config')
+const pricingSettingsPath = join(fixtureDir, 'pricing-settings.json')
+process.env.OPENCLAUDE_CONFIG_DIR = userConfigDir
 
-mock.module('../../utils/settings/settings.js', () => ({
-  ...realSettings,
-  updateSettingsForSource: () => ({ error: null }),
-}))
 mock.module('../../utils/model/providers.js', () => ({
   getAPIProvider: () => 'firstParty',
   getAPIProviderForStatsig: () => 'firstParty',
@@ -57,12 +54,10 @@ mock.module('../../utils/fastMode.js', () => ({
 const originalSources = [...getAllowedSettingSources()]
 const originalFlagPath = getFlagSettingsPath()
 const originalFlagInline = getFlagSettingsInline()
-const fixtureDir = mkdtempSync(join(tmpdir(), 'openclaude-pricing-display-'))
-const settingsPath = join(fixtureDir, 'settings.json')
 
 function writePricing(opusInput: number, opusOutput: number): void {
   writeFileSync(
-    settingsPath,
+    pricingSettingsPath,
     `${JSON.stringify({
       modelPricing: {
         'claude-sonnet-4-6': {
@@ -85,10 +80,26 @@ function writePricing(opusInput: number, opusOutput: number): void {
   )
 }
 
+async function waitFor(
+  check: () => boolean,
+  description: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!check()) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${description}`)
+    }
+    await Bun.sleep(5)
+  }
+}
+
+let cleanupRender: (() => void) | undefined
+
 try {
   writePricing(7, 8)
   setAllowedSettingSources(['flagSettings'])
-  setFlagSettingsPath(settingsPath)
+  setFlagSettingsPath(pricingSettingsPath)
   setFlagSettingsInline(null)
   resetSettingsCache()
   resetModelStringsForTestingOnly()
@@ -110,9 +121,8 @@ try {
   const { FastModePicker, handleFastModeShortcut } = await import(
     '../../commands/fast/fast.js'
   )
-  const { AppStateProvider, getDefaultAppState } = await import(
-    '../../state/AppState.js'
-  )
+  const { AppStateProvider, getDefaultAppState, useAppStateStore } =
+    await import('../../state/AppState.js')
   const { createRoot } = await import('../../ink.js')
   let appState = getDefaultAppState()
   const shortcut = await handleFastModeShortcut(
@@ -123,6 +133,10 @@ try {
     },
   )
   assert.match(shortcut, /\$7\/\$8 per Mtok/)
+  const isolatedUserSettings = JSON.parse(
+    readFileSync(join(userConfigDir, 'settings.json'), 'utf8'),
+  ) as Record<string, unknown>
+  assert.equal(isolatedUserSettings.fastMode, true)
 
   let output = ''
   const stdout = new PassThrough()
@@ -142,10 +156,21 @@ try {
   })
   const completions: string[] = []
   const onPickerDone = (message: string) => completions.push(message)
+  let triggerSettingsReload: (() => void) | undefined
+  const PickerWithSettingsReload = () => {
+    const store = useAppStateStore()
+    triggerSettingsReload = () => {
+      store.setState(previous => ({
+        ...previous,
+        settings: { ...previous.settings },
+      }))
+    }
+    return <FastModePicker onDone={onPickerDone} unavailableReason={null} />
+  }
   const picker = () => (
     <AppStateProvider initialState={appState}>
       <KeybindingSetup>
-        <FastModePicker onDone={onPickerDone} unavailableReason={null} />
+        <PickerWithSettingsReload />
       </KeybindingSetup>
     </AppStateProvider>
   )
@@ -155,30 +180,50 @@ try {
     exitOnCtrlC: false,
     patchConsole: false,
   })
+  cleanupRender = () => {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
   instance.render(picker())
-  await Bun.sleep(20)
+  await waitFor(
+    () => /\$7\/\$8 per Mtok/.test(stripAnsi(output)),
+    'the initial fast-mode pricing render',
+  )
   assert.match(stripAnsi(output), /\$7\/\$8 per Mtok/)
 
   writePricing(17, 18)
   resetSettingsCache()
   output = ''
-  instance.render(picker())
-  await Bun.sleep(20)
+  assert.ok(triggerSettingsReload)
+  triggerSettingsReload()
+  await waitFor(
+    () => /\$17\/\$18 per Mtok/.test(stripAnsi(output)),
+    'the reloaded fast-mode pricing render',
+  )
   assert.match(stripAnsi(output), /\$17\/\$18 per Mtok/)
 
   stdin.write('\r')
-  await Bun.sleep(20)
+  await waitFor(
+    () => /\$17\/\$18 per Mtok/.test(completions.at(-1) ?? ''),
+    'the fast-mode confirmation',
+  )
   assert.match(completions.at(-1) ?? '', /\$17\/\$18 per Mtok/)
 
-  instance.unmount()
-  stdin.end()
-  stdout.end()
+  cleanupRender()
+  cleanupRender = undefined
 } finally {
+  cleanupRender?.()
   mock.restore()
   resetModelStringsForTestingOnly()
   setAllowedSettingSources(originalSources)
   setFlagSettingsPath(originalFlagPath)
   setFlagSettingsInline(originalFlagInline)
   resetSettingsCache()
+  if (originalOpenClaudeConfigDir === undefined) {
+    delete process.env.OPENCLAUDE_CONFIG_DIR
+  } else {
+    process.env.OPENCLAUDE_CONFIG_DIR = originalOpenClaudeConfigDir
+  }
   rmSync(fixtureDir, { recursive: true, force: true })
 }

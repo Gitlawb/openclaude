@@ -88,7 +88,7 @@ export const COST_HAIKU_45 = {
   webSearchRequests: 0.01,
 } as const satisfies ModelCosts
 
-const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
+export const DEFAULT_UNKNOWN_MODEL_COST = COST_TIER_5_25
 
 /**
  * Get the cost tier for Opus 4.6 based on fast mode.

@@ -115,6 +115,18 @@ const ModelPricingSchema = z.preprocess(
     }),
 )
 
+export const ModelPricingDiagnosticSchema = z.unknown().superRefine(
+  (value, context) => {
+    if (!ModelPricingSchema.safeParse(value).success) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Invalid modelPricing value was ignored',
+        params: { received: value },
+      })
+    }
+  },
+)
+
 /**
  * Schema for environment variables
  */

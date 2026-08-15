@@ -182,11 +182,12 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${is3P ? '' : getPricingSuffix(getDefaultSonnetModel())}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${getPricingSuffix(getDefaultSonnetModel())}`,
   }
 }
 
 function getPricingSuffix(model: string): string {
+  if (!isFirstPartyAnthropicProvider()) return ''
   const pricing = getModelPricingString(model)
   return pricing ? ` · ${pricing}` : ''
 }
@@ -216,7 +217,7 @@ function getSonnet46Option(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 : 'sonnet',
     label: 'Sonnet',
-    description: `Sonnet 4.6 · Best for everyday tasks${is3P ? '' : getPricingSuffix(getModelStrings().sonnet46)}`,
+    description: `Sonnet 4.6 · Best for everyday tasks${getPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 - best for everyday tasks. Generally recommended for most coding tasks',
   }
@@ -283,7 +284,7 @@ export function getSonnet46_1MOption(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 + '[1m]' : 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 for long sessions${is3P ? '' : getPricingSuffix(getModelStrings().sonnet46)}`,
+    description: `Sonnet 4.6 for long sessions${getPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 with 1M context window - for long sessions with large codebases',
   }
@@ -319,22 +320,20 @@ function getCustomHaikuOption(): ModelOption | undefined {
 }
 
 function getHaiku45Option(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 4.5 · Fastest for quick answers${is3P ? '' : getPricingSuffix(getModelStrings().haiku45)}`,
+    description: `Haiku 4.5 · Fastest for quick answers${getPricingSuffix(getModelStrings().haiku45)}`,
     descriptionForModel:
       'Haiku 4.5 - fastest for quick answers. Lower cost but less capable than Sonnet 4.6.',
   }
 }
 
 function getHaiku35Option(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 3.5 for simple tasks${is3P ? '' : getPricingSuffix(getModelStrings().haiku35)}`,
+    description: `Haiku 3.5 for simple tasks${getPricingSuffix(getModelStrings().haiku35)}`,
     descriptionForModel:
       'Haiku 3.5 - faster and lower cost, but less capable than Sonnet. Use for simple tasks.',
   }
@@ -357,12 +356,11 @@ function getMaxOpusOption(fastMode = false): ModelOption {
 }
 
 export function getMaxSonnet46_1MOption(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   const billingInfo = isClaudeAISubscriber() ? ' · Billed as extra usage' : ''
   return {
     value: 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 with 1M context${billingInfo}${is3P ? '' : getPricingSuffix(getModelStrings().sonnet46)}`,
+    description: `Sonnet 4.6 with 1M context${billingInfo}${getPricingSuffix(getModelStrings().sonnet46)}`,
   }
 }
 

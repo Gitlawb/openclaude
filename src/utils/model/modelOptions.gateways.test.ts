@@ -143,6 +143,19 @@ test('custom Anthropic endpoints use the third-party default description', async
   expect(defaultOption?.description).not.toContain('$')
 })
 
+test('custom Anthropic endpoints omit first-party pricing from every model option', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+  process.env.ANTHROPIC_API_KEY = 'proxy-key'
+
+  const { getModelOptions } = await importFreshModelOptionsModule('firstParty')
+  const options = getModelOptions()
+
+  expect(options.length).toBeGreaterThan(1)
+  for (const option of options) {
+    expect(option.description).not.toContain('$')
+  }
+})
+
 test('OpenRouter active profile cache merges with the static route catalog', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'

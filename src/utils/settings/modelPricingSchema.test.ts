@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { generateSettingsJSONSchema } from './schemaOutput.js'
+import { parseSettingsFile } from './settings.js'
 import { SettingsSchema } from './types.js'
 
 const completePrice = {
@@ -67,6 +71,39 @@ test('invalid modelPricing is dropped without invalidating unrelated settings', 
       expect(result.data.model).toBe('sonnet')
       expect(result.data.modelPricing).toBeUndefined()
     }
+  }
+})
+
+test('parseSettingsFile reports the raw modelPricing value that it drops', () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'model-pricing-diagnostic-'))
+  const settingsPath = join(fixtureDir, 'settings.json')
+  const modelPricing = {
+    model: { ...completePrice, inputTokens: -1 },
+  }
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({ model: 'sonnet', modelPricing }),
+    'utf8',
+  )
+
+  try {
+    const result = parseSettingsFile(settingsPath)
+
+    expect(result.settings?.model).toBe('sonnet')
+    expect(result.settings?.modelPricing).toBeUndefined()
+    expect(result.errors).toEqual([
+      {
+        file: settingsPath,
+        path: 'modelPricing',
+        message: 'Invalid modelPricing value was ignored',
+        expected: undefined,
+        invalidValue: modelPricing,
+        suggestion: undefined,
+        docLink: undefined,
+      },
+    ])
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true })
   }
 })
 
