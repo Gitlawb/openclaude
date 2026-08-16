@@ -17,7 +17,7 @@ import { logForDebugging } from '../../utils/debug.js'
 import {
   EFFORT_LEVELS,
   type EffortValue,
-  parseEffortValue,
+  parseFrontmatterEffortValue,
 } from '../../utils/effort.js'
 import { parsePositiveIntFromFrontmatter } from '../../utils/frontmatterParser.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -81,11 +81,19 @@ const AgentJsonSchema = lazySchema(() =>
       .min(1, 'Model cannot be empty')
       .transform(m => (m.toLowerCase() === 'inherit' ? 'inherit' : m))
       .optional(),
-    effort: z.union([z.enum(EFFORT_LEVELS), z.number().int()]).optional(),
+    // ultracode is a session-only meta-mode and must not be settable from an
+    // agent definition, so route the value through parseFrontmatterEffortValue
+    // (which drops ultracode) — same as the markdown/skill/plugin frontmatter
+    // and SDK schema paths, so every agent-definition input agrees.
+    effort: z
+      .union([z.enum(EFFORT_LEVELS), z.number().int()])
+      .optional()
+      .transform(parseFrontmatterEffortValue),
     permissionMode: z.enum(PERMISSION_MODES).optional(),
     mcpServers: z.array(AgentMcpServerSpecSchema()).optional(),
     hooks: HooksSchema().optional(),
     maxTurns: z.number().int().positive().optional(),
+    maxSteps: z.number().int().positive().optional(),
     skills: z.array(z.string()).optional(),
     initialPrompt: z.string().optional(),
     memory: z.enum(['user', 'project', 'local']).optional(),
@@ -112,6 +120,7 @@ export type BaseAgentDefinition = {
   effort?: EffortValue
   permissionMode?: PermissionMode
   maxTurns?: number // Maximum number of agentic turns before stopping
+  maxSteps?: number // Maximum number of tool-use steps before forcing a final summary
   filename?: string // Original filename without .md extension (for user/project/managed agents)
   baseDir?: string
   criticalSystemReminder_EXPERIMENTAL?: string // Short message re-injected at every user turn
@@ -146,6 +155,11 @@ export type CustomAgentDefinition = BaseAgentDefinition & {
   baseDir?: string
 }
 
+export type SdkAgentDefinition = BaseAgentDefinition & {
+  getSystemPrompt: () => string
+  source: 'sdk'
+}
+
 // Plugin agents - similar to custom but with plugin metadata, prompt stored via closure
 export type PluginAgentDefinition = BaseAgentDefinition & {
   getSystemPrompt: () => string
@@ -158,6 +172,7 @@ export type PluginAgentDefinition = BaseAgentDefinition & {
 export type AgentDefinition =
   | BuiltInAgentDefinition
   | CustomAgentDefinition
+  | SdkAgentDefinition
   | PluginAgentDefinition
 
 // Type guards for runtime type checking
@@ -170,7 +185,11 @@ export function isBuiltInAgent(
 export function isCustomAgent(
   agent: AgentDefinition,
 ): agent is CustomAgentDefinition {
-  return agent.source !== 'built-in' && agent.source !== 'plugin'
+  return (
+    agent.source !== 'built-in' &&
+    agent.source !== 'plugin' &&
+    agent.source !== 'sdk'
+  )
 }
 
 export function isPluginAgent(
@@ -195,6 +214,7 @@ export function getActiveAgentsFromList(
   const projectAgents = allAgents.filter(a => a.source === 'projectSettings')
   const managedAgents = allAgents.filter(a => a.source === 'policySettings')
   const flagAgents = allAgents.filter(a => a.source === 'flagSettings')
+  const sdkAgents = allAgents.filter(a => a.source === 'sdk')
 
   const agentGroups = [
     builtInAgents,
@@ -202,6 +222,7 @@ export function getActiveAgentsFromList(
     userAgents,
     projectAgents,
     flagAgents,
+    sdkAgents,
     managedAgents,
   ]
 
@@ -484,6 +505,7 @@ export function parseAgentFromJson(
         : {}),
       ...(parsed.hooks ? { hooks: parsed.hooks } : {}),
       ...(parsed.maxTurns !== undefined ? { maxTurns: parsed.maxTurns } : {}),
+      ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
       ...(parsed.skills && parsed.skills.length > 0
         ? { skills: parsed.skills }
         : {}),
@@ -606,14 +628,17 @@ export function parseAgentFromMarkdown(
       }
     }
 
-    // Parse effort from frontmatter (supports string levels and integers)
+    // Parse effort from frontmatter (supports string levels and integers).
+    // ultracode is rejected here — see parseFrontmatterEffortValue.
     const effortRaw = frontmatter['effort']
     const parsedEffort =
-      effortRaw !== undefined ? parseEffortValue(effortRaw) : undefined
+      effortRaw !== undefined ? parseFrontmatterEffortValue(effortRaw) : undefined
 
     if (effortRaw !== undefined && parsedEffort === undefined) {
       logForDebugging(
-        `Agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.join(', ')} or an integer`,
+        String(effortRaw).toLowerCase() === 'ultracode'
+          ? `Agent file ${filePath} requested effort 'ultracode', a session-only mode not supported in frontmatter; ignoring.`
+          : `Agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.filter(l => l !== 'ultracode').join(', ')} or an integer`,
       )
     }
 
@@ -636,6 +661,15 @@ export function parseAgentFromMarkdown(
     if (maxTurnsRaw !== undefined && maxTurns === undefined) {
       logForDebugging(
         `Agent file ${filePath} has invalid maxTurns '${maxTurnsRaw}'. Must be a positive integer.`,
+      )
+    }
+
+    // Parse maxSteps from frontmatter
+    const maxStepsRaw = frontmatter['maxSteps']
+    const maxSteps = parsePositiveIntFromFrontmatter(maxStepsRaw)
+    if (maxStepsRaw !== undefined && maxSteps === undefined) {
+      logForDebugging(
+        `Agent file ${filePath} has invalid maxSteps '${maxStepsRaw}'. Must be a positive integer.`,
       )
     }
 
@@ -727,6 +761,7 @@ export function parseAgentFromMarkdown(
         ? { permissionMode: permissionModeRaw as PermissionMode }
         : {}),
       ...(maxTurns !== undefined ? { maxTurns } : {}),
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
       ...(background ? { background } : {}),
       ...(memory ? { memory } : {}),
       ...(isolation ? { isolation } : {}),

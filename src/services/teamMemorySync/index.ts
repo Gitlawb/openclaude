@@ -26,6 +26,7 @@
 
 import axios from 'axios'
 import { createHash } from 'crypto'
+import type { Dirent } from 'fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises'
 import { join, relative, sep } from 'path'
 import {
@@ -40,6 +41,7 @@ import {
   validateTeamMemKey,
 } from '../../memdir/teamMemPaths.js'
 import { count } from '../../utils/array.js'
+import { mapWithConcurrency } from '../../utils/boundedAsync.js'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
   getClaudeAIOAuthTokens,
@@ -89,6 +91,39 @@ const MAX_FILE_SIZE_BYTES = 250_000
 const MAX_PUT_BODY_BYTES = 200_000
 const MAX_RETRIES = 3
 const MAX_CONFLICT_RETRIES = 2
+const TEAM_MEMORY_FILE_IO_CONCURRENCY = 8
+
+type TeamMemoryDirent = Pick<Dirent, 'name' | 'isDirectory' | 'isFile'>
+
+type TeamMemoryReadDeps = {
+  getTeamMemPath: () => string
+  readdir: (dir: string) => Promise<TeamMemoryDirent[]>
+  stat: (path: string) => Promise<{ size: number }>
+  readFile: (path: string) => Promise<string>
+  scanForSecrets: typeof scanForSecrets
+}
+
+type TeamMemoryWriteDeps = {
+  validateTeamMemKey: typeof validateTeamMemKey
+  readFile: (path: string) => Promise<string>
+  mkdir: (path: string, options: { recursive: true }) => Promise<unknown>
+  writeFile: (path: string, content: string) => Promise<unknown>
+}
+
+const defaultReadDeps: TeamMemoryReadDeps = {
+  getTeamMemPath,
+  readdir: dir => readdir(dir, { withFileTypes: true }),
+  stat,
+  readFile: path => readFile(path, 'utf8'),
+  scanForSecrets,
+}
+
+const defaultWriteDeps: TeamMemoryWriteDeps = {
+  validateTeamMemKey,
+  readFile: path => readFile(path, 'utf8'),
+  mkdir: (path, options) => mkdir(path, options),
+  writeFile: (path, content) => writeFile(path, content, 'utf8'),
+}
 
 // ─── Sync state ─────────────────────────────────────────────
 
@@ -568,71 +603,120 @@ async function readLocalTeamMemory(maxEntries: number | null): Promise<{
   entries: Record<string, string>
   skippedSecrets: SkippedSecretFile[]
 }> {
-  const teamDir = getTeamMemPath()
-  const entries: Record<string, string> = {}
-  const skippedSecrets: SkippedSecretFile[] = []
+  return readLocalTeamMemoryWithDependencies(maxEntries, defaultReadDeps)
+}
+
+type LocalTeamMemoryFile = {
+  fullPath: string
+  relPath: string
+}
+
+async function collectLocalTeamMemoryFiles(
+  teamDir: string,
+  deps: TeamMemoryReadDeps,
+): Promise<LocalTeamMemoryFile[]> {
+  const files: LocalTeamMemoryFile[] = []
 
   async function walkDir(dir: string): Promise<void> {
+    let dirEntries: TeamMemoryDirent[]
     try {
-      const dirEntries = await readdir(dir, { withFileTypes: true })
-      await Promise.all(
-        dirEntries.map(async entry => {
-          const fullPath = join(dir, entry.name)
-          if (entry.isDirectory()) {
-            await walkDir(fullPath)
-          } else if (entry.isFile()) {
-            try {
-              const stats = await stat(fullPath)
-              if (stats.size > MAX_FILE_SIZE_BYTES) {
-                logForDebugging(
-                  `team-memory-sync: skipping oversized file ${entry.name} (${stats.size} > ${MAX_FILE_SIZE_BYTES} bytes)`,
-                  { level: 'info' },
-                )
-                return
-              }
-              const content = await readFile(fullPath, 'utf8')
-              const relPath = relative(teamDir, fullPath).replaceAll('\\', '/')
-
-              // PSR M22174: scan for secrets BEFORE adding to the upload
-              // payload. If a secret is detected, skip this file entirely
-              // so it never leaves the machine.
-              const secretMatches = scanForSecrets(content)
-              if (secretMatches.length > 0) {
-                // Report only the first match per file — one secret is
-                // enough to skip the file and we don't want to log more
-                // than necessary about credential locations.
-                const firstMatch = secretMatches[0]!
-                skippedSecrets.push({
-                  path: relPath,
-                  ruleId: firstMatch.ruleId,
-                  label: firstMatch.label,
-                })
-                logForDebugging(
-                  `team-memory-sync: skipping "${relPath}" — detected ${firstMatch.label}`,
-                  { level: 'warn' },
-                )
-                return
-              }
-
-              entries[relPath] = content
-            } catch {
-              // Skip unreadable files
-            }
-          }
-        }),
-      )
+      dirEntries = await deps.readdir(dir)
     } catch (e) {
       if (isErrnoException(e)) {
         if (e.code !== 'ENOENT' && e.code !== 'EACCES' && e.code !== 'EPERM') {
           throw e
         }
-      } else {
-        throw e
+        return
       }
+      throw e
+    }
+
+    for (const entry of dirEntries) {
+      const fullPath = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walkDir(fullPath)
+        continue
+      }
+      if (!entry.isFile()) {
+        continue
+      }
+
+      files.push({
+        fullPath,
+        relPath: relative(teamDir, fullPath).replaceAll('\\', '/'),
+      })
     }
   }
 
   await walkDir(teamDir)
+  return files.sort((a, b) => a.relPath.localeCompare(b.relPath))
+}
+
+async function readLocalTeamMemoryWithDependencies(
+  maxEntries: number | null,
+  deps: TeamMemoryReadDeps,
+): Promise<{
+  entries: Record<string, string>
+  skippedSecrets: SkippedSecretFile[]
+}> {
+  const teamDir = deps.getTeamMemPath()
+  const entries: Record<string, string> = {}
+  const skippedSecrets: SkippedSecretFile[] = []
+  const files = await collectLocalTeamMemoryFiles(teamDir, deps)
+
+  const results = await mapWithConcurrency(
+    files,
+    TEAM_MEMORY_FILE_IO_CONCURRENCY,
+    async file => {
+      try {
+        const stats = await deps.stat(file.fullPath)
+        if (stats.size > MAX_FILE_SIZE_BYTES) {
+          logForDebugging(
+            `team-memory-sync: skipping oversized file ${file.relPath} (${stats.size} > ${MAX_FILE_SIZE_BYTES} bytes)`,
+            { level: 'info' },
+          )
+          return null
+        }
+        const content = await deps.readFile(file.fullPath)
+        const secretMatches = deps.scanForSecrets(content)
+        if (secretMatches.length > 0) {
+          const firstMatch = secretMatches[0]!
+          logForDebugging(
+            `team-memory-sync: skipping "${file.relPath}" - detected ${firstMatch.label}`,
+            { level: 'warn' },
+          )
+          return {
+            type: 'secret' as const,
+            path: file.relPath,
+            ruleId: firstMatch.ruleId,
+            label: firstMatch.label,
+          }
+        }
+        return {
+          type: 'entry' as const,
+          path: file.relPath,
+          content,
+        }
+      } catch {
+        return null
+      }
+    },
+  )
+
+  for (const result of results) {
+    if (!result) {
+      continue
+    }
+    if (result.type === 'secret') {
+      skippedSecrets.push({
+        path: result.path,
+        ruleId: result.ruleId,
+        label: result.label,
+      })
+      continue
+    }
+    entries[result.path] = result.content
+  }
 
   // Truncate only if we've LEARNED a cap from the server (via a structured
   // 413's extra_details.max_entries — anthropic/anthropic#293258).  The
@@ -642,11 +726,10 @@ async function readLocalTeamMemory(maxEntries: number | null): Promise<{
   // authoritative.  The server validates total stored entries after merge
   // (not PUT body count) and rejects atomically — nothing is written on 413.
   //
-  // Sorting before truncation is what makes delta computation work: without
-  // it, the parallel walk above picks a different N-of-M subset each push
-  // (Promise.all resolves in completion order), serverChecksums misses keys,
-  // and the "delta" balloons to near-full snapshot.  With deterministic
-  // truncation, the same N keys are compared against the same server state.
+  // Sorting before truncation is what makes delta computation work. Without
+  // deterministic key order, serverChecksums can miss keys and the "delta"
+  // balloons to near-full snapshot.  With deterministic truncation, the same
+  // N keys are compared against the same server state.
   //
   // When disk has more files than the learned cap, alphabetically-last ones
   // consistently never sync.  When the merged (server + delta) count exceeds
@@ -689,11 +772,20 @@ async function readLocalTeamMemory(maxEntries: number | null): Promise<{
 async function writeRemoteEntriesToLocal(
   entries: Record<string, string>,
 ): Promise<number> {
-  const results = await Promise.all(
-    Object.entries(entries).map(async ([relPath, content]) => {
+  return writeRemoteEntriesToLocalWithDependencies(entries, defaultWriteDeps)
+}
+
+async function writeRemoteEntriesToLocalWithDependencies(
+  entries: Record<string, string>,
+  deps: TeamMemoryWriteDeps,
+): Promise<number> {
+  const results = await mapWithConcurrency(
+    Object.entries(entries),
+    TEAM_MEMORY_FILE_IO_CONCURRENCY,
+    async ([relPath, content]) => {
       let validatedPath: string
       try {
-        validatedPath = await validateTeamMemKey(relPath)
+        validatedPath = await deps.validateTeamMemKey(relPath)
       } catch (e) {
         if (e instanceof PathTraversalError) {
           logForDebugging(`team-memory-sync: ${e.message}`, { level: 'warn' })
@@ -715,7 +807,7 @@ async function writeRemoteEntriesToLocal(
       // where pull returns unchanged entries (skipEtagCache path, first
       // pull of a session with warm disk state from prior session).
       try {
-        const existing = await readFile(validatedPath, 'utf8')
+        const existing = await deps.readFile(validatedPath)
         if (existing === content) {
           return false
         }
@@ -738,8 +830,8 @@ async function writeRemoteEntriesToLocal(
           0,
           validatedPath.lastIndexOf(sep),
         )
-        await mkdir(parentDir, { recursive: true })
-        await writeFile(validatedPath, content, 'utf8')
+        await deps.mkdir(parentDir, { recursive: true })
+        await deps.writeFile(validatedPath, content)
         return true
       } catch (e) {
         logForDebugging(
@@ -748,7 +840,7 @@ async function writeRemoteEntriesToLocal(
         )
         return false
       }
-    }),
+    },
   )
 
   return count(results, Boolean)
@@ -1253,4 +1345,10 @@ function logPush(
       server_received_entries: outcome.serverReceivedEntries,
     }),
   })
+}
+
+export const __test = {
+  TEAM_MEMORY_FILE_IO_CONCURRENCY,
+  readLocalTeamMemoryWithDependencies,
+  writeRemoteEntriesToLocalWithDependencies,
 }

@@ -15,14 +15,23 @@
 import '../integrations/index.js'
 import {
   ensureIntegrationsLoaded,
+  getAnthropicProxy,
+  getAllAnthropicProxies,
   getAllGateways,
   getAllVendors,
   getGateway,
   getVendor,
+  isCloudflareBaseUrl,
+  isLongcatBaseUrl,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
+import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -43,6 +52,7 @@ const PREFERRED_PROVIDER_ORDER = [
   'atlas-cloud',
   'nearai',
   'fireworks',
+  'longcat',
 ] as const
 
 function buildValidProviders(): string[] {
@@ -52,6 +62,7 @@ function buildValidProviders(): string[] {
     ...PRESET_VENDOR_MAP.map(mapping => mapping.preset),
     ...getAllVendors().map(vendor => vendor.id),
     ...getAllGateways().map(gateway => gateway.id),
+    ...getAllAnthropicProxies().map(proxy => proxy.id),
   ])
 
   const preferred = PREFERRED_PROVIDER_ORDER.filter(provider =>
@@ -149,18 +160,28 @@ function getRouteDefaults(provider: string): {
   const gateway =
     (route.gatewayId ? getGateway(route.gatewayId) : undefined) ??
     getGateway(route.routeId)
+  const anthropicProxy = getAnthropicProxy(route.routeId)
 
-  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel
+  const defaultModel = gateway?.defaultModel ?? vendor?.defaultModel ?? anthropicProxy?.defaultModel
 
   return {
-    defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl,
+    defaultBaseUrl: gateway?.defaultBaseUrl ?? vendor?.defaultBaseUrl ?? anthropicProxy?.defaultBaseUrl,
     defaultModel,
   }
 }
 
 function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
-  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+  if (!trimmed) {
+    return undefined
+  }
+  const normalized = trimmed.toLowerCase()
+  // dotenv / shell sentinels are not usable endpoints. Treating them as
+  // configured would preserve an invalid OPENAI_BASE_URL and block dedicated
+  // provider defaults (for example ApiSmart key mirroring).
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 function getConfiguredOpenAIBaseUrl(): string | undefined {
@@ -189,9 +210,26 @@ function shouldReplaceStaleKnownBaseUrl(provider: string): boolean {
   )
 }
 
+// Descriptor defaults can carry an unresolved `<...>` placeholder that the user
+// must replace before the endpoint works — e.g. Cloudflare Workers AI's
+// `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`. Seeding it
+// verbatim would leave the shortcut "configured" with an endpoint that cannot
+// serve a single request.
+function isPlaceholderBaseUrl(baseUrl: string): boolean {
+  return /<[^>]+>/.test(baseUrl)
+}
+
 function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   const normalizedBaseUrl = baseUrl?.trim()
   if (!normalizedBaseUrl) {
+    return
+  }
+
+  // Never seed an unresolved placeholder endpoint. The user must supply a real
+  // base URL (via `OPENAI_BASE_URL` or the `/provider` baseUrl edit) first; the
+  // `/provider` wizard treats such defaults as requiring explicit setup, and
+  // the CLI shortcut should not silently install a broken endpoint.
+  if (isPlaceholderBaseUrl(normalizedBaseUrl)) {
     return
   }
 
@@ -201,6 +239,28 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   ) {
     process.env.OPENAI_BASE_URL = normalizedBaseUrl
   }
+}
+
+function clearUnsupportedOpenAIShimSettings(routeId: string): void {
+  if (!routeSupportsApiFormatSelection(routeId)) {
+    delete process.env.OPENAI_API_FORMAT
+  }
+  if (!routeSupportsAuthHeaders(routeId)) {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
+  }
+}
+
+function usableProviderModelEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 /**
@@ -291,17 +351,26 @@ export function applyProviderFlag(
                       process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
                     ? 'atlas-cloud'
                     : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
+                      ? 'apismart'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                         process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                       ? 'nearai'
                       : process.env.OPENAI_API_KEY !== undefined &&
                         process.env.OPENAI_API_KEY === process.env.FIREWORKS_API_KEY
                       ? 'fireworks'
                       : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.LONGCAT_API_KEY
+                      ? 'longcat'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                       opengatewayApiKey !== undefined &&
                       opengatewayApiKey.length > 0 &&
                       process.env.OPENAI_API_KEY === opengatewayApiKey
                     ? 'gitlawb-opengateway'
-                    : null
+                    : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.CLOUDFLARE_API_TOKEN
+                      ? 'cloudflare'
+                      : null
 
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -309,6 +378,7 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
@@ -317,13 +387,77 @@ export function applyProviderFlag(
   const model = parseModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
+  // Azure-style routing changes both request paths and authentication. It is
+  // only meaningful for an explicit OpenAI/Azure configuration, so never let
+  // it follow a provider switch to another OpenAI-compatible endpoint.
+  if (provider !== 'openai') {
+    delete process.env.OPENAI_AZURE_STYLE
+  }
+
   switch (provider) {
-    case 'anthropic':
-      // Default — no env vars needed
+    case 'anthropic': {
+      // Default — clear any custom native proxy contract so this explicit
+      // provider flag cannot keep routing requests to a prior endpoint.
+      // Preserve a first-party API key: it is the normal credential for this
+      // provider and may have been supplied directly through the environment.
+      const hadCustomAnthropicEndpoint =
+        !isFirstPartyAnthropicBaseUrlForEnv(process.env)
+      delete process.env.ANTHROPIC_BASE_URL
+      delete process.env.ANTHROPIC_MODEL
+      if (hadCustomAnthropicEndpoint) {
+        delete process.env.ANTHROPIC_API_KEY
+      }
+      // `--provider anthropic` is an explicit selection even though the
+      // default provider has no positive mode flag. Do not let a dedicated
+      // OpenAI-compatible env-only route override it later in startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
+      delete process.env.ANTHROPIC_AUTH_TOKEN
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      break
+    }
+
+    case 'custom-anthropic':
+      if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
+        }
+      }
+      if (isFirstPartyAnthropicBaseUrlForEnv(process.env)) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires a non-Anthropic ANTHROPIC_BASE_URL.',
+        }
+      }
+      const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim())
+      const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY?.trim())
+      if (!hasAuthToken && !hasApiKey) {
+        return {
+          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY.',
+        }
+      }
+      if (hasAuthToken) {
+        delete process.env.ANTHROPIC_API_KEY
+      } else {
+        delete process.env.ANTHROPIC_AUTH_TOKEN
+      }
+      delete process.env.OPENAI_BASE_URL
+      delete process.env.OPENAI_API_BASE
+      delete process.env.OPENAI_MODEL
+      delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AZURE_STYLE
+      delete process.env.OPENAI_AUTH_HEADER
+      delete process.env.OPENAI_AUTH_SCHEME
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+      process.env.ANTHROPIC_MODEL ??= defaultModel
+      if (model) process.env.ANTHROPIC_MODEL = model
       break
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // An explicit generic OpenAI selection must not be reclassified as a
+      // dedicated env-only gateway during client startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
       if (model) process.env.OPENAI_MODEL = model
       break
 
@@ -385,6 +519,7 @@ export function applyProviderFlag(
       delete process.env.OPENAI_API_BASE
       delete process.env.OPENAI_MODEL
       delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AZURE_STYLE
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -433,7 +568,7 @@ export function applyProviderFlag(
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.6'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
@@ -443,6 +578,19 @@ export function applyProviderFlag(
     case 'xiaomi-mimo':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= defaultBaseUrl ?? 'https://api.xiaomimimo.com/v1'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
+      if (model) process.env.OPENAI_MODEL = model
+      if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
+        process.env.OPENAI_API_KEY = process.env.MIMO_API_KEY
+      }
+      break
+
+    case 'xiaomi-mimo-token':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://token-plan-sgp.xiaomimimo.com/v1',
+      )
       process.env.OPENAI_MODEL ??= defaultModel ?? 'mimo-v2.5-pro'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.MIMO_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -479,6 +627,49 @@ export function applyProviderFlag(
       }
       break
 
+    case 'apismart':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // Keep provider-flag selection on the same descriptor-declared wire
+      // contract as env-only setup and saved profiles. ApiSmart does not
+      // support alternate API formats or custom auth headers.
+      clearUnsupportedOpenAIShimSettings('apismart')
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://gw.apismart.ai/v1',
+      )
+      {
+        const apismartModel = usableProviderModelEnvValue(
+          process.env.APISMART_MODEL,
+        )
+        if (apismartModel) {
+          process.env.OPENAI_MODEL = apismartModel
+        } else {
+          process.env.OPENAI_MODEL ??=
+            usableProviderModelEnvValue(process.env.OPENAI_MODEL) ||
+            defaultModel ||
+            'DEEPSEEK_V4_FLASH'
+        }
+      }
+      if (model) {
+        process.env.OPENAI_MODEL = model
+        process.env.APISMART_MODEL = model
+      }
+      // DedicatedCredentialsOnly: only APISMART_API_KEY authenticates this
+      // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
+      // and clear any stale generic key so another provider's credential is
+      // never forwarded to ApiSmart. Only the documented `/v1` inference URL
+      // is eligible for mirroring (AIMLAPI canonical-host parity).
+      if (
+        hasUsableOpenAICredential(process.env.APISMART_API_KEY) &&
+        isCanonicalApismartInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
     case 'fireworks':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
@@ -490,6 +681,72 @@ export function applyProviderFlag(
         process.env.OPENAI_API_KEY = process.env.FIREWORKS_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'longcat':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // LongCat only implements its documented chat-completions endpoint and
+      // Bearer authentication. Do not let stale OpenAI-compatible settings
+      // from a previously selected provider change that wire contract.
+      delete process.env.OPENAI_API_FORMAT
+      delete process.env.OPENAI_AUTH_HEADER
+      delete process.env.OPENAI_AUTH_SCHEME
+      delete process.env.OPENAI_AUTH_HEADER_VALUE
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://api.longcat.chat/openai/v1',
+      )
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'LongCat-2.0'
+      if (model) process.env.OPENAI_MODEL = model
+      // Do not copy a dedicated LongCat credential to a stale custom URL.
+      // applyOpenAIBaseUrlDefault preserves an existing base URL, so only
+      // expose this key when that URL is the documented HTTPS LongCat API.
+      if (
+        process.env.LONGCAT_API_KEY &&
+        isLongcatBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        process.env.OPENAI_API_KEY = process.env.LONGCAT_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'cloudflare':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // applyOpenAIBaseUrlDefault skips unresolved `<...>` placeholder
+      // endpoints (the Cloudflare default carries `<ACCOUNT_ID>`), so the
+      // user must export a real account-scoped base URL.
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      // The Cloudflare transport reads the generic OpenAI-compatible auth
+      // header, so mirror CLOUDFLARE_API_TOKEN into OPENAI_API_KEY the same way
+      // nearai/fireworks mirror their dedicated keys. Gate it on the configured
+      // base URL resolving to a *real* Cloudflare Workers AI endpoint: the host
+      // must be api.cloudflare.com AND the URL must not still carry the
+      // descriptor's unresolved `<ACCOUNT_ID>` placeholder (which shares that
+      // host). Mirroring onto a placeholder or a stale OPENAI_BASE_URL from a
+      // previous provider would leak the token to a host that cannot serve a
+      // request.
+      {
+        const configuredBaseUrl = getConfiguredOpenAIBaseUrl()
+        const isRealCloudflareEndpoint =
+          !!configuredBaseUrl &&
+          isCloudflareBaseUrl(configuredBaseUrl) &&
+          !isPlaceholderBaseUrl(configuredBaseUrl)
+        if (process.env.CLOUDFLARE_API_TOKEN && isRealCloudflareEndpoint) {
+          process.env.OPENAI_API_KEY = process.env.CLOUDFLARE_API_TOKEN
+        } else if (!isRealCloudflareEndpoint) {
+          // Endpoint missing, an unresolved placeholder, or a stale/shared
+          // host: clear any generic key so a stale token isn't leaked.
+          delete process.env.OPENAI_API_KEY
+        }
+        // else: a real Cloudflare endpoint with no dedicated token — keep an
+        // existing OPENAI_API_KEY, the documented compatibility fallback
+        // (descriptor credentialEnvVars lists OPENAI_API_KEY after the token).
       }
       break
 

@@ -1,7 +1,39 @@
 import { expect, test } from 'bun:test'
 
 import { createUserMessage } from './messages.ts'
-import { applyToolResultReplacementsToMessages } from './toolResultStorage.ts'
+import {
+  applyToolResultReplacementsToMessages,
+  buildLargeToolResultMessage,
+  filterContentReplacementsForMessages,
+} from './toolResultStorage.ts'
+
+const baseResult = {
+  filepath: '/tmp/tool-results/abc.txt',
+  originalSize: 100_000,
+  isJson: false,
+  preview: 'first chunk',
+  hasMore: true,
+  strategy: 'head-tail' as const,
+}
+
+test('buildLargeToolResultMessage says "Full output" when the file is complete', () => {
+  const message = buildLargeToolResultMessage(baseResult)
+  expect(message).toContain('Full output saved to: /tmp/tool-results/abc.txt')
+  expect(message).toContain('Output size: 100,000 bytes (97.7KB)')
+  expect(message).toContain(
+    'UTF-8-safe head and tail with an exact omitted-byte marker',
+  )
+  expect(message).toContain('2,000-byte total budget')
+  expect(message).not.toContain('Preview (first')
+  expect(message).not.toContain('capped')
+})
+
+test('buildLargeToolResultMessage avoids "Full output" wording when the file was capped', () => {
+  const message = buildLargeToolResultMessage({ ...baseResult, truncated: true })
+  expect(message).not.toContain('Full output')
+  expect(message).toContain('Partial output saved to: /tmp/tool-results/abc.txt')
+  expect(message).toContain('capped')
+})
 
 test('applyToolResultReplacementsToMessages replaces matching tool results and preserves unrelated messages', () => {
   const unrelated = createUserMessage({ content: 'keep me' })
@@ -56,4 +88,33 @@ test('applyToolResultReplacementsToMessages is idempotent when messages are alre
   )
 
   expect(next).toBe(messages)
+})
+
+test('filterContentReplacementsForMessages keeps only records for retained tool results', () => {
+  const retained = createUserMessage({
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'tool-1',
+        content: 'large retained output',
+        is_error: false,
+      },
+    ],
+  })
+  const kept = {
+    kind: 'tool-result' as const,
+    toolUseId: 'tool-1',
+    replacement: '[retained preview]',
+  }
+
+  expect(
+    filterContentReplacementsForMessages([retained], [
+      kept,
+      {
+        kind: 'tool-result',
+        toolUseId: 'tool-2',
+        replacement: '[dropped preview]',
+      },
+    ]),
+  ).toEqual([kept])
 })

@@ -28,6 +28,7 @@ import {
   permissionModeFromString,
   permissionModeTitle,
 } from './PermissionMode.js'
+import { isPermissiveSafety } from './safetyLevel.js'
 import { applyPermissionRulesToPermissionContext } from './permissions.js'
 import { getStartupDangerousPermissionPromptState } from './dangerousModePromptRuntime.js'
 import { loadAllPermissionRulesFromDisk } from './permissionsLoader.js'
@@ -98,30 +99,11 @@ import {
  * 2. Prefix rules for script interpreters (python:*, node:*, etc.)
  * 3. Wildcard rules matching interpreters (python*, node*, etc.)
  */
-export function isDangerousBashPermission(
-  toolName: string,
-  ruleContent: string | undefined,
+function matchesBashPatternFamily(
+  content: string,
+  patterns: readonly string[],
 ): boolean {
-  // Only check Bash rules
-  if (toolName !== BASH_TOOL_NAME) {
-    return false
-  }
-
-  // Tool-level allow (Bash with no content, or Bash(*)) - allows ALL commands
-  if (ruleContent === undefined || ruleContent === '') {
-    return true
-  }
-
-  const content = ruleContent.trim().toLowerCase()
-
-  // Standalone wildcard (*) matches everything
-  if (content === '*') {
-    return true
-  }
-
-  // Check for dangerous patterns with prefix syntax (e.g., "python:*")
-  // or wildcard syntax (e.g., "python*")
-  for (const pattern of DANGEROUS_BASH_PATTERNS) {
+  for (const pattern of patterns) {
     const lowerPattern = pattern.toLowerCase()
 
     // Exact match to the pattern itself (e.g., "python" as a rule)
@@ -151,6 +133,51 @@ export function isDangerousBashPermission(
   }
 
   return false
+}
+
+export function isDangerousBashPermission(
+  toolName: string,
+  ruleContent: string | undefined,
+): boolean {
+  // Only check Bash rules
+  if (toolName !== BASH_TOOL_NAME) {
+    return false
+  }
+
+  // Tool-level allow (Bash with no content, or Bash(*)) - allows ALL commands
+  if (ruleContent === undefined || ruleContent === '') {
+    return true
+  }
+
+  const content = ruleContent.trim().toLowerCase()
+
+  // Standalone wildcard (*) matches everything
+  if (content === '*') {
+    return true
+  }
+
+  // Check for dangerous patterns with prefix syntax (e.g., "python:*")
+  // or wildcard syntax (e.g., "python*")
+  return matchesBashPatternFamily(content, DANGEROUS_BASH_PATTERNS)
+}
+
+function isPermissiveSafetyAllowedBashRule(
+  ruleValue: PermissionRuleValue,
+): boolean {
+  if (ruleValue.toolName !== BASH_TOOL_NAME || !ruleValue.ruleContent) {
+    return false
+  }
+
+  const content = ruleValue.ruleContent.trim().toLowerCase()
+  if (content === '*') {
+    return false
+  }
+
+  const relaxedPatterns = CROSS_PLATFORM_CODE_EXEC.filter(
+    pattern => pattern !== 'bash' && pattern !== 'sh' && pattern !== 'ssh',
+  )
+
+  return matchesBashPatternFamily(content, relaxedPatterns)
 }
 
 /**
@@ -533,7 +560,15 @@ export function stripDangerousPermissionsForAutoMode(
       })
     }
   }
-  const dangerousPermissions = findDangerousClassifierPermissions(rules, [])
+  let dangerousPermissions = findDangerousClassifierPermissions(rules, [])
+  if (isPermissiveSafety()) {
+    // Permissive mode only keeps the false-positive-prone Bash interpreter and
+    // package-runner rules requested in #1616. Broad shell/sub-agent allow rules
+    // still bypass the auto-mode classifier and must continue to be stripped.
+    dangerousPermissions = dangerousPermissions.filter(
+      permission => !isPermissiveSafetyAllowedBashRule(permission.ruleValue),
+    )
+  }
   if (dangerousPermissions.length === 0) {
     return {
       ...context,

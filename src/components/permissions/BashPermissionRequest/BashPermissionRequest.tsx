@@ -19,7 +19,7 @@ import {
 import { getDestructiveCommandWarning } from '../../../tools/BashTool/destructiveCommandWarning.js'
 import { parseSedEditCommand } from '../../../tools/BashTool/sedEditParser.js'
 import { BASH_TOOL_NAME } from '../../../tools/BashTool/toolName.js'
-import { shouldUseSandbox } from '../../../tools/BashTool/shouldUseSandbox.js'
+import { shouldUseSandboxForPresentation } from '../../../tools/BashTool/shouldUseSandbox.js'
 import { extractOutputRedirections } from '../../../utils/bash/commands.js'
 import { getCompoundCommandPrefixesStatic } from '../../../utils/bash/prefix.js'
 import { extractRules } from '../../../utils/permissions/PermissionUpdate.js'
@@ -236,7 +236,7 @@ function BashPermissionRequestInner({
       : null
     const sandboxingIsEnabled = SandboxManager.isSandboxingEnabled()
     const sandboxed =
-      sandboxingIsEnabled && shouldUseSandbox(toolUseConfirm.input)
+      sandboxingIsEnabled && shouldUseSandboxForPresentation(toolUseConfirm.input)
     return {
       destructiveWarning: warning,
       sandboxingEnabled: sandboxingIsEnabled,

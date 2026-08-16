@@ -30,16 +30,16 @@ export interface CounterStats {
 function getMessageHash(messages: readonly Message[]): string {
   if (messages.length === 0) return 'empty'
 
-  const fullContent = messages.map(m => {
-    const c = typeof m.message?.content === 'string'
-      ? m.message.content
-      : Array.isArray(m.message?.content)
-        ? JSON.stringify(m.message.content)
-        : ''
-    return c
-  }).join('|')
+  const tokenRelevantInput = messages.map(m => ({
+    type: m.type,
+    content: m.message?.content ?? null,
+    attachment: m.attachment ?? null,
+  }))
 
-  return createHash('sha256').update(fullContent).digest('hex').slice(0, 16)
+  return createHash('sha256')
+    .update(JSON.stringify(tokenRelevantInput))
+    .digest('hex')
+    .slice(0, 16)
 }
 
 /**

@@ -8,6 +8,7 @@ import goal from './commands/goal/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
+import clearContextWindow from './commands/clear-context-window/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
 import commitMessage from './commands/commit-message/index.js'
@@ -19,12 +20,14 @@ import config from './commands/config/index.js'
 import { context, contextNonInteractive } from './commands/context/index.js'
 import cost from './commands/cost/index.js'
 import diff from './commands/diff/index.js'
+import diagnostics from './commands/diagnostics/index.js'
 import dream from './commands/dream/index.js'
 import ctx_viz from './commands/ctx_viz/index.js'
 import doctor from './commands/doctor/index.js'
 import onboardGithub from './commands/onboard-github/index.js'
 import knowledge from './commands/knowledge/index.js'
 import memory from './commands/memory/index.js'
+import repomap from './commands/repomap/index.js'
 import help from './commands/help/index.js'
 import ide from './commands/ide/index.js'
 import init from './commands/init.js'
@@ -44,6 +47,7 @@ import onboarding from './commands/onboarding/index.js'
 import pr_comments from './commands/pr_comments/index.js'
 import releaseNotes from './commands/release-notes/index.js'
 import rename from './commands/rename/index.js'
+import replay from './commands/replay/index.js'
 import {
   requestSize,
   requestSizeNonInteractive,
@@ -51,6 +55,7 @@ import {
 import resume, { continueCommand } from './commands/resume/index.js'
 import review, { ultrareview } from './commands/review.js'
 import session from './commands/session/index.js'
+import setContextWindow from './commands/set-context-window/index.js'
 import share from './commands/share/index.js'
 import skills from './commands/skills/index.js'
 import status from './commands/status/index.js'
@@ -162,6 +167,8 @@ import sandboxToggle from './commands/sandbox-toggle/index.js'
 import chrome from './commands/chrome/index.js'
 import stickers from './commands/stickers/index.js'
 import advisor from './commands/advisor.js'
+import ads from './commands/ads.js'
+import smartroute from './commands/smartroute/index.js'
 import { logError } from './utils/log.js'
 import { toError } from './utils/errors.js'
 import { logForDebugging } from './utils/debug.js'
@@ -272,6 +279,8 @@ export const INTERNAL_ONLY_COMMANDS = [
 const COMMANDS = memoize((): Command[] => [
   addDir,
   advisor,
+  ads,
+  smartroute,
   agents,
   autoFix,
   branch,
@@ -283,6 +292,7 @@ const COMMANDS = memoize((): Command[] => [
   cacheStats,
   chrome,
   clear,
+  clearContextWindow,
   color,
   compact,
   commitMessage,
@@ -295,6 +305,7 @@ const COMMANDS = memoize((): Command[] => [
   cost,
   ctx_viz,
   diff,
+  diagnostics,
   dream,
   doctor,
   effort,
@@ -323,10 +334,13 @@ const COMMANDS = memoize((): Command[] => [
   releaseNotes,
   reloadPlugins,
   rename,
+  repomap,
+  replay,
   requestSize,
   requestSizeNonInteractive,
   resume,
   session,
+  setContextWindow,
   skills,
   stats,
   status,
@@ -496,12 +510,12 @@ const loadAllCommands = memoize(async (cwd: string): Promise<Command[]> => {
   ])
 
   return [
-    ...bundledSkills,
-    ...builtinPluginSkills,
     ...skillDirCommands,
     ...workflowCommands,
     ...pluginCommands,
     ...pluginSkills,
+    ...bundledSkills,
+    ...builtinPluginSkills,
     ...COMMANDS(),
   ]
 })

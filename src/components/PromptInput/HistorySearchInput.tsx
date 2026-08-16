@@ -7,13 +7,15 @@ type Props = {
   value: string;
   onChange: (value: string) => void;
   historyFailedMatch: boolean;
+  focus: boolean;
 };
 function HistorySearchInput(t0) {
-  const $ = _c(9);
+  const $ = _c(10);
   const {
     value,
     onChange,
-    historyFailedMatch
+    historyFailedMatch,
+    focus
   } = t0;
   const t1 = historyFailedMatch ? "no matching prompt:" : "search prompts:";
   let t2;
@@ -26,23 +28,24 @@ function HistorySearchInput(t0) {
   }
   const t3 = stringWidth(value) + 1;
   let t4;
-  if ($[2] !== onChange || $[3] !== t3 || $[4] !== value) {
-    t4 = <TextInput value={value} onChange={onChange} cursorOffset={value.length} onChangeCursorOffset={_temp} columns={t3} focus={true} showCursor={true} multiline={false} dimColor={true} />;
-    $[2] = onChange;
-    $[3] = t3;
-    $[4] = value;
-    $[5] = t4;
+  if ($[2] !== focus || $[3] !== onChange || $[4] !== t3 || $[5] !== value) {
+    t4 = <TextInput value={value} onChange={onChange} cursorOffset={value.length} onChangeCursorOffset={_temp} columns={t3} focus={focus} showCursor={true} multiline={false} dimColor={true} />;
+    $[2] = focus;
+    $[3] = onChange;
+    $[4] = t3;
+    $[5] = value;
+    $[6] = t4;
   } else {
-    t4 = $[5];
+    t4 = $[6];
   }
   let t5;
-  if ($[6] !== t2 || $[7] !== t4) {
+  if ($[7] !== t2 || $[8] !== t4) {
     t5 = <Box gap={1}>{t2}{t4}</Box>;
-    $[6] = t2;
-    $[7] = t4;
-    $[8] = t5;
+    $[7] = t2;
+    $[8] = t4;
+    $[9] = t5;
   } else {
-    t5 = $[8];
+    t5 = $[9];
   }
   return t5;
 }

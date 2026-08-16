@@ -1,6 +1,15 @@
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { getInitialMainLoopModel } from '../../bootstrap/state.js'
-import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
+import { getCatalogEntriesForRoute } from '../../integrations/index.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+  resolveRouteIdFromBaseUrl,
+} from '../../integrations/routeMetadata.js'
+import {
+  getAdditionalModelOptionsCacheScope,
+  resolveProviderRequest,
+} from '../../services/api/providerConfig.js'
 import {
   isClaudeAISubscriber,
   isMaxSubscriber,
@@ -15,7 +24,12 @@ import {
 } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
-import { getAPIProvider } from './providers.js'
+import {
+  getAPIProvider,
+  isCustomAnthropicProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isFirstPartyAnthropicProvider,
+} from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
@@ -37,6 +51,7 @@ import {
   getActiveOpenAIModelOptionsCache,
   getActiveProviderProfile,
   getProfileModelOptions,
+  getProviderProfiles,
 } from '../providerProfiles.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import { getCachedNvidiaNimModelOptions, isNvidiaNimProvider } from './nvidiaNimModels.js'
@@ -51,6 +66,68 @@ export type ModelOption = {
   label: string
   description: string
   descriptionForModel?: string
+  /**
+   * When set, selecting this option also activates the named provider profile
+   * before switching the main-loop model. Encoded into `value` as a
+   * `SWITCH_PROFILE_VALUE_PREFIX`-prefixed string so the picker's `value`
+   * channel stays a plain string; consumers must call `parseSwitchProfileValue`
+   * on `value` (or read `switchToProfileId` directly) before treating it as a
+   * model setting. Used to surface inactive `providerProfiles` from the
+   * `/model` picker (issue #1119).
+   */
+  switchToProfileId?: string
+}
+
+/**
+ * Prefix encoded into `ModelOption.value` for options that, when selected,
+ * should activate a different provider profile before applying the model.
+ * Format: `${SWITCH_PROFILE_VALUE_PREFIX}<profileId>:<model>`. Two profiles can
+ * legally expose the same model string under different base URLs, so the
+ * profile id is part of the value to keep options unique.
+ */
+export const SWITCH_PROFILE_VALUE_PREFIX = '__switch_profile__:'
+
+export type ParsedSwitchProfileValue = {
+  profileId: string
+  model: string
+}
+
+export function parseSwitchProfileValue(
+  value: ModelSetting,
+): ParsedSwitchProfileValue | null {
+  if (typeof value !== 'string' || !value.startsWith(SWITCH_PROFILE_VALUE_PREFIX)) {
+    return null
+  }
+  const tail = value.slice(SWITCH_PROFILE_VALUE_PREFIX.length)
+  const sep = tail.indexOf(':')
+  if (sep <= 0 || sep === tail.length - 1) {
+    return null
+  }
+  return {
+    profileId: tail.slice(0, sep),
+    model: tail.slice(sep + 1),
+  }
+}
+
+export function encodeSwitchProfileValue(profileId: string, model: string): string {
+  return `${SWITCH_PROFILE_VALUE_PREFIX}${profileId}:${model}`
+}
+
+/**
+ * Resolve the cross-profile switch marker (`switchToProfileId`) for a selected
+ * picker value from the PRESENTED options list — the authority for whether the
+ * selection is a genuine profile switch (#1119/#1164). Only a single option
+ * with that value is authoritative: if two options share the value (a literal
+ * custom model id colliding with an encoded switch value), the Select cannot
+ * tell them apart, so the selection is ambiguous and resolves to `undefined`
+ * rather than letting the literal borrow another option's marker.
+ */
+export function resolveSelectedSwitchProfileId(
+  options: ReadonlyArray<Pick<ModelOption, 'value' | 'switchToProfileId'>>,
+  selectedValue: ModelSetting,
+): string | undefined {
+  const matches = options.filter(option => option.value === selectedValue)
+  return matches.length === 1 ? matches[0]!.switchToProfileId : undefined
 }
 
 function getScopedAdditionalModelOptions(): ModelOption[] {
@@ -73,12 +150,14 @@ function getScopedAdditionalModelOptions(): ModelOption[] {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
+  const is3P = !isFirstPartyAnthropicProvider()
+  const currentDefaultModel =
+    isCustomAnthropicProvider() && process.env.ANTHROPIC_MODEL
+      ? process.env.ANTHROPIC_MODEL
+      : getDefaultMainLoopModelSetting()
 
-  if (process.env.USER_TYPE === 'ant') {
-    const currentModel = renderDefaultModelSetting(
-      getDefaultMainLoopModelSetting(),
-    )
+  if (process.env.USER_TYPE === 'ant' && !is3P) {
+    const currentModel = renderDefaultModelSetting(currentDefaultModel)
     return {
       value: null,
       label: 'Default (recommended)',
@@ -91,7 +170,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
     return {
       value: null,
       label: 'Default (recommended)',
-      description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})`,
+      description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})`,
     }
   }
 
@@ -108,7 +187,7 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
   }
 }
 
@@ -169,6 +248,16 @@ function getOpus41Option(): ModelOption {
   }
 }
 
+function getOpus48Option(fastMode = false): ModelOption {
+  const is3P = getAPIProvider() !== 'firstParty'
+  return {
+    value: is3P ? getModelStrings().opus48 : 'opus',
+    label: 'Opus',
+    description: `Opus 4.8 · Most capable for complex work${getOpus46PricingSuffix(fastMode)}`,
+    descriptionForModel: 'Opus 4.8 - most capable for complex work',
+  }
+}
+
 function getOpus47Option(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
   return {
@@ -202,12 +291,14 @@ export function getSonnet46_1MOption(): ModelOption {
 
 export function getOpus46_1MOption(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  // 3P pins Opus 4.6; first-party resolves the `opus` alias to the current
+  // default (Opus 4.8), so the label must follow the provider.
+  const opusName = is3P ? 'Opus 4.6' : 'Opus 4.8'
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.6 for long sessions${getOpus46PricingSuffix(fastMode)}`,
-    descriptionForModel:
-      'Opus 4.6 with 1M context window - for long sessions with large codebases',
+    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode)}`,
+    descriptionForModel: `${opusName} with 1M context window - for long sessions with large codebases`,
   }
 }
 
@@ -261,7 +352,7 @@ function getMaxOpusOption(fastMode = false): ModelOption {
   return {
     value: 'opus',
     label: 'Opus',
-    description: `Opus 4.7 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
+    description: `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
   }
 }
 
@@ -280,7 +371,7 @@ export function getMaxOpus46_1MOption(fastMode = false): ModelOption {
   return {
     value: 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.6 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.8 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode)}`,
   }
 }
 
@@ -289,9 +380,9 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
+    description: `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
     descriptionForModel:
-      `${is3P ? 'Opus 4.6' : 'Opus 4.7'} with 1M context - most capable for complex work`,
+      `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context - most capable for complex work`,
   }
 }
 
@@ -311,7 +402,7 @@ function getOpusPlanOption(): ModelOption {
   return {
     value: 'opusplan',
     label: 'Opus Plan Mode',
-    description: 'Use Opus 4.7 in plan mode, Sonnet 4.6 otherwise',
+    description: 'Use Opus 4.8 in plan mode, Sonnet 4.6 otherwise',
   }
 }
 
@@ -333,6 +424,21 @@ function getCodexSparkOption(): ModelOption {
 
 function getCodexModelOptions(): ModelOption[] {
   return [
+    {
+      value: 'gpt-5.6-sol',
+      label: 'gpt-5.6-sol',
+      description: 'GPT-5.6 Sol · Flagship for complex work, high reasoning',
+    },
+    {
+      value: 'gpt-5.6-terra',
+      label: 'gpt-5.6-terra',
+      description: 'GPT-5.6 Terra · Balanced everyday workhorse',
+    },
+    {
+      value: 'gpt-5.6-luna',
+      label: 'gpt-5.6-luna',
+      description: 'GPT-5.6 Luna · Fast and cost-effective',
+    },
     {
       value: 'gpt-5.5',
       label: 'gpt-5.5',
@@ -400,8 +506,43 @@ function getCopilotModelOptions(): ModelOption[] {
 }
 
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  // When a provider profile's env is applied, collect its models so they
+  // can be appended to the picker options below.
+  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
+  // getActiveProviderProfile which would affect users with inactive profiles.
+  //
+  // Hoisted above the local OpenAI-compatible early returns (Ollama and the
+  // route-catalog scope) because users with a local profile active still need
+  // the unified `/model` switcher to surface every other configured profile —
+  // otherwise they have to round-trip through `/provider` (issue #1119).
+  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
+  const profileModelOptions: ModelOption[] = []
+  let activeProfileId: string | undefined
+  if (profileEnvApplied) {
+    const activeProfile = getActiveProviderProfile()
+    if (activeProfile) {
+      activeProfileId = activeProfile.id
+      const models = getProfileModelOptions(activeProfile)
+      profileModelOptions.push(...models)
+    }
+  }
+
+  // Inactive provider profile options. Surfaces each configured-but-inactive
+  // provider profile's models in the picker so users can switch active provider
+  // + model from `/model` instead of having to round-trip through `/provider`
+  // (issue #1119). Only built when the active profile env is applied so we
+  // don't expose this affordance to users who haven't opted into the
+  // multi-profile workflow.
+  const inactiveProfileOptions: ModelOption[] = profileEnvApplied
+    ? getInactiveProviderProfileOptions(activeProfileId)
+    : []
+
   if (getAPIProvider() === 'github') {
-    return [getDefaultOptionForUser(fastMode), ...getCopilotModelOptions()]
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...getCopilotModelOptions(),
+      ...inactiveProfileOptions,
+    ]
   }
 
   // When using Ollama, show models from the Ollama server instead of Claude models
@@ -409,7 +550,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const ollamaModels = getCachedOllamaModelOptions()
     if (ollamaModels.length > 0) {
-      return [defaultOption, ...ollamaModels]
+      return [defaultOption, ...ollamaModels, ...inactiveProfileOptions]
     }
     // Fallback: if models not yet fetched, show current model instead of Claude models
     const currentModel = getUserSpecifiedModelSetting() ?? getInitialMainLoopModel()
@@ -421,9 +562,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
           label: currentModel,
           description: 'Currently configured Ollama model',
         },
+        ...inactiveProfileOptions,
       ]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using NVIDIA NIM, show models from the NVIDIA catalog
@@ -431,9 +573,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const nvidiaModels = getCachedNvidiaNimModelOptions()
     if (nvidiaModels.length > 0) {
-      return [defaultOption, ...nvidiaModels]
+      return [defaultOption, ...nvidiaModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using MiniMax, show models from the MiniMax catalog
@@ -441,9 +583,9 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const minimaxModels = getCachedMiniMaxModelOptions()
     if (minimaxModels.length > 0) {
-      return [defaultOption, ...minimaxModels]
+      return [defaultOption, ...minimaxModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
   }
 
   // When using Xiaomi MiMo, show models from the MiMo catalog
@@ -451,9 +593,31 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     const defaultOption = getDefaultOptionForUser(fastMode)
     const xiaomiMimoModels = getCachedXiaomiMimoModelOptions()
     if (xiaomiMimoModels.length > 0) {
-      return [defaultOption, ...xiaomiMimoModels]
+      return [defaultOption, ...xiaomiMimoModels, ...inactiveProfileOptions]
     }
-    return [defaultOption]
+    return [defaultOption, ...inactiveProfileOptions]
+  }
+
+  const activeProfile = getActiveProviderProfile()
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env, {
+    activeProfileProvider: activeProfile?.provider,
+    activeProfileBaseUrl: activeProfile?.baseUrl,
+  })
+  if (getTransportKindForRoute(activeRouteId ?? '') === 'anthropic-proxy') {
+    const directEnvOption =
+      profileModelOptions.length === 0 && process.env.ANTHROPIC_MODEL
+        ? [{
+            value: process.env.ANTHROPIC_MODEL,
+            label: process.env.ANTHROPIC_MODEL,
+            description: 'Custom Anthropic-compatible endpoint',
+          }]
+        : []
+    return [
+      getDefaultOptionForUser(fastMode),
+      ...profileModelOptions,
+      ...directEnvOption,
+      ...inactiveProfileOptions,
+    ]
   }
 
   if (process.env.USER_TYPE === 'ant') {
@@ -471,6 +635,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       getSonnet46Option(),
       getSonnet46_1MOption(),
       getHaiku45Option(),
+      ...inactiveProfileOptions,
     ]
   }
 
@@ -488,6 +653,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       }
 
       premiumOptions.push(MaxHaiku45Option)
+      premiumOptions.push(...inactiveProfileOptions)
       return premiumOptions
     }
 
@@ -507,35 +673,40 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
 
     standardOptions.push(MaxHaiku45Option)
+    standardOptions.push(...inactiveProfileOptions)
     return standardOptions
   }
 
-  if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    const activeOpenAIOptions = getActiveOpenAIModelOptionsCache()
+  // Local OpenAI-compatible / route-catalog scope. Inactive-profile options are
+  // appended here too so the unified `/model` switcher still surfaces every
+  // other configured profile while a local/route profile is active (#1119).
+  const activeRouteCatalogOptions = getActiveOpenAIRouteCatalogOptions()
+  const openAIModelOptionsScope = getAdditionalModelOptionsCacheScope()
+  if (
+    activeRouteCatalogOptions.length > 0 ||
+    openAIModelOptionsScope?.startsWith('openai:')
+  ) {
+    const activeOpenAIOptions = activeProfile
+      ? getActiveOpenAIModelOptionsCache()
+      : []
+    const scopedOptions = openAIModelOptionsScope?.startsWith('openai:')
+      ? getScopedAdditionalModelOptions()
+      : []
+    const sourceOptions = activeOpenAIOptions.length > 0
+      ? activeOpenAIOptions
+      : scopedOptions
     return [
       getDefaultOptionForUser(fastMode),
-      ...(activeOpenAIOptions.length > 0
-        ? activeOpenAIOptions
-        : getScopedAdditionalModelOptions()),
+      ...mergeModelOptionsByNormalizedValue(
+        sourceOptions,
+        activeRouteCatalogOptions,
+      ),
+      ...inactiveProfileOptions,
     ]
   }
 
-  // When a provider profile's env is applied, collect its models so they
-  // can be appended to the standard picker options below.
-  // We check PROFILE_ENV_APPLIED to avoid the ?? profiles[0] fallback in
-  // getActiveProviderProfile which would affect users with inactive profiles.
-  const profileEnvApplied = process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1'
-  const profileModelOptions: ModelOption[] = []
-  if (profileEnvApplied) {
-    const activeProfile = getActiveProviderProfile()
-    if (activeProfile) {
-      const models = getProfileModelOptions(activeProfile)
-      profileModelOptions.push(...models)
-    }
-  }
-
-  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
-  if (getAPIProvider() === 'firstParty') {
+  // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
+  if (getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
       payg1POptions.push(getSonnet46_1MOption())
@@ -543,6 +714,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     if (isOpus1mMergeEnabled()) {
       payg1POptions.push(getMergedOpus1MOption(fastMode))
     } else {
+      payg1POptions.push(getOpus48Option(fastMode))
       payg1POptions.push(getOpus47Option(fastMode))
       payg1POptions.push(getOpus46Option(fastMode))
       if (checkOpus1mAccess()) {
@@ -551,6 +723,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     }
     payg1POptions.push(getHaiku45Option())
     payg1POptions.push(...profileModelOptions)
+    payg1POptions.push(...inactiveProfileOptions)
     return payg1POptions
   }
 
@@ -578,6 +751,8 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     payg3pOptions.push(customOpus)
   } else {
     // Add Opus 4.1, Opus 4.7, Opus 4.6 and Opus 4.6 1M
+    // Opus 4.8 is intentionally omitted here until 3P rollout is active;
+    // getDefaultOpusModel() keeps non-first-party usage on Opus 4.7.
     payg3pOptions.push(getOpus41Option()) // This is the default opus
     payg3pOptions.push(getOpus47Option(fastMode))
     payg3pOptions.push(getOpus46Option(fastMode))
@@ -592,7 +767,42 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     payg3pOptions.push(getHaikuOption())
   }
   payg3pOptions.push(...profileModelOptions)
+  payg3pOptions.push(...inactiveProfileOptions)
   return payg3pOptions
+}
+
+/**
+ * Build picker options for each provider profile that is NOT currently active.
+ * Selecting one of these activates the profile (swapping `OPENAI_BASE_URL` /
+ * `OPENAI_API_KEY` / etc. via `setActiveProviderProfile`) and then sets the
+ * main-loop model to the chosen entry — the equivalent of `/provider` followed
+ * by `/model`, but in one step. See issue #1119.
+ */
+export function getInactiveProviderProfileOptions(
+  activeProfileId: string | undefined,
+): ModelOption[] {
+  const profiles = getProviderProfiles()
+  const options: ModelOption[] = []
+  for (const profile of profiles) {
+    if (profile.id === activeProfileId) {
+      continue
+    }
+    const baseOptions = getProfileModelOptions(profile)
+    for (const baseOption of baseOptions) {
+      const modelValue =
+        typeof baseOption.value === 'string' ? baseOption.value : ''
+      if (!modelValue) {
+        continue
+      }
+      options.push({
+        value: encodeSwitchProfileValue(profile.id, modelValue),
+        label: `${modelValue} · ${profile.name}`,
+        description: `Switch to ${profile.name} (${profile.baseUrl})`,
+        switchToProfileId: profile.id,
+      })
+    }
+  }
+  return options
 }
 
 // @[MODEL LAUNCH]: Add the new model ID to the appropriate family pattern below
@@ -678,6 +888,186 @@ function getKnownModelOption(model: string): ModelOption | null {
   }
 }
 
+function normalizeRouteModelOptionKey(model: string): string {
+  return model.trim().split('?', 1)[0]?.trim().toLowerCase() ?? ''
+}
+
+function getActiveOpenAIRouteId(): string | null {
+  const openAIFlag = process.env.CLAUDE_CODE_USE_OPENAI?.trim().toLowerCase()
+  if (!openAIFlag || ['0', 'false', 'no', 'off'].includes(openAIFlag)) {
+    return null
+  }
+
+  const scope = getAdditionalModelOptionsCacheScope()
+  if (scope?.startsWith('openai:')) {
+    const partitionIndex = scope.lastIndexOf(':')
+    if (partitionIndex > 'openai:'.length) {
+      const baseUrl = scope.slice('openai:'.length, partitionIndex)
+      return resolveRouteIdFromBaseUrl(baseUrl)
+    }
+  }
+
+  return resolveRouteIdFromBaseUrl(resolveProviderRequest().baseUrl)
+}
+
+function mergeModelOptionsByNormalizedValue(
+  primaryOptions: ModelOption[],
+  additionalOptions: ModelOption[],
+): ModelOption[] {
+  const merged: ModelOption[] = []
+  const seen = new Set<string>()
+
+  for (const option of [...primaryOptions, ...additionalOptions]) {
+    if (typeof option.value !== 'string') {
+      continue
+    }
+
+    const value = option.value.trim()
+    const key = normalizeRouteModelOptionKey(value)
+    if (!key || seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    merged.push({
+      ...option,
+      value,
+    })
+  }
+
+  return merged
+}
+
+/**
+ * ApiNames that appear more than once in the catalog (case-insensitive, after
+ * trimming). Computed once up front so `getCatalogOptionValue` is O(1) per
+ * entry instead of re-scanning the whole catalog for every entry — catalogs
+ * with hundreds of models (e.g. Fireworks) would otherwise make this O(n²).
+ */
+function getDuplicateCatalogApiNames(
+  entries: readonly { apiName: string }[],
+): Set<string> {
+  const counts = new Map<string, number>()
+  for (const entry of entries) {
+    const key = entry.apiName.trim().toLowerCase()
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const duplicates = new Set<string>()
+  for (const [key, count] of counts) {
+    if (count > 1) {
+      duplicates.add(key)
+    }
+  }
+  return duplicates
+}
+
+function getCatalogOptionValue(entry: { id: string; apiName: string }, duplicateApiNames: Set<string>): string {
+  const apiName = entry.apiName.trim()
+  const duplicateApiName = duplicateApiNames.has(apiName.toLowerCase())
+  return duplicateApiName ? entry.id.trim() : apiName
+}
+
+function getActiveOpenAIRouteCatalogOptions(): ModelOption[] {
+  const routeId = getActiveOpenAIRouteId()
+  if (!routeId) {
+    return []
+  }
+
+  const entries = getCatalogEntriesForRoute(routeId)
+  const duplicateApiNames = getDuplicateCatalogApiNames(entries)
+  return entries.flatMap(entry => {
+    const value = getCatalogOptionValue(entry, duplicateApiNames)
+    if (!value) {
+      return []
+    }
+
+    return [{
+      value,
+      label: entry.label ?? value,
+      description: entry.apiName,
+    }]
+  })
+}
+
+/**
+ * Route-catalog lookup state for one `getModelOptions()` build. Resolving the
+ * route id, fetching its catalog entries, and computing the duplicate-apiName
+ * set are all O(catalog size) — rebuilding them for every check would make
+ * builds with several catalog lookups (env custom model, each scoped
+ * additional option, the active custom model) repeatedly rescan the whole
+ * catalog. Built once per options build and shared across all lookups.
+ */
+type RouteCatalogContext = {
+  entries: ReturnType<typeof getCatalogEntriesForRoute>
+  duplicateApiNames: Set<string>
+}
+
+function getRouteCatalogContext(): RouteCatalogContext | null {
+  const routeId = getActiveOpenAIRouteId()
+  if (!routeId) {
+    return null
+  }
+  const entries = getCatalogEntriesForRoute(routeId)
+  return {
+    entries,
+    duplicateApiNames: getDuplicateCatalogApiNames(entries),
+  }
+}
+
+function findRouteCatalogOption(
+  context: RouteCatalogContext | null,
+  value: ModelSetting,
+): ModelOption | null {
+  if (!context || typeof value !== 'string') {
+    return null
+  }
+
+  const normalizedValue = normalizeRouteModelOptionKey(value)
+  if (!normalizedValue) {
+    return null
+  }
+
+  const catalogEntry = context.entries.find(entry =>
+    normalizeRouteModelOptionKey(entry.apiName) === normalizedValue ||
+    normalizeRouteModelOptionKey(entry.id) === normalizedValue ||
+    (entry.aliases ?? []).some(
+      alias => normalizeRouteModelOptionKey(alias) === normalizedValue,
+    ),
+  )
+  if (!catalogEntry) {
+    return null
+  }
+
+  return {
+    value: getCatalogOptionValue(catalogEntry, context.duplicateApiNames),
+    label: catalogEntry.label ?? catalogEntry.apiName,
+    description: catalogEntry.apiName,
+  }
+}
+
+/**
+ * True when `value` (or its canonical route-catalog entry) already appears in
+ * `options`. The catalog lookup is hoisted out of the per-option loop — with
+ * large static catalogs (e.g. Fireworks' ~280 entries) the previous
+ * `options.some(optionMatchesModel)` re-ran the catalog scan for every option,
+ * making each `getModelOptions()` call O(n²) and the `/model` picker lag on
+ * every keystroke.
+ */
+function hasOptionValue(
+  options: ModelOption[],
+  value: ModelSetting,
+  getRouteCatalogContext: () => RouteCatalogContext | null,
+): boolean {
+  if (options.some(option => option.value === value)) {
+    return true
+  }
+  const catalogOption = findRouteCatalogOption(getRouteCatalogContext(), value)
+  return (
+    catalogOption !== null &&
+    options.some(option => option.value === catalogOption.value)
+  )
+}
+
 export function getModelOptions(fastMode = false): ModelOption[] {
   if (getAPIProvider() === 'github') {
     return filterModelOptionsByAllowlist(getModelOptionsBase(fastMode))
@@ -685,11 +1075,25 @@ export function getModelOptions(fastMode = false): ModelOption[] {
 
   const options = getModelOptionsBase(fastMode)
 
+  // Route-catalog lookup state is built once per options build (on first use)
+  // and shared by every catalog check below, so repeated lookups — the env
+  // custom model, each scoped additional option, and the active custom model —
+  // don't each rescan the full catalog and rebuild the duplicate-apiName set.
+  let routeCatalogContextBuilt = false
+  let routeCatalogContext: RouteCatalogContext | null = null
+  const getSharedRouteCatalogContext = (): RouteCatalogContext | null => {
+    if (!routeCatalogContextBuilt) {
+      routeCatalogContextBuilt = true
+      routeCatalogContext = getRouteCatalogContext()
+    }
+    return routeCatalogContext
+  }
+
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
   const envCustomModel = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
   if (
     envCustomModel &&
-    !options.some(existing => existing.value === envCustomModel)
+    !hasOptionValue(options, envCustomModel, getSharedRouteCatalogContext)
   ) {
     options.push({
       value: envCustomModel,
@@ -702,8 +1106,15 @@ export function getModelOptions(fastMode = false): ModelOption[] {
 
   // Append additional model options fetched during bootstrap
   for (const opt of getScopedAdditionalModelOptions()) {
-    if (!options.some(existing => existing.value === opt.value)) {
-      options.push(opt)
+    const catalogOption = findRouteCatalogOption(
+      getSharedRouteCatalogContext(),
+      opt.value,
+    )
+    const nextOption = catalogOption ? { ...opt, ...catalogOption } : opt
+    if (
+      !hasOptionValue(options, nextOption.value, getSharedRouteCatalogContext)
+    ) {
+      options.push(nextOption)
     }
   }
 
@@ -717,7 +1128,10 @@ export function getModelOptions(fastMode = false): ModelOption[] {
   } else if (initialMainLoopModel !== null) {
     customModel = initialMainLoopModel
   }
-  if (customModel === null || options.some(opt => opt.value === customModel)) {
+  if (
+    customModel === null ||
+    hasOptionValue(options, customModel, getSharedRouteCatalogContext)
+  ) {
     return filterModelOptionsByAllowlist(options)
   } else if (customModel === 'opusplan') {
     return filterModelOptionsByAllowlist([...options, getOpusPlanOption()])
@@ -725,17 +1139,46 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     return filterModelOptionsByAllowlist([...options, getCodexPlanOption()])
   } else if (customModel === 'gpt-5.3-codex-spark') {
     return filterModelOptionsByAllowlist([...options, getCodexSparkOption()])
-  } else if (customModel === 'opus' && getAPIProvider() === 'firstParty') {
+  }
+
+  // Persisted Codex model while a non-Codex provider is active (the Codex
+  // options were not appended above): surface the curated option instead
+  // of a generic "Custom model" entry, mirroring the gpt-5.5/spark cases
+  // for every Codex picker model. Match on the [1m]-stripped base so a
+  // tagged pick still gets its curated entry, but keep the persisted value
+  // on the option so selection matching stays exact.
+  const customCodexBase = customModel.replace(/\[1m]$/i, '')
+  const customCodexOption = getCodexModelOptions().find(
+    opt => opt.value === customCodexBase,
+  )
+  if (customCodexOption) {
+    return filterModelOptionsByAllowlist([
+      ...options,
+      customCodexBase === customModel
+        ? customCodexOption
+        : { ...customCodexOption, value: customModel },
+    ])
+  }
+  if (customModel === 'opus' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMaxOpusOption(fastMode),
     ])
-  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty') {
+  } else if (customModel === 'opus[1m]' && getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     return filterModelOptionsByAllowlist([
       ...options,
       getMergedOpus1MOption(fastMode),
     ])
   } else {
+    const catalogOption = findRouteCatalogOption(
+      getSharedRouteCatalogContext(),
+      customModel,
+    )
+    if (catalogOption) {
+      options.push(catalogOption)
+      return filterModelOptionsByAllowlist(options)
+    }
+
     // Try to show a human-readable label for known Anthropic models, with an
     // upgrade hint if the alias now resolves to a newer version.
     const knownOption = getKnownModelOption(customModel)
@@ -760,10 +1203,23 @@ function filterModelOptionsByAllowlist(options: ModelOption[]): ModelOption[] {
   const settings = getSettings_DEPRECATED() || {}
   const filtered = !settings.availableModels
     ? options // No restrictions
-    : options.filter(
-    opt =>
-      opt.value === null || (opt.value !== null && isModelAllowed(opt.value)),
-  )
+    : options.filter(opt => {
+        if (opt.value === null) {
+          return true
+        }
+        // Cross-profile options carry an encoded
+        // `__switch_profile__:<id>:<model>` value; evaluate the allowlist
+        // against the decoded target model so an allowed model is not dropped
+        // just because of the switch wrapper. Only decode genuine switch
+        // options — identified by the `switchToProfileId` marker, not the raw
+        // string prefix — so a normal custom model id that happens to start with
+        // `__switch_profile__:` is checked verbatim rather than mis-parsed.
+        const effectiveModel =
+          opt.switchToProfileId !== undefined
+            ? parseSwitchProfileValue(opt.value)?.model ?? opt.value
+            : opt.value
+        return isModelAllowed(effectiveModel)
+      })
 
   // Select state uses option values as identity keys. If two entries share the
   // same value (e.g. provider-specific aliases collapsing to one model ID),

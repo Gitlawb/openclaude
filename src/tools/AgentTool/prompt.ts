@@ -261,7 +261,8 @@ Usage notes:
 - Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.)${forkEnabled ? '' : ", since it is not aware of the user's intent"}
 - If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 - If the user specifies that they want you to run agents "in parallel", you MUST send a single message with multiple ${AGENT_TOOL_NAME} tool use content blocks. For example, if you need to launch both a build-validator agent and a test-runner agent in parallel, send a single message with both tool calls.
-- You can optionally set \`isolation: "worktree"\` to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.${
+- You can optionally set \`isolation: "worktree"\` to run the agent in a temporary git worktree, giving it an isolated copy of the repository. The worktree is automatically cleaned up if the agent makes no changes; if changes are made, the worktree path and branch are returned in the result.
+- When the current session is outside a git repository (for example a parent folder that contains multiple git repos), set \`cwd\` to the absolute path of the target child repository. You can combine \`cwd\` with \`isolation: "worktree"\` so the worktree is created from that child repo. If worktree creation fails only because no git repository is available, the agent still runs with that \`cwd\` override instead of failing, and the tool result notes that worktree isolation was unavailable.${
     isInProcessTeammate()
       ? `
 - The run_in_background, name, team_name, and mode parameters are not available in this context. Only synchronous subagents are supported.`

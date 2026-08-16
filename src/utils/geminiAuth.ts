@@ -3,6 +3,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { memoizeWithTTLAsync } from './memoize.js'
+import {
+  importOptionalRuntimeModule,
+  isOptionalRuntimeModuleUnavailableError,
+} from './optionalRuntimeModule.js'
 
 const GEMINI_ADC_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 const GEMINI_ADC_CACHE_TTL_MS = 5 * 60 * 1000
@@ -42,6 +46,7 @@ export type GeminiResolvedCredential =
 
 type ResolveGeminiCredentialDeps = {
   createGoogleAuth?: () => Promise<GoogleAuthLike>
+  importOptionalRuntimeModule?: typeof importOptionalRuntimeModule
 }
 
 function sanitizeCredential(value: string | undefined | null): string | undefined {
@@ -132,8 +137,13 @@ function normalizeAccessToken(
   return sanitizeCredential(value?.token)
 }
 
-async function createDefaultGoogleAuth(): Promise<GoogleAuthLike> {
-  const { GoogleAuth } = await import('google-auth-library')
+async function createDefaultGoogleAuth(
+  optionalRuntimeImporter: typeof importOptionalRuntimeModule =
+    importOptionalRuntimeModule,
+): Promise<GoogleAuthLike> {
+  const { GoogleAuth } = await optionalRuntimeImporter<
+    typeof import('google-auth-library')
+  >('google-auth-library', 'Gemini Application Default Credentials')
   return new GoogleAuth({
     scopes: [GEMINI_ADC_SCOPE],
   }) as GoogleAuthLike
@@ -148,7 +158,10 @@ async function resolveGeminiAdcCredentialUncached(
   }
 
   try {
-    const auth = await (deps.createGoogleAuth ?? createDefaultGoogleAuth)()
+    const createGoogleAuth =
+      deps.createGoogleAuth ??
+      (() => createDefaultGoogleAuth(deps.importOptionalRuntimeModule))
+    const auth = await createGoogleAuth()
     const client = await auth.getClient()
     const accessToken = normalizeAccessToken(await client.getAccessToken())
     if (!accessToken) {
@@ -167,7 +180,10 @@ async function resolveGeminiAdcCredentialUncached(
       credential: accessToken,
       ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
     }
-  } catch {
+  } catch (error) {
+    if (isOptionalRuntimeModuleUnavailableError(error)) {
+      throw error
+    }
     return { kind: 'none' }
   }
 }
@@ -227,7 +243,7 @@ export async function resolveGeminiCredential(
     return { kind: 'none' }
   }
 
-  if (deps.createGoogleAuth) {
+  if (deps.createGoogleAuth || deps.importOptionalRuntimeModule) {
     return resolveGeminiAdcCredentialUncached(env, deps)
   }
 

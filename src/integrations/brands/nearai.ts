@@ -12,6 +12,7 @@ export default defineBrand({
     supportsPreciseTokenCount: false,
   },
   modelIds: [
+    'anthropic/claude-opus-4-8',
     'anthropic/claude-opus-4-7',
     'anthropic/claude-opus-4-6',
     'anthropic/claude-sonnet-4-6',

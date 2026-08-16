@@ -12,7 +12,7 @@ import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
 import { getPluginErrorMessage } from '../../types/plugin.js'
 import { logForDebugging } from '../debug.js'
-import { EFFORT_LEVELS, parseEffortValue } from '../effort.js'
+import { EFFORT_LEVELS, parseFrontmatterEffortValue } from '../effort.js'
 import {
   coerceDescriptionToString,
   parseFrontmatter,
@@ -140,13 +140,16 @@ async function loadAgentFromFile(
     const isolation =
       isolationRaw === 'worktree' ? ('worktree' as const) : undefined
 
-    // Parse effort (string level or integer)
+    // Parse effort (string level or integer). ultracode is rejected here —
+    // see parseFrontmatterEffortValue.
     const effortRaw = frontmatter.effort
     const effort =
-      effortRaw !== undefined ? parseEffortValue(effortRaw) : undefined
+      effortRaw !== undefined ? parseFrontmatterEffortValue(effortRaw) : undefined
     if (effortRaw !== undefined && effort === undefined) {
       logForDebugging(
-        `Plugin agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.join(', ')} or an integer`,
+        String(effortRaw).toLowerCase() === 'ultracode'
+          ? `Plugin agent file ${filePath} requested effort 'ultracode', a session-only mode not supported in frontmatter; ignoring.`
+          : `Plugin agent file ${filePath} has invalid effort '${effortRaw}'. Valid options: ${EFFORT_LEVELS.filter(l => l !== 'ultracode').join(', ')} or an integer`,
       )
     }
 
@@ -173,6 +176,15 @@ async function loadAgentFromFile(
     if (maxTurnsRaw !== undefined && maxTurns === undefined) {
       logForDebugging(
         `Plugin agent file ${filePath} has invalid maxTurns '${maxTurnsRaw}'. Must be a positive integer.`,
+      )
+    }
+
+    // Parse maxSteps
+    const maxStepsRaw = frontmatter.maxSteps
+    const maxSteps = parsePositiveIntFromFrontmatter(maxStepsRaw)
+    if (maxStepsRaw !== undefined && maxSteps === undefined) {
+      logForDebugging(
+        `Plugin agent file ${filePath} has invalid maxSteps '${maxStepsRaw}'. Must be a positive integer.`,
       )
     }
 
@@ -219,6 +231,7 @@ async function loadAgentFromFile(
       ...(isolation ? { isolation } : {}),
       ...(effort !== undefined ? { effort } : {}),
       ...(maxTurns !== undefined ? { maxTurns } : {}),
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
     } as AgentDefinition
   } catch (error) {
     logForDebugging(`Failed to load agent from ${filePath}: ${error}`, {

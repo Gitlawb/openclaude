@@ -222,7 +222,13 @@ function prependBaseDir(
   blocks: ContentBlockParam[],
   baseDir: string,
 ): ContentBlockParam[] {
-  const prefix = `Base directory for this skill: ${baseDir}\n\n`
+  // Normalize to forward slashes so the path is safe to embed in a JS string
+  // import (e.g. `from '<base-dir>/pdfgen'`). On Windows, raw backslash paths
+  // like `C:\Users\...\pdf` break TypeScript/Bun resolution because backslashes
+  // are treated as escapes inside single-quoted strings. Forward slashes work
+  // cross-platform.
+  const safeBaseDir = baseDir.split('\\').join('/')
+  const prefix = `Base directory for this skill: ${safeBaseDir}\n\n`
   if (blocks.length > 0 && blocks[0]!.type === 'text') {
     return [
       { type: 'text', text: prefix + blocks[0]!.text },

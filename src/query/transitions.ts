@@ -9,11 +9,18 @@ export type Terminal =
   | { reason: 'aborted_tools' }
   | { reason: 'hook_stopped' }
   | { reason: 'max_turns'; turnCount: number }
+  | {
+      reason: 'agent_step_limit'
+      turnCount: number
+      stepsUsed: number
+      maxSteps: number
+    }
   | { reason: 'tool_failure_loop' }
 
 export type Continue =
   | { reason: 'collapse_drain_retry'; committed: number }
   | { reason: 'reactive_compact_retry' }
+  | { reason: 'context_overflow_compact_retry' }
   | { reason: 'provider_max_tokens_retry'; cap: number }
   | { reason: 'provider_fallback_retry' }
   | { reason: 'max_output_tokens_escalate' }

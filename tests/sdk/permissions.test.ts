@@ -54,6 +54,34 @@ function toolUseContextForPermissionMode(mode: string) {
   } as any
 }
 
+function mutableToolUseContextForPermissionMode(initialMode: string) {
+  let mode = initialMode
+  return {
+    context: {
+      abortController: new AbortController(),
+      getAppState: () => ({
+        toolPermissionContext: {
+          ...getEmptyToolPermissionContext(),
+          mode,
+          isBypassPermissionsModeAvailable:
+            mode === 'bypassPermissions' || mode === 'fullAccess',
+        },
+      }),
+    } as any,
+    setMode(nextMode: string) {
+      mode = nextMode
+    },
+  }
+}
+
+const sdkConditionalTool = {
+  name: 'SDKConditionalTool',
+  inputSchema: z.object({ operation: z.enum(['read', 'write']) }),
+  isReadOnly(input: { operation: 'read' | 'write' }) {
+    return input.operation === 'read'
+  },
+} as any
+
 describe('buildPermissionContext', () => {
   test('returns default mode when no permissionMode specified', () => {
     const ctx = buildPermissionContext({ cwd: '/tmp' })
@@ -315,6 +343,67 @@ describe('createDefaultCanUseTool', () => {
 })
 
 describe('createExternalCanUseTool synchronous host response', () => {
+  test('user callback cannot rewrite a plan-mode read into a mutation', async () => {
+    const state = mutableToolUseContextForPermissionMode('plan')
+    const canUseTool = createExternalCanUseTool(
+      async () => ({
+        behavior: 'allow' as const,
+        updatedInput: { operation: 'write' },
+      }),
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      createPermissionTarget(),
+    )
+
+    const result = await canUseTool(
+      sdkConditionalTool,
+      { operation: 'read' },
+      state.context,
+      {} as any,
+      'plan-user-callback-rewrite',
+      undefined,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
+  test('async host approval is denied when plan mode starts while it is pending', async () => {
+    const permissionTarget = createPermissionTarget()
+    const state = mutableToolUseContextForPermissionMode('default')
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      async () => ({ behavior: 'deny' as const, message: 'fallback' }),
+      permissionTarget,
+      message => {
+        state.setMode('plan')
+        permissionTarget.pendingPermissionPrompts
+          .get(message.tool_use_id)!
+          .resolve({
+            behavior: 'allow',
+            updatedInput: { operation: 'write' },
+          })
+      },
+      undefined,
+      50,
+    )
+
+    const result = await canUseTool(
+      sdkConditionalTool,
+      { operation: 'read' },
+      state.context,
+      {} as any,
+      'pending-plan-host-rewrite',
+      undefined,
+    )
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
   test('synchronous host response from onPermissionRequest is received', async () => {
     // Regression test: onPermissionRequest must fire AFTER registerPendingPermission
     // so a host that responds synchronously finds the entry in the map.
@@ -1057,8 +1146,10 @@ describe('createExternalCanUseTool timeout scenarios', () => {
     )
 
     expect(result.behavior).toBe('deny')
-    // When timeout occurs, the implementation calls onTimeout and falls through to fallback
-    expect(result.message).toBe('fallback')
+    // A timeout reports itself. Falling through to the fallback would report
+    // "no canUseTool or onPermissionRequest callback provided", which is not
+    // true here -- onPermissionRequest was supplied, it just did not answer.
+    expect(result.message).toContain('timed out')
     expect(onTimeout).toHaveBeenCalled()
     expect(onTimeout.mock.calls[0][0].type).toBe('permission_timeout')
     expect(onTimeout.mock.calls[0][0].tool_name).toBe('TestTool')
@@ -1214,5 +1305,96 @@ describe('permission session_id dynamic resolution', () => {
 
     // Timeout message should use dynamic sessionId
     expect(capturedTimeoutSessionId).toBe('timeout-session')
+  })
+})
+
+describe('permission timeout does not masquerade as a missing callback', () => {
+  // The timeout branch used to resolve its deny into a promise the race had
+  // already abandoned and then fall through to the fallback, whose contract is
+  // "no permission callback was provided at all". A host that wired up
+  // onPermissionRequest and merely answered slowly was told it had supplied no
+  // callback, so the reason for the denial never reached the model or the
+  // host developer.
+  test('the no-callback fallback is not consulted on timeout', async () => {
+    const fallback = vi.fn(async () => ({
+      behavior: 'deny' as const,
+      message:
+        'SDK: Tool "TestTool" denied — no canUseTool or onPermissionRequest callback provided. Pass canUseTool in options to control tool permissions.',
+    }))
+    const onTimeout = vi.fn()
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      fallback as never,
+      createPermissionTarget(),
+      // Provided, but never answers.
+      () => {},
+      onTimeout,
+      10,
+    )
+
+    // Drive the timeout off a mocked clock rather than a real 10ms wait, so the
+    // deny is the timer firing deterministically and not a scheduling race.
+    vi.useFakeTimers()
+    try {
+      const pending = canUseTool(
+        { name: 'TestTool' } as never,
+        {},
+        {} as never,
+        {} as never,
+        'test-id',
+        undefined,
+      )
+      vi.advanceTimersByTime(10)
+      const result = await pending
+
+      expect(result.behavior).toBe('deny')
+      expect(result.behavior === 'deny' && result.message).toContain(
+        'timed out',
+      )
+      // The misleading advice must not be what the model is told.
+      expect(result.behavior === 'deny' && result.message).not.toContain(
+        'no canUseTool or onPermissionRequest callback provided',
+      )
+      // Running the fallback would also burn its one-shot warning latch, so a
+      // genuinely misconfigured later query in the process is never warned.
+      expect(fallback).not.toHaveBeenCalled()
+      expect(onTimeout).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a host answering before the timeout is unaffected', async () => {
+    const fallback = vi.fn(async () => ({
+      behavior: 'deny' as const,
+      message: 'fallback',
+    }))
+    const onTimeout = vi.fn()
+    const permissionTarget = createPermissionTarget()
+
+    const canUseTool = createExternalCanUseTool(
+      undefined,
+      fallback as never,
+      permissionTarget,
+      message => {
+        permissionTarget.denyPendingPermission(message.tool_use_id, 'no')
+      },
+      onTimeout,
+      5_000,
+    )
+
+    const result = await canUseTool(
+      { name: 'TestTool' } as never,
+      {},
+      {} as never,
+      {} as never,
+      'test-id',
+      undefined,
+    )
+
+    expect(result.behavior === 'deny' && result.message).toBe('no')
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(fallback).not.toHaveBeenCalled()
   })
 })

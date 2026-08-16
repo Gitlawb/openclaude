@@ -12,6 +12,7 @@ import {
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -30,6 +31,8 @@ const ENV_KEYS = [
   'CLAUDE_CODE_SIMPLE',
   'MISTRAL_API_KEY',
   'MINIMAX_API_KEY',
+  'LONGCAT_API_KEY',
+  'APISMART_API_KEY',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
@@ -46,6 +49,7 @@ const ENV_KEYS = [
   'XAI_API_KEY',
   'XAI_CREDENTIAL_SOURCE',
   'NEARAI_API_KEY',
+  'CLOUDFLARE_API_TOKEN',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -130,13 +134,98 @@ test('openai missing key error includes recovery guidance and config locations',
   const message = await getProviderValidationError(process.env)
   expect(message).not.toBeNull()
   expect(message!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
   expect(message!).toContain(
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
   )
   expect(message!).toContain('Saved startup settings can come from')
 })
+
+test('cloudflare Workers AI URL selects the Cloudflare validation target', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.CLOUDFLARE_API_TOKEN
+  delete process.env.OPENAI_MODEL
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Cloudflare Workers AI auth is required. Set CLOUDFLARE_API_TOKEN or OPENAI_API_KEY.',
+  )
+})
+
+test('non-Workers Cloudflare path falls back to generic OpenAI validation', async () => {
+  // Same api.cloudflare.com host, but the REST management path — NOT Workers
+  // AI. Host-only matching would demand Cloudflare Workers AI auth; the path
+  // guard must let this fall through to the generic OpenAI credential error.
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    'https://api.cloudflare.com/client/v4/user/tokens/verify'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.CLOUDFLARE_API_TOKEN
+  delete process.env.OPENAI_MODEL
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CODEX_API_KEY
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).not.toBeNull()
+  expect(message!).not.toContain('Cloudflare Workers AI auth is required')
+  expect(message!).toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1',
+  )
+})
+
+test('non-OpenAI LongCat path falls back to generic OpenAI validation', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.longcat.chat/anthropic/v1'
+  process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('non-canonical ApiSmart host falls back to generic OpenAI validation', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai:8443/v1'
+  process.env.OPENAI_MODEL = 'custom-model'
+  process.env.OPENAI_API_KEY = 'generic-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('noncanonical ApiSmart paths do not validate a dedicated credential', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai/v2'
+  process.env.OPENAI_MODEL = 'DEEPSEEK_V4_FLASH'
+  process.env.APISMART_API_KEY = 'apismart-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).not.toBeNull()
+  expect(message).not.toContain('ApiSmart auth is required')
+  expect(message).toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1',
+  )
+})
+
+test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+  'ApiSmart validation rejects placeholder APISMART_API_KEY %s',
+  async placeholder => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://gw.apismart.ai/v1'
+    process.env.OPENAI_MODEL = 'DEEPSEEK_V4_FLASH'
+    process.env.APISMART_API_KEY = placeholder
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'ApiSmart auth is required. Set APISMART_API_KEY.',
+    )
+  },
+)
 
 test('codex auth error redacts descriptor-declared provider secret values used as model text', async () => {
   const providerSecret = 'ogw-provider-secret'
@@ -303,8 +392,60 @@ test('openai validation does not accept unrelated minimax credentials', async ()
   const error = await getProviderValidationError(process.env)
   expect(error).not.toBeNull()
   expect(error!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
+})
+
+test('openai validation accepts OPENAI_API_KEYS without OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+  delete process.env.OPENAI_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('openai validation accepts valid OPENAI_API_KEYS before placeholder OPENAI_API_KEY fallback', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,sk-openai-b'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('openai validation rejects placeholder values in OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = 'sk-openai-a,SUA_CHAVE'
+  delete process.env.OPENAI_API_KEY
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).toBe(
+    'Invalid OPENAI_API_KEYS: placeholder value SUA_CHAVE detected. Set real key(s) or unset for local providers.',
+  )
+})
+
+test('openai validation rejects delimiter-only OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = ', ,'
+  delete process.env.OPENAI_API_KEY
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error!).toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+  )
+})
+
+test('openai validation accepts OPENAI_API_KEY when OPENAI_API_KEYS is delimiter-only', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+  process.env.OPENAI_API_KEYS = ', ,'
+  process.env.OPENAI_API_KEY = 'sk-openai-single'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
 test('openrouter validation accepts OPENROUTER_API_KEY without OPENAI_API_KEY', async () => {
@@ -390,6 +531,28 @@ test('opengateway validation accepts OPENAI_API_KEY as fallback', async () => {
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test.each([
+  ['opengateway', 'https://opengateway.gitlawb.com/v1', 'mimo-v2.5-pro'],
+  ['hicap', 'https://api.hicap.ai/v1', 'claude-opus-4.8'],
+  ['venice', 'https://api.venice.ai/api/v1', 'venice-uncensored'],
+  ['xiaomi mimo', 'https://api.xiaomimimo.com/v1', 'mimo-v2.5-pro'],
+  ['opencode', 'https://opencode.ai/zen/v1', 'gpt-5.4'],
+  ['opencode go', 'https://opencode.ai/zen/go/v1', 'glm-5.1'],
+])('%s validation accepts OPENAI_API_KEYS fallback', async (_name, baseUrl, model) => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = baseUrl
+  process.env.OPENAI_MODEL = model
+  process.env.OPENAI_API_KEYS = 'key-a,key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+  delete process.env.HICAP_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.OPENCODE_API_KEY
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('opengateway validation still requires a key on the model-specific path', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://opengateway.gitlawb.com/v1/xiaomi-mimo'
@@ -464,7 +627,7 @@ test('github validation is skipped when openai mode is also active', async () =>
   const error = await getProviderValidationError(process.env)
   expect(error).not.toBeNull()
   expect(error!).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
 
@@ -499,7 +662,7 @@ test('non-Ollama remote provider still requires OPENAI_API_KEY', async () => {
 
   const message = await getProviderValidationError(process.env)
   expect(message).toContain(
-    'OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required when CLAUDE_CODE_USE_OPENAI=1 and OPENAI_BASE_URL is not local.',
   )
 })
 

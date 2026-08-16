@@ -411,28 +411,39 @@ type HljsNode = {
 
 // Filename-based and extension-based language detection (approximates bat's
 // SyntaxMapping + syntect's find_syntax_by_extension)
-const FILENAME_LANGS: Record<string, string> = {
-  Dockerfile: 'dockerfile',
-  Makefile: 'makefile',
-  Rakefile: 'ruby',
-  Gemfile: 'ruby',
-  CMakeLists: 'cmake',
-}
+// Keyed lookup must be a Map, not a plain object: a file whose basename or
+// stem collides with an Object.prototype member (`constructor`, `toString`,
+// `valueOf`, `hasOwnProperty`, …) would otherwise resolve to the inherited
+// function instead of `undefined`, and highlight.js#getLanguage() crashes on
+// the non-string value with "(name || '').toLowerCase is not a function"
+// (issue #1430, e.g. editing `constructor.css`).
+const FILENAME_LANGS = new Map<string, string>([
+  ['Dockerfile', 'dockerfile'],
+  ['Makefile', 'makefile'],
+  ['Rakefile', 'ruby'],
+  ['Gemfile', 'ruby'],
+  ['CMakeLists', 'cmake'],
+])
 
+// The language validator is injectable so unit tests (e.g. the #1430
+// prototype-key regression) can exercise detectLanguage without pulling the
+// full highlight.js registry into the shared Bun test process. Production
+// callers use the default, which lazy-loads hljs as before.
 function detectLanguage(
   filePath: string,
   firstLine: string | null,
+  isValidLanguage: (name: string) => boolean = name =>
+    Boolean(hljs().getLanguage(name)),
 ): string | null {
   const base = basename(filePath)
   const ext = extname(filePath).slice(1)
 
   // Filename-based lookup (handles Dockerfile, Makefile, CMakeLists.txt, etc.)
   const stem = base.split('.')[0] ?? ''
-  const byName = FILENAME_LANGS[base] ?? FILENAME_LANGS[stem]
-  if (byName && hljs().getLanguage(byName)) return byName
+  const byName = FILENAME_LANGS.get(base) ?? FILENAME_LANGS.get(stem)
+  if (byName && isValidLanguage(byName)) return byName
   if (ext) {
-    const lang = hljs().getLanguage(ext)
-    if (lang) return ext
+    if (isValidLanguage(ext)) return ext
   }
   // Shebang / first-line detection (strip UTF-8 BOM)
   if (firstLine) {

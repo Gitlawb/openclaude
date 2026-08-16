@@ -92,6 +92,12 @@ export default defineGateway({
         label: 'Llama 3.1 Nemotron 70B',
         modelDescriptorId: 'nvidia/llama-3.1-nemotron-70b-instruct',
       },
+      {
+        id: 'nvidia-deepseek-v4-pro',
+        apiName: 'deepseek-ai/deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        modelDescriptorId: 'deepseek-v4-pro',
+      },
     ],
   },
   usage: { supported: false },

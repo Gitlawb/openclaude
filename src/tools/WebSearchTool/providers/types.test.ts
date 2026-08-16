@@ -57,6 +57,16 @@ describe('hostMatchesDomain', () => {
     expect(hostMatchesDomain('notexample.com', 'example.com')).toBe(false)
     expect(hostMatchesDomain('xample.com', 'example.com')).toBe(false)
   })
+
+  test('matching is case-insensitive on the domain (host is already lowercased)', () => {
+    // `domain` comes from caller input and may be capitalized; hosts are
+    // case-insensitive, so a mixed-case entry must still match.
+    expect(hostMatchesDomain('example.com', 'Example.com')).toBe(true)
+    expect(hostMatchesDomain('sub.example.com', 'Example.COM')).toBe(true)
+    expect(hostMatchesDomain('reddit.com', 'Reddit.com')).toBe(true)
+    // A mixed-case lookalike still must not match.
+    expect(hostMatchesDomain('notexample.com', 'Example.com')).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -125,6 +135,29 @@ describe('applyDomainFilters', () => {
     })
     expect(result).toHaveLength(1)
     expect(result[0].url).toBe('https://example.com/page')
+  })
+
+  test('blocks a capitalized blocked_domains entry (case-insensitive)', () => {
+    const hits = [
+      { title: 'good', url: 'https://example.com/page' },
+      { title: 'blocked', url: 'https://reddit.com/r/x' },
+    ]
+    const result = applyDomainFilters(hits, {
+      query: 'test',
+      blocked_domains: ['Reddit.com'],
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].url).toBe('https://example.com/page')
+  })
+
+  test('keeps a hit for a capitalized allowed_domains entry (case-insensitive)', () => {
+    const hits = [{ title: 'good', url: 'https://github.com/openai' }]
+    const result = applyDomainFilters(hits, {
+      query: 'test',
+      allowed_domains: ['GitHub.com'],
+    })
+    expect(result).toHaveLength(1)
+    expect(result[0].url).toBe('https://github.com/openai')
   })
 
   test('keeps malformed URLs when filtering blocked (security)', () => {

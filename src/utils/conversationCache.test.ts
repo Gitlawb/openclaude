@@ -45,9 +45,29 @@ describe('conversationCache', () => {
       cache.get('a') // access 'a' to update order
       cache.set('c', [{ role: 'user', content: 'c' }])
       cache.set('d', [{ role: 'user', content: 'd' }]) // should evict 'b'
-      
+
       expect(cache.get('b')).toBeUndefined()
       expect(cache.get('a')).toBeDefined()
+    })
+
+    it('keeps a freshly-set entry once the cache is saturated', () => {
+      // Fill to capacity, then bump the two older keys with gets. Once the cache
+      // is full the recency clock must keep advancing; deriving it from map size
+      // makes every touch tie at ~maxSize, so the just-inserted 'd' looks older
+      // than the bumped 'b'/'c' and gets wrongly evicted on the next insert.
+      cache.set('a', [{ role: 'user', content: 'a' }])
+      cache.set('b', [{ role: 'user', content: 'b' }])
+      cache.set('c', [{ role: 'user', content: 'c' }])
+      cache.get('b')
+      cache.get('c')
+      cache.set('d', [{ role: 'user', content: 'd' }]) // evicts 'a' (true LRU)
+      cache.set('e', [{ role: 'user', content: 'e' }]) // must evict 'b', not 'd'
+
+      expect(cache.get('a')).toBeUndefined()
+      expect(cache.get('b')).toBeUndefined()
+      expect(cache.get('d')).toBeDefined()
+      expect(cache.get('c')).toBeDefined()
+      expect(cache.get('e')).toBeDefined()
     })
   })
 

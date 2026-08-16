@@ -14,6 +14,7 @@ import type {
 } from '../services/oauth/types.js'
 import { getCwd } from '../utils/cwd.js'
 import { registerCleanup } from './cleanupRegistry.js'
+import { createDeferredWriter } from './deferredConfigWrites.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import { getGlobalClaudeFile } from './env.js'
@@ -196,14 +197,20 @@ export const MAX_MESSAGES_COMPACTION_THRESHOLDS = [
 export type MaxMessagesCompactionThreshold =
   (typeof MAX_MESSAGES_COMPACTION_THRESHOLDS)[number]
 
-export function normalizeMaxMessagesCompactionThreshold(
+export function isValidMaxMessagesCompactionThreshold(
   value: unknown,
-): MaxMessagesCompactionThreshold {
+): value is MaxMessagesCompactionThreshold {
   return MAX_MESSAGES_COMPACTION_THRESHOLDS.includes(
     value as MaxMessagesCompactionThreshold,
   )
+}
+
+export function normalizeMaxMessagesCompactionThreshold(
+  value: unknown,
+): MaxMessagesCompactionThreshold {
+  return isValidMaxMessagesCompactionThreshold(value)
     ? (value as MaxMessagesCompactionThreshold)
-    : 'off'
+    : '200'
 }
 
 export type OutputStyle = string
@@ -220,6 +227,7 @@ export type ProviderProfile = {
   model: string
   apiKey?: string
   apiFormat?: OpenAICompatibleApiFormat
+  azureStyle?: boolean
   authHeader?: string
   authScheme?: OpenAICompatibleAuthScheme
   authHeaderValue?: string
@@ -284,7 +292,13 @@ export type GlobalConfig = {
   hasUsedBackslashReturn?: boolean
   autoCompactEnabled: boolean // Controls whether auto-compact is enabled
   contextCollapseEnabled: boolean // Opt-in: collapse old transcript spans into summaries (lossy; off by default)
-  toolHistoryCompressionEnabled: boolean // Compress old tool_result content for small-context providers
+  toolHistoryCompressionEnabled: boolean // Compress old tool_result content (shim providers; Anthropic-native only while prompt caching is inactive)
+  compactTailTurns?: number // Recent messages preserved verbatim by auto-compact's relevance pruning (default: 3)
+  /**
+   * Per-prompt local interactive REPL turn cap (default: 50).
+   * Overridden by CLI `--max-turns` and OPENCLAUDE_MAX_TURNS / CLAUDE_CODE_MAX_TURNS.
+   */
+  replMaxTurns?: number
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
   // 'off'     — no display
@@ -420,6 +434,14 @@ export type GlobalConfig = {
   // Btw usage tracking
   btwUseCount: number // Number of times user has used /btw
 
+  // Sponsored tips (ads.gitlawb.com) — opt-in earning of opengateway credits.
+  // Managed via the /ads command, NOT /config — intentionally excluded from
+  // GLOBAL_CONFIG_KEYS (the earnCode is a credential, never surfaced in /config).
+  ads?: {
+    enabled: boolean
+    earnCode?: string // issued in the opengateway Earn tab, sent as x-earn-code
+  }
+
   // Plan mode usage tracking
   lastPlanModeUse?: number // Timestamp of last plan mode usage
 
@@ -466,7 +488,7 @@ export type GlobalConfig = {
   modelSwitchCalloutLastShown?: number // Timestamp of last shown (don't show for 24h)
   modelSwitchCalloutVersion?: string
 
-  // Effort callout tracking - shown once for Opus 4.6 users
+  // Effort callout tracking - shown once for recent Opus users (4.8/4.7/4.6)
   effortCalloutDismissed?: boolean // v1 - legacy, read to suppress v2 for Pro users who already saw it
   effortCalloutV2Dismissed?: boolean
 
@@ -672,7 +694,7 @@ export type GlobalConfig = {
   logoColor?: string
 
   // Message-count-based compaction threshold. Set via /config.
-  // 'off' = disabled (default). Otherwise, one of '100', '200', '500', '1000'.
+  // 'off' = disabled. Otherwise, one of '100', '200', '500', '1000'.
   // When enabled, triggers forced compaction if the message count exceeds the
   // chosen threshold, regardless of token usage.
   maxMessagesCompactionThreshold?: MaxMessagesCompactionThreshold
@@ -731,7 +753,10 @@ function createDefaultGlobalConfig(): GlobalConfig {
     providerProfiles: [],
     openaiAdditionalModelOptionsCacheByProfile: {},
     knowledgeGraphEnabled: true,
-    maxMessagesCompactionThreshold: 'off',
+    // Omitted by default so callers can distinguish "unset" from an explicit
+    // persisted "off"; normalizeMaxMessagesCompactionThreshold resolves an
+    // unset value to the effective default of '200' (message-count compaction
+    // enabled at 200 messages) to bound per-turn latency growth (issue #1949).
   }
   return config
 }
@@ -750,6 +775,8 @@ export const GLOBAL_CONFIG_KEYS = [
   'editorMode',
   'hasUsedBackslashReturn',
   'autoCompactEnabled',
+  'compactTailTurns',
+  'replMaxTurns',
   'contextCollapseEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',
@@ -949,6 +976,15 @@ export function saveGlobalConfig(
     return
   }
 
+  // Apply any queued deferred writes first. A direct save re-reads the on-disk
+  // config and write-throughs that snapshot into globalConfigCache; without
+  // draining the deferred queue first, that snapshot would drop the pending
+  // counter deltas the cache is holding and same-process readers would observe
+  // stale values until the debounce fires. flushGlobalConfigWrites() is a no-op
+  // when nothing is queued, and the drain empties the queue before its own
+  // saveGlobalConfig runs, so this recurses at most one level.
+  flushGlobalConfigWrites()
+
   let written: GlobalConfig | null = null
   try {
     const didWrite = saveConfigWithLock(
@@ -1015,6 +1051,78 @@ export function saveGlobalConfig(
   }
 }
 
+// Coalesced (debounced) global-config writer.
+//
+// saveGlobalConfig does a synchronous lockfile acquire + full re-read + backup
+// copy + fsync on every call, which stalls the event loop (and drops frames)
+// when several low-stakes writes land back-to-back. saveGlobalConfigDeferred
+// queues the updater, write-throughs the in-memory cache immediately so
+// same-process reads stay coherent, and folds all pending updaters into a
+// single locked saveGlobalConfig on a trailing debounce. The auth-loss guard,
+// lockfile and backup all remain on saveGlobalConfig's disk path — this only
+// batches WHEN the disk write happens, never how. Do NOT route auth, onboarding
+// or migration writes through it (see GH #3117); it is for idempotent,
+// loss-tolerant counters/flags only.
+const CONFIG_FLUSH_DEBOUNCE_MS = 500
+
+// The queue/debounce/write-through/batch-drain logic lives in a generic,
+// disk-free engine (see deferredConfigWrites.ts) so it can be unit-tested with
+// injected storage/scheduler. Here we wire the real saveGlobalConfig, in-memory
+// cache, and timers into it.
+const globalConfigDeferredWriter = createDeferredWriter<
+  GlobalConfig,
+  ReturnType<typeof setTimeout>
+>({
+  debounceMs: CONFIG_FLUSH_DEBOUNCE_MS,
+  save: updater => saveGlobalConfig(updater),
+  readCache: () => globalConfigCache.config,
+  writeThrough: next => writeThroughGlobalConfigCache(next),
+  setTimer: (fn, ms) => {
+    const timer = setTimeout(fn, ms)
+    // A pending config flush must never hold the process open on its own.
+    timer.unref?.()
+    return timer
+  },
+  clearTimer: timer => clearTimeout(timer),
+})
+
+export function saveGlobalConfigDeferred(
+  updater: (currentConfig: GlobalConfig) => GlobalConfig,
+): void {
+  // Keep tests synchronous and observable, matching saveGlobalConfig.
+  if (process.env.NODE_ENV === 'test') {
+    saveGlobalConfig(updater)
+    return
+  }
+  // Prime the cache before enqueueing. The deferred writer only write-throughs
+  // the pending updater when there is a cached config to apply it to; on a cold
+  // cache (no prior read) it would skip the write-through and the first deferred
+  // counter update would be invisible to getGlobalConfig() until the debounce
+  // flush — breaking same-process read coherence.
+  if (globalConfigCache.config === null) {
+    getGlobalConfig()
+  }
+  globalConfigDeferredWriter.defer(updater)
+}
+
+// Force any queued deferred writes to disk now. Safe to call repeatedly; a
+// no-op when nothing is pending. Call before reading the config from disk in
+// another process, or before spawning a subprocess that reads it.
+export function flushGlobalConfigWrites(): void {
+  globalConfigDeferredWriter.flush()
+}
+
+// Flush queued writes on shutdown. registerCleanup covers graceful exits; the
+// sync 'exit' handler is the hard-exit backstop (flush is fully synchronous).
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+registerCleanup(async () => {
+  flushGlobalConfigWrites()
+})
+// eslint-disable-next-line custom-rules/no-top-level-side-effects
+process.on('exit', () => {
+  flushGlobalConfigWrites()
+})
+
 // Cache for global config
 let globalConfigCache: { config: GlobalConfig | null; mtime: number } = {
   config: null,
@@ -1060,11 +1168,20 @@ registerCleanup(async () => {
  * @internal
  */
 function migrateConfigFields(config: GlobalConfig): GlobalConfig {
+  const { maxMessagesCompactionThreshold, ...restConfig } = config
+  const hasValidMaxMessagesCompactionThreshold =
+    maxMessagesCompactionThreshold !== undefined &&
+    isValidMaxMessagesCompactionThreshold(maxMessagesCompactionThreshold)
   const normalizedConfig = {
-    ...config,
-    maxMessagesCompactionThreshold: normalizeMaxMessagesCompactionThreshold(
-      config.maxMessagesCompactionThreshold,
-    ),
+    ...restConfig,
+    ...(!hasValidMaxMessagesCompactionThreshold
+      ? {}
+      : {
+          maxMessagesCompactionThreshold:
+            normalizeMaxMessagesCompactionThreshold(
+              maxMessagesCompactionThreshold,
+            ),
+        }),
   }
 
   // Already migrated
@@ -1432,12 +1549,29 @@ function saveConfigWithLock<A extends object>(
         Number.isNaN(mostRecentTimestamp) ||
         Date.now() - mostRecentTimestamp >= MIN_BACKUP_INTERVAL_MS
 
-      if (shouldCreateBackup) {
+      // Whether the live config currently parses. If it is corrupt — e.g. after
+      // getConfig recovered from a backup in memory but the healthy config has
+      // not been written back yet (#1807) — we must neither rotate the bad
+      // content into the backup set nor prune the existing backups: an older
+      // healthy snapshot may be the only recovery source, and runMigrations()
+      // calls saveGlobalConfig() during startup before the repaired config is
+      // durably on disk.
+      let currentConfigParses = false
+      try {
+        jsonParse(stripBOM(fs.readFileSync(file, { encoding: 'utf-8' })))
+        currentConfigParses = true
+      } catch {
+        currentConfigParses = false
+      }
+
+      if (shouldCreateBackup && currentConfigParses) {
         const backupPath = join(backupDir, `${fileBase}.backup.${Date.now()}`)
         fs.copyFileSync(file, backupPath)
       }
 
-      // Clean up old backups, keeping only the 5 most recent
+      // Clean up old backups, keeping only the 5 most recent — but never while
+      // the live config is corrupt (selectBackupsToPrune returns [] then, so a
+      // healthy older backup is not unlinked before recovery is durable).
       const MAX_BACKUPS = 5
       // Re-read if we just created one; otherwise reuse the list
       const backupsForCleanup = shouldCreateBackup
@@ -1448,7 +1582,11 @@ function saveConfigWithLock<A extends object>(
             .reverse()
         : existingBackups
 
-      for (const oldBackup of backupsForCleanup.slice(MAX_BACKUPS)) {
+      for (const oldBackup of selectBackupsToPrune(
+        backupsForCleanup,
+        MAX_BACKUPS,
+        currentConfigParses,
+      )) {
         try {
           fs.unlinkSync(join(backupDir, oldBackup))
         } catch {
@@ -1500,17 +1638,22 @@ export function enableConfigs(): void {
   // Any reads to configuration before this flag is set show an console warning
   // to prevent us from adding config reading during module initialization
   configReadingAllowed = true
-  // We only check the global config because currently all the configs share a file
-  getConfig(
-    getGlobalClaudeFile(),
-    createDefaultGlobalConfig,
-    true /* throw on invalid */,
-  )
+  // We only check the global config because currently all the configs share a
+  // file. This warms the recovery path (recover from a healthy backup, or
+  // preserve the corrupt file and start from defaults) without throwing, so a
+  // corrupt global config self-heals instead of crashing startup (#1807).
+  getConfig(getGlobalClaudeFile(), createDefaultGlobalConfig)
 
   logForDiagnosticsNoPII('info', 'enable_configs_completed', {
     duration_ms: Date.now() - startTime,
   })
 }
+
+// Basename of the current global config, plus the pre-rename legacy basename
+// its backups may still be filed under (#1807). Compared by basename so backup
+// recovery works against an injected virtual path in tests.
+const GLOBAL_CONFIG_BASENAME = '.openclaude.json'
+const LEGACY_GLOBAL_CONFIG_BASENAME = '.claude.json'
 
 /**
  * Returns the directory where config backup files are stored.
@@ -1526,59 +1669,150 @@ function getConfigBackupDir(): string {
  * (next to the config file) for backwards compatibility.
  * Returns the full path to the most recent backup, or null if none exist.
  */
-function findMostRecentBackup(file: string): string | null {
+/**
+ * All backup paths for `file`, newest first. The dedicated backup directory
+ * takes precedence over the legacy location next to the config file; within
+ * each location, entries are ordered by descending timestamp (the numeric
+ * suffix after `.backup.` sorts lexicographically). The timestampless legacy
+ * `<file>.backup` is tried last.
+ */
+function listBackupsNewestFirst(file: string): string[] {
   const fs = getFsImplementation()
-  const fileBase = basename(file)
-  const backupDir = getConfigBackupDir()
+  // The global config was renamed `.claude.json` -> `.openclaude.json`. #1807's
+  // reported scenario is that repeated corrupt writes poisoned every
+  // `.openclaude.json.backup.*` snapshot and the only clean sources left were
+  // the pre-rename `.claude.json.backup.*` files sitting in the same backup
+  // dir. Recover the global config from that legacy basename too, otherwise the
+  // recovery still fails for exactly the case the issue calls out.
+  const fileBases = [basename(file)]
+  if (basename(file) === GLOBAL_CONFIG_BASENAME) {
+    fileBases.push(LEGACY_GLOBAL_CONFIG_BASENAME)
+  }
+  const isTimestampedBackupOf = (name: string): boolean =>
+    fileBases.some(base => name.startsWith(`${base}.backup.`))
+  // Order by the numeric timestamp after `.backup.` so the current and legacy
+  // basenames interleave by recency instead of grouping by filename (a plain
+  // lexicographic sort would put every `.claude.json.*` before every
+  // `.openclaude.json.*` regardless of when each was written).
+  const backupTimestamp = (name: string): number => {
+    const suffix = name.split('.backup.').pop()
+    const parsed = suffix ? Number(suffix) : NaN
+    return Number.isFinite(parsed) ? parsed : -1
+  }
+  const paths: string[] = []
 
-  // Check the new backup directory first
-  try {
-    const backups = fs
-      .readdirStringSync(backupDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(backupDir, mostRecent)
+  const collect = (dir: string): void => {
+    try {
+      const backups = fs
+        .readdirStringSync(dir)
+        .filter(isTimestampedBackupOf)
+        .sort((a, b) => backupTimestamp(b) - backupTimestamp(a))
+      for (const name of backups) {
+        paths.push(join(dir, name))
+      }
+    } catch {
+      // Directory doesn't exist yet.
     }
-  } catch {
-    // Backup dir doesn't exist yet
   }
 
-  // Fall back to legacy location (next to the config file)
-  const fileDir = dirname(file)
+  // Check the new backup directory first, then the legacy location next to
+  // the config file.
+  collect(getConfigBackupDir())
+  collect(dirname(file))
 
-  try {
-    const backups = fs
-      .readdirStringSync(fileDir)
-      .filter(f => f.startsWith(`${fileBase}.backup.`))
-      .sort()
-
-    const mostRecent = backups.at(-1) // Timestamps sort lexicographically
-    if (mostRecent) {
-      return join(fileDir, mostRecent)
-    }
-
-    // Check for legacy backup file (no timestamp)
-    const legacyBackup = `${file}.backup`
+  // Legacy timestampless backups (`<basename>.backup`), tried last.
+  for (const base of fileBases) {
+    const legacyBackup = join(dirname(file), `${base}.backup`)
     try {
       fs.statSync(legacyBackup)
-      return legacyBackup
+      paths.push(legacyBackup)
     } catch {
-      // Legacy backup doesn't exist
+      // Legacy backup doesn't exist.
     }
-  } catch {
-    // Ignore errors reading directory
   }
 
-  return null
+  return paths
+}
+
+function findMostRecentBackup(file: string): string | null {
+  return listBackupsNewestFirst(file)[0] ?? null
+}
+
+/**
+ * Attempt to recover a config whose live file is present but corrupt by
+ * reading the most recent healthy backup and parsing it. Backups in
+ * ~/.claude/backups are written from previously-valid configs, so this lets a
+ * one-off bad write be undone instead of silently discarding the user's
+ * settings. Returns the merged config when a backup exists and parses, or
+ * undefined when there is no usable backup (#1807).
+ *
+ * Exported for unit testing: `getConfig` is module-private and short-circuits
+ * to the in-memory config under NODE_ENV=test, so the recovery path is covered
+ * directly against an injected filesystem.
+ */
+/**
+ * Given the current backup filenames and whether the live config parses,
+ * returns the backups to unlink so only the newest `maxBackups` remain.
+ *
+ * Returns `[]` when the live config is corrupt: pruning then could delete the
+ * last healthy backup before the recovered config has been durably rewritten,
+ * which is exactly the #1807 data-loss window (runMigrations() saves during
+ * startup before recovery lands on disk). Exported for unit testing.
+ */
+export function selectBackupsToPrune(
+  backupNames: string[],
+  maxBackups: number,
+  liveConfigParses: boolean,
+): string[] {
+  if (!liveConfigParses) {
+    return []
+  }
+  return [...backupNames]
+    .sort()
+    .reverse()
+    .slice(maxBackups)
+}
+
+export function recoverConfigFromBackup<A>(
+  file: string,
+  createDefault: () => A,
+): A | undefined {
+  const fs = getFsImplementation()
+
+  // The newest backup can itself be corrupt (the #1807 scenario tends to
+  // write several bad snapshots in a row), so try each backup from newest to
+  // oldest and recover from the first one that still parses.
+  for (const backupPath of listBackupsNewestFirst(file)) {
+    try {
+      const backupContent = fs.readFileSync(backupPath, { encoding: 'utf-8' })
+      const parsedBackup = jsonParse(stripBOM(backupContent))
+      // A backup can parse as valid JSON yet not be a config object (`null`,
+      // an array, a bare string/number). Spreading such a value would either
+      // return bare defaults or splice index/char keys into the result and
+      // then stop, discarding the older healthy snapshots we still have. Skip
+      // it and keep looking so recovery falls through to a usable backup.
+      if (
+        typeof parsedBackup !== 'object' ||
+        parsedBackup === null ||
+        Array.isArray(parsedBackup)
+      ) {
+        continue
+      }
+      return {
+        ...createDefault(),
+        ...parsedBackup,
+      }
+    } catch {
+      // This backup is missing or itself corrupt — try the next oldest.
+    }
+  }
+
+  return undefined
 }
 
 function getConfig<A>(
   file: string,
   createDefault: () => A,
-  throwOnInvalid?: boolean,
 ): A {
   // Log a warning if config is accessed before it's allowed
   if (!configReadingAllowed && process.env.NODE_ENV !== 'test') {
@@ -1619,10 +1853,27 @@ function getConfig<A>(
       return createDefault()
     }
 
-    // Re-throw ConfigParseError if throwOnInvalid is true
-    if (error instanceof ConfigParseError && throwOnInvalid) {
-      throw error
+    // A present-but-corrupt config previously reset to defaults (or crashed the
+    // startup validation path), discarding the user's settings even though
+    // healthy backups exist in ~/.claude/backups. Recover the most recent
+    // backup that still parses before doing anything destructive, so a one-off
+    // bad write no longer wipes config or crashes startup (#1807).
+    if (error instanceof ConfigParseError) {
+      const recovered = recoverConfigFromBackup<A>(file, createDefault)
+      if (recovered) {
+        process.stderr.write(
+          `\nClaude configuration file at ${file} was corrupted and has been ` +
+            `recovered from the most recent healthy backup.\n\n`,
+        )
+        return recovered
+      }
     }
+
+    // A present-but-corrupt config used to re-throw here for the startup
+    // validation path (enableConfigs), locking users out on every launch when
+    // recovery found no usable backup. #1807 requires self-healing instead:
+    // once recovery is exhausted, fall through to preserve the corrupt file
+    // aside and start from defaults rather than crashing.
 
     // Log config parse errors so users know what happened
     if (error instanceof ConfigParseError) {
@@ -1957,7 +2208,7 @@ export function getMemoryPath(memoryType: MemoryType): string {
 }
 
 export function getManagedClaudeRulesDir(): string {
-  return join(getManagedFilePath(), '.claude', 'rules')
+  return join(getManagedFilePath(), '.openclaude', 'rules')
 }
 
 export function getUserClaudeRulesDir(): string {

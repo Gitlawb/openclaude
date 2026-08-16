@@ -10,7 +10,8 @@
  *   5. P1 context guard — bare JSON in explanatory prose is skipped
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { createOpenAIShimClient, parseTextToolCalls } from './openaiShim.js'
+import { createOpenAIShimClient } from './openaiShim.js'
+import { parseTextToolCalls } from './openaiShim/rawToolCallParsing.js'
 
 type FetchType = typeof globalThis.fetch
 
@@ -26,7 +27,7 @@ type OpenAIShimClient = {
   }
 }
 
-function makeSseResponse(lines: string[]): Response {
+function makeOllamaNativeStreamingResponse(lines: string[]): Response {
   const encoder = new TextEncoder()
   return new Response(
     new ReadableStream({
@@ -35,12 +36,12 @@ function makeSseResponse(lines: string[]): Response {
         controller.close()
       },
     }),
-    { headers: { 'Content-Type': 'text/event-stream' } },
+    { headers: { 'Content-Type': 'application/x-ndjson' } },
   )
 }
 
-function makeChunks(chunks: unknown[]): string[] {
-  return [...chunks.map(c => `data: ${JSON.stringify(c)}\n\n`), 'data: [DONE]\n\n']
+function makeNdjsonChunks(chunks: unknown[]): string[] {
+  return chunks.map(c => `${JSON.stringify(c)}\n`)
 }
 
 describe('parseTextToolCalls', () => {
@@ -193,17 +194,32 @@ describe('parseTextToolCalls', () => {
 // ---------------------------------------------------------------------------
 
 const ollamaChunk = (content: string, finishReason?: string) => ({
-  id: 'chatcmpl-1',
-  object: 'chat.completion.chunk',
   model: 'qwen2.5:7b',
-  choices: [{ index: 0, delta: { content }, finish_reason: finishReason ?? null }],
+  message: { role: 'assistant', content },
+  done: Boolean(finishReason),
+  ...(finishReason ? { done_reason: finishReason } : {}),
 })
 
 const ollamaToolChunk = (toolCalls: unknown[], finishReason?: string) => ({
-  id: 'chatcmpl-1',
-  object: 'chat.completion.chunk',
   model: 'qwen2.5:7b',
-  choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: finishReason ?? null }],
+  message: {
+    role: 'assistant',
+    content: '',
+    tool_calls: toolCalls.map((toolCall) => {
+      const call = toolCall as {
+        function?: { name?: string; arguments?: unknown }
+      }
+      const args = call.function?.arguments
+      return {
+        function: {
+          name: call.function?.name,
+          arguments: typeof args === 'string' ? JSON.parse(args) : args,
+        },
+      }
+    }),
+  },
+  done: Boolean(finishReason),
+  ...(finishReason ? { done_reason: finishReason } : {}),
 })
 
 describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', () => {
@@ -225,8 +241,8 @@ describe('Ollama streaming — think-tag filtering on text-tool fallback (P1)', 
     // Repro: model emits <think>private plan</think> followed by tool-call JSON.
     // accumulatedText is raw; stripRanges leaves the <think> block unless we filter it.
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('<think>private plan</think>{"name":"Bash","arguments":{"command":"ls"}}'),
           ollamaChunk('', 'stop'),
         ]),
@@ -277,8 +293,8 @@ describe('Ollama streaming — plain text response with no tool calls', () => {
 
   test('plain text in two chunks (content then stop) is emitted as text_delta', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Hello from Ollama.'),
           ollamaChunk('', 'stop'),
         ]),
@@ -309,8 +325,8 @@ describe('Ollama streaming — plain text response with no tool calls', () => {
 
   test('plain text in single chunk (content + stop) is emitted as text_delta', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([ollamaChunk('Hello from Ollama.', 'stop')]),
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([ollamaChunk('Hello from Ollama.', 'stop')]),
       )) as unknown as FetchType
 
     const client = createOpenAIShimClient({}) as OpenAIShimClient
@@ -336,8 +352,8 @@ describe('Ollama streaming — plain text response with no tool calls', () => {
 
   test('multi-chunk plain text (no tool calls) assembles correctly', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Hello '),
           ollamaChunk('from '),
           ollamaChunk('Ollama.'),
@@ -386,14 +402,13 @@ describe('Ollama streaming — visible text before real structured tool_calls (P
     // Repro: Ollama endpoint emits visible prose first, then real structured tool_calls.
     // Before fix: ollamaTextBuffer was discarded when the text block closed.
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Let me check that.'),
           ollamaToolChunk([
             { index: 0, id: 'call_1', type: 'function', function: { name: 'Bash', arguments: '{"command":"ls"}' } },
           ]),
-          { id: 'chatcmpl-1', object: 'chat.completion.chunk', model: 'qwen2.5:7b',
-            choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+          ollamaChunk('', 'stop'),
         ]),
       )) as unknown as FetchType
 
@@ -444,8 +459,8 @@ describe('Ollama streaming — visible prose before text-based tool-call fallbac
     // Before fix: hasEmittedContentStart === false in the fallback branch, so the prose in
     // ollamaTextBuffer was discarded — only the synthetic tool_use block was emitted.
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('I will inspect the file.\n'),
           ollamaChunk('{"name":"Read","arguments":{"file_path":"/tmp/foo.ts"}}'),
           ollamaChunk('', 'stop'),
@@ -513,8 +528,8 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
 
   test('buffered text is flushed when finish_reason is "length"', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Partial response cut off by'),
           ollamaChunk('', 'length'),
         ]),
@@ -542,8 +557,8 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
 
   test('text-tool JSON is extracted when finish_reason is "length" but finish_reason stays "length"', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('{"name":"Bash","arguments":{"command":"ls"}}'),
           ollamaChunk('', 'length'),
         ]),
@@ -576,8 +591,8 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
 
   test('buffered text is flushed when finish_reason is "content_filter"', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Text stopped by content filter'),
           ollamaChunk('', 'content_filter'),
         ]),
@@ -609,8 +624,8 @@ describe('Ollama streaming — non-stop terminal finish reasons flush buffer', (
 
   test('buffered text is flushed when finish_reason is "safety"', async () => {
     globalThis.fetch = (async () =>
-      makeSseResponse(
-        makeChunks([
+      makeOllamaNativeStreamingResponse(
+        makeNdjsonChunks([
           ollamaChunk('Text stopped by safety check'),
           ollamaChunk('', 'safety'),
         ]),

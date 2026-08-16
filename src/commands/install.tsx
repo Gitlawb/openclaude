@@ -9,7 +9,8 @@ import { Box, render, Text } from '../ink.js';
 import { logForDebugging } from '../utils/debug.js';
 import { env } from '../utils/env.js';
 import { errorMessage } from '../utils/errors.js';
-import { checkInstall, cleanupNpmInstallations, cleanupShellAliases, installLatest } from '../utils/nativeInstaller/index.js';
+import { hasNativeDistribution } from '../utils/nativeDistribution.js';
+import { checkInstall, cleanupNpmInstallations, cleanupShellAliases, installLatest, repairNativeLauncher } from '../utils/nativeInstaller/index.js';
 import { getInitialSettings, updateSettingsForSource } from '../utils/settings/settings.js';
 interface InstallProps {
   onDone: (result: string, options?: {
@@ -34,6 +35,7 @@ type InstallState = {
   type: 'success';
   version: string;
   setupMessages?: string[];
+  location?: string;
 } | {
   type: 'error';
   message: string;
@@ -86,7 +88,7 @@ function SetupNotes(t0) {
 function _temp(message, index) {
   return <Box key={index} marginLeft={2}><Text dimColor={true}>• {message}</Text></Box>;
 }
-function Install({
+export function Install({
   onDone,
   force,
   target
@@ -98,6 +100,24 @@ function Install({
     async function run() {
       try {
         logForDebugging(`Install: Starting installation process (force=${force}, target=${target})`);
+
+        // npm-only builds have no native binary to install. Downloading here
+        // would fetch the first-party Claude Code binary and replace the npm
+        // install the user is running, so just confirm the current install.
+        if (!hasNativeDistribution()) {
+          logForDebugging('Install: build has no native distribution; reporting npm installation instead');
+          logEvent('tengu_claude_install_command', {
+            has_version: 1,
+            forced: force ? 1 : 0
+          });
+          setState({
+            type: 'success',
+            version: MACRO.DISPLAY_VERSION,
+            location: process.argv[1] || 'npm global installation',
+            setupMessages: [`This build is distributed via npm (${MACRO.PACKAGE_URL}) and has no native binary, so nothing was downloaded.`, `To update, run: npm install -g ${MACRO.PACKAGE_URL}@latest`]
+          });
+          return;
+        }
 
         // Install native build first
         const channelOrVersion = target || getInitialSettings()?.autoUpdatesChannel || 'latest';
@@ -126,17 +146,10 @@ function Install({
           logForDebugging('Install: Already up to date');
         }
 
-        // Set up launcher and shell integration
-        setState({
-          type: 'setting-up'
-        });
-        const setupMessages = await checkInstall(true);
-        logForDebugging(`Install: Setup launcher completed with ${setupMessages.length} messages`);
-        if (setupMessages.length > 0) {
-          setupMessages.forEach(msg => logForDebugging(`Install: Setup message: ${msg.message}`));
-        }
-
-        // Now that native installation succeeded, clean up old npm installations
+        // Now that native installation succeeded, clean up old npm installations.
+        // npm uninstall owns its bin entries and can remove ~/.local/bin/openclaude
+        // when the npm prefix overlaps the native launcher directory, so repair the
+        // native launcher after cleanup before checking the final install state.
         logForDebugging('Install: Cleaning up npm installations after successful install');
         const {
           removed,
@@ -151,6 +164,21 @@ function Install({
           // Continue despite cleanup errors - native install already succeeded
         }
 
+        setState({
+          type: 'setting-up'
+        });
+        if (!result.latestVersion) {
+          throw new Error('Could not repair native launcher - installed version is unknown.');
+        }
+        logForDebugging(`Install: Repairing native launcher after npm cleanup`);
+        await repairNativeLauncher(result.latestVersion);
+
+        // Set up launcher and shell integration against the final post-cleanup state
+        const setupMessages = await checkInstall(true);
+        logForDebugging(`Install: Setup launcher completed with ${setupMessages.length} messages`);
+        if (setupMessages.length > 0) {
+          setupMessages.forEach(msg => logForDebugging(`Install: Setup message: ${msg.message}`));
+        }
         // Clean up old shell aliases
         const aliasMessages = await cleanupShellAliases();
         if (aliasMessages.length > 0) {
@@ -247,7 +275,7 @@ function Install({
               </Box>}
             <Box>
               <Text dimColor>Location: </Text>
-              <Text color="text">{getInstallationPath()}</Text>
+              <Text color="text">{state.location ?? getInstallationPath()}</Text>
             </Box>
           </Box>
           <Box marginLeft={2} flexDirection="column" gap={1}>

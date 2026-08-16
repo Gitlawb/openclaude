@@ -1,8 +1,27 @@
 import { describe, expect, test } from 'bun:test'
-import { BashTool } from './BashTool.js'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import {
+  BashTool,
+  appendPersistedOutputHint,
+  MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+  persistShellOutputFile,
+} from './BashTool.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import { ShellError } from '../../utils/errors.js'
 import { formatError } from '../../utils/toolErrors.js'
+import {
+  generatePreview,
+  PREVIEW_SIZE_BYTES,
+} from '../../utils/toolResultStorage.js'
 
 // Regression for #1231 — non-zero exit must not hide captured stdout/stderr.
 // The Bash tool runs with a merged-fd setup (both streams to one file), so
@@ -36,6 +55,63 @@ async function expectShellError(command: string): Promise<ShellError> {
 }
 
 describe('BashTool error output (#1231)', () => {
+  test('uses the persisted file preview for the model-facing success result', () => {
+    const fullOutput = `COMMAND CONTEXT\n${'routine output\n'.repeat(300)}FAILURE ROOT\n`
+    const preview = generatePreview(fullOutput, PREVIEW_SIZE_BYTES).preview
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'captured head only',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+        persistedOutputPreview: preview,
+        persistedOutputPreviewStrategy: 'head-tail',
+      } as never,
+      'toolu_persisted_preview',
+    )
+
+    expect(String(mapped.content)).toContain(preview)
+    expect(String(mapped.content)).toContain('UTF-8-safe head and tail')
+    expect(String(mapped.content)).not.toContain('complete available inline output')
+    expect(Buffer.byteLength(preview, 'utf8')).toBeLessThanOrEqual(
+      PREVIEW_SIZE_BYTES,
+    )
+  })
+
+  test('labels a small captured-only fallback as partial, not complete', () => {
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'small captured head',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+      } as never,
+      'toolu_captured_fallback',
+    )
+
+    expect(String(mapped.content)).toContain('UTF-8-safe head-only partial output')
+    expect(String(mapped.content)).not.toContain('complete available inline output')
+  })
+
+  test('under-claims a supplied preview when its strategy is missing', () => {
+    const mapped = BashTool.mapToolResultToToolResultBlockParam(
+      {
+        stdout: 'captured head only',
+        stderr: '',
+        interrupted: false,
+        persistedOutputPath: '/tmp/full-output.txt',
+        persistedOutputSize: 42_100,
+        persistedOutputPreview: 'preview with unknown provenance',
+      } as never,
+      'toolu_preview_without_strategy',
+    )
+
+    expect(String(mapped.content)).toContain('UTF-8-safe head-only partial output')
+    expect(String(mapped.content)).not.toContain('UTF-8-safe head and tail')
+  })
+
   test('captured stdout/stderr appear in formatted error on non-zero exit', async () => {
     const err = await expectShellError(
       'echo stdout-line; echo stderr-line >&2; exit 1',
@@ -55,6 +131,18 @@ describe('BashTool error output (#1231)', () => {
     expect(formatted.toLowerCase()).toContain('not found')
   })
 
+  test('strips Claude Code hints from non-zero output when no persisted preview is available', async () => {
+    const hint =
+      '<claude-code-hint v="1" type="plugin" value="example@claude-plugins-official" />'
+    const err = await expectShellError(
+      `printf '%s\\n' '${hint}'; printf 'FAILURE ROOT\\n'; exit 1`,
+    )
+    const formatted = formatError(err)
+
+    expect(formatted).toContain('FAILURE ROOT')
+    expect(formatted).not.toContain('<claude-code-hint')
+  })
+
   test('captured output is carried on the stdout slot (semantic mapping)', async () => {
     const err = await expectShellError('echo merged-line; exit 2')
     expect(err.stdout).toContain('merged-line')
@@ -65,5 +153,360 @@ describe('BashTool error output (#1231)', () => {
     const err = await expectShellError('exit 1')
     expect(err.code).toBe(1)
     expect(formatError(err)).toBe('Exit code 1')
+  })
+
+  test('query-timeout abort returns cancellation metadata and specific message', async () => {
+    const ctx = makeCtx() as {
+      abortController: AbortController
+    }
+
+    setTimeout(() => ctx.abortController.abort('query-timeout'), 50).unref()
+
+    const response = await BashTool.call(
+      { command: 'sleep 5', description: 'wait' } as never,
+      ctx as never,
+    )
+
+    expect(response.data?.interrupted).toBe(true)
+    expect(response.data?.isAbort).toBe(true)
+    expect(response.data?.abortReason).toBe('query-timeout')
+    expect(response.data?.abortMessage).toBe(
+      'Command was interrupted because the query hit its timeout.',
+    )
+
+    const toolResult = BashTool.mapToolResultToToolResultBlockParam(
+      response.data!,
+      'toolu_timeout',
+    )
+    expect(toolResult.is_error).toBe(true)
+    expect(String(toolResult.content)).toContain(
+      'Command was interrupted because the query hit its timeout.',
+    )
+  })
+
+  test('user-cancel abort returns cancellation metadata without treating exit 1 as abort', async () => {
+    const ctx = makeCtx() as {
+      abortController: AbortController
+    }
+
+    setTimeout(() => ctx.abortController.abort('user-cancel'), 50).unref()
+
+    const response = await BashTool.call(
+      { command: 'sleep 5', description: 'wait' } as never,
+      ctx as never,
+    )
+
+    expect(response.data?.interrupted).toBe(true)
+    expect(response.data?.isAbort).toBe(true)
+    expect(response.data?.abortReason).toBe('user-abort')
+    expect(response.data?.abortMessage).toBe(
+      'Command was interrupted because the enclosing query was aborted.',
+    )
+
+    // Negative case: a separate non-aborted command failure must remain an
+    // ordinary ShellError without inheriting abort metadata from this test.
+    const err = await expectShellError('exit 1')
+    expect(err.interrupted).toBe(false)
+    expect(err.abortReason).toBeUndefined()
+  })
+
+  // Regression for #1359 — when the captured output rolls to a file because
+  // it exceeds getMaxOutputLength (default 30k bytes) AND the command exits
+  // non-zero, the model used to see only the truncated first chunk on
+  // result.stdout with no signal that the rest existed. The error path now
+  // persists the roll file into the tool-results dir and appends a marker
+  // pointing at it, so the model can FileRead the full output.
+  test('large-output non-zero exit persists output and embeds path in error', async () => {
+    // Generate ~50k bytes (well above BASH_MAX_OUTPUT_DEFAULT=30000) then
+    // exit non-zero. The shell's rolling-file path engages once the in-memory
+    // accumulator exceeds the cap.
+    let persistedPath: string | undefined
+    try {
+      const err = await expectShellError(
+        `for i in $(seq 1 700); do printf 'line %04d %s\\n' "$i" "padding-to-make-this-line-fat-enough-to-cross-the-limit"; done; printf 'FAILURE ROOT: src/index.ts:42\\n'; exit 1`,
+      )
+      expect(err.code).toBe(1)
+      const formatted = formatError(err)
+      expect(formatted).toContain('Exit code 1')
+      // The marker tells the model the full output is on disk along with the
+      // byte count. We don't pin the exact path (it's a temp dir) but we do
+      // require the canonical phrasing so the model's prompt template can
+      // anchor on it.
+      const match = formatted.match(
+        /full output \(\d+ bytes\) saved to (.+); read with the Read tool/,
+      )
+      expect(match).not.toBeNull()
+      persistedPath = match?.[1]
+      expect(persistedPath).toBeDefined()
+      expect(formatted).toContain('FAILURE ROOT: src/index.ts:42')
+      expect(formatted).toMatch(/… \d+ bytes omitted …/)
+      expect(formatted).not.toContain('line 0200')
+
+      // The saved file must actually be readable and contain the late output
+      // that #1359 needs the model to recover — i.e. the tail line, which the
+      // truncated in-memory chunk dropped.
+      expect(existsSync(persistedPath!)).toBe(true)
+      const saved = readFileSync(persistedPath!, 'utf8')
+      expect(saved).toContain('line 0700')
+    } finally {
+      // Don't leave tool-results artifacts under the real project storage.
+      if (persistedPath && existsSync(persistedPath)) {
+        rmSync(persistedPath, { force: true })
+      }
+    }
+  })
+
+  // Follow-up to #1359 — persistShellOutputFile caps the saved roll file at
+  // MAX_PERSISTED_SHELL_OUTPUT_SIZE. When that cap engages the error marker
+  // must NOT claim the full output is on disk, or the model trusts a truncated
+  // file and can miss a failure that appears past the cap.
+  test('hint reports a cap instead of "full output" when the roll file was truncated', () => {
+    const original = MAX_PERSISTED_SHELL_OUTPUT_SIZE + 4096
+    const hint = appendPersistedOutputHint('preview', '/tmp/out', original, true)
+    expect(hint).not.toContain('full output')
+    expect(hint).toContain('capped')
+    expect(hint).toContain(`first ${MAX_PERSISTED_SHELL_OUTPUT_SIZE} bytes`)
+    expect(hint).toContain(`${original}-byte`)
+    expect(hint).toContain('/tmp/out')
+  })
+
+  test('capped hint distinguishes preview tail bytes from saved bytes', () => {
+    const hint = appendPersistedOutputHint(
+      'captured output',
+      '/tmp/out',
+      MAX_PERSISTED_SHELL_OUTPUT_SIZE + 4096,
+      true,
+      'COMMAND CONTEXT\n… 4096 bytes omitted …\nFAILURE ROOT',
+      'head-tail',
+    )
+
+    expect(hint).toContain('preview may include tail bytes not saved at that path')
+  })
+
+  test('hint keeps "full output" wording when the roll file fit under the cap', () => {
+    const hint = appendPersistedOutputHint('preview', '/tmp/out', 1234, false)
+    expect(hint).toMatch(/full output \(1234 bytes\) saved to \/tmp\/out; read with the Read tool/)
+  })
+
+  test('bounded error preview replaces the captured head but preserves sandbox diagnostics', () => {
+    const captured = `${'captured duplicate\n'.repeat(2_000)}<sandbox_violations>${'literal command output'.repeat(2_000)}</sandbox_violations>`
+    const preview = 'COMMAND CONTEXT\n… 42,000 bytes omitted …\nFAILURE ROOT'
+    const sandboxDiagnostics =
+      '<sandbox_violations>actual denied write</sandbox_violations>'
+    const hint = appendPersistedOutputHint(
+      captured,
+      '/tmp/out',
+      42_100,
+      false,
+      preview,
+      'head-tail',
+      sandboxDiagnostics,
+    )
+
+    expect(hint).toContain(preview)
+    expect(hint).not.toContain('captured duplicate')
+    expect(hint).not.toContain('literal command output')
+    expect(hint).toContain(
+      '<sandbox_violations>actual denied write</sandbox_violations>',
+    )
+    expect(Buffer.byteLength(hint, 'utf8')).toBeLessThan(3_000)
+  })
+
+  test('labels a head-only persisted preview honestly', () => {
+    const hint = appendPersistedOutputHint(
+      'captured output',
+      '/tmp/out',
+      42_100,
+      false,
+      'COMMAND CONTEXT',
+      'head-only',
+    )
+
+    expect(hint).toContain('UTF-8-safe head-only partial')
+    expect(hint).not.toContain('UTF-8-safe head and tail')
+  })
+
+  // Follow-up to #1359 — when the roll file exceeds the cap, the cap must be
+  // applied to the saved copy, NOT to the shell's rolled-output source. The
+  // error fallback and resizeShellImageOutput still read the source, so
+  // mutating it would drop the very tail this persistence is meant to recover.
+  test('caps the destination copy and leaves the rolled-output source intact', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'persist-source-'))
+    const source = join(dir, 'roll.txt')
+    // 4 KiB of recoverable output; cap the saved copy at 1 KiB.
+    const body = 'x'.repeat(4096)
+    writeFileSync(source, body)
+    const cap = 1024
+    let dest: string | undefined
+    try {
+      const persisted = await persistShellOutputFile(source, 'persist-src-test', cap)
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      // Reported size is the original byte count; truncated flags the cap.
+      expect(persisted!.size).toBe(4096)
+      expect(persisted!.truncated).toBe(true)
+      // Source keeps every byte — its tail is still recoverable downstream.
+      expect(statSync(source).size).toBe(4096)
+      expect(readFileSync(source, 'utf8')).toBe(body)
+      // Destination copy is the one that got capped.
+      expect(statSync(dest).size).toBe(cap)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  // The capped destination must hold exactly the FIRST `maxSize` bytes of the
+  // source — no more, no less. Guards the bounded read range (an off-by-one on
+  // the inclusive `end` would spill one extra byte). Distinguishable halves
+  // prove only the head is written, and never the tail.
+  test('capped destination contains exactly the first maxSize bytes', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'persist-head-'))
+    const source = join(dir, 'roll.txt')
+    const cap = 2048
+    const head = 'A'.repeat(cap)
+    const tail = 'B'.repeat(cap)
+    writeFileSync(source, head + tail) // 2*cap bytes
+    let dest: string | undefined
+    try {
+      const persisted = await persistShellOutputFile(source, 'persist-head-test', cap)
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.truncated).toBe(true)
+      expect(persisted!.preview).toStartWith('A')
+      expect(persisted!.preview).toEndWith('B'.repeat(790))
+      expect(persisted!.preview).toMatch(/… \d+ bytes omitted …/)
+      expect(Buffer.byteLength(persisted!.preview!, 'utf8')).toBeLessThanOrEqual(
+        PREVIEW_SIZE_BYTES,
+      )
+      const saved = readFileSync(dest, 'utf8')
+      expect(saved.length).toBe(cap)
+      expect(saved).toBe(head) // exactly the head, no tail byte leaked in
+      expect(saved).not.toContain('B')
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('strips and reports a retained-tail Claude Code hint without changing the saved file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bash-persist-hint-'))
+    const source = join(dir, 'roll.txt')
+    const hint =
+      '<claude-code-hint v="1" type="plugin" value="example@claude-plugins-official" />'
+    const body = `COMMAND CONTEXT\n${'routine output\n'.repeat(300)}${hint}\nFAILURE ROOT\n`
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistShellOutputFile(
+        source,
+        'persist-hint-test',
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.preview).toContain('FAILURE ROOT')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+      const marker = persisted!.preview!.match(/… (\d+) bytes omitted …/)
+      expect(marker).toBeDefined()
+      const displayedOutput = persisted!.preview!.replace(marker![0], '')
+      expect(Number(marker![1])).toBe(
+        Buffer.byteLength(body, 'utf8') -
+        Buffer.byteLength(displayedOutput, 'utf8'),
+      )
+      expect(persisted!.previewHints).toEqual([
+        {
+          v: 1,
+          type: 'plugin',
+          value: 'example@claude-plugins-official',
+          sourceCommand: 'example-cli',
+        },
+      ])
+      expect(readFileSync(dest, 'utf8')).toBe(body)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('downgrades a complete preview when a hint line is removed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bash-persist-complete-hint-'))
+    const source = join(dir, 'roll.txt')
+    const hint =
+      '<claude-code-hint v="1" type="plugin" value="example@claude-plugins-official" />'
+    const body = `COMMAND CONTEXT\n${hint}\nFAILURE ROOT\n`
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistShellOutputFile(
+        source,
+        'persist-complete-hint-test',
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.previewStrategy).toBe('head-only')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+
+      const mapped = BashTool.mapToolResultToToolResultBlockParam(
+        {
+          stdout: 'captured head only',
+          stderr: '',
+          interrupted: false,
+          persistedOutputPath: persisted!.path,
+          persistedOutputSize: persisted!.size,
+          persistedOutputPreview: persisted!.preview,
+          persistedOutputPreviewStrategy: persisted!.previewStrategy,
+        } as never,
+        'toolu_sanitized_complete_preview',
+      )
+      expect(String(mapped.content)).toContain(
+        'UTF-8-safe head-only partial output',
+      )
+      expect(String(mapped.content)).not.toContain(
+        'complete available inline output',
+      )
+      expect(readFileSync(dest, 'utf8')).toBe(body)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('falls back to head-only when a retained hint contains malformed UTF-8', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bash-persist-malformed-hint-'))
+    const source = join(dir, 'roll.txt')
+    const body = Buffer.concat([
+      Buffer.from(`COMMAND CONTEXT\n${'routine output\n'.repeat(300)}`),
+      Buffer.from('<claude-code-hint v="1" type="plugin" value="example'),
+      Buffer.from([0xff]),
+      Buffer.from('@claude-plugins-official" />\nFAILURE ROOT\n'),
+    ])
+    writeFileSync(source, body)
+    let dest: string | undefined
+
+    try {
+      const persisted = await persistShellOutputFile(
+        source,
+        'persist-malformed-hint-test',
+        MAX_PERSISTED_SHELL_OUTPUT_SIZE,
+        'example-cli run',
+      )
+      expect(persisted).not.toBeNull()
+      dest = persisted!.path
+      expect(persisted!.previewStrategy).toBe('head-only')
+      expect(persisted!.preview).toContain('COMMAND CONTEXT')
+      expect(persisted!.preview).not.toContain('FAILURE ROOT')
+      expect(persisted!.preview).not.toContain('<claude-code-hint')
+      expect(persisted!.preview).not.toMatch(/… \d+ bytes omitted …/)
+      expect(readFileSync(dest)).toEqual(body)
+    } finally {
+      if (dest && existsSync(dest)) rmSync(dest, { force: true })
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

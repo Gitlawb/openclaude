@@ -26,7 +26,7 @@ import {
 import { getManagedFilePath } from './settings/managedPath.js'
 import { isRestrictedToPluginOnly } from './settings/pluginOnlyPolicy.js'
 
-// Claude configuration directory names
+// OpenClaude configuration directory names
 export const CLAUDE_CONFIG_DIRECTORIES = [
   'commands',
   'agents',
@@ -38,7 +38,7 @@ export const CLAUDE_CONFIG_DIRECTORIES = [
 
 export type ClaudeConfigDirectory = (typeof CLAUDE_CONFIG_DIRECTORIES)[number]
 
-const PROJECT_CONFIG_DIR_NAMES = ['.claude', '.openclaude'] as const
+export const PROJECT_CONFIG_DIR_NAMES = ['.openclaude'] as const
 
 // Concurrency cap for parallel readFile + parseFrontmatter when loading
 // commands/agents/skills/etc. With unbounded Promise.all, a directory holding
@@ -239,14 +239,14 @@ async function getFileIdentity(filePath: string): Promise<string | null> {
  * Normally the walk stops at the nearest `.git` above `cwd`. But if the Bash
  * tool has cd'd into a nested git repo inside the session's project (submodule,
  * vendored dep with its own `.git`), that nested root isn't the right boundary —
- * stopping there makes the parent project's `.claude/` unreachable (#31905).
+ * stopping there makes the parent project's `.openclaude/` unreachable (#31905).
  *
  * The boundary is widened to the session's git root only when BOTH:
  *   - the nearest `.git` from cwd belongs to a *different* canonical repo
  *     (submodule/vendored clone — not a worktree, which resolves back to main)
  *   - that nearest `.git` sits *inside* the session's project tree
  *
- * Worktrees (under `.claude/worktrees/`) stay on the old behavior: their `.git`
+ * Worktrees (under `.openclaude/worktrees/`) stay on the old behavior: their `.git`
  * file is the stop, and loadMarkdownFilesForSubdir's fallback adds the main-repo
  * copy only when the worktree lacks one.
  */
@@ -283,15 +283,15 @@ function resolveStopBoundary(cwd: string): string | null {
 
 /**
  * Traverses from the current directory up to the git root (or home directory if not in a git repo),
- * collecting all .claude directories along the way.
+ * collecting all .openclaude directories along the way.
  *
  * Stopping at git root prevents commands/skills from parent directories outside the repository
- * from leaking into projects. For example, if ~/projects/.claude/commands/ exists, it won't
+ * from leaking into projects. For example, if ~/projects/.openclaude/commands/ exists, it won't
  * appear in ~/projects/my-repo/ if my-repo is a git repository.
  *
  * @param subdir Subdirectory (eg. "commands", "agents")
  * @param cwd Current working directory to start from
- * @returns Array of directory paths containing .claude/subdir, from most specific (cwd) to least specific
+ * @returns Array of directory paths containing .openclaude/subdir, from most specific (cwd) to least specific
  */
 export function getProjectDirsUpToHome(
   subdir: ClaudeConfigDirectory,
@@ -365,17 +365,17 @@ export const loadMarkdownFilesForSubdir = memoize(
   ): Promise<MarkdownFile[]> {
     const searchStartTime = Date.now()
     const userDir = join(getClaudeConfigHomeDir(), subdir)
-    const managedDir = join(getManagedFilePath(), '.claude', subdir)
+    const managedDir = join(getManagedFilePath(), '.openclaude', subdir)
     const projectDirs = getProjectDirsUpToHome(subdir, cwd)
 
-    // For git worktrees where the worktree does NOT have .claude/<subdir> checked
+    // For git worktrees where the worktree does NOT have .openclaude/<subdir> checked
     // out (e.g. sparse-checkout), fall back to the main repository's copy.
     // getProjectDirsUpToHome stops at the worktree root (where the .git file is),
     // so it never sees the main repo on its own.
     //
-    // Only add the main repo's copy when the worktree root's .claude/<subdir>
+    // Only add the main repo's copy when the worktree root's .openclaude/<subdir>
     // is absent. A standard `git worktree add` checks out the full tree, so the
-    // worktree already has identical .claude/<subdir> content — loading the main
+    // worktree already has identical .openclaude/<subdir> content — loading the main
     // repo's copy too would duplicate every command/agent/skill
     // (anthropics/claude-code#29599, #28182, #26992).
     //
@@ -444,7 +444,7 @@ export const loadMarkdownFilesForSubdir = memoize(
     const allFiles = [...managedFiles, ...userFiles, ...projectFiles]
 
     // Deduplicate files that resolve to the same physical file (same inode).
-    // This prevents the same file from appearing multiple times when ~/.claude is
+    // This prevents the same file from appearing multiple times when ~/.openclaude is
     // symlinked to a directory within the project hierarchy, causing the same
     // physical file to be discovered through different paths.
     const fileIdentities = await Promise.all(
@@ -606,7 +606,7 @@ async function findMarkdownFilesNative(
 
 /**
  * Generic function to load markdown files from specified directories
- * @param dir Directory (eg. "~/.claude/commands")
+ * @param dir Directory (eg. "~/.openclaude/commands")
  * @returns Array of parsed markdown files with metadata
  */
 async function loadMarkdownFiles(dir: string): Promise<

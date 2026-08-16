@@ -30,6 +30,8 @@ export interface OpenAIShimUiConfig {
 export interface OpenAIShimTransportConfig {
   headers?: Record<string, string>
   supportsApiFormatSelection?: boolean
+  defaultApiFormat?: 'chat_completions' | 'responses' | 'responses_compat'
+  requiredApiFormat?: 'chat_completions' | 'responses' | 'responses_compat'
   supportsAuthHeaders?: boolean
   ui?: OpenAIShimUiConfig
   defaultAuthHeader?: OpenAIShimAuthHeaderConfig
@@ -37,9 +39,12 @@ export interface OpenAIShimTransportConfig {
   preserveReasoningContent?: boolean
   requireReasoningContentOnAssistantMessages?: boolean
   reasoningContentFallback?: '' | 'omit'
-  thinkingRequestFormat?: 'none' | 'deepseek-compatible'
+  thinkingRequestFormat?: 'none' | 'deepseek-compatible' | 'zai-compatible'
+  enableToolStreaming?: boolean
   maxTokensField?: OpenAIShimTokenField
   removeBodyFields?: string[]
+  /** Whether the endpoint accepts image content parts. Defaults to true. */
+  supportsImageInputs?: boolean
   /** Override the endpoint path for this model (e.g., '/responses', '/messages'). */
   endpointPath?: string
 }
@@ -54,10 +59,37 @@ export interface CapabilityFlags {
   supportsEmbeddings?: boolean
 }
 
+export type ReasoningControlMode = 'levels' | 'toggle' | 'always-on'
+export type ReasoningEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/**
+ * reasoning_effort, deepseek_compatible, and zai_compatible are wired into
+ * request serialization today. Other values are reserved until their serializer
+ * paths are implemented.
+ */
+export type ReasoningWireFormat =
+  | 'reasoning_effort'
+  | 'reasoning_object'
+  | 'thinking_type'
+  | 'deepseek_compatible'
+  | 'zai_compatible'
+  | 'none'
+export type ReasoningDisableFormat = 'thinking_type_disabled'
+
+export interface ReasoningControlMetadata {
+  mode: ReasoningControlMode
+  levels?: ReasoningEffortLevel[]
+  defaultLevel?: ReasoningEffortLevel
+  wireFormat?: ReasoningWireFormat
+  disableFormat?: ReasoningDisableFormat
+}
+
 export interface TransportConfig {
   kind: TransportKind
   headers?: Record<string, string>
   openaiShim?: OpenAIShimTransportConfig
+  anthropicProxy?: {
+    supportsCustomHeaders?: boolean
+  }
 }
 
 export interface CatalogTransportOverrides {
@@ -78,11 +110,21 @@ export type ReadinessProbeKind = 'ollama-generation' | 'openai-compatible-models
 export interface ModelCatalogEntry {
   id: string
   apiName: string
+  aliases?: string[]
   label?: string
   default?: boolean
   hidden?: boolean
+  /**
+   * ISO-8601 instant after which the entry is dropped from catalog
+   * resolution (model picker, gateway catalogs, runtime limits). For
+   * time-boxed launches — e.g. a free window the gateway delists
+   * server-side — so the picker never offers a model the gateway will
+   * reject. An unparseable date fails open (the entry stays visible).
+   */
+  availableUntil?: string
   modelDescriptorId?: string
   capabilities?: CapabilityFlags
+  reasoning?: ReasoningControlMetadata
   contextWindow?: number
   maxOutputTokens?: number
   transportOverrides?: CatalogTransportOverrides
@@ -310,8 +352,14 @@ export interface ModelDescriptor {
   defaultModel: string
   providerModelMap?: Partial<Record<string, string>>
   capabilities: CapabilityFlags
+  reasoning?: ReasoningControlMetadata
   contextWindow?: number
   maxOutputTokens?: number
+  /**
+   * Restrict shared runtime metadata to catalog entries that explicitly
+   * reference this descriptor. Omit for the legacy global model-name fallback.
+   */
+  runtimeMetadataScope?: 'global' | 'catalog'
   cacheConfig?: CacheConfig
 }
 

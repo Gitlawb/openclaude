@@ -78,6 +78,89 @@ describe('MCPTool.validateInput', () => {
     expect(result.result).toBe(false)
   })
 
+  test('validates JSON Schema Draft 2020-12 MCP input schemas', async () => {
+    const schema = {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object' as const,
+      properties: {
+        action: {
+          type: 'string' as const,
+          enum: ['list', 'new', 'close', 'select'],
+        },
+        index: { type: 'number' as const },
+        url: { type: 'string' as const },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    }
+    const tool = { ...MCPTool, inputJSONSchema: schema }
+
+    const valid = await withValidator(tool).validateInput(
+      { action: 'list' },
+      {} as never,
+    )
+    expect(valid.result).toBe(true)
+
+    const invalid = await withValidator(tool).validateInput(
+      { action: 'list', bad: true },
+      {} as never,
+    )
+    expect(invalid.result).toBe(false)
+    expect(invalid.result === false && invalid.message).toContain(
+      'additional properties',
+    )
+  })
+
+  test('defaults omitted-schema MCP input schemas to JSON Schema Draft 2020-12', async () => {
+    const schema = {
+      type: 'object' as const,
+      properties: {
+        tuple: {
+          type: 'array' as const,
+          prefixItems: [
+            { type: 'string' as const },
+            { type: 'number' as const },
+          ],
+          items: false,
+        },
+      },
+      required: ['tuple'],
+      additionalProperties: false,
+    }
+    const tool = { ...MCPTool, inputJSONSchema: schema }
+
+    const valid = await withValidator(tool).validateInput(
+      { tuple: ['ok', 1] },
+      {} as never,
+    )
+    expect(valid.result).toBe(true)
+
+    const invalid = await withValidator(tool).validateInput(
+      { tuple: ['ok', 1, true] },
+      {} as never,
+    )
+    expect(invalid.result).toBe(false)
+  })
+
+  test('continues to support explicit JSON Schema Draft-07 schemas', async () => {
+    const schema = {
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string' as const },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    }
+    const tool = { ...MCPTool, inputJSONSchema: schema }
+
+    const result = await withValidator(tool).validateInput(
+      { name: 'test' },
+      {} as never,
+    )
+    expect(result.result).toBe(true)
+  })
+
   test('handles invalid schema gracefully', async () => {
     // Schema that will cause ajv.compile to throw
     const schema = { type: 'invalid_type' } as any

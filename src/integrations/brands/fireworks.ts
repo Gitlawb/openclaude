@@ -92,6 +92,7 @@ export default defineBrand({
     'accounts/fireworks/models/glm-4p7-flash',
     'accounts/fireworks/models/glm-5',
     'accounts/fireworks/models/glm-5p1',
+    'accounts/fireworks/models/glm-5p2',
     'accounts/fireworks/models/gpt-oss-120b',
     'accounts/fireworks/models/gpt-oss-20b',
     'accounts/fireworks/models/gpt-oss-safeguard-120b',

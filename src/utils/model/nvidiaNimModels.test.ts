@@ -2,18 +2,52 @@
 // fallback path in `getDiscoveredNvidiaNimModelIds()`. The cache key it
 // builds must match the partition the descriptor picker
 // (`getOpenAIDiscoveryRequestOptions` in src/commands/model/model.tsx)
-// writes to — same `(baseUrl, apiKey, headers)` triple — or the inline
-// validator looks in a different partition than the picker just wrote.
-//
-// Previous rounds of #1177 closed the apiKey-mismatch case. This test
-// pins the remaining headers-mismatch case flagged in jatmn's
-// 2026-05-21 re-review.
+// writes to: same `(baseUrl, apiKey, headers)` triple, including reducing
+// pooled OpenAI fallback credentials to the single key used for discovery.
 
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { getDiscoveryCacheKey } from '../../integrations/discoveryService.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
 import { parseCustomHeadersEnv } from '../providerCustomHeaders.js'
 
 const ROUTE = 'nvidia-nim'
+const originalEnv = {
+  ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  OPENCLAUDE_CONFIG_DIR: process.env.OPENCLAUDE_CONFIG_DIR,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
+  CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
+  CLAUDE_CODE_USE_MISTRAL: process.env.CLAUDE_CODE_USE_MISTRAL,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
+  NVIDIA_NIM: process.env.NVIDIA_NIM,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
+}
+let tempDir = ''
+
+function restoreEnv(): void {
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = value
+    }
+  }
+}
 
 function withEnv<T>(
   patch: Record<string, string | undefined>,
@@ -44,12 +78,24 @@ function withEnv<T>(
 }
 
 describe('nvidia-nim discovery cache key parity', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await acquireSharedMutationLock('nvidiaNimModels.test.ts')
+    mock.restore()
+    tempDir = mkdtempSync(join(tmpdir(), 'openclaude-nvidia-nim-cache-test-'))
+    process.env.CLAUDE_CONFIG_DIR = tempDir
+    process.env.OPENCLAUDE_CONFIG_DIR = tempDir
     delete process.env.ANTHROPIC_CUSTOM_HEADERS
   })
 
   afterEach(() => {
-    delete process.env.ANTHROPIC_CUSTOM_HEADERS
+    try {
+      mock.restore()
+      restoreEnv()
+      rmSync(tempDir, { recursive: true, force: true })
+      tempDir = ''
+    } finally {
+      releaseSharedMutationLock()
+    }
   })
 
   test('custom headers move the partition off the no-headers default', () => {
@@ -83,7 +129,6 @@ describe('nvidia-nim discovery cache key parity', () => {
           ),
         })
 
-        // Mirror what `getDiscoveredNvidiaNimModelIds()` now does.
         const inlineKey = getDiscoveryCacheKey(ROUTE, {
           baseUrl,
           apiKey,
@@ -95,6 +140,28 @@ describe('nvidia-nim discovery cache key parity', () => {
         expect(inlineKey).toBe(pickerKey)
       },
     )
+  })
+
+  test('inline validator reads the picker cache partition for pooled OpenAI fallback keys', async () => {
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { getNvidiaNimDiscoveryCacheKeyForEnv } = await import(
+      `./nvidiaNimModels.js?nvidiaPooledModels=${nonce}`
+    )
+
+    const baseUrl = 'https://integrate.api.nvidia.com/v1'
+    const processEnv: NodeJS.ProcessEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: baseUrl,
+      OPENAI_MODEL: 'nvidia/test-chat',
+      OPENAI_API_KEYS: 'key-a,key-b',
+    }
+    const pickerKey = getDiscoveryCacheKey(ROUTE, {
+      baseUrl,
+      apiKey: 'key-a',
+      headers: parseCustomHeadersEnv(processEnv.ANTHROPIC_CUSTOM_HEADERS),
+    })
+
+    expect(getNvidiaNimDiscoveryCacheKeyForEnv(processEnv)).toBe(pickerKey)
   })
 
   test('absent ANTHROPIC_CUSTOM_HEADERS leaves picker and inline keys identical', () => {

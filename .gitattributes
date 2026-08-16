@@ -59,6 +59,7 @@ CODE_OF_CONDUCT* text
 *.xml text
 *.csv text
 *.sql text
+*.scm text eol=lf
 
 # Graphics (binary)
 *.png binary

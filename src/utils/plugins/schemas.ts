@@ -116,6 +116,48 @@ export const OFFICIAL_GITHUB_ORG = 'anthropics'
  * @param source - The marketplace source configuration
  * @returns An error message if validation fails, or null if valid
  */
+/**
+ * True only when a git URL genuinely targets the official org on github.com.
+ *
+ * Uses exact host + first-path-segment matching, not a substring check: a
+ * substring like `url.includes('github.com/anthropics/')` also matches hostile
+ * URLs such as `https://notgithub.com/anthropics/x` or
+ * `https://evil.com/github.com/anthropics/x`, which would let an attacker claim
+ * a reserved official-marketplace name from a repo they control.
+ */
+function isOfficialAnthropicsGitUrl(rawUrl: string): boolean {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  // scp-like SSH form: git@github.com:anthropics/<repo> (has no scheme).
+  if (!trimmed.includes('://')) {
+    const scp = /^[^@\s]+@([^:\s]+):(.+)$/.exec(trimmed)
+    if (scp) {
+      const host = scp[1]!.toLowerCase()
+      const firstSegment = scp[2]!.replace(/^\/+/, '').split('/')[0]?.toLowerCase()
+      return host === 'github.com' && firstSegment === OFFICIAL_GITHUB_ORG
+    }
+    return false
+  }
+
+  // Scheme forms: https://, http://, ssh://git@github.com/anthropics/<repo>.
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.hostname.toLowerCase() !== 'github.com') {
+      return false
+    }
+    const firstSegment = parsed.pathname
+      .replace(/^\/+/, '')
+      .split('/')[0]
+      ?.toLowerCase()
+    return firstSegment === OFFICIAL_GITHUB_ORG
+  } catch {
+    return false
+  }
+}
+
 export function validateOfficialNameSource(
   name: string,
   source: { source: string; repo?: string; url?: string },
@@ -139,13 +181,7 @@ export function validateOfficialNameSource(
 
   // Check for git URL source type
   if (source.source === 'git' && source.url) {
-    const url = source.url.toLowerCase()
-    // Check for HTTPS URL format: https://github.com/anthropics/...
-    // or SSH format: git@github.com:anthropics/...
-    const isHttpsAnthropics = url.includes('github.com/anthropics/')
-    const isSshAnthropics = url.includes('git@github.com:anthropics/')
-
-    if (isHttpsAnthropics || isSshAnthropics) {
+    if (isOfficialAnthropicsGitUrl(source.url)) {
       return null // Valid: reserved name from official git URL
     }
 

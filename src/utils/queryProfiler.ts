@@ -29,7 +29,17 @@
 
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
-import { formatMs, formatTimelineLine, getPerformance } from './profilerBase.js'
+import {
+  clearProfilerEntries,
+  formatMs,
+  formatTimelineLine,
+  getPerformance,
+  getProfilerDisplayName,
+  getProfilerEntries,
+  getProfilerMarkName,
+} from './profilerBase.js'
+
+const PROFILER_SCOPE = 'query'
 
 // Module-level state - initialized once when the module loads
 // eslint-disable-next-line custom-rules/no-process-env-top-level
@@ -50,12 +60,8 @@ let firstTokenTime: number | null = null
 export function startQueryProfile(): void {
   if (!ENABLED) return
 
-  const perf = getPerformance()
-
-  // Clear previous marks and memory snapshots
-  perf.clearMarks()
-  memorySnapshots.clear()
-  firstTokenTime = null
+  // Clear previous query-owned entries without disturbing other instrumentation.
+  clearQueryProfile()
 
   queryCount++
 
@@ -70,16 +76,12 @@ export function queryCheckpoint(name: string): void {
   if (!ENABLED) return
 
   const perf = getPerformance()
-  perf.mark(name)
+  const mark = perf.mark(getProfilerMarkName(PROFILER_SCOPE, name))
   memorySnapshots.set(name, process.memoryUsage())
 
   // Track first token specially
   if (name === 'query_first_chunk_received' && firstTokenTime === null) {
-    const marks = perf.getEntriesByType('mark')
-    if (marks.length > 0) {
-      const lastMark = marks[marks.length - 1]
-      firstTokenTime = lastMark?.startTime ?? 0
-    }
+    firstTokenTime = mark.startTime
   }
 }
 
@@ -131,8 +133,7 @@ function getQueryProfileReport(): string {
     return 'Query profiling not enabled (set CLAUDE_CODE_PROFILE_QUERY=1)'
   }
 
-  const perf = getPerformance()
-  const marks = perf.getEntriesByType('mark')
+  const marks = getProfilerEntries(PROFILER_SCOPE, 'mark')
   if (marks.length === 0) {
     return 'No query profiling checkpoints recorded'
   }
@@ -150,25 +151,26 @@ function getQueryProfileReport(): string {
   let firstChunkTime = 0
 
   for (const mark of marks) {
+    const name = getProfilerDisplayName(PROFILER_SCOPE, mark.name)
     const relativeTime = mark.startTime - baselineTime
     const deltaMs = mark.startTime - prevTime
     lines.push(
       formatTimelineLine(
         relativeTime,
         deltaMs,
-        mark.name,
-        memorySnapshots.get(mark.name),
+        name,
+        memorySnapshots.get(name),
         10,
         9,
-        getSlowWarning(deltaMs, mark.name),
+        getSlowWarning(deltaMs, name),
       ),
     )
 
     // Track key milestones for summary (use relative times)
-    if (mark.name === 'query_api_request_sent') {
+    if (name === 'query_api_request_sent') {
       apiRequestSentTime = relativeTime
     }
-    if (mark.name === 'query_first_chunk_received') {
+    if (name === 'query_first_chunk_received') {
       firstChunkTime = relativeTime
     }
 
@@ -203,7 +205,15 @@ function getQueryProfileReport(): string {
   }
 
   // Add phase summary
-  lines.push(getPhaseSummary(marks, baselineTime))
+  lines.push(
+    getPhaseSummary(
+      marks.map(mark => ({
+        name: getProfilerDisplayName(PROFILER_SCOPE, mark.name),
+        startTime: mark.startTime,
+      })),
+      baselineTime,
+    ),
+  )
 
   lines.push('='.repeat(80))
 
@@ -297,5 +307,19 @@ function getPhaseSummary(
  */
 export function logQueryProfileReport(): void {
   if (!ENABLED) return
-  logForDebugging(getQueryProfileReport())
+  if (getProfilerEntries(PROFILER_SCOPE, 'mark').length === 0) return
+
+  try {
+    logForDebugging(getQueryProfileReport())
+  } finally {
+    clearQueryProfile()
+  }
+}
+
+export function clearQueryProfile(): void {
+  if (!ENABLED) return
+
+  clearProfilerEntries(PROFILER_SCOPE)
+  memorySnapshots.clear()
+  firstTokenTime = null
 }

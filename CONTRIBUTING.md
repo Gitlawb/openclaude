@@ -46,8 +46,17 @@ This step prevents wasted effort on PRs that might otherwise be closed without r
 
 ## Pull Requests
 
+Before opening a PR:
+
+- Read this `CONTRIBUTING.md` file.
+- Read [`AGENTS.md`](AGENTS.md) for repo-specific coding-agent conventions, validation commands, provider guidance, and architecture rules.
+- Re-check open and recently closed PRs for duplicates.
+- Keep the branch focused on one issue or one clearly scoped improvement.
+- Run the narrowest meaningful validation command for the touched area.
+
 Every PR needs a reason. Your PR description must include:
 
+- confirmation that you reviewed both this `CONTRIBUTING.md` file and [`AGENTS.md`](AGENTS.md)
 - what changed and why
 - the user or developer impact
 - the exact checks you ran
@@ -124,6 +133,7 @@ Dependency changes need a clear project benefit — fixing a bug, addressing a s
 - Preserve existing repo patterns unless the change is intentionally refactoring them.
 - Add or update tests when the change affects behavior.
 - Update docs when setup, commands, or user-facing behavior changes.
+- Website release notes live on GitHub Releases. Do not add manually maintained release-note data to the static site.
 
 AI-assisted and vibe-coded contributions are welcome, but please review your own changes thoroughly before opening a PR. Even frontier models produce subtle bugs, incorrect assumptions, and code that looks right but isn't.
 
@@ -140,6 +150,8 @@ Self-review up front saves everyone time and reduces back-and-forth during maint
 ## AI Agent Guidelines
 
 If you are an AI agent (Copilot, Cursor, Claude, etc.) working on this codebase, refer to [AGENTS.md](AGENTS.md) for project-specific coding guidelines, conventions, and validation commands. Following these guidelines will help your contributions align with the project's patterns and reduce review friction.
+
+In particular: link release-notes navigation to GitHub Releases rather than adding a local changelog page or manually maintained release data.
 
 ## Code Style
 
@@ -229,12 +241,6 @@ Provider recommendation tests:
 
 ```bash
 bun run test:provider-recommendation
-```
-
-Python tests:
-
-```bash
-python -m pytest -q python/tests
 ```
 
 Typecheck (enforced by the dedicated `typecheck` CI job):

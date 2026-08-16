@@ -1,4 +1,5 @@
 import { defineGateway } from '../define.js'
+import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
 
 export default defineGateway({
   id: 'gitlawb-opengateway',
@@ -11,17 +12,17 @@ export default defineGateway({
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
   },
   validation: {
     kind: 'credential-env',
     // OPENGATEWAY_API_KEY first so users who set both don't get their generic
-    // OpenAI key sent to opengateway by accident. OPENAI_API_KEY kept as a
-    // fallback because that's where existing openclaude configs already hold it.
-    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEY'],
+    // OpenAI key sent to opengateway by accident. OPENAI_API_KEYS / OPENAI_API_KEY kept as
+    // fallbacks because existing openclaude configs may already hold generic credentials there.
+    credentialEnvVars: ['OPENGATEWAY_API_KEY', 'OPENAI_API_KEYS', 'OPENAI_API_KEY'],
     missingCredentialMessage:
       'OPENGATEWAY_API_KEY is required to use Gitlawb Opengateway.\n' +
-      'Mint a free API key at https://gitlawb.com/opengateway/keys and set it as OPENGATEWAY_API_KEY (or OPENAI_API_KEY when OPENAI_BASE_URL points at opengateway).',
+      'Mint a free API key at https://gitlawb.com/opengateway/keys and set it as OPENGATEWAY_API_KEY (or OPENAI_API_KEYS / OPENAI_API_KEY when OPENAI_BASE_URL points at opengateway).',
     routing: {
       matchBaseUrlHosts: ['opengateway.gitlawb.com', 'opengateway.fly.dev'],
     },
@@ -50,12 +51,15 @@ export default defineGateway({
     apiKeyEnvVars: ['OPENGATEWAY_API_KEY'],
     label: 'Gitlawb Opengateway',
     name: 'Gitlawb Opengateway',
+    badge: {
+      text: 'Recommended',
+      color: 'success',
+    },
     vendorId: 'openai',
     modelEnvVars: ['OPENAI_MODEL'],
     baseUrlEnvVars: ['OPENGATEWAY_BASE_URL', 'OPENAI_BASE_URL'],
     fallbackBaseUrl: 'https://opengateway.gitlawb.com/v1',
     fallbackModel: 'mimo-v2.5-pro',
-    badge: { text: 'Recommended', color: 'success' },
   },
   catalog: {
     source: 'static',
@@ -110,14 +114,80 @@ export default defineGateway({
         label: 'Qwen 3.7 Max (via Opengateway)',
         modelDescriptorId: 'qwen3.7-max',
       },
+      {
+        id: 'opengateway-glm-5.2',
+        apiName: 'z-ai/glm-5.2',
+        label: 'GLM 5.2 (via Opengateway)',
+        modelDescriptorId: 'glm-5.2',
+        transportOverrides: {
+          openaiShim: {
+            ...ZAI_GLM_OPENAI_SHIM,
+            maxTokensField: 'max_completion_tokens',
+            removeBodyFields: ['store', 'stream_options'],
+          },
+        },
+      },
       // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
-      // gate, so it works even with an empty credit balance.
+      // gate, so it works even with an empty credit balance. The one free
+      // model kept through the gateway's 2026-08-10 free retirement;
+      // OpenRouter rate-limits it via a shared account-level pool.
       {
         id: 'opengateway-nemotron-3-ultra-free',
         apiName: 'nvidia/nemotron-3-ultra-550b-a55b:free',
         label: 'Nemotron 3 Ultra Free (via Opengateway)',
         modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
-        notes: 'Free',
+        notes: 'Free (rate limited)',
+      },
+      // Throttle-free paid sibling of the :free row above.
+      {
+        id: 'opengateway-nemotron-3-ultra',
+        apiName: 'nvidia/nemotron-3-ultra-550b-a55b',
+        label: 'Nemotron 3 Ultra (via Opengateway)',
+        modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b',
+      },
+      // Paid since the gateway's 2026-08-10 free retirement. The ling entry
+      // id keeps its historical "-free" suffix so saved user selections
+      // still resolve; the gateway aliases the old :free api id to paid.
+      {
+        id: 'opengateway-ling-3.0-flash-free',
+        apiName: 'inclusionai/ling-3.0-flash',
+        label: 'Ling 3.0 Flash (via Opengateway)',
+        modelDescriptorId: 'inclusionai/ling-3.0-flash',
+      },
+      // Day-0 Novita launch via the gateway's OpenRouter wiring. Lifecycle:
+      // the gateway time-boxes the id server-side (LING_TINY_FREE_END_ISO in
+      // opengateway/src/pricing.ts) and 400s requests after the window;
+      // `availableUntil` below is the client-side guard — catalog resolution
+      // drops the entry at the same instant, so the picker never offers an
+      // id the gateway rejects. Keep the two dates in sync if the window
+      // moves.
+      {
+        id: 'opengateway-ling-3.0-tiny-free',
+        apiName: 'inclusionai/ling-3.0-tiny:free',
+        label: 'Ling 3.0 Tiny Free (via Opengateway)',
+        modelDescriptorId: 'inclusionai/ling-3.0-tiny:free',
+        notes: 'Free through August 13, 2026 (rate limited)',
+        availableUntil: '2026-08-13T10:00:00Z',
+      },
+      // Macaron — served by the gateway via direct Novita (not on
+      // OpenRouter). Paid since 2026-08-10.
+      {
+        id: 'opengateway-macaron-v1-tall',
+        apiName: 'mindai/macaron-v1-tall',
+        label: 'Macaron V1 Tall (via Opengateway)',
+        modelDescriptorId: 'mindai/macaron-v1-tall',
+      },
+      {
+        id: 'opengateway-macaron-v1-venti',
+        apiName: 'mindai/macaron-v1-venti',
+        label: 'Macaron V1 Venti (via Opengateway)',
+        modelDescriptorId: 'mindai/macaron-v1-venti',
+      },
+      {
+        id: 'opengateway-tencent-hy3',
+        apiName: 'tencent/hy3',
+        label: 'Tencent HY3 (via Opengateway)',
+        modelDescriptorId: 'tencent/hy3',
       },
     ],
   },

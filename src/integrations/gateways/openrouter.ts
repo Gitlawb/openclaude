@@ -35,6 +35,8 @@ export default defineGateway({
     allowManualRefresh: true,
     models: [
       { id: 'openrouter-gpt-5-mini', apiName: 'openai/gpt-5-mini', label: 'GPT-5 Mini (via OpenRouter)', modelDescriptorId: 'gpt-5-mini' },
+      { id: 'openrouter-grok-4.6', apiName: 'x-ai/grok-4.6', label: 'Grok 4.6 (via OpenRouter)', modelDescriptorId: 'grok-4.6' },
+      { id: 'openrouter-grok-4.5', apiName: 'x-ai/grok-4.5', label: 'Grok 4.5 (via OpenRouter)', modelDescriptorId: 'grok-4.5' },
     ],
   },
   usage: { supported: false },

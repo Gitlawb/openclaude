@@ -6,6 +6,7 @@
 
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
+import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 export const jinaProvider: SearchProvider = {
   name: 'jina',
@@ -21,19 +22,18 @@ export const jinaProvider: SearchProvider = {
     url.searchParams.set('q', input.query)
     url.searchParams.set('count', '10')
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        Authorization: `Bearer ${process.env.JINA_API_KEY}`,
-        Accept: 'application/json',
+    const data = await fetchJsonWithWebSearchTimeout(
+      url.toString(),
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.JINA_API_KEY}`,
+          Accept: 'application/json',
+        },
       },
       signal,
-    })
+      { providerName: 'Jina' },
+    )
 
-    if (!res.ok) {
-      throw new Error(`Jina search error ${res.status}: ${await res.text().catch(() => '')}`)
-    }
-
-    const data = await res.json()
     const hits = (data.data ?? data.results ?? []).map((r: any) => ({
       title: r.title ?? '',
       url: r.url ?? '',

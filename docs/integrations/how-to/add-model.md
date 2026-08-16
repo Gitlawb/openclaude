@@ -31,7 +31,10 @@ still the source of truth for where a model is offered.
    capabilities.
 4. Add optional shared metadata.
    Include `brandId`, `contextWindow`, `maxOutputTokens`, and `cacheConfig`
-   when the data is stable enough to be reused.
+   when the data is stable enough to be reused. Set
+   `runtimeMetadataScope: 'catalog'` when verified limits and capabilities
+   should apply only on route catalogs that explicitly reference the
+   descriptor.
 5. Add `providerModelMap` only when the same model needs route-specific API
    names across multiple catalogs.
 6. Update route-owned catalogs only if the model should be offered by those
@@ -46,6 +49,11 @@ Model descriptor files should:
 - act as glossary/index metadata and optional route enrichment;
 - avoid encoding gateway availability as if every route automatically exposes
   the shared model.
+
+Shared runtime metadata uses the legacy global model-name fallback by default.
+Use `runtimeMetadataScope: 'catalog'` for a model whose verified limits and
+capabilities belong to specific routes; that metadata then applies only when a
+route catalog entry names the descriptor through `modelDescriptorId`.
 
 Normal contributor-facing examples should not call `registerModel(...)`
 directly.
@@ -64,6 +72,17 @@ editing multiple shared model files. In the common path:
 - add a shared model descriptor only if the metadata is reusable beyond that
   one route;
 - let the route catalog continue to own the offered subset.
+
+## Reasoning and `/effort` metadata
+
+Use `classification: ['reasoning']` and `capabilities.supportsReasoning` to
+describe that a model is known to reason or think. Those fields do not by
+themselves enable `/effort` request mutation.
+
+Only add `reasoning` metadata when the model's exact control surface has been
+verified for the route that will call it, including accepted levels, rejected
+levels, and any thinking-disable format. For the full checklist, see
+`docs/integrations/reasoning-effort.md`.
 
 ## When to add a brand descriptor
 
@@ -168,13 +187,21 @@ Model lookup should prefer:
    `modelDescriptorId`;
 3. global shared model descriptors under `src/integrations/models/` for legacy
    and custom OpenAI-compatible model names;
-4. documented env overrides from `src/utils/model/openaiContextWindows.ts`
-   (`CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` and
-   `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`).
+4. documented user overrides from `src/utils/model/openaiContextWindows.ts` —
+   the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` / `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS`
+   env vars and the `modelLimits` map in `settings.json` (see the
+   `modelLimits` section in `docs/advanced-setup.md` for key matching and
+   precedence).
 
-`openaiContextWindows.ts` is compatibility glue for user-provided env
-overrides. It should not grow a second built-in model table. Built-in model
-limits belong in model descriptor files.
+`openaiContextWindows.ts` is compatibility glue for user-provided overrides
+(env vars and the `settings.json` `modelLimits` map). It should not grow a
+second built-in model table. Built-in model limits belong in model descriptor
+files.
+
+A descriptor with `runtimeMetadataScope: 'catalog'` is intentionally excluded
+from global name-only lookups. Its limits and capabilities are available only
+through an explicit route catalog entry, preventing one vendor's verified
+contract from leaking onto an uncataloged gateway model with the same API name.
 
 ## What not to do
 

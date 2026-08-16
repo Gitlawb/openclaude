@@ -172,6 +172,10 @@ export type AppState = DeepImmutable<{
   companionReaction?: string
   // Timestamp of last /buddy pet — CompanionSprite renders hearts while recent
   companionPetAt?: number
+  // Change token set on each immediate prompt submission (REPL onSubmit).
+  // Drives the companion arrow-shot animation. The value is Date.now() but
+  // is only compared for change, never to clock time.
+  companionShotAt?: number
   // TODO (ashwin): see if we can use utility-types DeepReadonly for this
   mcp: {
     clients: MCPServerConnection[]

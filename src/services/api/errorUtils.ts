@@ -258,3 +258,33 @@ export function formatAPIError(error: APIError): string {
     ? sanitizedMessage
     : error.message
 }
+
+/**
+ * Short, human classification of an API error for the compact retry line
+ * shown during early retry attempts. Full detail comes from formatAPIError
+ * once retries escalate.
+ */
+export function briefAPIErrorReason(error: APIError): string {
+  const connectionDetails = extractConnectionErrorDetails(error)
+  if (connectionDetails?.code === 'ETIMEDOUT') {
+    return 'Request timed out'
+  }
+  if (connectionDetails || error.message === 'Connection error.') {
+    return 'Connection issue'
+  }
+  // The OpenAI-compat shim wraps network failures in plain-text messages with
+  // no cause chain for extractConnectionErrorDetails to walk.
+  if (/transport error|fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(error.message ?? '')) {
+    return 'Connection issue'
+  }
+  switch (error.status) {
+    case 429:
+      return 'Rate limited'
+    case 529:
+      return 'API overloaded'
+  }
+  if (typeof error.status === 'number' && error.status >= 500) {
+    return 'API server error'
+  }
+  return 'API error'
+}

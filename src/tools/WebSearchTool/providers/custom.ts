@@ -142,6 +142,24 @@ const DEFAULT_MAX_BODY_KB = 300
 /** Default request timeout in seconds. */
 const DEFAULT_TIMEOUT_SECONDS = 120
 
+/**
+ * Read a positive numeric env override, falling back to `fallback` for
+ * missing, empty, non-finite, or non-positive values.
+ *
+ * `Number(raw) || fallback` alone only rescues 0 and NaN — a negative or
+ * Infinity value is truthy and passes straight through. That silently breaks
+ * the size/timeout guards downstream: a negative WEB_CUSTOM_MAX_BODY_KB makes
+ * the "body exceeds N bytes" check fire for every POST, and a negative
+ * WEB_CUSTOM_TIMEOUT_SEC aborts every request immediately.
+ */
+export function readPositiveEnvNumber(
+  raw: string | undefined,
+  fallback: number,
+): number {
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 /** Header names that are always allowed (case-insensitive). */
 const SAFE_HEADER_NAMES = new Set([
   'accept',
@@ -515,7 +533,7 @@ function buildRequest(query: string) {
     const bodyTemplate = process.env.WEB_BODY_TEMPLATE
     if (bodyTemplate) {
       const body = bodyTemplate.replace(/\{query\}/g, query)
-      const maxBodyBytes = (Number(process.env.WEB_CUSTOM_MAX_BODY_KB) || DEFAULT_MAX_BODY_KB) * 1024
+      const maxBodyBytes = readPositiveEnvNumber(process.env.WEB_CUSTOM_MAX_BODY_KB, DEFAULT_MAX_BODY_KB) * 1024
       if (Buffer.byteLength(body) > maxBodyBytes) {
         throw new Error(
           `POST body exceeds ${maxBodyBytes} bytes. ` +
@@ -582,7 +600,7 @@ export function extractHits(raw: any, jsonPath?: string): SearchHit[] {
 // ---------------------------------------------------------------------------
 
 async function fetchWithRetry(url: string, init: RequestInit, signal?: AbortSignal): Promise<any> {
-  const timeoutSec = Number(process.env.WEB_CUSTOM_TIMEOUT_SEC) || DEFAULT_TIMEOUT_SECONDS
+  const timeoutSec = readPositiveEnvNumber(process.env.WEB_CUSTOM_TIMEOUT_SEC, DEFAULT_TIMEOUT_SECONDS)
   const timeoutMs = timeoutSec * 1000
   let lastErr: Error | undefined
   let lastStatus: number | undefined

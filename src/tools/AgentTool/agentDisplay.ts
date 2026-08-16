@@ -10,7 +10,7 @@ import {
 } from '../../utils/settings/constants.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
 
-type AgentSource = SettingSource | 'built-in' | 'plugin'
+type AgentSource = SettingSource | 'built-in' | 'plugin' | 'sdk'
 
 export type AgentSourceGroup = {
   label: string
@@ -28,6 +28,7 @@ export const AGENT_SOURCE_GROUPS: AgentSourceGroup[] = [
   { label: 'Managed agents', source: 'policySettings' },
   { label: 'Plugin agents', source: 'plugin' },
   { label: 'CLI arg agents', source: 'flagSettings' },
+  { label: 'SDK agents', source: 'sdk' },
   { label: 'Built-in agents', source: 'built-in' },
 ]
 

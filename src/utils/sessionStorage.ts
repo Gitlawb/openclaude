@@ -25,9 +25,9 @@ import {
   getOriginalCwd,
   getPlanSlugCache,
   getPromptId,
+  getReplayIndexBuilder,
   getSessionId,
   getSessionProjectDir,
-  isSessionPersistenceDisabled,
   switchSession,
 } from '../bootstrap/state.js'
 import { COMMAND_NAME_TAG, TICK_TAG } from '../constants/xml.js'
@@ -51,7 +51,9 @@ import {
   type LogOption,
   type PersistedWorktreeSession,
   type SerializedMessage,
+  type SessionBranchEntry,
   sortLogs,
+  type SpeculationAcceptMessage,
   type TranscriptMessage,
 } from '../types/logs.js'
 import type {
@@ -64,6 +66,7 @@ import type {
 } from '../types/message.js'
 import type { QueueOperationMessage } from '../types/messageQueueTypes.js'
 import { uniq } from './array.js'
+import { replaceFileAtomic } from './atomicReplace.js'
 import { registerCleanup } from './cleanupRegistry.js'
 import { updateSessionName } from './concurrentSessions.js'
 import { getCwd } from './cwd.js'
@@ -89,8 +92,13 @@ import {
   readTranscriptForLoad,
   SKIP_PRECOMPACT_THRESHOLD,
 } from './sessionStoragePortable.js'
-import { getSettings_DEPRECATED } from './settings/settings.js'
+import { shouldSkipSessionPersistence } from './sessionPersistencePolicy.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import {
+  isTranscriptFileLockHeldByAsyncOperation,
+  withTranscriptFileLock,
+  withTranscriptFileLockSync,
+} from './transcriptFileLock.js'
 import type { ContentReplacementRecord } from './toolResultStorage.js'
 import { validateUuid } from './uuid.js'
 
@@ -129,9 +137,318 @@ type Transcript = (
  * marker. Kept in sync with sessionStoragePortable.ts — generic pattern avoids
  * an ever-growing allowlist that falls behind as new notification types ship.
  */
-// 50MB — prevents OOM in the tombstone slow path which reads + rewrites the
-// entire session file. Session files can grow to multiple GB (inc-3930).
+// 50 MB — bounds the tombstone slow scan. Session files can grow to multiple
+// GB (inc-3930), while a target outside the tail window is exceptionally rare.
 const MAX_TOMBSTONE_REWRITE_BYTES = 50 * 1024 * 1024
+const TRANSCRIPT_COPY_CHUNK_BYTES = 64 * 1024
+
+type TranscriptByteRange = { start: number; end: number }
+
+type TranscriptLineSpan = TranscriptByteRange & {
+  hasTerminator: boolean
+}
+
+type QueuedAppend = {
+  kind: 'append'
+  entry: Entry
+  resolve: () => void
+  reject: (error: unknown) => void
+}
+
+type QueuedRewrite = {
+  kind: 'rewrite'
+  rewrite: (signal: AbortSignal) => Promise<void>
+  resolve: () => void
+  reject: (error: unknown) => void
+}
+
+type QueuedDirectAppend = {
+  kind: 'direct-append'
+  data: string
+  resolve?: () => void
+  reject?: (error: unknown) => void
+}
+
+type TranscriptWriteOperation =
+  | QueuedAppend
+  | QueuedDirectAppend
+  | QueuedRewrite
+
+type TranscriptRewriteHooksForTesting = {
+  enqueued?: (filePath: string) => void
+  beforeBarrierRelease?: (filePath: string) => void
+  beforeFileAppend?: (filePath: string) => void
+}
+
+let transcriptRewriteHooksForTesting: TranscriptRewriteHooksForTesting = {}
+
+/** @internal Deterministic rewrite scheduler hooks for concurrency tests. */
+export function setTranscriptRewriteHooksForTesting(
+  hooks: TranscriptRewriteHooksForTesting,
+): void {
+  transcriptRewriteHooksForTesting = hooks
+}
+
+/** @internal Reset deterministic rewrite scheduler hooks. */
+export function resetTranscriptRewriteHooksForTesting(): void {
+  transcriptRewriteHooksForTesting = {}
+}
+
+type SessionFileHandle = Awaited<ReturnType<typeof fsOpen>>
+
+function transcriptLineHasUuid(lineBytes: Uint8Array, targetUuid: UUID): boolean {
+  try {
+    const entry = jsonParse(Buffer.from(lineBytes).toString('utf8').trim())
+    return (
+      typeof entry === 'object' &&
+      entry !== null &&
+      'uuid' in entry &&
+      entry.uuid === targetUuid
+    )
+  } catch {
+    return false
+  }
+}
+
+async function readTranscriptRange(
+  handle: SessionFileHandle,
+  start: number,
+  end: number,
+): Promise<Buffer> {
+  const result = Buffer.allocUnsafe(end - start)
+  let offset = 0
+  while (offset < result.length) {
+    const { bytesRead } = await handle.read(
+      result,
+      offset,
+      result.length - offset,
+      start + offset,
+    )
+    if (bytesRead === 0) {
+      throw new Error('Transcript changed while scanning tombstone target')
+    }
+    offset += bytesRead
+  }
+  return result
+}
+
+function findTailTombstoneSpan(
+  tail: Buffer,
+  tailStart: number,
+  targetUuid: UUID,
+): TranscriptLineSpan | undefined {
+  const needle = Buffer.from(`"uuid":"${targetUuid}"`)
+  let searchFrom = tail.length - needle.length
+
+  while (searchFrom >= 0) {
+    const matchIndex = tail.lastIndexOf(needle, searchFrom)
+    if (matchIndex < 0) return undefined
+
+    const previousNewline = tail.lastIndexOf(0x0a, matchIndex)
+    if (previousNewline < 0 && tailStart !== 0) {
+      // The candidate line began before the tail window. A bounded slow scan
+      // is required to validate its top-level UUID.
+      return undefined
+    }
+
+    const lineStart = previousNewline + 1
+    const nextNewline = tail.indexOf(0x0a, matchIndex + needle.length)
+    const lineContentEnd = nextNewline >= 0 ? nextNewline : tail.length
+    if (
+      transcriptLineHasUuid(
+        tail.subarray(lineStart, lineContentEnd),
+        targetUuid,
+      )
+    ) {
+      return {
+        start: tailStart + lineStart,
+        end: tailStart + (nextNewline >= 0 ? nextNewline + 1 : tail.length),
+        hasTerminator: nextNewline >= 0,
+      }
+    }
+
+    // The needle belonged to a nested value on an unrelated line. Skip the
+    // entire line so another occurrence on it cannot be mistaken for a key.
+    searchFrom = lineStart - 1
+  }
+
+  return undefined
+}
+
+async function scanTranscriptTombstoneSpans(
+  filePath: string,
+  fileSize: number,
+  targetUuid: UUID,
+): Promise<TranscriptLineSpan[]> {
+  const needle = `"uuid":"${targetUuid}"`
+  const handle = await fsOpen(filePath, 'r')
+  const spans: TranscriptLineSpan[] = []
+  const buffer = Buffer.allocUnsafe(TRANSCRIPT_COPY_CHUNK_BYTES)
+  let offset = 0
+  let lineStart = 0
+  let lineHasNeedle = false
+  let needleCarry = ''
+
+  const finishLine = async (contentEnd: number, hasTerminator: boolean) => {
+    if (lineHasNeedle) {
+      const lineBytes = await readTranscriptRange(handle, lineStart, contentEnd)
+      if (transcriptLineHasUuid(lineBytes, targetUuid)) {
+        spans.push({
+          start: lineStart,
+          end: hasTerminator ? contentEnd + 1 : contentEnd,
+          hasTerminator,
+        })
+      }
+    }
+    lineStart = hasTerminator ? contentEnd + 1 : contentEnd
+    lineHasNeedle = false
+    needleCarry = ''
+  }
+
+  try {
+    while (offset < fileSize) {
+      const length = Math.min(buffer.length, fileSize - offset)
+      const { bytesRead } = await handle.read(buffer, 0, length, offset)
+      if (bytesRead === 0) {
+        throw new Error('Transcript changed while scanning tombstone target')
+      }
+
+      let segmentStart = 0
+      while (segmentStart < bytesRead) {
+        const newline = buffer.indexOf(0x0a, segmentStart)
+        const segmentEnd = newline >= 0 && newline < bytesRead ? newline : bytesRead
+        // UUID needles are ASCII. Latin-1 maps each byte one-to-one so chunk
+        // boundaries cannot corrupt the substring scan or alter copied bytes.
+        const segmentText = buffer.toString('latin1', segmentStart, segmentEnd)
+        const searchText = needleCarry + segmentText
+        if (searchText.includes(needle)) lineHasNeedle = true
+        needleCarry = searchText.slice(-(needle.length - 1))
+
+        if (newline < 0 || newline >= bytesRead) break
+        await finishLine(offset + newline, true)
+        segmentStart = newline + 1
+      }
+
+      offset += bytesRead
+    }
+
+    if (lineStart < fileSize) await finishLine(fileSize, false)
+    return spans
+  } finally {
+    await handle.close()
+  }
+}
+
+function rangesExcludingSpans(
+  fileSize: number,
+  spans: TranscriptLineSpan[],
+): TranscriptByteRange[] {
+  const ranges: TranscriptByteRange[] = []
+  let cursor = 0
+  for (const span of spans) {
+    if (cursor < span.start) ranges.push({ start: cursor, end: span.start })
+    cursor = span.end
+  }
+  if (cursor < fileSize) ranges.push({ start: cursor, end: fileSize })
+  return ranges
+}
+
+async function* streamTranscriptRanges(
+  filePath: string,
+  ranges: TranscriptByteRange[],
+): AsyncGenerator<Uint8Array> {
+  const handle = await fsOpen(filePath, 'r')
+  const buffer = Buffer.allocUnsafe(TRANSCRIPT_COPY_CHUNK_BYTES)
+  try {
+    for (const range of ranges) {
+      let position = range.start
+      while (position < range.end) {
+        const length = Math.min(buffer.length, range.end - position)
+        const { bytesRead } = await handle.read(buffer, 0, length, position)
+        if (bytesRead === 0) {
+          throw new Error('Transcript changed while building replacement')
+        }
+        position += bytesRead
+        yield buffer.subarray(0, bytesRead)
+      }
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+async function finalTombstoneBoundary(
+  filePath: string,
+  span: TranscriptLineSpan,
+): Promise<number> {
+  if (span.hasTerminator || span.start === 0) return span.start
+
+  const handle = await fsOpen(filePath, 'r')
+  try {
+    const separator = Buffer.allocUnsafe(2)
+    const readStart = Math.max(0, span.start - separator.length)
+    const { bytesRead } = await handle.read(
+      separator,
+      0,
+      span.start - readStart,
+      readStart,
+    )
+    const bytes = separator.subarray(0, bytesRead)
+    if (bytes.at(-1) !== 0x0a) return span.start
+    return bytes.at(-2) === 0x0d ? span.start - 2 : span.start - 1
+  } finally {
+    await handle.close()
+  }
+}
+
+async function adjustFinalUnterminatedRemovalSpan(
+  filePath: string,
+  fileSize: number,
+  spans: TranscriptLineSpan[],
+): Promise<TranscriptLineSpan[]> {
+  const finalSpan = spans.at(-1)
+  if (
+    !finalSpan ||
+    finalSpan.end !== fileSize ||
+    finalSpan.hasTerminator
+  ) {
+    return spans
+  }
+
+  const boundary = await finalTombstoneBoundary(filePath, finalSpan)
+  if (boundary === finalSpan.start) return spans
+  return [
+    ...spans.slice(0, -1),
+    { ...finalSpan, start: boundary },
+  ]
+}
+
+async function truncateFinalTranscriptLine(
+  filePath: string,
+  span: TranscriptLineSpan,
+  expectedSize: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted()
+  const boundary = await finalTombstoneBoundary(filePath, span)
+  const handle = await fsOpen(filePath, 'r+')
+  try {
+    if ((await handle.stat()).size !== expectedSize) {
+      throw new Error('Transcript changed before final tombstone truncate')
+    }
+    signal?.throwIfAborted()
+    await handle.truncate(boundary)
+    await handle.datasync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function* serializeTranscriptEntries(
+  entries: Iterable<unknown>,
+): AsyncGenerator<string> {
+  for (const entry of entries) yield jsonStringify(entry) + '\n'
+}
 
 const SKIP_FIRST_PROMPT_PATTERN =
   /^(?:\s*<[a-z][\w-]*[\s>]|\[Request interrupted by user[^\]]*\])/
@@ -198,6 +515,7 @@ const EPHEMERAL_PROGRESS_TYPES = new Set([
   'bash_progress',
   'powershell_progress',
   'mcp_progress',
+  'waiting_for_task',
   ...(feature('PROACTIVE') || feature('KAIROS')
     ? (['sleep_progress'] as const)
     : []),
@@ -272,6 +590,10 @@ export type AgentMetadata = {
   agentType: string
   /** Worktree path if the agent was spawned with isolation: "worktree" */
   worktreePath?: string
+  /** Explicit AgentTool cwd override for the agent's working directory.
+   * Persisted even when a worktree exists so resume can fall back to the
+   * child-repo directory after worktree cleanup (multi-repo parents). */
+  cwd?: string
   /** Original task description from the AgentTool input. Persisted so a
    * resumed agent's notification can show the original description instead
    * of a placeholder. Optional — older metadata files lack this field. */
@@ -466,6 +788,23 @@ function getProject(): Project {
         } catch {
           // Best-effort — don't let metadata re-append crash the cleanup
         }
+
+        try {
+          const { resetAllReplayIndexBuilders } = await import('src/bootstrap/state.js')
+          const replayBuilders = resetAllReplayIndexBuilders()
+          if (!shouldSkipSessionPersistence()) {
+            const { writeReplayIndex } = await import('./replayIndex.js')
+            for (const { sessionId, builder, projectDir } of replayBuilders) {
+              const transcriptPath = projectDir
+                ? join(projectDir, `${sessionId}.jsonl`)
+                : getTranscriptPathForSession(sessionId)
+              const index = builder.build(sessionId)
+              await writeReplayIndex(sessionId, transcriptPath, index)
+            }
+          }
+        } catch {
+          // Best-effort — don't let replay index cleanup crash shutdown
+        }
       })
       cleanupRegistered = true
     }
@@ -553,6 +892,7 @@ class Project {
   currentSessionPrUrl: string | undefined
   currentSessionPrRepository: string | undefined
   currentSessionGoal: GoalStateEntry['goal'] | undefined
+  currentSessionBranch: SessionBranchEntry | undefined
 
   sessionFile: string | null = null
   // Entries buffered while sessionFile is null. Flushed by materializeSessionFile
@@ -564,12 +904,13 @@ class Project {
   private internalSubagentEventReader: InternalEventReader | null = null
   private pendingWriteCount: number = 0
   private flushResolvers: Array<() => void> = []
-  // Per-file write queues. Each entry carries a resolve callback so
-  // callers of enqueueWrite can optionally await their specific write.
-  private writeQueues = new Map<
-    string,
-    Array<{ entry: Entry; resolve: () => void }>
-  >()
+  // Appends and complete-file rewrites share one per-file operation queue.
+  // This makes a rewrite an ordering barrier: earlier appends reach the old
+  // inode before it is copied, and later appends reach the replacement.
+  private writeQueues = new Map<string, TranscriptWriteOperation[]>()
+  private rewriteBarrierFiles = new Set<string>()
+  private pendingRewriteCounts = new Map<string, number>()
+  private pendingDirectAppends = new Map<string, Set<Promise<void>>>()
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private activeDrain: Promise<void> | null = null
   private FLUSH_INTERVAL_MS = 100
@@ -585,6 +926,9 @@ class Project {
     this.flushTimer = null
     this.activeDrain = null
     this.writeQueues = new Map()
+    this.rewriteBarrierFiles = new Set()
+    this.pendingRewriteCounts = new Map()
+    this.pendingDirectAppends = new Map()
   }
 
   private incrementPendingWrites(): void {
@@ -612,85 +956,272 @@ class Project {
   }
 
   private enqueueWrite(filePath: string, entry: Entry): Promise<void> {
-    return new Promise<void>(resolve => {
+    const append = new Promise<void>((resolve, reject) => {
       let queue = this.writeQueues.get(filePath)
       if (!queue) {
         queue = []
         this.writeQueues.set(filePath, queue)
       }
-      queue.push({ entry, resolve })
+      queue.push({ kind: 'append', entry, resolve, reject })
+      this.scheduleDrain()
+    })
+    // Most append call sites are intentionally fire-and-forget. Mark failures
+    // handled here while preserving rejection for the callers that do await.
+    void append.catch(() => {})
+    return append
+  }
+
+  private enqueueRewrite(
+    filePath: string,
+    rewrite: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let queue = this.writeQueues.get(filePath)
+      if (!queue) {
+        queue = []
+        this.writeQueues.set(filePath, queue)
+      }
+      this.rewriteBarrierFiles.add(filePath)
+      this.pendingRewriteCounts.set(
+        filePath,
+        (this.pendingRewriteCounts.get(filePath) ?? 0) + 1,
+      )
+      queue.push({ kind: 'rewrite', rewrite, resolve, reject })
+      transcriptRewriteHooksForTesting.enqueued?.(filePath)
       this.scheduleDrain()
     })
   }
 
   private scheduleDrain(): void {
-    if (this.flushTimer) {
-      return
-    }
-    this.flushTimer = setTimeout(async () => {
+    if (this.flushTimer || this.activeDrain) return
+    this.flushTimer = setTimeout(() => {
       this.flushTimer = null
-      this.activeDrain = this.drainWriteQueue()
-      await this.activeDrain
-      this.activeDrain = null
-      // If more items arrived during drain, schedule again
-      if (this.writeQueues.size > 0) {
-        this.scheduleDrain()
-      }
+      void this.startDrain()
     }, this.FLUSH_INTERVAL_MS)
   }
 
-  private async appendToFile(filePath: string, data: string): Promise<void> {
+  private startDrain(): Promise<void> {
+    if (this.activeDrain) return this.activeDrain
+
+    const drain = this.drainWriteQueue()
+    this.activeDrain = drain
+    void drain.then(
+      () => this.finishDrain(drain),
+      error => {
+        this.finishDrain(drain)
+        logError(error)
+      },
+    )
+    return drain
+  }
+
+  private finishDrain(drain: Promise<void>): void {
+    if (this.activeDrain !== drain) return
+    this.activeDrain = null
+    if (this.writeQueues.size > 0) this.scheduleDrain()
+  }
+
+  private async appendDirectlyToFile(
+    filePath: string,
+    data: string,
+  ): Promise<void> {
+    transcriptRewriteHooksForTesting.beforeFileAppend?.(filePath)
+    await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
+    await withTranscriptFileLock(filePath, async signal => {
+      signal.throwIfAborted()
+      await fsAppendFile(filePath, data, { mode: 0o600 })
+    })
+  }
+
+  private appendToFile(filePath: string, data: string): Promise<void> {
+    if (this.rewriteBarrierFiles.has(filePath)) {
+      return this.enqueueDirectAppend(filePath, data)
+    }
+
+    const append = this.appendDirectlyToFile(filePath, data)
+    let pending = this.pendingDirectAppends.get(filePath)
+    if (!pending) {
+      pending = new Set()
+      this.pendingDirectAppends.set(filePath, pending)
+    }
+    pending.add(append)
+    const removePending = () => {
+      pending?.delete(append)
+      if (pending?.size === 0) this.pendingDirectAppends.delete(filePath)
+    }
+    void append.then(removePending, removePending)
+    return append
+  }
+
+  private enqueueDirectAppend(filePath: string, data: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.queueDirectAppend(filePath, { data, resolve, reject })
+    })
+  }
+
+  private queueDirectAppend(
+    filePath: string,
+    append: Omit<QueuedDirectAppend, 'kind'>,
+  ): void {
+    let queue = this.writeQueues.get(filePath)
+    if (!queue) {
+      queue = []
+      this.writeQueues.set(filePath, queue)
+    }
+    queue.push({ kind: 'direct-append', ...append })
+    this.scheduleDrain()
+  }
+
+  /** @internal Route synchronous metadata appends around a queued rewrite. */
+  _deferSynchronousAppend(filePath: string, data: string): boolean {
+    if (
+      !this.rewriteBarrierFiles.has(filePath) &&
+      !isTranscriptFileLockHeldByAsyncOperation(filePath)
+    ) {
+      return false
+    }
+    this.queueDirectAppend(filePath, { data })
+    return true
+  }
+
+  private async runRewriteOperation(
+    filePath: string,
+    rewrite: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
+    const earlierDirectAppends = this.pendingDirectAppends.get(filePath)
+    if (earlierDirectAppends) await Promise.all(earlierDirectAppends)
+    await withTranscriptFileLock(filePath, signal => rewrite(signal))
+    transcriptRewriteHooksForTesting.beforeBarrierRelease?.(filePath)
+  }
+
+  private finishRewrite(filePath: string): void {
+    const remaining = (this.pendingRewriteCounts.get(filePath) ?? 1) - 1
+    if (remaining === 0) this.pendingRewriteCounts.delete(filePath)
+    else this.pendingRewriteCounts.set(filePath, remaining)
+  }
+
+  private async flushQueuedAppends(
+    filePath: string,
+    content: string,
+    operations: QueuedAppend[],
+  ): Promise<void> {
+    // Every operation corresponds to serialized content, so an empty batch has
+    // no promises to settle.
+    if (content.length === 0) return
     try {
-      await fsAppendFile(filePath, data, { mode: 0o600 })
-    } catch {
-      // Directory may not exist — some NFS-like filesystems return
-      // unexpected error codes, so don't discriminate on code.
-      await mkdir(dirname(filePath), { recursive: true, mode: 0o700 })
-      await fsAppendFile(filePath, data, { mode: 0o600 })
+      await this.appendDirectlyToFile(filePath, content)
+    } catch (error) {
+      for (const operation of operations) operation.reject(error)
+      throw error
+    }
+    for (const operation of operations) operation.resolve()
+  }
+
+  private rejectQueuedOperations(
+    filePath: string,
+    operations: TranscriptWriteOperation[],
+    error: unknown,
+  ): void {
+    for (const operation of operations) {
+      if (operation.kind === 'append') {
+        operation.reject(error)
+      } else if (operation.kind === 'rewrite') {
+        operation.reject(error)
+        this.finishRewrite(filePath)
+      } else if (operation.reject) {
+        operation.reject(error)
+      } else {
+        logError(error)
+      }
     }
   }
 
   private async drainWriteQueue(): Promise<void> {
     for (const [filePath, queue] of this.writeQueues) {
       if (queue.length === 0) {
+        if (!this.pendingRewriteCounts.has(filePath)) {
+          this.rewriteBarrierFiles.delete(filePath)
+        }
+        this.writeQueues.delete(filePath)
         continue
       }
       const batch = queue.splice(0)
 
       let content = ''
-      const resolvers: Array<() => void> = []
+      let queuedAppends: QueuedAppend[] = []
+      let operationIndex = 0
 
-      for (const { entry, resolve } of batch) {
-        const line = jsonStringify(entry) + '\n'
-
-        if (content.length + line.length >= this.MAX_CHUNK_BYTES) {
-          // Flush chunk and resolve its entries before starting a new one
-          await this.appendToFile(filePath, content)
-          for (const r of resolvers) {
-            r()
+      try {
+        for (; operationIndex < batch.length; operationIndex++) {
+          const operation = batch[operationIndex]!
+          if (operation.kind === 'rewrite') {
+            await this.flushQueuedAppends(filePath, content, queuedAppends)
+            content = ''
+            queuedAppends = []
+            try {
+              await this.runRewriteOperation(filePath, operation.rewrite)
+              operation.resolve()
+            } catch (error) {
+              operation.reject(error)
+            } finally {
+              this.finishRewrite(filePath)
+            }
+            continue
           }
-          resolvers.length = 0
-          content = ''
+
+          if (operation.kind === 'direct-append') {
+            await this.flushQueuedAppends(filePath, content, queuedAppends)
+            content = ''
+            queuedAppends = []
+            try {
+              await this.appendDirectlyToFile(filePath, operation.data)
+              operation.resolve?.()
+            } catch (error) {
+              if (operation.reject) operation.reject(error)
+              else logError(error)
+            }
+            continue
+          }
+
+          const line = jsonStringify(operation.entry) + '\n'
+          if (content.length + line.length >= this.MAX_CHUNK_BYTES) {
+            await this.flushQueuedAppends(filePath, content, queuedAppends)
+            content = ''
+            queuedAppends = []
+          }
+          content += line
+          queuedAppends.push(operation)
         }
 
-        content += line
-        resolvers.push(resolve)
-      }
-
-      if (content.length > 0) {
-        await this.appendToFile(filePath, content)
-        for (const r of resolvers) {
-          r()
+        await this.flushQueuedAppends(filePath, content, queuedAppends)
+        content = ''
+        queuedAppends = []
+      } catch (error) {
+        for (const operation of queuedAppends) operation.reject(error)
+        this.rejectQueuedOperations(
+          filePath,
+          batch.slice(operationIndex),
+          error,
+        )
+        throw error
+      } finally {
+        if (!this.pendingRewriteCounts.has(filePath) && queue.length === 0) {
+          this.rewriteBarrierFiles.delete(filePath)
         }
+        if (queue.length === 0) this.writeQueues.delete(filePath)
       }
     }
+  }
 
-    // Clean up empty queues
-    for (const [filePath, queue] of this.writeQueues) {
-      if (queue.length === 0) {
-        this.writeQueues.delete(filePath)
-      }
-    }
+  async replaceTranscriptFile(
+    filePath: string,
+    data: string | Uint8Array | AsyncIterable<string | Uint8Array>,
+  ): Promise<void> {
+    return this.trackWrite(() =>
+      this.enqueueRewrite(filePath, signal =>
+        replaceFileAtomic(filePath, data, { signal }),
+      ),
+    )
   }
 
   resetSessionFile(): void {
@@ -855,20 +1386,31 @@ class Project {
         goal: this.currentSessionGoal,
       })
     }
+    if (this.currentSessionBranch) {
+      appendEntryToFile(this.sessionFile, {
+        ...this.currentSessionBranch,
+        sessionId,
+      })
+    }
   }
 
   async flush(): Promise<void> {
-    // Cancel pending timer
     if (this.flushTimer) {
       clearTimeout(this.flushTimer)
       this.flushTimer = null
     }
-    // Wait for any in-flight drain to finish
-    if (this.activeDrain) {
-      await this.activeDrain
+
+    while (this.activeDrain || this.writeQueues.size > 0) {
+      if (this.activeDrain) {
+        await this.activeDrain
+        continue
+      }
+      if (this.flushTimer) {
+        clearTimeout(this.flushTimer)
+        this.flushTimer = null
+      }
+      await this.startDrain()
     }
-    // Drain anything remaining in the queues
-    await this.drainWriteQueue()
 
     // Wait for non-queue tracked operations (e.g. removeMessageByUuid)
     if (this.pendingWriteCount === 0) {
@@ -883,88 +1425,115 @@ class Project {
    * Remove a message from the transcript by UUID.
    * Used for tombstoning orphaned messages from failed streaming attempts.
    *
-   * The target is almost always the most recently appended entry, so we
-   * read only the tail, locate the line, and splice it out with a
-   * positional write + truncate instead of rewriting the whole file.
+   * A final line can be committed with one durable truncate. Any removal
+   * that preserves later bytes is built in a sibling file and renamed over
+   * the transcript so interruption never exposes a truncated live file.
    */
   async removeMessageByUuid(targetUuid: UUID): Promise<void> {
+    if (this.sessionFile === null) return
+    const sessionFile = this.sessionFile
+
     return this.trackWrite(async () => {
-      if (this.sessionFile === null) return
       try {
-        let fileSize = 0
-        const fh = await fsOpen(this.sessionFile, 'r+')
-        try {
-          const { size } = await fh.stat()
-          fileSize = size
-          if (size === 0) return
+        await this.enqueueRewrite(sessionFile, async signal => {
+          try {
+            const handle = await fsOpen(sessionFile, 'r')
+            let fileSize = 0
+            let tailSpan: TranscriptLineSpan | undefined
+            try {
+              fileSize = (await handle.stat()).size
+              if (fileSize === 0) return
 
-          const chunkLen = Math.min(size, LITE_READ_BUF_SIZE)
-          const tailStart = size - chunkLen
-          const buf = Buffer.allocUnsafe(chunkLen)
-          const { bytesRead } = await fh.read(buf, 0, chunkLen, tailStart)
-          const tail = buf.subarray(0, bytesRead)
+              const chunkLength = Math.min(fileSize, LITE_READ_BUF_SIZE)
+              const tailStart = fileSize - chunkLength
+              const buffer = Buffer.allocUnsafe(chunkLength)
+              const { bytesRead } = await handle.read(
+                buffer,
+                0,
+                chunkLength,
+                tailStart,
+              )
+              tailSpan = findTailTombstoneSpan(
+                buffer.subarray(0, bytesRead),
+                tailStart,
+                targetUuid,
+              )
+            } finally {
+              await handle.close()
+            }
 
-          // Entries are serialized via JSON.stringify (no key-value
-          // whitespace). Search for the full `"uuid":"..."` pattern, not
-          // just the bare UUID, so we do not match the same value sitting
-          // in `parentUuid` of a child entry. UUIDs are pure ASCII so a
-          // byte-level search is correct.
-          const needle = `"uuid":"${targetUuid}"`
-          const matchIdx = tail.lastIndexOf(needle)
-
-          if (matchIdx >= 0) {
-            // 0x0a never appears inside a UTF-8 multi-byte sequence, so
-            // byte-scanning for line boundaries is safe even if the chunk
-            // starts mid-character.
-            const prevNl = tail.lastIndexOf(0x0a, matchIdx)
-            // If the preceding newline is outside our chunk and we did not
-            // read from the start of the file, the line is longer than the
-            // window - fall through to the slow path.
-            if (prevNl >= 0 || tailStart === 0) {
-              const lineStart = prevNl + 1 // 0 when prevNl === -1
-              const nextNl = tail.indexOf(0x0a, matchIdx + needle.length)
-              const lineEnd = nextNl >= 0 ? nextNl + 1 : bytesRead
-
-              const absLineStart = tailStart + lineStart
-              const afterLen = bytesRead - lineEnd
-              // Truncate first, then re-append the trailing lines. In the
-              // common case (target is the last entry) afterLen is 0 and
-              // this is a single ftruncate.
-              await fh.truncate(absLineStart)
-              if (afterLen > 0) {
-                await fh.write(tail, lineEnd, afterLen, absLineStart)
+            if (tailSpan) {
+              if (tailSpan.end === fileSize) {
+                await truncateFinalTranscriptLine(
+                  sessionFile,
+                  tailSpan,
+                  fileSize,
+                  signal,
+                )
+                return
               }
+              await replaceFileAtomic(
+                sessionFile,
+                streamTranscriptRanges(
+                  sessionFile,
+                  rangesExcludingSpans(fileSize, [tailSpan]),
+                ),
+                { expectedTargetSize: fileSize, signal },
+              )
               return
             }
-          }
-        } finally {
-          await fh.close()
-        }
 
-        // Slow path: target was not in the last 64KB. Rare - requires many
-        // large entries to have landed between the write and the tombstone.
-        if (fileSize > MAX_TOMBSTONE_REWRITE_BYTES) {
-          logForDebugging(
-            `Skipping tombstone removal: session file too large (${formatFileSize(fileSize)})`,
-            { level: 'warn' },
-          )
-          return
-        }
-        const content = await readFile(this.sessionFile, { encoding: 'utf-8' })
-        const lines = content.split('\n').filter((line: string) => {
-          if (!line.trim()) return true
-          try {
-            const entry = jsonParse(line)
-            return entry.uuid !== targetUuid
-          } catch {
-            return true // Keep malformed lines
+            // Slow path: the target is outside the tail window, its line is
+            // longer than that window, or tail candidates only contained a
+            // nested UUID. The guard retains the existing 50 MB policy.
+            if (fileSize > MAX_TOMBSTONE_REWRITE_BYTES) {
+              logForDebugging(
+                'Skipping tombstone removal: session file too large ' +
+                  `(${formatFileSize(fileSize)})`,
+                { level: 'warn' },
+              )
+              return
+            }
+
+            const spans = await scanTranscriptTombstoneSpans(
+              sessionFile,
+              fileSize,
+              targetUuid,
+            )
+            if (spans.length === 0) return
+            if (spans.length === 1 && spans[0]!.end === fileSize) {
+              await truncateFinalTranscriptLine(
+                sessionFile,
+                spans[0]!,
+                fileSize,
+                signal,
+              )
+              return
+            }
+
+            const removalSpans = await adjustFinalUnterminatedRemovalSpan(
+              sessionFile,
+              fileSize,
+              spans,
+            )
+
+            await replaceFileAtomic(
+              sessionFile,
+              streamTranscriptRanges(
+                sessionFile,
+                rangesExcludingSpans(fileSize, removalSpans),
+              ),
+              { expectedTargetSize: fileSize, signal },
+            )
+          } catch (error) {
+            // Tombstones are best-effort: a missing file or failed atomic
+            // replacement leaves the previous transcript intact.
+            logForDebugging(`Tombstone removal failed: ${error}`)
           }
-        })
-        await writeFile(this.sessionFile, lines.join('\n'), {
-          encoding: 'utf8',
         })
       } catch {
-        // Silently ignore errors - the file might not exist yet
+        // An earlier direct append may also fail while the rewrite barrier is
+        // waiting for it. Preserve the historical best-effort contract.
       }
     })
   }
@@ -977,18 +1546,7 @@ class Project {
    * test sessions don't pollute the user's --resume list.
    */
   private shouldSkipPersistence(): boolean {
-    const allowTestPersistence = isEnvTruthy(
-      process.env.TEST_ENABLE_SESSION_PERSISTENCE,
-    )
-    if (allowTestPersistence) {
-      return false
-    }
-    return (
-      getNodeEnv() === 'test' ||
-      getSettings_DEPRECATED()?.cleanupPeriodDays === 0 ||
-      isSessionPersistenceDisabled() ||
-      isEnvTruthy(process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY)
-    )
+    return shouldSkipSessionPersistence()
   }
 
   /**
@@ -1085,6 +1643,47 @@ class Project {
           slug,
         }
         await this.appendEntry(transcriptMessage)
+        const shouldTrackReplay = !this.shouldSkipPersistence()
+        if (shouldTrackReplay && !isSidechain && message.type === 'user') {
+          const content = getFirstMeaningfulUserMessageTextContent([message])
+          if (content) {
+            try {
+              getReplayIndexBuilder().trackUserMessage(
+                content,
+                message.timestamp ?? new Date().toISOString(),
+              )
+            } catch {
+              // Replay tracking is best-effort and must not affect transcript writes.
+            }
+          }
+        }
+        if (shouldTrackReplay && !isSidechain && message.type === 'system') {
+          try {
+            if (message.subtype === 'api_error') {
+              getReplayIndexBuilder().trackRetry(
+                'api',
+                message.error.message || `API error ${message.error.status ?? ''}`.trim(),
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  attempt: message.retryAttempt,
+                  maxRetries: message.maxRetries,
+                  retryDelayMs: message.retryInMs,
+                },
+              )
+            } else if (message.subtype === 'permission_retry') {
+              getReplayIndexBuilder().trackRetry(
+                'permission',
+                message.content,
+                message.timestamp ?? new Date().toISOString(),
+                {
+                  commands: message.commands,
+                },
+              )
+            }
+          } catch {
+            // Replay tracking is best-effort and must not affect transcript writes.
+          }
+        }
         if (isChainParticipant(message)) {
           parentUuid = message.uuid
         }
@@ -1243,6 +1842,8 @@ class Project {
       void this.enqueueWrite(targetFile, entry)
     } else if (entry.type === 'goal-state') {
       await this.appendToFile(sessionFile, jsonStringify(entry) + '\n')
+    } else if (entry.type === 'session-branch') {
+      void this.enqueueWrite(sessionFile, entry)
     } else if (entry.type === 'marble-origami-commit') {
       // Always append. Commit order matters for restore (later commits may
       // reference earlier commits' summary messages), so these must be
@@ -1256,7 +1857,7 @@ class Project {
       if (entry.type === 'queue-operation') {
         // Queue operations are always appended to the session file
         void this.enqueueWrite(sessionFile, entry)
-      } else {
+      } else if (isTranscriptMessage(entry)) {
         // At this point, entry must be a TranscriptMessage (user/assistant/attachment/system)
         // All other entry types have been handled above
         const isAgentSidechain =
@@ -1298,6 +1899,13 @@ class Project {
             }
           }
         }
+      } else {
+        const entryType = (entry as { type?: string }).type ?? 'unknown'
+        // Exhaustiveness guard: entry is never here when every Entry variant
+        // has an append policy above.
+        const _exhaustive: never = entry
+        void _exhaustive
+        throw new Error(`Unhandled session storage entry type: ${entryType}`)
       }
     }
   }
@@ -1536,6 +2144,12 @@ export async function recordContentReplacement(
   await getProject().insertContentReplacement(replacements, agentId)
 }
 
+export async function recordSpeculationAccept(
+  entry: SpeculationAcceptMessage,
+): Promise<void> {
+  await getProject().appendEntry(entry)
+}
+
 export async function recordGoalState(
   goal: GoalStateEntry['goal'],
   sessionId: UUID = getSessionId() as UUID,
@@ -1639,8 +2253,15 @@ export async function hydrateRemoteSession(
   const project = getProject()
 
   try {
-    const remoteLogs =
-      (await sessionIngress.getSessionLogs(sessionId, ingressUrl)) || []
+    const remoteLogs = await sessionIngress.getSessionLogs(
+      sessionId,
+      ingressUrl,
+    )
+    if (remoteLogs === null || remoteLogs.length === 0) {
+      logForDebugging('Remote session hydration returned no transcript')
+      logForDiagnosticsNoPII('error', 'hydrate_remote_session_read_fail')
+      return false
+    }
 
     // Ensure the project directory and session file exist
     const projectDir = getProjectDir(getOriginalCwd())
@@ -1648,10 +2269,10 @@ export async function hydrateRemoteSession(
 
     const sessionFile = getTranscriptPathForSession(sessionId)
 
-    // Replace local logs with remote logs. writeFile truncates, so no
-    // unlink is needed; an empty remoteLogs array produces an empty file.
-    const content = remoteLogs.map(e => jsonStringify(e) + '\n').join('')
-    await writeFile(sessionFile, content, { encoding: 'utf8', mode: 0o600 })
+    await project.replaceTranscriptFile(
+      sessionFile,
+      serializeTranscriptEntries(remoteLogs),
+    )
 
     logForDebugging(`Hydrated ${remoteLogs.length} entries from remote`)
     return remoteLogs.length > 0
@@ -1691,8 +2312,8 @@ export async function hydrateFromCCRv2InternalEvents(
   try {
     // Fetch foreground events
     const events = await reader()
-    if (!events) {
-      logForDebugging('Failed to read internal events for resume')
+    if (!events || events.length === 0) {
+      logForDebugging('CCR v2 hydration returned no foreground transcript')
       logForDiagnosticsNoPII('error', 'hydrate_ccr_v2_read_fail')
       return false
     }
@@ -1700,10 +2321,12 @@ export async function hydrateFromCCRv2InternalEvents(
     const projectDir = getProjectDir(getOriginalCwd())
     await mkdir(projectDir, { recursive: true, mode: 0o700 })
 
-    // Write foreground transcript
+    // Commit the foreground transcript before reporting hydration success.
     const sessionFile = getTranscriptPathForSession(sessionId)
-    const fgContent = events.map(e => jsonStringify(e.payload) + '\n').join('')
-    await writeFile(sessionFile, fgContent, { encoding: 'utf8', mode: 0o600 })
+    await project.replaceTranscriptFile(
+      sessionFile,
+      serializeTranscriptEntries(events.map(event => event.payload)),
+    )
 
     logForDebugging(
       `Hydrated ${events.length} foreground entries from CCR v2 internal events`,
@@ -1711,10 +2334,16 @@ export async function hydrateFromCCRv2InternalEvents(
 
     // Fetch and write subagent events
     let subagentEventCount = 0
+    let subagentWriteFailures = 0
     const subagentReader = project.getInternalSubagentEventReader()
     if (subagentReader) {
       const subagentEvents = await subagentReader()
-      if (subagentEvents && subagentEvents.length > 0) {
+      if (subagentEvents === null) {
+        logForDebugging('Failed to read CCR v2 subagent events for resume')
+        logForDiagnosticsNoPII('error', 'hydrate_ccr_v2_subagent_read_fail')
+        return false
+      }
+      if (subagentEvents.length > 0) {
         subagentEventCount = subagentEvents.length
         // Group by agent_id
         const byAgent = new Map<string, Record<string, unknown>[]>()
@@ -1729,24 +2358,40 @@ export async function hydrateFromCCRv2InternalEvents(
           list.push(e.payload)
         }
 
-        // Write each agent's transcript to its own file
-        for (const [agentId, entries] of byAgent) {
-          const agentFile = getAgentTranscriptPath(asAgentId(agentId))
-          await mkdir(dirname(agentFile), { recursive: true, mode: 0o700 })
-          const agentContent = entries
-            .map(p => jsonStringify(p) + '\n')
-            .join('')
-          await writeFile(agentFile, agentContent, {
-            encoding: 'utf8',
-            mode: 0o600,
-          })
-        }
-
-        logForDebugging(
-          `Hydrated ${subagentEvents.length} subagent entries across ${byAgent.size} agents`,
+        // Agent files are independent commits. Queue them together so a
+        // failed transcript does not prevent or corrupt its siblings.
+        await Promise.all(
+          Array.from(byAgent, async ([agentId, entries]) => {
+            const agentFile = getAgentTranscriptPath(asAgentId(agentId))
+            try {
+              await mkdir(dirname(agentFile), { recursive: true, mode: 0o700 })
+              await project.replaceTranscriptFile(
+                agentFile,
+                serializeTranscriptEntries(entries),
+              )
+            } catch {
+              subagentWriteFailures++
+              logForDebugging(
+                'Failed to hydrate one CCR v2 subagent transcript',
+              )
+              logForDiagnosticsNoPII(
+                'error',
+                'hydrate_ccr_v2_subagent_write_fail',
+              )
+            }
+          }),
         )
+
+        if (subagentWriteFailures === 0) {
+          logForDebugging(
+            `Hydrated ${subagentEvents.length} subagent entries ` +
+              `across ${byAgent.size} agents`,
+          )
+        }
       }
     }
+
+    if (subagentWriteFailures > 0) return false
 
     logForDiagnosticsNoPII('info', 'hydrate_ccr_v2_completed', {
       duration_ms: Date.now() - startMs,
@@ -2606,6 +3251,7 @@ export async function loadTranscriptFromFile(
       contentReplacements,
       worktreeStates,
       goalStates,
+      sessionBranches,
     } = await loadTranscriptFile(filePath)
 
     if (messages.size === 0) {
@@ -2652,6 +3298,7 @@ export async function loadTranscriptFromFile(
         ? worktreeStates.get(sessionId)
         : undefined,
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     }
   }
 
@@ -2788,6 +3435,9 @@ function convertToLogOption(
   agentSetting?: string,
   contentReplacements?: ContentReplacementRecord[],
 ): LogOption {
+  if (transcript.length === 0) {
+    throw new Error('convertToLogOption: cannot convert empty transcript')
+  }
   const lastMessage = transcript.at(-1)!
   const firstMessage = transcript[0]!
 
@@ -2875,12 +3525,11 @@ function appendEntryToFile(
 ): void {
   const fs = getFsImplementation()
   const line = jsonStringify(entry) + '\n'
-  try {
+  if (project?._deferSynchronousAppend(fullPath, line)) return
+  fs.mkdirSync(dirname(fullPath), { mode: 0o700 })
+  withTranscriptFileLockSync(fullPath, () => {
     fs.appendFileSync(fullPath, line, { mode: 0o600 })
-  } catch {
-    fs.mkdirSync(dirname(fullPath), { mode: 0o700 })
-    fs.appendFileSync(fullPath, line, { mode: 0o600 })
-  }
+  })
 }
 
 /**
@@ -3067,6 +3716,7 @@ export function restoreSessionMetadata(meta: {
   prUrl?: string
   prRepository?: string
   goal?: GoalStateEntry['goal']
+  sessionBranch?: SessionBranchEntry
 }): void {
   const project = getProject()
   // ??= so --name (cacheSessionTitle) wins over the resumed
@@ -3087,6 +3737,9 @@ export function restoreSessionMetadata(meta: {
   // resumed session has no goal. Clear any cached goal so adopt/re-append
   // cannot persist a previous session's active goal into this transcript.
   project.currentSessionGoal = meta.goal ?? undefined
+  // Branch lineage is structural metadata. Absence means this session is not
+  // a branch, so clear stale branch cache before it can be re-appended.
+  project.currentSessionBranch = meta.sessionBranch ?? undefined
 }
 
 /**
@@ -3108,6 +3761,7 @@ export function clearSessionMetadata(): void {
   project.currentSessionPrUrl = undefined
   project.currentSessionPrRepository = undefined
   project.currentSessionGoal = undefined
+  project.currentSessionBranch = undefined
 }
 
 /**
@@ -3282,6 +3936,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
       attributionSnapshots,
       contentReplacements,
       goalStates,
+      sessionBranches,
       contextCollapseCommits,
       contextCollapseSnapshot,
       leafUuids,
@@ -3346,6 +4001,9 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
         ? (contentReplacements.get(sessionId) ?? [])
         : log.contentReplacements,
       goal: sessionId ? goalStates.get(sessionId) : log.goal,
+      sessionBranch: sessionId
+        ? (sessionBranches.get(sessionId) ?? log.sessionBranch)
+        : log.sessionBranch,
       // Filter to the resumed session's entries. loadTranscriptFile reads
       // the file sequentially so the array is already in commit order;
       // filter preserves that.
@@ -3429,9 +4087,10 @@ const METADATA_TYPE_MARKERS = [
   '"type":"worktree-state"',
   '"type":"pr-link"',
   '"type":"goal-state"',
+  '"type":"session-branch"',
 ]
 const METADATA_MARKER_BUFS = METADATA_TYPE_MARKERS.map(m => Buffer.from(m))
-// Longest marker is 22 bytes; +1 for leading `{` = 23.
+// Longest marker plus the leading `{` fits within this bound.
 const METADATA_PREFIX_BOUND = 25
 
 // null = carry spans whole chunk. Skips concat when carry provably isn't
@@ -3799,6 +4458,7 @@ export async function loadTranscriptFile(
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   agentContentReplacements: Map<AgentId, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
   leafUuids: Set<UUID>
@@ -3823,6 +4483,7 @@ export async function loadTranscriptFile(
     ContentReplacementRecord[]
   >()
   const goalStates = new Map<UUID, GoalStateEntry['goal']>()
+  const sessionBranches = new Map<UUID, SessionBranchEntry>()
   // Array, not Map — commit order matters (nested collapses).
   const contextCollapseCommits: ContextCollapseCommitEntry[] = []
   // Last-wins — later entries supersede.
@@ -3924,6 +4585,8 @@ export async function loadTranscriptFile(
           prRepositories.set(entry.sessionId, entry.prRepository)
         } else if (entry.type === 'goal-state' && entry.sessionId) {
           goalStates.set(entry.sessionId, entry.goal)
+        } else if (entry.type === 'session-branch' && entry.sessionId) {
+          sessionBranches.set(entry.sessionId, entry)
         }
       })
     }
@@ -3990,6 +4653,8 @@ export async function loadTranscriptFile(
         prRepositories.set(entry.sessionId, entry.prRepository)
       } else if (entry.type === 'goal-state' && entry.sessionId) {
         goalStates.set(entry.sessionId, entry.goal)
+      } else if (entry.type === 'session-branch' && entry.sessionId) {
+        sessionBranches.set(entry.sessionId, entry)
       } else if (entry.type === 'file-history-snapshot') {
         fileHistorySnapshots.set(entry.messageId, entry)
       } else if (entry.type === 'attribution-snapshot') {
@@ -4127,6 +4792,7 @@ export async function loadTranscriptFile(
     contentReplacements,
     agentContentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
     leafUuids,
@@ -4147,6 +4813,7 @@ async function loadSessionFile(sessionId: UUID): Promise<{
   attributionSnapshots: Map<UUID, AttributionSnapshotMessage>
   contentReplacements: Map<UUID, ContentReplacementRecord[]>
   goalStates: Map<UUID, GoalStateEntry['goal']>
+  sessionBranches: Map<UUID, SessionBranchEntry>
   contextCollapseCommits: ContextCollapseCommitEntry[]
   contextCollapseSnapshot: ContextCollapseSnapshotEntry | undefined
 }> {
@@ -4203,6 +4870,7 @@ export async function getLastSessionLog(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     contextCollapseCommits,
     contextCollapseSnapshot,
   } = await loadSessionFile(sessionId)
@@ -4245,6 +4913,7 @@ export async function getLastSessionLog(
     ),
     worktreeSession: worktreeStates.get(sessionId),
     goal: goalStates.get(sessionId),
+    sessionBranch: sessionBranches.get(sessionId),
     contextCollapseCommits: contextCollapseCommits.filter(
       e => e.sessionId === sessionId,
     ),
@@ -4913,6 +5582,79 @@ type LiteMetadata = {
   prNumber?: number
   prUrl?: string
   prRepository?: string
+  sessionBranch?: SessionBranchEntry
+}
+
+const SESSION_BRANCH_ENTRY_PREFIX = '{"type":"session-branch"'
+const SESSION_BRANCH_ENTRY_PREFIX_SPACED = '{"type": "session-branch"'
+
+function startsWithSessionBranchEntryPrefix(lineStart: string): boolean {
+  return (
+    lineStart.startsWith(SESSION_BRANCH_ENTRY_PREFIX) ||
+    lineStart.startsWith(SESSION_BRANCH_ENTRY_PREFIX_SPACED)
+  )
+}
+
+function isSessionBranchEntry(
+  entry: unknown,
+  sessionId?: string,
+): entry is SessionBranchEntry {
+  if (typeof entry !== 'object' || entry === null) return false
+  const candidate = entry as Partial<SessionBranchEntry>
+  return (
+    candidate.type === 'session-branch' &&
+    typeof candidate.sessionId === 'string' &&
+    (sessionId === undefined || candidate.sessionId === sessionId) &&
+    typeof candidate.parentSessionId === 'string' &&
+    typeof candidate.rootSessionId === 'string' &&
+    typeof candidate.branchedFromSessionId === 'string' &&
+    typeof candidate.branchedAt === 'string' &&
+    (candidate.branchName === undefined ||
+      typeof candidate.branchName === 'string') &&
+    (candidate.branchedAtMessageId === undefined ||
+      typeof candidate.branchedAtMessageId === 'string')
+  )
+}
+
+function parseSessionBranchMetadataLine(
+  line: string,
+  sessionId?: string,
+): SessionBranchEntry | undefined {
+  const trimmed = line.trim()
+  if (!startsWithSessionBranchEntryPrefix(trimmed)) {
+    return undefined
+  }
+  try {
+    const entry = jsonParse(trimmed)
+    return isSessionBranchEntry(entry, sessionId) ? entry : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function extractSessionBranchMetadataFromChunk(
+  chunk: string,
+  sessionId?: string,
+): SessionBranchEntry | undefined {
+  const lines = chunk.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const entry = parseSessionBranchMetadataLine(lines[i] ?? '', sessionId)
+    if (entry) return entry
+  }
+  return undefined
+}
+
+function extractSessionBranchMetadata(
+  head: string,
+  tail: string,
+  sessionId?: string,
+): SessionBranchEntry | undefined {
+  return (
+    extractSessionBranchMetadataFromChunk(tail, sessionId) ??
+    (head === tail
+      ? undefined
+      : extractSessionBranchMetadataFromChunk(head, sessionId))
+  )
 }
 
 /**
@@ -4939,6 +5681,7 @@ export async function loadAllLogsFromSessionFile(
     attributionSnapshots,
     contentReplacements,
     goalStates,
+    sessionBranches,
     leafUuids,
   } = await loadTranscriptFile(sessionFile, { keepAllLeaves: true })
 
@@ -5013,6 +5756,7 @@ export async function loadAllLogsFromSessionFile(
       ),
       contentReplacements: contentReplacements.get(sessionId) ?? [],
       goal: goalStates.get(sessionId),
+      sessionBranch: sessionBranches.get(sessionId),
     })
   }
 
@@ -5062,10 +5806,12 @@ async function getLogsWithoutIndex(
  *
  * Accepts a shared buffer to avoid per-file allocation overhead.
  */
-async function readLiteMetadata(
+// exported for testing
+export async function readLiteMetadata(
   filePath: string,
   fileSize: number,
   buf: Buffer,
+  sessionId?: string,
 ): Promise<LiteMetadata> {
   const { head, tail } = await readHeadAndTail(filePath, fileSize, buf)
   if (!head) return { firstPrompt: '', isSidechain: false }
@@ -5100,7 +5846,15 @@ async function readLiteMetadata(
     extractLastJsonStringField(tail, 'aiTitle') ??
     extractLastJsonStringField(head, 'aiTitle')
   const summary = extractLastJsonStringField(tail, 'summary')
-  const tag = extractLastJsonStringField(tail, 'tag')
+  // Type-scope tag extraction to the {"type":"tag"} JSONL line to avoid
+  // collision with tool_use inputs containing a `tag` parameter (git tag,
+  // Docker tags, cloud resource tags). Those are nested inside an assistant
+  // entry appended after the tag entry, so an unscoped tail scan returns the
+  // tool's value. Mirrors listSessionsImpl.ts:132 and sessionStorage.ts:782.
+  const tagLine = tail.split('\n').findLast(l => l.startsWith('{"type":"tag"'))
+  const tag = tagLine
+    ? extractLastJsonStringField(tagLine, 'tag') || undefined
+    : undefined
   const gitBranch =
     extractLastJsonStringField(tail, 'gitBranch') ??
     extractJsonStringField(head, 'gitBranch')
@@ -5121,6 +5875,7 @@ async function readLiteMetadata(
       if (num > 0) prNumber = num
     }
   }
+  const sessionBranch = extractSessionBranchMetadata(head, tail, sessionId)
 
   return {
     firstPrompt,
@@ -5135,6 +5890,7 @@ async function readLiteMetadata(
     prNumber,
     prUrl,
     prRepository,
+    sessionBranch,
   }
 }
 
@@ -5352,7 +6108,12 @@ async function enrichLog(
 ): Promise<LogOption | null> {
   if (!log.isLite || !log.fullPath) return log
 
-  const meta = await readLiteMetadata(log.fullPath, log.fileSize ?? 0, readBuf)
+  const meta = await readLiteMetadata(
+    log.fullPath,
+    log.fileSize ?? 0,
+    readBuf,
+    log.sessionId,
+  )
 
   const enriched: LogOption = {
     ...log,
@@ -5368,6 +6129,7 @@ async function enrichLog(
     prNumber: meta.prNumber,
     prUrl: meta.prUrl,
     prRepository: meta.prRepository,
+    sessionBranch: meta.sessionBranch,
     projectPath: meta.projectPath ?? log.projectPath,
   }
 

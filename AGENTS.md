@@ -23,7 +23,6 @@ The installed CLI runs on Node.js `>=22.0.0`. Bun is used for source builds, scr
 - React + Ink for terminal UI.
 - Bun lockfile and Bun scripts for development workflows.
 - Node runtime for the built CLI.
-- Python exists for legacy/local-provider helper code. Do not add new Python code or expand Python-based features unless a maintainer explicitly approves that direction.
 
 Common libraries and patterns:
 
@@ -44,7 +43,6 @@ Common libraries and patterns:
 - `src/tasks/` - local, remote, workflow, and monitor task handling.
 - `docs/integrations/` - provider integration guidance.
 - `web/` - documentation website.
-- `python/` - legacy/local-provider helper code and tests; maintain existing code here, but prefer TypeScript for new implementation.
 
 ## Validation
 
@@ -69,18 +67,14 @@ bun run test:provider
 bun run test:provider-recommendation
 ```
 
-Python checks, only when touching existing Python helper code:
-
-```bash
-python -m pytest -q python/tests
-```
-
 Web checks, when touching `web/`:
 
 ```bash
 bun run web:typecheck
 bun run web:build
 ```
+
+Website release notes live on GitHub Releases; do not add a manually maintained release-notes data source to the static site.
 
 Diagnostics and PR hygiene:
 
@@ -107,3 +101,4 @@ When modifying provider behavior:
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review.
+- Do not add a manually maintained release-notes data source to the static site; link to GitHub Releases instead.

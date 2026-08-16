@@ -2,7 +2,7 @@ import { defineVendor } from '../define.js'
 
 export default defineVendor({
   id: 'gemini',
-  label: 'Google Gemini',
+  label: 'Google AI / Gemini',
   classification: 'native',
   defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
   defaultModel: 'gemini-3-flash-preview',
@@ -20,7 +20,7 @@ export default defineVendor({
   },
   preset: {
     id: 'gemini',
-    description: 'Gemini OpenAI-compatible endpoint',
+    description: 'Google AI / Gemini OpenAI-compatible endpoint',
     apiKeyEnvVars: ['GEMINI_API_KEY'],
   },
   validation: {

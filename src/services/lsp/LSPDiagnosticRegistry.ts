@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { LRUCache } from 'lru-cache'
 import * as path from 'path'
 import { logForDebugging } from '../../utils/debug.js'
@@ -17,8 +16,15 @@ export type PendingLSPDiagnostic = {
   files: DiagnosticFile[]
   /** When diagnostic was received */
   timestamp: number
+  /** When the current coalesced burst for this server/file began */
+  firstTimestamp: number
   /** Whether attachment was already sent to conversation */
   attachmentSent: boolean
+}
+
+export type LSPDiagnosticSet = {
+  serverName: string
+  files: DiagnosticFile[]
 }
 
 /**
@@ -51,6 +57,9 @@ const DIAGNOSTIC_STORM_WINDOW_MS = 60_000
 const DIAGNOSTIC_STORM_RAW_THRESHOLD = 200
 const DIAGNOSTIC_STORM_LOG_THROTTLE_MS = 60_000
 const RECENT_FILE_PRIORITY_WINDOW_MS = 5 * 60_000
+export const DIAGNOSTIC_DELIVERY_DEBOUNCE_MS = 250
+const DIAGNOSTIC_DELIVERY_MAX_DELAY_MS = 2_000
+const DIAGNOSTIC_COALESCING_LOG_THROTTLE_MS = 1_000
 const MAX_STORM_TOP_FILES = 5
 const STORM_SUMMARY_URI_PREFIX = 'lsp://diagnostic-storm'
 
@@ -94,11 +103,16 @@ type ServerDeliveryPlan = {
   shouldSummarizeStorm: boolean
 }
 
+type CheckLSPDiagnosticsOptions = {
+  now?: number
+  respectDebounce?: boolean
+}
+
 // Global registry state
 const pendingDiagnostics = new Map<string, PendingLSPDiagnostic>()
 
-// Cross-turn deduplication: tracks diagnostics that have been delivered
-// Maps file URI to a set of diagnostic keys (hash of message+severity+range)
+// Cross-turn deduplication: tracks diagnostics that have been delivered.
+// Maps server/file keys to diagnostic keys (hash of message+severity+range).
 // Using LRUCache to prevent unbounded growth in long sessions
 const deliveredDiagnostics = new LRUCache<string, Set<string>>({
   max: MAX_DELIVERED_FILES,
@@ -109,6 +123,7 @@ const recentDiagnosticFileActivity = new LRUCache<string, number>({
 })
 
 const diagnosticWindows = new Map<string, DiagnosticWindowState>()
+const coalescingLogTimestamps = new Map<string, number>()
 
 function normalizeDiagnosticUri(uri: string): string {
   for (const prefix of ['file://', '_claude_fs_right:', '_claude_fs_left:']) {
@@ -117,6 +132,10 @@ function normalizeDiagnosticUri(uri: string): string {
     }
   }
   return uri
+}
+
+function createServerFileKey(serverName: string, uri: string): string {
+  return `${serverName}\0${normalizeDiagnosticUri(uri)}`
 }
 
 function displayFileForStormSummary(uri: string): string {
@@ -326,6 +345,21 @@ function maybeLogStormSummary(
   logForDebugging(formatStormSummary(serverName, stats))
 }
 
+function maybeLogCoalescedDelivery(serverName: string, now: number): void {
+  const lastLoggedAt = coalescingLogTimestamps.get(serverName)
+  if (
+    lastLoggedAt !== undefined &&
+    now - lastLoggedAt < DIAGNOSTIC_COALESCING_LOG_THROTTLE_MS
+  ) {
+    return
+  }
+
+  coalescingLogTimestamps.set(serverName, now)
+  logForDebugging(
+    `LSP Diagnostics: Coalescing pending diagnostics from ${serverName} until burst is stable`,
+  )
+}
+
 /**
  * Record an LSP file interaction so diagnostics for recently opened or edited
  * files are preserved first when a diagnostic burst exceeds the per-turn cap.
@@ -353,17 +387,26 @@ export function registerPendingLSPDiagnostic({
   files: DiagnosticFile[]
   timestamp?: number
 }): void {
-  // Use UUID for guaranteed uniqueness (handles rapid registrations)
-  const diagnosticId = randomUUID()
-
   recordDiagnosticsReceived(serverName, files, timestamp)
 
-  pendingDiagnostics.set(diagnosticId, {
-    serverName,
-    files,
-    timestamp,
-    attachmentSent: false,
-  })
+  for (const file of files) {
+    const diagnosticId = createServerFileKey(serverName, file.uri)
+    const existingDiagnostic = pendingDiagnostics.get(diagnosticId)
+
+    if (file.diagnostics.length === 0) {
+      pendingDiagnostics.delete(diagnosticId)
+      deliveredDiagnostics.delete(diagnosticId)
+      continue
+    }
+
+    pendingDiagnostics.set(diagnosticId, {
+      serverName,
+      files: [file],
+      timestamp,
+      firstTimestamp: existingDiagnostic?.firstTimestamp ?? timestamp,
+      attachmentSent: false,
+    })
+  }
 }
 
 /**
@@ -407,7 +450,8 @@ function createDiagnosticKey(diag: {
 
 /**
  * Deduplicates diagnostics by file URI and diagnostic content.
- * Also filters out diagnostics that were already delivered in previous turns.
+ * When filterPreviouslyDelivered is true, also filters out diagnostics that
+ * were already delivered in previous turns.
  * Two diagnostics are considered duplicates if they have the same:
  * - File URI
  * - Range (start/end line and character)
@@ -416,7 +460,11 @@ function createDiagnosticKey(diag: {
  * - Source and code (if present)
  */
 function deduplicateDiagnosticFiles(
+  serverName: string,
   allFiles: DiagnosticFile[],
+  options: { filterPreviouslyDelivered?: boolean } = {
+    filterPreviouslyDelivered: true,
+  },
 ): DeduplicationResult {
   // Group diagnostics by file URI
   const fileMap = new Map<string, Set<string>>()
@@ -438,7 +486,10 @@ function deduplicateDiagnosticFiles(
 
     // Get previously delivered diagnostics for this file (for cross-turn dedup)
     const previouslyDelivered =
-      deliveredDiagnostics.get(normalizedUri) || new Set()
+      options.filterPreviouslyDelivered === false
+        ? new Set<string>()
+        : deliveredDiagnostics.get(createServerFileKey(serverName, file.uri)) ||
+          new Set()
 
     for (const diag of file.diagnostics) {
       try {
@@ -543,13 +594,20 @@ function limitDiagnosticFiles(
   return { files: limitedFiles, droppedCount, deliveredCount }
 }
 
-function trackDeliveredDiagnostics(files: DiagnosticFile[]): void {
+function countDiagnostics(files: DiagnosticFile[]): number {
+  return files.reduce((total, file) => total + file.diagnostics.length, 0)
+}
+
+function trackDeliveredDiagnostics(
+  serverName: string,
+  files: DiagnosticFile[],
+): void {
   for (const file of files) {
-    const normalizedUri = normalizeDiagnosticUri(file.uri)
-    if (!deliveredDiagnostics.has(normalizedUri)) {
-      deliveredDiagnostics.set(normalizedUri, new Set())
+    const deliveredKey = createServerFileKey(serverName, file.uri)
+    if (!deliveredDiagnostics.has(deliveredKey)) {
+      deliveredDiagnostics.set(deliveredKey, new Set())
     }
-    const delivered = deliveredDiagnostics.get(normalizedUri)!
+    const delivered = deliveredDiagnostics.get(deliveredKey)!
     for (const diag of file.diagnostics) {
       try {
         delivered.add(createDiagnosticKey(diag))
@@ -569,6 +627,143 @@ function trackDeliveredDiagnostics(files: DiagnosticFile[]): void {
   }
 }
 
+function shouldDeferDiagnosticDelivery(
+  serverName: string,
+  diagnostic: PendingLSPDiagnostic,
+  now: number,
+  respectDebounce: boolean,
+): boolean {
+  if (!respectDebounce) {
+    return false
+  }
+
+  const burstAge = now - diagnostic.firstTimestamp
+  const stableAge = now - diagnostic.timestamp
+  const shouldDefer =
+    stableAge < DIAGNOSTIC_DELIVERY_DEBOUNCE_MS &&
+    burstAge < DIAGNOSTIC_DELIVERY_MAX_DELAY_MS
+
+  if (shouldDefer) {
+    maybeLogCoalescedDelivery(serverName, now)
+  }
+
+  return shouldDefer
+}
+
+export function getNextLSPDiagnosticDeliveryDelay(
+  now = Date.now(),
+): number | null {
+  let nextDelay: number | null = null
+
+  for (const diagnostic of pendingDiagnostics.values()) {
+    if (diagnostic.attachmentSent) {
+      continue
+    }
+
+    const burstAge = now - diagnostic.firstTimestamp
+    const stableAge = now - diagnostic.timestamp
+    if (
+      stableAge >= DIAGNOSTIC_DELIVERY_DEBOUNCE_MS ||
+      burstAge >= DIAGNOSTIC_DELIVERY_MAX_DELAY_MS
+    ) {
+      return 0
+    }
+
+    const stableDelay = DIAGNOSTIC_DELIVERY_DEBOUNCE_MS - stableAge
+    const maxDelay = DIAGNOSTIC_DELIVERY_MAX_DELAY_MS - burstAge
+    const delay = Math.max(0, Math.min(stableDelay, maxDelay))
+    nextDelay = nextDelay === null ? delay : Math.min(nextDelay, delay)
+  }
+
+  return nextDelay
+}
+
+function collectUndeliveredDiagnosticFiles(): {
+  filesByServer: Map<string, DiagnosticFile[]>
+  pendingByServer: Map<string, PendingLSPDiagnostic[]>
+} {
+  const filesByServer = new Map<string, DiagnosticFile[]>()
+  const pendingByServer = new Map<string, PendingLSPDiagnostic[]>()
+
+  for (const diagnostic of pendingDiagnostics.values()) {
+    if (!diagnostic.attachmentSent) {
+      if (!filesByServer.has(diagnostic.serverName)) {
+        filesByServer.set(diagnostic.serverName, [])
+      }
+      if (!pendingByServer.has(diagnostic.serverName)) {
+        pendingByServer.set(diagnostic.serverName, [])
+      }
+      filesByServer.get(diagnostic.serverName)!.push(...diagnostic.files)
+      pendingByServer.get(diagnostic.serverName)!.push(diagnostic)
+    }
+  }
+
+  return { filesByServer, pendingByServer }
+}
+
+/**
+ * Read pending LSP diagnostics without marking them delivered.
+ * Used by user-facing inspection surfaces that must not drain passive
+ * diagnostic feedback attachments.
+ */
+export function getPendingLSPDiagnosticsSnapshot(): LSPDiagnosticSet[] {
+  const now = Date.now()
+  logForDebugging(
+    `LSP Diagnostics: Snapshotting registry - ${pendingDiagnostics.size} pending`,
+  )
+
+  const { filesByServer } = collectUndeliveredDiagnosticFiles()
+  if (filesByServer.size === 0) {
+    return []
+  }
+
+  const snapshotSets: LSPDiagnosticSet[] = []
+  let remainingCapacity = MAX_TOTAL_DIAGNOSTICS
+
+  for (const [serverName, files] of filesByServer) {
+    let deduplicationResult: DeduplicationResult
+    try {
+      deduplicationResult = deduplicateDiagnosticFiles(serverName, files, {
+        filterPreviouslyDelivered: false,
+      })
+    } catch (error: unknown) {
+      const err = toError(error)
+      logError(
+        new Error(`Failed to deduplicate LSP diagnostics: ${err.message}`),
+      )
+      deduplicationResult = { files, duplicateCount: 0 }
+    }
+
+    const prioritizedFiles = prioritizeDiagnosticFiles(
+      deduplicationResult.files,
+      now,
+    )
+    const limitResult = limitDiagnosticFiles(prioritizedFiles, remainingCapacity)
+    if (limitResult.files.length > 0) {
+      snapshotSets.push({
+        serverName,
+        files: limitResult.files.map(cloneDiagnosticFile),
+      })
+    }
+    remainingCapacity -= limitResult.deliveredCount
+  }
+
+  return snapshotSets
+}
+
+function cloneDiagnosticFile(file: DiagnosticFile): DiagnosticFile {
+  return {
+    uri: file.uri,
+    diagnostics: file.diagnostics.map(diagnostic => ({
+      ...diagnostic,
+      range: {
+        start: { ...diagnostic.range.start },
+        end: { ...diagnostic.range.end },
+      },
+    })),
+  }
+}
+
 /**
  * Get all pending LSP diagnostics that haven't been delivered yet.
  * Deduplicates diagnostics to prevent sending the same diagnostic multiple times.
@@ -576,30 +771,51 @@ function trackDeliveredDiagnostics(files: DiagnosticFile[]): void {
  *
  * @returns Array of pending diagnostics ready for delivery (deduplicated)
  */
-export function checkForLSPDiagnostics(): Array<{
-  serverName: string
-  files: DiagnosticFile[]
-}> {
-  const now = Date.now()
+export function checkForLSPDiagnostics(
+  options: CheckLSPDiagnosticsOptions = {},
+): LSPDiagnosticSet[] {
+  const now = options.now ?? Date.now()
+  const respectDebounce = options.respectDebounce ?? false
   logForDebugging(
     `LSP Diagnostics: Checking registry - ${pendingDiagnostics.size} pending`,
   )
 
-  // Collect pending diagnostic files by server so storm stats remain per-server.
-  const filesByServer = new Map<string, DiagnosticFile[]>()
+  const { filesByServer, pendingByServer } =
+    collectUndeliveredDiagnosticFiles()
+
+  if (filesByServer.size === 0) {
+    return []
+  }
+
+  const deliverableFilesByServer = new Map<string, DiagnosticFile[]>()
   const diagnosticsToMark: PendingLSPDiagnostic[] = []
 
-  for (const diagnostic of pendingDiagnostics.values()) {
-    if (!diagnostic.attachmentSent) {
-      if (!filesByServer.has(diagnostic.serverName)) {
-        filesByServer.set(diagnostic.serverName, [])
+  for (const [serverName] of filesByServer) {
+    const pendingForServer = pendingByServer.get(serverName) ?? []
+
+    for (const pendingDiagnostic of pendingForServer) {
+      if (
+        shouldDeferDiagnosticDelivery(
+          serverName,
+          pendingDiagnostic,
+          now,
+          respectDebounce,
+        )
+      ) {
+        continue
       }
-      filesByServer.get(diagnostic.serverName)!.push(...diagnostic.files)
-      diagnosticsToMark.push(diagnostic)
+
+      if (!deliverableFilesByServer.has(serverName)) {
+        deliverableFilesByServer.set(serverName, [])
+      }
+      deliverableFilesByServer
+        .get(serverName)!
+        .push(...pendingDiagnostic.files)
+      diagnosticsToMark.push(pendingDiagnostic)
     }
   }
 
-  if (filesByServer.size === 0) {
+  if (deliverableFilesByServer.size === 0) {
     return []
   }
 
@@ -622,10 +838,10 @@ export function checkForLSPDiagnostics(): Array<{
   let deliveredCount = 0
   const deliveryPlans: ServerDeliveryPlan[] = []
 
-  for (const [serverName, files] of filesByServer) {
+  for (const [serverName, files] of deliverableFilesByServer) {
     let deduplicationResult: DeduplicationResult
     try {
-      deduplicationResult = deduplicateDiagnosticFiles(files)
+      deduplicationResult = deduplicateDiagnosticFiles(serverName, files)
     } catch (error: unknown) {
       const err = toError(error)
       logError(
@@ -696,24 +912,29 @@ export function checkForLSPDiagnostics(): Array<{
     // Volume caps intentionally drop diagnostics for the turn; account for the
     // full deduplicated batch so unchanged storms cannot trickle old diagnostics
     // into later turns one capped slice at a time.
-    trackDeliveredDiagnostics(deduplicationResult.files)
+    trackDeliveredDiagnostics(serverName, deduplicationResult.files)
     deliveredFiles.push(...limitResult.files)
     remainingCapacity -= limitResult.deliveredCount
     duplicateCount += deduplicationResult.duplicateCount
     droppedCount += limitResult.droppedCount
     deliveredCount += limitResult.deliveredCount
 
-    if (remainingCapacity <= 0 && serverNames.length < filesByServer.size) {
+    if (
+      remainingCapacity <= 0 &&
+      serverNames.length < deliverableFilesByServer.size
+    ) {
       logForDebugging(
         `LSP Diagnostics: Global turn capacity exhausted after ${serverName}; later server diagnostics will be summarized or dropped`,
       )
     }
   }
 
-  // Return empty if no diagnostics to deliver (all filtered by deduplication)
-  if (deliveredFiles.length === 0) {
+  const finalDiagnosticCount = countDiagnostics(deliveredFiles)
+
+  // Return empty if no diagnostics remain after deduplication/filtering.
+  if (deliveredFiles.length === 0 || finalDiagnosticCount === 0) {
     logForDebugging(
-      `LSP Diagnostics: No new diagnostics to deliver (all filtered by deduplication)`,
+      `LSP Diagnostics: No new diagnostics to deliver after filtering, deduplication, and volume limiting`,
     )
     return []
   }
@@ -731,7 +952,7 @@ export function checkForLSPDiagnostics(): Array<{
   }
 
   logForDebugging(
-    `LSP Diagnostics: Delivering ${deliveredFiles.length} file(s) with ${deliveredCount} diagnostic(s) from ${serverNames.length} server(s)`,
+    `LSP Diagnostics: Delivering ${deliveredFiles.length} file(s) with ${finalDiagnosticCount} diagnostic(s) from ${serverNames.length} server(s)`,
   )
 
   // Return single result with all deduplicated diagnostics
@@ -768,6 +989,7 @@ export function resetAllLSPDiagnosticState(): void {
   deliveredDiagnostics.clear()
   recentDiagnosticFileActivity.clear()
   diagnosticWindows.clear()
+  coalescingLogTimestamps.clear()
 }
 
 /**
@@ -779,11 +1001,25 @@ export function resetAllLSPDiagnosticState(): void {
  */
 export function clearDeliveredDiagnosticsForFile(fileUri: string): void {
   const normalizedUri = normalizeDiagnosticUri(fileUri)
-  if (deliveredDiagnostics.has(normalizedUri)) {
+  let clearedDelivered = false
+
+  for (const key of deliveredDiagnostics.keys()) {
+    if (key.endsWith(`\0${normalizedUri}`)) {
+      deliveredDiagnostics.delete(key)
+      clearedDelivered = true
+    }
+  }
+
+  for (const key of pendingDiagnostics.keys()) {
+    if (key.endsWith(`\0${normalizedUri}`)) {
+      pendingDiagnostics.delete(key)
+    }
+  }
+
+  if (clearedDelivered) {
     logForDebugging(
       `LSP Diagnostics: Clearing delivered diagnostics for ${fileUri}`,
     )
-    deliveredDiagnostics.delete(normalizedUri)
   }
 }
 

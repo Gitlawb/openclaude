@@ -86,6 +86,7 @@ describe('onboarding auth precedence cleanup', () => {
     const env: NodeJS.ProcessEnv = {
       CLAUDE_CODE_USE_OPENAI: '1',
       OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEYS: 'sk-stale-pool-a,sk-stale-pool-b',
       OPENAI_API_KEY: 'sk-stale-openai-key',
       OPENAI_ORG: 'org-old',
       OPENAI_PROJECT: 'project-old',
@@ -103,6 +104,7 @@ describe('onboarding auth precedence cleanup', () => {
     expect(env.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(env.OPENAI_MODEL).toBe('github:copilot')
 
+    expect(env.OPENAI_API_KEYS).toBeUndefined()
     expect(env.OPENAI_API_KEY).toBeUndefined()
     expect(env.OPENAI_ORG).toBeUndefined()
     expect(env.OPENAI_PROJECT).toBeUndefined()
@@ -119,6 +121,7 @@ describe('onboarding auth precedence cleanup', () => {
     const settingsEnv = buildGithubOnboardingSettingsEnv('github:copilot')
     expect(settingsEnv.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(settingsEnv.OPENAI_MODEL).toBe('github:copilot')
+    expect(settingsEnv.OPENAI_API_KEYS).toBeUndefined()
     expect(settingsEnv.OPENAI_API_KEY).toBeUndefined()
     expect(settingsEnv.OPENAI_ORG).toBeUndefined()
     expect(settingsEnv.OPENAI_PROJECT).toBeUndefined()

@@ -866,6 +866,17 @@ export default [
 
   // ── GLM Family ────────────────────────────────────────────────────
   defineModel({
+    id: 'accounts/fireworks/models/glm-5p2',
+    defaultModel: 'accounts/fireworks/models/glm-5p2',
+    label: 'GLM 5.2',
+    brandId: 'fireworks',
+    vendorId: 'fireworks',
+    classification: ['chat', 'coding'],
+    capabilities: { supportsVision: false, supportsStreaming: true, supportsFunctionCalling: true, supportsJsonMode: true, supportsReasoning: false, supportsPreciseTokenCount: false },
+    contextWindow: 1_040_000,
+    maxOutputTokens: 32_768,
+  }),
+  defineModel({
     id: 'accounts/fireworks/models/glm-5p1',
     defaultModel: 'accounts/fireworks/models/glm-5p1',
     label: 'GLM 5.1',

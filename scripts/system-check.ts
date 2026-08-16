@@ -17,23 +17,50 @@ import {
   getLocalOpenAICompatibleProviderLabel,
   probeOllamaGenerationReadiness,
 } from '../src/utils/providerDiscovery.js'
-import { DEFAULT_GEMINI_MODEL } from '../src/utils/providerProfile.js'
+import {
+  DEFAULT_GEMINI_MODEL,
+  resolveOpenAICredentialEnvState,
+} from '../src/utils/providerProfile.js'
 import {
   redactSecretValueForDisplay,
   redactSecretSubstringsForDisplay,
   type SecretValueSource,
 } from '../src/utils/providerSecrets.js'
-import { redactUrlForDisplay } from '../src/utils/urlRedaction.js'
+import { redactUrlForDisplay } from '../src/utils/redaction.js'
 import {
   MIN_NODE_ENGINE_RANGE,
   checkSupportedNodeVersion,
 } from '../src/utils/nodeRuntime.js'
 import { SandboxManager } from '../src/utils/sandbox/sandbox-adapter.js'
+import {
+  DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP,
+  getMaxActiveMessagesHardCap,
+} from '../src/utils/maxActiveMessages.js'
+import {
+  isValidMaxMessagesCompactionThreshold,
+  normalizeMaxMessagesCompactionThreshold,
+} from '../src/utils/config.js'
+import {
+  getAvailableProviders,
+  getProviderChain,
+  getProviderMode,
+  type ProviderMode,
+} from '../src/tools/WebSearchTool/providers/index.js'
+import { getWebSearchTimeoutMs } from '../src/tools/WebSearchTool/providers/timeout.js'
+import { isFirecrawlCloudApiUrl } from '../src/tools/firecrawl/client.js'
+import { getAPIProvider } from '../src/utils/model/providers.js'
+import { getMainLoopModel } from '../src/utils/model/model.js'
 
 type CheckResult = {
   ok: boolean
   label: string
   detail?: string
+}
+
+type MemoryGuardConfigInput = {
+  autoCompactEnabled: boolean
+  maxMessagesCompactionThreshold?: string
+  env?: NodeJS.ProcessEnv
 }
 
 type NodeExecutableVersionProbe =
@@ -63,6 +90,487 @@ function isTruthy(value: string | undefined): boolean {
   if (!value) return false
   const normalized = value.trim().toLowerCase()
   return normalized !== '' && normalized !== '0' && normalized !== 'false' && normalized !== 'no'
+}
+
+function parsePositiveInteger(value: string | undefined): number {
+  if (!value) return 0
+  const trimmed = value.trim()
+  if (!/^[1-9]\d*$/.test(trimmed)) return 0
+  const parsed = Number.parseInt(trimmed, 10)
+  return Number.isSafeInteger(parsed) ? parsed : 0
+}
+
+function formatActiveHardCapDetail(
+  hardCap: number,
+  rawOverride: string | undefined,
+): string {
+  if (rawOverride === undefined) {
+    return `Active at ${hardCap} messages (default; malformed overrides fall back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}).`
+  }
+  if (parsePositiveInteger(rawOverride) > 0) {
+    return `Active at ${hardCap} messages.`
+  }
+  return `Active at ${hardCap} messages; malformed override fell back to ${DEFAULT_MAX_ACTIVE_MESSAGES_HARD_CAP}.`
+}
+
+export function buildMemoryGuardChecks(
+  input: MemoryGuardConfigInput,
+): CheckResult[] {
+  const env = input.env ?? process.env
+  const results: CheckResult[] = []
+  const disableCompact = isTruthy(env.DISABLE_COMPACT)
+  const disableAutoCompact = isTruthy(env.DISABLE_AUTO_COMPACT)
+  const autoCompactAvailable =
+    input.autoCompactEnabled && !disableCompact && !disableAutoCompact
+  const hardCapOverride = env.OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP
+  const hardCap = getMaxActiveMessagesHardCap(env)
+  const legacyLimit = parsePositiveInteger(env.OPENCLAUDE_MAX_ACTIVE_MESSAGES)
+  const configuredLimit =
+    ((input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+      legacyLimit > 0)
+      ? legacyLimit
+      : normalizeMaxMessagesCompactionThreshold(
+          input.maxMessagesCompactionThreshold,
+        )
+  const hasExplicitMessageCountGuard =
+    input.maxMessagesCompactionThreshold !== undefined &&
+    isValidMaxMessagesCompactionThreshold(
+      input.maxMessagesCompactionThreshold,
+    ) &&
+    input.maxMessagesCompactionThreshold !== 'off'
+  const hasLegacyMessageCountGuard =
+    (input.maxMessagesCompactionThreshold === undefined ||
+      input.maxMessagesCompactionThreshold === 'off') &&
+    legacyLimit > 0
+  const memoryBudget = parsePositiveInteger(env.OPENCLAUDE_MAX_MEMORY_MB) || 1536
+  const hasIndependentMessageCountGuard =
+    configuredLimit !== 'off' &&
+    (hasExplicitMessageCountGuard || hasLegacyMessageCountGuard)
+  const autoCompactDisabledReason =
+    [
+      input.autoCompactEnabled ? undefined : 'settings disabled',
+      disableCompact ? 'DISABLE_COMPACT is set' : undefined,
+      disableAutoCompact ? 'DISABLE_AUTO_COMPACT is set' : undefined,
+    ].filter(Boolean).join('; ') || 'Disabled by configuration.'
+
+  results.push(
+    autoCompactAvailable
+      ? pass(
+          'Auto-compact guard',
+          `Enabled; message-count threshold ${configuredLimit}; hard cap ${hardCap === 0 ? 'disabled' : hardCap}.`,
+        )
+      : fail(
+          'Auto-compact guard',
+          autoCompactDisabledReason +
+            (hasIndependentMessageCountGuard
+              ? `; message-count threshold ${configuredLimit} remains active.`
+              : ''),
+        ),
+  )
+
+  results.push(
+    hardCap === 0
+      ? fail(
+          'Active-message hard cap',
+          'Disabled by OPENCLAUDE_MAX_ACTIVE_MESSAGES_HARD_CAP=0; long sessions can grow without the active-message safety cap.',
+        )
+      : pass(
+          'Active-message hard cap',
+          formatActiveHardCapDetail(hardCap, hardCapOverride),
+        ),
+  )
+
+  results.push(
+    pass(
+      'Memory pressure guard',
+      `Per-session budget ${memoryBudget}MB; elevated/critical compaction thresholds are derived from this budget at runtime.`,
+    ),
+  )
+
+  return results
+}
+
+const WEB_SEARCH_API_PROVIDER_NAMES = new Set([
+  'firecrawl',
+  'tavily',
+  'exa',
+  'you',
+  'jina',
+  'brave',
+  'bing',
+  'mojeek',
+  'linkup',
+])
+
+const WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT =
+  'FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
+
+const WEB_SEARCH_PROVIDER_ENV_VARS: Record<
+  Exclude<ProviderMode, 'auto' | 'native'>,
+  string[]
+> = {
+  custom: ['WEB_SEARCH_API', 'WEB_PROVIDER', 'WEB_URL_TEMPLATE'],
+  firecrawl: ['FIRECRAWL_API_KEY', 'FIRECRAWL_API_URL'],
+  ddg: [],
+  tavily: ['TAVILY_API_KEY'],
+  exa: ['EXA_API_KEY'],
+  you: ['YOU_API_KEY'],
+  jina: ['JINA_API_KEY'],
+  brave: ['BRAVE_API_KEY'],
+  bing: ['BING_API_KEY'],
+  mojeek: ['MOJEEK_API_KEY'],
+  linkup: ['LINKUP_API_KEY'],
+}
+
+const WEB_SEARCH_CUSTOM_PRESET_REQUIRED_ENV_VARS: Record<string, string[]> = {
+  google: ['WEB_KEY', 'GOOGLE_CSE_ID'],
+  brave: ['WEB_KEY'],
+  serpapi: ['WEB_KEY'],
+  searxng: [],
+}
+
+function formatEnvVarList(envVars: string[]): string {
+  if (envVars.length <= 1) return envVars[0] ?? ''
+  if (envVars.length === 2) return `${envVars[0]} or ${envVars[1]}`
+  return `${envVars.slice(0, -1).join(', ')}, or ${envVars[envVars.length - 1]}`
+}
+
+function formatAndList(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? ''
+  if (values.length === 2) return `${values[0]} and ${values[1]}`
+  return `${values.slice(0, -1).join(', ')}, and ${values[values.length - 1]}`
+}
+
+function formatDuckDuckGoReliabilityDetail(providerMode: string): string {
+  return `${providerMode}; DuckDuckGo selected. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`
+}
+
+function vertexModelSupportsNativeWebSearch(model: string): boolean {
+  return (
+    model.includes('claude-opus-4') ||
+    model.includes('claude-sonnet-4') ||
+    model.includes('claude-haiku-4')
+  )
+}
+
+function isCodexResponsesWebSearchEnabledForDoctor(): boolean {
+  const request = resolveProviderRequest({
+    model: getMainLoopModel(),
+    baseUrl: process.env.OPENAI_BASE_URL,
+  })
+  return request.transport === 'codex_responses'
+}
+
+function buildNativeWebSearchCheck(): CheckResult {
+  const provider = getAPIProvider()
+
+  if (provider === 'openai' && isCodexResponsesWebSearchEnabledForDoctor()) {
+    return pass(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=native selected; Codex responses provider supports web search.',
+    )
+  }
+
+  if (provider === 'firstParty' || provider === 'foundry') {
+    return pass(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=native selected; ${provider} provider supports native web search.`,
+    )
+  }
+
+  if (provider === 'vertex') {
+    const model = getMainLoopModel()
+    if (vertexModelSupportsNativeWebSearch(model)) {
+      return pass(
+        'Web search backend',
+        `WEB_SEARCH_PROVIDER=native selected; vertex provider supports native web search for ${safeDisplayValue(model, 'the active model')}.`,
+      )
+    }
+    return fail(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=native selected, but vertex model ${safeDisplayValue(model, 'the active model')} does not support native web search. Use a Claude 4 Vertex model or configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT}.`,
+    )
+  }
+
+  return fail(
+    'Web search backend',
+    `WEB_SEARCH_PROVIDER=native selected, but ${provider} provider does not support native web search. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT}, or switch to an Anthropic, Vertex, Foundry, or Codex responses provider.`,
+  )
+}
+
+function buildAutoNativeWebSearchCheck(): CheckResult | undefined {
+  const provider = getAPIProvider()
+
+  if (provider === 'openai' && isCodexResponsesWebSearchEnabledForDoctor()) {
+    return pass(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=auto; Codex responses web search will be used before adapter providers.',
+    )
+  }
+
+  if (provider === 'firstParty' || provider === 'foundry') {
+    return pass(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=auto; ${provider} native web search will be used before adapter providers.`,
+    )
+  }
+
+  if (provider === 'vertex') {
+    const model = getMainLoopModel()
+    if (vertexModelSupportsNativeWebSearch(model)) {
+      return pass(
+        'Web search backend',
+        `WEB_SEARCH_PROVIDER=auto; vertex native web search will be used before adapter providers for ${safeDisplayValue(model, 'the active model')}.`,
+      )
+    }
+    return fail(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=auto selected, but vertex model ${safeDisplayValue(model, 'the active model')} does not support native web search and runtime will not use adapter providers in auto mode. Use a Claude 4 Vertex model or set an explicit WEB_SEARCH_PROVIDER adapter mode with ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT}.`,
+    )
+  }
+
+  return undefined
+}
+
+function getConfiguredWebSearchApiProviderNames(): string[] {
+  return getAvailableProviders()
+    .map(provider => provider.name)
+    .filter(providerName => WEB_SEARCH_API_PROVIDER_NAMES.has(providerName))
+    .filter(isWebSearchApiProviderConfiguredForDoctor)
+}
+
+function appendConfiguredWebSearchApiProviderDetail(result: CheckResult): CheckResult {
+  const configuredProviders = getConfiguredWebSearchApiProviderNames()
+  if (configuredProviders.length === 0) return result
+
+  const providerDetail = `Configured API-backed providers: ${configuredProviders.join(', ')}.`
+  return {
+    ...result,
+    detail: result.detail ? `${result.detail} ${providerDetail}` : providerDetail,
+  }
+}
+
+function hasFirecrawlRunnableConfig(): boolean {
+  return Boolean(process.env.FIRECRAWL_API_KEY) ||
+    Boolean(process.env.FIRECRAWL_API_URL && !isFirecrawlCloudApiUrl(process.env.FIRECRAWL_API_URL))
+}
+
+function buildFirecrawlWebSearchCheck(): CheckResult {
+  const apiKey = process.env.FIRECRAWL_API_KEY
+  const apiUrl = process.env.FIRECRAWL_API_URL
+
+  if (!apiKey && isFirecrawlCloudApiUrl(apiUrl)) {
+    return fail(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=firecrawl but FIRECRAWL_API_KEY is missing for the Firecrawl cloud API.',
+    )
+  }
+
+  if (apiKey) {
+    return pass(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=firecrawl; FIRECRAWL_API_KEY configured.',
+    )
+  }
+
+  if (apiUrl) {
+    return pass(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=firecrawl; FIRECRAWL_API_URL configured.',
+    )
+  }
+
+  return fail(
+    'Web search backend',
+    'WEB_SEARCH_PROVIDER=firecrawl but FIRECRAWL_API_KEY is missing.',
+  )
+}
+
+function getAutoFirecrawlMissingCredentialDetail(): string | undefined {
+  const firecrawlSelectedByAutoChain = getAvailableProviders()
+    .some(provider => provider.name === 'firecrawl')
+  if (!firecrawlSelectedByAutoChain || hasFirecrawlRunnableConfig()) return undefined
+
+  return 'FIRECRAWL_API_URL points to the Firecrawl cloud API but FIRECRAWL_API_KEY is missing; runtime will try firecrawl first and then fall through to the next provider in auto mode.'
+}
+
+function appendAutoFirecrawlMissingCredentialDetail(result: CheckResult): CheckResult {
+  const firecrawlDetail = getAutoFirecrawlMissingCredentialDetail()
+  if (!firecrawlDetail) return result
+
+  return {
+    ...result,
+    detail: result.detail ? `${result.detail} ${firecrawlDetail}` : firecrawlDetail,
+  }
+}
+
+function isWebSearchApiProviderConfiguredForDoctor(providerName: string): boolean {
+  return providerName !== 'firecrawl' || hasFirecrawlRunnableConfig()
+}
+
+function buildCustomWebSearchCheck(providerConfigured: boolean): CheckResult {
+  const providerPreset = process.env.WEB_PROVIDER
+  const trimmedProviderPreset = providerPreset?.trim()
+  const customUrlEnv = process.env.WEB_URL_TEMPLATE
+    ? 'WEB_URL_TEMPLATE'
+    : process.env.WEB_SEARCH_API
+      ? 'WEB_SEARCH_API'
+      : undefined
+
+  if (!providerConfigured) {
+    return fail(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=custom but WEB_SEARCH_API, WEB_PROVIDER, or WEB_URL_TEMPLATE is missing.',
+    )
+  }
+
+  if (!providerPreset) {
+    return pass(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=custom; ${customUrlEnv ?? formatEnvVarList(WEB_SEARCH_PROVIDER_ENV_VARS.custom)} configured.`,
+    )
+  }
+
+  const requiredEnvVars = WEB_SEARCH_CUSTOM_PRESET_REQUIRED_ENV_VARS[providerPreset]
+  if (!requiredEnvVars) {
+    if (!customUrlEnv) {
+      if (
+        trimmedProviderPreset &&
+        trimmedProviderPreset !== providerPreset &&
+        WEB_SEARCH_CUSTOM_PRESET_REQUIRED_ENV_VARS[trimmedProviderPreset]
+      ) {
+        return fail(
+          'Web search backend',
+          `WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=${trimmedProviderPreset} but the raw WEB_PROVIDER value has surrounding whitespace and does not match a runtime custom preset. Remove the whitespace or configure WEB_SEARCH_API or WEB_URL_TEMPLATE.`,
+        )
+      }
+
+      return fail(
+        'Web search backend',
+        `WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=${providerPreset} but WEB_SEARCH_API or WEB_URL_TEMPLATE is missing for an unknown custom preset.`,
+      )
+    }
+    return pass(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=custom; WEB_PROVIDER and ${customUrlEnv} configured.`,
+    )
+  }
+
+  if (providerPreset === 'searxng' && !customUrlEnv) {
+    return fail(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=searxng but WEB_SEARCH_API or WEB_URL_TEMPLATE is missing for the SearXNG endpoint.',
+    )
+  }
+
+  const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar])
+  if (missingEnvVars.length > 0) {
+    return fail(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=custom with WEB_PROVIDER=${providerPreset} but ${formatAndList(missingEnvVars)} ${missingEnvVars.length === 1 ? 'is' : 'are'} missing.`,
+    )
+  }
+
+  return pass(
+    'Web search backend',
+    `WEB_SEARCH_PROVIDER=custom; ${formatAndList(['WEB_PROVIDER', ...requiredEnvVars])} configured.`,
+  )
+}
+
+function formatWebSearchTimeoutSeconds(): string {
+  return String(getWebSearchTimeoutMs() / 1000)
+}
+
+function appendWebSearchTimeoutDetail(result: CheckResult): CheckResult {
+  const timeoutDetail = `Built-in provider timeout: ${formatWebSearchTimeoutSeconds()}s.`
+  return {
+    ...result,
+    detail: result.detail ? `${result.detail} ${timeoutDetail}` : timeoutDetail,
+  }
+}
+
+function appendWebSearchTimeoutDetails(results: CheckResult[]): CheckResult[] {
+  return results.map(appendWebSearchTimeoutDetail)
+}
+
+function buildWebSearchEnvChecks(): CheckResult[] {
+  const mode = getProviderMode()
+
+  if (mode === 'native') {
+    return [appendConfiguredWebSearchApiProviderDetail(buildNativeWebSearchCheck())]
+  }
+
+  if (mode === 'auto') {
+    const nativeCheck = buildAutoNativeWebSearchCheck()
+    if (nativeCheck) {
+      return [appendConfiguredWebSearchApiProviderDetail(nativeCheck)]
+    }
+
+    const configuredProviders = getConfiguredWebSearchApiProviderNames()
+
+    if (configuredProviders.length > 0) {
+      return appendWebSearchTimeoutDetails([
+        appendAutoFirecrawlMissingCredentialDetail(
+          pass(
+            'Web search backend',
+            `WEB_SEARCH_PROVIDER=auto; configured providers: ${configuredProviders.join(', ')}; fallback includes duckduckgo.`,
+          ),
+        ),
+      ])
+    }
+
+    return appendWebSearchTimeoutDetails([
+      appendAutoFirecrawlMissingCredentialDetail(
+        pass(
+          'Web search backend',
+          `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`,
+        ),
+      ),
+    ])
+  }
+
+  if (mode === 'ddg') {
+    return appendWebSearchTimeoutDetails([
+      pass(
+        'Web search backend',
+        formatDuckDuckGoReliabilityDetail('WEB_SEARCH_PROVIDER=ddg'),
+      ),
+    ])
+  }
+
+  const provider = getProviderChain(mode)[0]
+  const envVars = WEB_SEARCH_PROVIDER_ENV_VARS[mode] ?? []
+  const envVarLabel = formatEnvVarList(envVars)
+  const providerConfigured = Boolean(provider?.isConfigured())
+
+  if (mode === 'firecrawl') {
+    return appendWebSearchTimeoutDetails([buildFirecrawlWebSearchCheck()])
+  }
+
+  if (mode === 'custom') {
+    return [buildCustomWebSearchCheck(providerConfigured)]
+  }
+
+  if (!providerConfigured) {
+    return appendWebSearchTimeoutDetails([
+      fail(
+        'Web search backend',
+        `WEB_SEARCH_PROVIDER=${mode} but ${envVarLabel} is missing.`,
+      ),
+    ])
+  }
+
+  return appendWebSearchTimeoutDetails([
+    pass(
+      'Web search backend',
+      `WEB_SEARCH_PROVIDER=${mode}; ${envVarLabel} configured.`,
+    ),
+  ])
+}
+
+export function checkWebSearchEnv(): CheckResult[] {
+  return buildWebSearchEnvChecks()
 }
 
 function parseOptions(argv: string[]): CliOptions {
@@ -331,6 +839,10 @@ function getOpenAICompatibleCredentialContext(baseUrl: string): {
   }
 }
 
+function hasPlaceholderCredential(value: string | undefined): boolean {
+  return (value ?? '').split(',').some(part => part.trim() === 'SUA_CHAVE')
+}
+
 function currentBaseUrl(): string {
   if (isTruthy(process.env.CLAUDE_CODE_USE_GEMINI)) {
     return process.env.GEMINI_BASE_URL ?? GEMINI_DEFAULT_BASE_URL
@@ -485,7 +997,6 @@ export function checkOpenAIEnv(): CheckResult[] {
     return results
   }
 
-  const key = process.env.OPENAI_API_KEY
   const credentialContext = getOpenAICompatibleCredentialContext(request.baseUrl)
   const providerCredential = credentialContext.value
   const credentialLabel =
@@ -495,7 +1006,23 @@ export function checkOpenAIEnv(): CheckResult[] {
   const githubToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const hasGithubRouteCredential =
     credentialContext.routeId === 'github' && Boolean(githubToken?.trim())
-  if (key === 'SUA_CHAVE' || providerCredential === 'SUA_CHAVE') {
+  const openAIState = resolveOpenAICredentialEnvState(process.env)
+  const hasOpenAIFallback =
+    credentialContext.envVars.includes('OPENAI_API_KEYS') ||
+    credentialContext.envVars.includes('OPENAI_API_KEY')
+  const hasPlaceholderProviderCredential = credentialContext.envVars.some(envVar => {
+    if (
+      hasOpenAIFallback &&
+      (envVar === 'OPENAI_API_KEYS' || envVar === 'OPENAI_API_KEY')
+    ) {
+      return openAIState.invalid && openAIState.envVar === envVar
+    }
+    return hasPlaceholderCredential(process.env[envVar])
+  })
+  if (
+    hasPlaceholderCredential(providerCredential) ||
+    hasPlaceholderProviderCredential
+  ) {
     results.push(fail(credentialLabel, 'Placeholder value detected: SUA_CHAVE.'))
   } else if (
     !providerCredential &&
@@ -873,8 +1400,8 @@ async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2))
   const results: CheckResult[] = []
 
-  const { enableConfigs } = await import('../src/utils/config.js')
-  enableConfigs()
+  const configModule = await import('../src/utils/config.js')
+  configModule.enableConfigs()
   const { applySafeConfigEnvironmentVariables } = await import('../src/utils/managedEnv.js')
   applySafeConfigEnvironmentVariables()
   const { hydrateGithubModelsTokenFromSecureStorage } = await import('../src/utils/githubModelsCredentials.js')
@@ -884,6 +1411,15 @@ async function main(): Promise<void> {
   results.push(checkBunRuntime())
   results.push(checkBuildArtifacts())
   results.push(checkSandboxRuntime())
+  const globalConfig = configModule.getGlobalConfig()
+  results.push(
+    ...buildMemoryGuardChecks({
+      autoCompactEnabled: globalConfig.autoCompactEnabled,
+      maxMessagesCompactionThreshold:
+        globalConfig.maxMessagesCompactionThreshold,
+    }),
+  )
+  results.push(...checkWebSearchEnv())
   results.push(...checkOpenAIEnv())
   results.push(await checkBaseUrlReachability())
   results.push(await checkProviderGenerationReadiness())

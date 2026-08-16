@@ -44,6 +44,7 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_FOUNDRY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
+  'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_MODEL',
   'GITHUB_COPILOT_KEY',
@@ -103,6 +104,7 @@ export function buildGithubOnboardingSettingsEnv(
     CLAUDE_CODE_USE_GITHUB: '1',
     OPENAI_MODEL: model,
     GITHUB_ENTERPRISE_URL: gheUrl,
+    OPENAI_API_KEYS: undefined,
     OPENAI_API_KEY: undefined,
     OPENAI_ORG: undefined,
     OPENAI_PROJECT: undefined,
@@ -130,6 +132,7 @@ export function applyGithubOnboardingProcessEnv(
     delete env.GITHUB_ENTERPRISE_URL
   }
 
+  delete env.OPENAI_API_KEYS
   delete env.OPENAI_API_KEY
   delete env.OPENAI_ORG
   delete env.OPENAI_PROJECT
@@ -404,7 +407,7 @@ function OnboardGithub(props: {
         : 'GitHub Copilot onboard complete. '
       onDone(
         successMsg +
-          'Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.claude/.credentials.json, macOS: Keychain fallback to ~/.claude/.credentials.json); user settings updated. Restart if the model does not switch.',
+          'Copilot token and OAuth token stored in secure storage (Windows/Linux: ~/.openclaude/.credentials.json, macOS: Keychain fallback to ~/.openclaude/.credentials.json); user settings updated. Restart if the model does not switch.',
         { display: 'user' },
       )
     },
@@ -463,7 +466,7 @@ function OnboardGithub(props: {
       if (!activated.ok) {
         setErrorMsg(
           `Key saved, but settings were not updated: ${activated.detail ?? 'unknown error'}. ` +
-            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.claude/settings.json manually.`,
+            `Add env CLAUDE_CODE_USE_GITHUB=1 and OPENAI_MODEL to ~/.openclaude/settings.json manually.`,
         )
         setStep('error')
         return

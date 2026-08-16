@@ -288,12 +288,18 @@ export type QueryOptions = {
     | { type: 'custom'; content: string }
   /** Agent definitions to register with the query engine. */
   agents?: Record<string, {
-    description: string
+    description?: string
     prompt: string
+    /**
+     * Tool allowlist for this agent. If omitted or set to ['*'], the agent can use
+     * all tools available to subagents after disallowedTools is applied.
+     */
     tools?: string[]
+    /** Tool denylist for this agent. Deny entries always override tools entries. */
     disallowedTools?: string[]
     model?: string
     maxTurns?: number
+    maxSteps?: number
   }>
   settingSources?: string[]
   /** When true, yields stream_event messages for token-by-token streaming. */
@@ -403,6 +409,21 @@ export type SDKSessionOptions = {
   onPermissionRequest?: (message: SDKPermissionRequestMessage) => void
   /** Tools to disallow (blanket deny by tool name). */
   disallowedTools?: string[]
+  /** Agent definitions to register with the session engine. */
+  agents?: Record<string, {
+    description?: string
+    prompt: string
+    /**
+     * Tool allowlist for this agent. If omitted or set to ['*'], the agent can use
+     * all tools available to subagents after disallowedTools is applied.
+     */
+    tools?: string[]
+    /** Tool denylist for this agent. Deny entries always override tools entries. */
+    disallowedTools?: string[]
+    model?: string
+    maxTurns?: number
+    maxSteps?: number
+  }>
 }
 
 export interface SDKSession {

@@ -4,7 +4,6 @@ import {
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import { asMockFetch } from '../test/typedMocks.js'
-import * as actualProviders from './model/providers.js'
 
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -18,6 +17,9 @@ function getMockApiProvider() {
 
 async function importFreshModule() {
   mock.restore()
+  const actualProviders = await import(
+    `./model/providers.ts?actual=${Date.now()}-${Math.random()}`,
+  )
   mock.module('./model/providers.js', () => ({
     ...actualProviders,
     getAPIProvider: getMockApiProvider,
@@ -35,7 +37,6 @@ afterEach(() => {
     process.env = { ...originalEnv }
     globalThis.fetch = originalFetch
     mock.restore()
-    mock.module('./model/providers.js', () => actualProviders)
   } finally {
     releaseSharedMutationLock()
   }
@@ -103,10 +104,6 @@ describe('preconnectAnthropicApi', () => {
     delete process.env.CLAUDE_CODE_CLIENT_CERT
     delete process.env.CLAUDE_CODE_CLIENT_KEY
 
-    mock.module('./model/providers.js', () => ({
-      ...actualProviders,
-      getAPIProvider: () => 'firstParty',
-    }))
     const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
     globalThis.fetch = asMockFetch(fetchMock)
 
@@ -114,6 +111,17 @@ describe('preconnectAnthropicApi', () => {
     preconnectAnthropicApi('firstParty')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not preconnect to a custom Anthropic endpoint', async () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 200 })))
+    globalThis.fetch = asMockFetch(fetchMock)
+
+    const { preconnectAnthropicApi } = await importFreshModule()
+    preconnectAnthropicApi('firstParty')
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('keeps non-mocked provider exports available to neighboring imports', async () => {

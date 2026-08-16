@@ -7,9 +7,9 @@ export const SITE = {
   installCommand: 'npm install -g @gitlawb/openclaude@latest',
   npmUrl: 'https://www.npmjs.com/package/@gitlawb/openclaude',
   github: 'https://github.com/Gitlawb/openclaude',
+  releasesUrl: 'https://github.com/Gitlawb/openclaude/releases',
   gitlawb: 'https://gitlawb.com',
   gitlawbRepo: 'https://gitlawb.com/node/repos/z6MkqDnb/openclaude',
-  version: '0.18.0',
   ogDefault: '/og/default.png',
   ogDocs: '/og/docs.png',
 } as const

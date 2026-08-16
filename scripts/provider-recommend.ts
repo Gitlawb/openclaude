@@ -15,7 +15,7 @@ import {
   buildOpenAIProfileEnv,
   createProfileFile,
   saveProfileFile,
-  sanitizeApiKey,
+  resolveOpenAICredentialEnvState,
   type ProfileFile,
   type ProviderProfile,
 } from '../src/utils/providerProfile.ts'
@@ -33,6 +33,13 @@ type CliOptions = {
   json: boolean
   provider: ProviderProfile | 'auto'
   baseUrl: string | null
+}
+
+export function getOpenAIConfigurationState(
+  env: NodeJS.ProcessEnv = process.env,
+): { configured: boolean; invalid: boolean } {
+  const { configured, invalid } = resolveOpenAICredentialEnvState(env)
+  return { configured, invalid }
 }
 
 function parseOptions(argv: string[]): CliOptions {
@@ -140,12 +147,11 @@ async function maybeApplyProfile(
     env = buildOpenAIProfileEnv({
       goal,
       model: model || getGoalDefaultOpenAIModel(goal),
-      apiKey: process.env.OPENAI_API_KEY,
       processEnv: process.env,
     })
 
     if (!env) {
-      console.error('Cannot apply an OpenAI profile without OPENAI_API_KEY.')
+      console.error('Cannot apply an OpenAI profile without OPENAI_API_KEYS or OPENAI_API_KEY.')
       return false
     }
   }
@@ -186,7 +192,8 @@ async function main(): Promise<void> {
       }))
 
   const recommendedOllama = selectRecommendedOllamaModel(rankedModels)
-  const openAIConfigured = Boolean(sanitizeApiKey(process.env.OPENAI_API_KEY))
+  const openAIConfiguration = getOpenAIConfigurationState(process.env)
+  const openAIConfigured = openAIConfiguration.configured
 
   let recommendedProfile: ProviderProfile
   let recommendedModel: string
@@ -252,14 +259,19 @@ async function main(): Promise<void> {
 
   if (!recommendedOllama && !openAIConfigured) {
     console.log(
-      '\nNo local Ollama model was detected and OPENAI_API_KEY is unset.',
+      `
+No local Ollama model was detected and OPENAI_API_KEYS / OPENAI_API_KEY ${
+        openAIConfiguration.invalid ? 'are invalid' : 'are unset'
+      }.`,
     )
     console.log(
-      'Next steps: `ollama pull qwen2.5-coder:7b` or set OPENAI_API_KEY.',
+      'Next steps: `ollama pull qwen2.5-coder:7b` or set valid OPENAI_API_KEYS or OPENAI_API_KEY.',
     )
   }
 }
 
-await main()
+if (import.meta.main) {
+  await main()
+}
 
 export {}

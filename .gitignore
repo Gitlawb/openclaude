@@ -23,4 +23,5 @@ __pycache__/
 agent.log
 plan/
 .tmp
+.tmp-*
 temp_reference/

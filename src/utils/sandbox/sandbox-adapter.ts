@@ -23,6 +23,7 @@ import {
 import { rmSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { memoize } from 'lodash-es'
+import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import {
   getAdditionalDirectoriesForClaudeMd,
@@ -148,11 +149,15 @@ export function resolveSandboxFilesystemPath(
 
 function getCurrentCwdSettingsDenyWritePaths(cwd: string): string[] {
   return [
-    resolve(cwd, '.claude', 'settings.json'),
-    resolve(cwd, '.claude', 'settings.local.json'),
+    resolve(cwd, '.openclaude', 'settings.json'),
+    resolve(cwd, '.openclaude', 'settings.local.json'),
     resolve(cwd, getRelativeSettingsFilePathForSource('projectSettings')),
     resolve(cwd, getRelativeSettingsFilePathForSource('localSettings')),
   ]
+}
+
+function getLegacyClaudeConfigDenyWritePaths(cwd: string): string[] {
+  return [resolve(cwd, '.claude')]
 }
 
 /**
@@ -249,18 +254,24 @@ export function convertToSandboxRuntimeConfig(
   // This handles the case where the user has cd'd to a different directory
   const cwd = getCwdState()
   const originalCwd = getOriginalCwd()
+  denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(originalCwd))
+  denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(homedir()))
+  if (process.env.CLAUDE_CONFIG_DIR) {
+    denyWrite.push(resolve(process.env.CLAUDE_CONFIG_DIR))
+  }
   if (cwd !== originalCwd) {
     denyWrite.push(...getCurrentCwdSettingsDenyWritePaths(cwd))
+    denyWrite.push(...getLegacyClaudeConfigDenyWritePaths(cwd))
   }
 
-  // Block writes to .claude/skills in both original and current working directories.
-  // The sandbox-runtime's getDangerousDirectories() protects .claude/commands and
-  // .claude/agents but not .claude/skills. Skills have the same privilege level
+  // Block writes to .openclaude/skills in both original and current working directories.
+  // The sandbox-runtime's getDangerousDirectories() protects .openclaude/commands and
+  // .openclaude/agents but not .openclaude/skills. Skills have the same privilege level
   // (auto-discovered, auto-loaded, full Claude capabilities) so they need the
   // same OS-level sandbox protection.
-  denyWrite.push(resolve(originalCwd, '.claude', 'skills'))
+  denyWrite.push(resolve(originalCwd, '.openclaude', 'skills'))
   if (cwd !== originalCwd) {
-    denyWrite.push(resolve(cwd, '.claude', 'skills'))
+    denyWrite.push(resolve(cwd, '.openclaude', 'skills'))
   }
 
   // SECURITY: Git's is_git_directory() treats cwd as a bare repo if it has

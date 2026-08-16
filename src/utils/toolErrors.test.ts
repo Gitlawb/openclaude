@@ -26,6 +26,38 @@ describe('getErrorParts', () => {
     expect(parts[2]).toBe('partial output')
   })
 
+  test('ShellError: abort message overrides generic interrupt text', () => {
+    const err = new ShellError('', '', 137, true, {
+      abortMessage: 'Command was interrupted because the query hit its timeout.',
+      abortReason: 'query-timeout',
+    })
+    const parts = getErrorParts(err)
+    expect(parts[0]).toBe('Exit code 137')
+    expect(parts[1]).toBe(
+      'Command was interrupted because the query hit its timeout.',
+    )
+  })
+
+  test('ShellError: derives isAbort only from interrupted abort reasons unless overridden', () => {
+    expect(
+      new ShellError('', '', 137, true, {
+        abortReason: 'query-timeout',
+      }).isAbort,
+    ).toBe(true)
+    expect(
+      new ShellError('', '', 1, false, {
+        abortReason: 'query-timeout',
+      }).isAbort,
+    ).toBe(false)
+    expect(new ShellError('', '', 137, true).isAbort).toBe(false)
+    expect(
+      new ShellError('', '', 1, false, {
+        abortReason: 'query-timeout',
+        isAbort: true,
+      }).isAbort,
+    ).toBe(true)
+  })
+
   test('ShellError: empty stderr and stdout', () => {
     const err = new ShellError('', '', 1, false)
     const parts = getErrorParts(err)
@@ -65,6 +97,13 @@ describe('formatError', () => {
     const err = new AbortError('')
     const result = formatError(err)
     expect(result.length).toBeGreaterThan(0)
+  })
+
+  test('DOM AbortError with empty message returns default interrupt', () => {
+    const err = new DOMException('', 'AbortError')
+    const result = formatError(err)
+    expect(result.length).toBeGreaterThan(0)
+    expect(result).toContain('interrupted')
   })
 
   test('non-Error value stringified', () => {

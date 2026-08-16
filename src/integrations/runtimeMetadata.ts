@@ -19,18 +19,51 @@ import {
 } from './registry.js'
 import {
   getRouteDescriptor,
+  isCanonicalXaiInferenceBaseUrl,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
   type RouteDescriptor,
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
+import { firstUsableCredential } from '../services/api/credentialPool.js'
+import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
+import {
+  getCachedXaiCredentials,
+  getXaiDiscoveryCacheIdentity,
+} from '../utils/xaiCredentials.js'
+import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
+
+function resolveRouteOpenAIShimConfig(
+  routeId: string | null,
+  baseUrl: string | undefined,
+  config: OpenAIShimTransportConfig,
+): OpenAIShimTransportConfig {
+  if (routeId !== 'aimlapi' || !config.headers) return config
+
+  return {
+    ...config,
+    headers: resolveAimlapiAttributionHeaders(config.headers, baseUrl),
+  }
+}
 
 function normalizeModelApiName(
   value: string | undefined,
 ): string | null {
-  const trimmed = value?.trim().toLowerCase()
-  return trimmed ? trimmed : null
+  const baseModel = getBaseModelApiName(value)
+  return baseModel ? baseModel.toLowerCase() : null
+}
+
+function getBaseModelApiName(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const queryIndex = trimmed.indexOf('?')
+  const baseModel =
+    queryIndex === -1 ? trimmed : trimmed.slice(0, queryIndex).trim()
+  return baseModel || null
 }
 
 function matchesCatalogEntryModel(
@@ -38,7 +71,18 @@ function matchesCatalogEntryModel(
   entry: ModelCatalogEntry,
   modelApiName: string,
 ): boolean {
-  if (entry.apiName.trim().toLowerCase() === modelApiName) {
+  if (
+    entry.apiName.trim().toLowerCase() === modelApiName ||
+    entry.id.trim().toLowerCase() === modelApiName
+  ) {
+    return true
+  }
+
+  if (
+    (entry.aliases ?? []).some(
+      alias => normalizeModelApiName(alias) === modelApiName,
+    )
+  ) {
     return true
   }
 
@@ -143,6 +187,7 @@ export function openAIShimSupportsApiFormatForModel(
 
 function inferRemoteModelOpenAIShimConfig(
   modelApiName: string | undefined,
+  catalogEntry: ModelCatalogEntry | null,
 ): Partial<OpenAIShimTransportConfig> | undefined {
   const normalizedModel = normalizeModelApiName(modelApiName)
   if (!normalizedModel) {
@@ -186,6 +231,26 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
+  // Only infer the Z.AI GLM shim for routes without a catalog entry
+  // (direct/aggregator aliases like `glm-5.2` or `openrouter/zhipu/glm-5.2`).
+  // Catalog-backed GLM routes declare their own contract via
+  // `transportOverrides.openaiShim`: Z.AI-contract routes (zai, opencode-go,
+  // atlas-cloud) opt in explicitly, while non-Z.AI ones (nearai, fireworks)
+  // keep their provider-specific request shape instead of this shim.
+  const hasGlm = segments.some(s => /^glm-\d/.test(s))
+  const isFireworks = segments.some(s => s === 'fireworks')
+  if (hasGlm && !isFireworks && !catalogEntry) {
+    // `tool_stream` is a Z.AI-proprietary streaming extension. Only a catalog
+    // entry may opt into it (Z.AI-contract gateways set it via
+    // `transportOverrides.openaiShim`); it must not be inferred from the model
+    // name alone. An arbitrary OpenAI-compatible gateway serving GLM — e.g.
+    // NVIDIA NIM (`integrate.api.nvidia.com`) — rejects the request with
+    // `400 Unsupported parameter(s): tool_stream` (#1896). Keep the
+    // reasoning-shaping fields (which any GLM endpoint benefits from) but drop
+    // tool streaming; without it tool calls simply aren't streamed.
+    return { ...ZAI_GLM_OPENAI_SHIM, enableToolStreaming: false }
+  }
+
   return undefined
 }
 
@@ -207,6 +272,7 @@ export function resolveOpenAIShimRuntimeContext(options?: {
   model?: string
   activeProfileProvider?: string
   treatAsLocal?: boolean
+  preferBaseUrlRoute?: boolean
 }): OpenAIShimRuntimeContext {
   const processEnv = options?.processEnv ?? process.env
   const runtimeEnv: NodeJS.ProcessEnv = {
@@ -223,17 +289,22 @@ export function resolveOpenAIShimRuntimeContext(options?: {
 
   const activeRouteId = resolveActiveRouteIdFromEnv(runtimeEnv, {
     activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
   const baseUrlRouteId = resolveRouteIdFromBaseUrl(options?.baseUrl)
   const routeId =
-    baseUrlRouteId &&
-    (!activeRouteId || activeRouteId === 'anthropic' || activeRouteId === 'openai')
+    options?.preferBaseUrlRoute && options.baseUrl !== undefined
       ? baseUrlRouteId
-      : activeRouteId
+      : baseUrlRouteId &&
+        (!activeRouteId || activeRouteId === 'anthropic' || activeRouteId === 'openai')
+        ? baseUrlRouteId
+        : activeRouteId
   const descriptor =
     routeId && routeId !== 'anthropic'
       ? getRouteDescriptor(routeId)
       : null
+  const effectiveBaseUrl =
+    options?.baseUrl ?? runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   const catalogEntry =
     descriptor && routeId
       ? getCatalogEntryForModel(routeId, options?.model)
@@ -243,16 +314,23 @@ export function resolveOpenAIShimRuntimeContext(options?: {
       ? {
           maxTokensField: 'max_tokens' as const,
         }
-      : inferRemoteModelOpenAIShimConfig(options?.model)
+      : inferRemoteModelOpenAIShimConfig(options?.model, catalogEntry)
 
   return {
     routeId,
     descriptor,
     catalogEntry,
-    openaiShimConfig: mergeOpenAIShimConfig(
-      descriptor?.transportConfig.openaiShim,
-      catalogEntry?.transportOverrides?.openaiShim,
-      inferredConfig,
+    // Sanitize AIMLAPI attribution headers AFTER merging every layer: a
+    // catalog- or model-level `openaiShim.headers` override could otherwise
+    // reintroduce the partner/attribution headers on a proxy endpoint.
+    openaiShimConfig: resolveRouteOpenAIShimConfig(
+      routeId,
+      effectiveBaseUrl,
+      mergeOpenAIShimConfig(
+        descriptor?.transportConfig.openaiShim,
+        catalogEntry?.transportOverrides?.openaiShim,
+        inferredConfig,
+      ),
     ),
   }
 }
@@ -265,27 +343,49 @@ function getModelDescriptorForCatalogEntry(entry: ModelCatalogEntry | null) {
   return getModel(entry.modelDescriptorId) ?? null
 }
 
+function getProviderScopedModelSegments(modelApiName: string): string[] {
+  const segments = modelApiName
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean)
+  const suffixes = segments
+    .slice(1)
+    .map((_, index) => segments.slice(index + 1).join('/'))
+  const accountQualifiedSuffixes = suffixes
+    .filter(suffix => /^[^/]+\/models\//.test(suffix))
+    .map(suffix => `accounts/${suffix}`)
+
+  return [...suffixes, ...accountQualifiedSuffixes]
+}
+
 function findModelDescriptorForApiName(
   routeId: string | null,
   modelApiName: string | undefined,
 ) {
-  const trimmedModel = modelApiName?.trim()
+  const trimmedModel = getBaseModelApiName(modelApiName)
   if (!trimmedModel) {
     return null
   }
   const normalizedModel = trimmedModel.toLowerCase()
+  const providerScopedSegments = getProviderScopedModelSegments(trimmedModel)
+  const normalizedProviderScopedSegments = getProviderScopedModelSegments(
+    normalizedModel,
+  )
 
   ensureIntegrationsLoaded()
   const models = getAllModels()
     .map(model => {
+      const providerModelMap = model.providerModelMap
       const routeMappedModel = routeId
-        ? model.providerModelMap?.[routeId]
+        ? providerModelMap?.[routeId]
         : undefined
+      const hasProviderModelMap =
+        providerModelMap && Object.keys(providerModelMap).length > 0
       return {
         model,
         names: [
           model.id,
-          model.defaultModel,
+          hasProviderModelMap ? routeMappedModel : model.defaultModel,
           routeMappedModel,
         ].filter((value): value is string => Boolean(value?.trim())),
       }
@@ -309,12 +409,19 @@ function findModelDescriptorForApiName(
   }
 
   for (const candidate of models) {
+    if (candidate.names.some(name => providerScopedSegments.includes(name.trim()))) {
+      return candidate.model
+    }
+  }
+
+  for (const candidate of models) {
     if (
       candidate.names.some(name => {
         const normalizedName = name.trim().toLowerCase()
         return (
           normalizedModel === normalizedName ||
-          normalizedModel.startsWith(normalizedName)
+          normalizedModel.startsWith(normalizedName) ||
+          normalizedProviderScopedSegments.includes(normalizedName)
         )
       })
     ) {
@@ -352,13 +459,22 @@ function findCachedCatalogEntryForApiName(
   }
 
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
+  let apiKey = firstUsableCredential(
+    resolveRouteCredentialValue({ routeId, baseUrl, processEnv: runtimeEnv }),
+  )
+  let cacheIdentity: string | undefined
+  if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
+    // Runtime limit resolution is synchronous request planning. Discovery
+    // populates this memory cache asynchronously; do not launch a credential
+    // store subprocess here merely to recover optional dynamic metadata.
+    const credentials = getCachedXaiCredentials()
+    apiKey = firstUsableCredential(credentials?.accessToken)
+    cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
+  }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
-    apiKey: resolveRouteCredentialValue({
-      routeId,
-      baseUrl,
-      processEnv: runtimeEnv,
-    }),
+    apiKey,
+    cacheKey: cacheIdentity,
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
@@ -383,39 +499,57 @@ export function resolveModelRuntimeLimits(options: {
   }
 
   const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
-    activeProfileProvider: options.activeProfileProvider,
+    activeProfileProvider: options?.activeProfileProvider,
+    activeProfileBaseUrl: options?.baseUrl,
   })
-  const catalogEntry = findCatalogEntryForApiName(routeId, options.model)
+  const modelApiName = getBaseModelApiName(options.model) ?? options.model
+  const catalogEntry = findCatalogEntryForApiName(routeId, modelApiName)
   const cachedCatalogEntry = findCachedCatalogEntryForApiName(
     routeId,
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
-  const modelDescriptor =
+  const catalogModelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
-    getModelDescriptorForCatalogEntry(cachedCatalogEntry) ??
-    findModelDescriptorForApiName(routeId, options.model)
+    getModelDescriptorForCatalogEntry(cachedCatalogEntry)
+  const inferredModelDescriptor =
+    findModelDescriptorForApiName(routeId, modelApiName)
+  const modelDescriptor =
+    catalogModelDescriptor ??
+    (inferredModelDescriptor?.runtimeMetadataScope === 'catalog'
+      ? null
+      : inferredModelDescriptor)
   const externalContextWindow = getOpenAIContextWindowMatches(
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
   const externalMaxOutputTokens = getOpenAIMaxOutputTokenMatches(
-    options.model,
+    modelApiName,
     runtimeEnv,
   )
 
+  // Precedence: an exact env override wins outright; then the built-in
+  // catalog / discovery-cache value (a `:cloud` variant must take its known
+  // catalog limit rather than inherit a broad base-model env *prefix*); then a
+  // broad env *prefix* override; then the settings.json `modelLimits` override;
+  // then the descriptor default. The key fix for the env/settings drift is
+  // keeping `settings` strictly below `prefix` so a broad env-prefix override is
+  // never silently overtaken by a settings entry — matching the scalar
+  // getOpenAIContextWindow, where env (exact or prefix) beats settings.
   return {
     contextWindow:
       externalContextWindow.exact ??
       catalogEntry?.contextWindow ??
       cachedCatalogEntry?.contextWindow ??
       externalContextWindow.prefix ??
+      externalContextWindow.settings ??
       modelDescriptor?.contextWindow,
     maxOutputTokens:
       externalMaxOutputTokens.exact ??
       catalogEntry?.maxOutputTokens ??
       cachedCatalogEntry?.maxOutputTokens ??
       externalMaxOutputTokens.prefix ??
+      externalMaxOutputTokens.settings ??
       modelDescriptor?.maxOutputTokens,
   }
 }

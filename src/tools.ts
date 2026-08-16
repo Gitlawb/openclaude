@@ -48,6 +48,7 @@ import { TodoWriteTool } from './tools/TodoWriteTool/TodoWriteTool.js'
 import { ExitPlanModeV2Tool } from './tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
 import { TestingPermissionTool } from './tools/testing/TestingPermissionTool.js'
 import { GrepTool } from './tools/GrepTool/GrepTool.js'
+import { RepoMapTool } from './tools/RepoMapTool/RepoMapTool.js'
 // Lazy require to break circular dependency: tools.ts -> TeamCreateTool/TeamDeleteTool -> ... -> tools.ts
 /* eslint-disable @typescript-eslint/no-require-imports */
 const getTeamCreateTool = () =>
@@ -188,6 +189,7 @@ export function getAllBaseTools(): Tools {
     // trick as ripgrep). When available, find/grep in Claude's shell are aliased
     // to these fast tools, so the dedicated Glob/Grep tools are unnecessary.
     ...(hasEmbeddedSearchTools() ? [] : [GlobTool, GrepTool]),
+    RepoMapTool,
     ExitPlanModeV2Tool,
     FileReadTool,
     FileEditTool,
@@ -210,11 +212,11 @@ export function getAllBaseTools(): Tools {
     ...(TerminalCaptureTool ? [TerminalCaptureTool] : []),
     LSPTool,
     ...(isWorktreeModeEnabled() ? [EnterWorktreeTool, ExitWorktreeTool] : []),
-    // Use filter(Boolean) to handle case where getter might return null/undefined
-    ...(getSendMessageTool() ? [getSendMessageTool()] : []),
+    // Cache getter results to avoid double-invocation of lazy require()
+    ...(() => { const smt = getSendMessageTool(); return smt ? [smt] : [] })(),
     ...(ListPeersTool ? [ListPeersTool] : []),
     ...(isAgentSwarmsEnabled()
-      ? [getTeamCreateTool(), getTeamDeleteTool()].filter(Boolean)
+      ? (() => { const tct = getTeamCreateTool(); const tdt = getTeamDeleteTool(); return [tct, tdt].filter(Boolean) })()
       : []),
     ...(VerifyPlanExecutionTool ? [VerifyPlanExecutionTool] : []),
     ...(process.env.USER_TYPE === 'ant' && REPLTool ? [REPLTool] : []),
@@ -227,7 +229,7 @@ export function getAllBaseTools(): Tools {
     ...(SendUserFileTool ? [SendUserFileTool] : []),
     ...(PushNotificationTool ? [PushNotificationTool] : []),
     ...(SubscribePRTool ? [SubscribePRTool] : []),
-    ...(getPowerShellTool() ? [getPowerShellTool()] : []),
+    ...(() => { const pst = getPowerShellTool(); return pst ? [pst] : [] })(),
     ...(SnipTool ? [SnipTool] : []),
     ...(process.env.NODE_ENV === 'test' ? [TestingPermissionTool] : []),
     ListMcpResourcesTool,

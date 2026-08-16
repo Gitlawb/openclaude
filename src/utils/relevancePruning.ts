@@ -7,6 +7,36 @@
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 import type { Message } from '../types/message.js'
 
+/**
+ * Default number of recent messages preserved verbatim by relevance pruning.
+ * Shared by autoCompact's `compactTailTurns` config plumbing and the /config
+ * UI display so a future default change stays in sync everywhere.
+ */
+export const DEFAULT_COMPACT_TAIL_TURNS = 3
+
+/**
+ * Single normalization rule for the hand-editable `compactTailTurns` config:
+ * any finite value ≥ 1 floors to an integer; everything else (0, negatives,
+ * fractions below 1, NaN, non-numbers) falls back to the default. The /config
+ * UI displays and persists through this SAME rule, so what the picker shows
+ * is exactly what autoCompact preserves — a raw `0.5` must not floor to a
+ * tail of zero, and a displayed `2.5` must not silently behave as 2.
+ */
+export function normalizeCompactTailTurns(value: unknown): number {
+  // Only numbers (persisted config) and strings (the /config picker's value
+  // channel) are coercible; other hand-edited shapes (true → 1, [2] → 2 via
+  // Number()) must not smuggle in a tiny tail — they fall back instead.
+  const num =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN
+  return Number.isFinite(num) && num >= 1
+    ? Math.floor(num)
+    : DEFAULT_COMPACT_TAIL_TURNS
+}
+
 export interface PruningOptions {
   targetTokens: number
   taskContext?: string
@@ -80,6 +110,19 @@ export function hasErrors(message: Message): boolean {
   return textContent.includes('error') || textContent.includes('fail') || textContent.includes('exception')
 }
 
+/**
+ * Chronological key for a message, in epoch milliseconds. Reads the envelope
+ * `timestamp` (an ISO-8601 string present on every Message variant), NOT
+ * `message.message.created_at` — that nested API-body field is never populated
+ * on our Message objects, so the old code always saw `undefined` and its
+ * recency scoring, tie-break and final chronological sort were all no-ops.
+ * Returns 0 for a missing/unparseable timestamp (sorts as oldest).
+ */
+function messageTimeMs(message: Message | undefined): number {
+  const parsed = message?.timestamp ? Date.parse(message.timestamp) : NaN
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
 export function calculateRelevance(
   message: Message,
   options: PruningOptions,
@@ -104,7 +147,7 @@ export function calculateRelevance(
     score += 0.3
   }
 
-  const ageHours = (Date.now() - (message.message?.created_at ?? 0)) / (1000 * 60 * 60)
+  const ageHours = (Date.now() - messageTimeMs(message)) / (1000 * 60 * 60)
   if (ageHours < 1) {
     score += 0.15
   }
@@ -148,7 +191,7 @@ export function pruneByRelevance(
   options: PruningOptions,
 ): Message[] {
   const targetTokens = options.targetTokens ?? 5000
-  const preserveRecent = options.preserveRecent ?? 3
+  const preserveRecent = options.preserveRecent ?? DEFAULT_COMPACT_TAIL_TURNS
 
   if (messages.length <= preserveRecent) {
     return messages
@@ -169,8 +212,8 @@ export function pruneByRelevance(
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score
-    const aTime = a.group[0]?.message?.created_at ?? 0
-    const bTime = b.group[0]?.message?.created_at ?? 0
+    const aTime = messageTimeMs(a.group[0])
+    const bTime = messageTimeMs(b.group[0])
     return bTime - aTime
   })
 
@@ -191,7 +234,7 @@ export function pruneByRelevance(
     totalTokens += tokens
   }
 
-  return result.sort((a, b) => (a.message?.created_at ?? 0) - (b.message?.created_at ?? 0))
+  return result.sort((a, b) => messageTimeMs(a) - messageTimeMs(b))
 }
 
 export function getTopRelevantMessages(

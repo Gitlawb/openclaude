@@ -114,35 +114,62 @@ function assertResumeMessageSize(messages: Message[]): void {
 /**
  * Transforms legacy attachment types to current types for backward compatibility
  */
-function migrateLegacyAttachmentTypes(message: Message): Message {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function getAttachmentRecord(
+  message: Message,
+): Record<string, unknown> | null {
+  if (message.type !== 'attachment') {
+    return null
+  }
+  const attachment = (message as { attachment?: unknown }).attachment
+  if (!isRecord(attachment) || typeof attachment.type !== 'string') {
+    return null
+  }
+  return attachment
+}
+
+function migrateLegacyAttachmentTypes(message: Message): Message | null {
   if (message.type !== 'attachment') {
     return message
   }
 
-  const attachment = message.attachment as {
-    type: string
-    [key: string]: unknown
-  } // Handle legacy types not in current type system
+  const attachment = getAttachmentRecord(message)
+  if (!attachment) {
+    return null
+  }
 
   // Transform legacy attachment types
   if (attachment.type === 'new_file') {
+    if (!isNonEmptyString(attachment.filename)) {
+      return null
+    }
     return {
       ...message,
       attachment: {
         ...attachment,
         type: 'file',
-        displayPath: relative(getCwd(), attachment.filename as string),
+        displayPath: relative(getCwd(), attachment.filename),
       },
     } as SerializedMessage // Cast entire message since we know the structure is correct
   }
 
   if (attachment.type === 'new_directory') {
+    if (!isNonEmptyString(attachment.path)) {
+      return null
+    }
     return {
       ...message,
       attachment: {
         ...attachment,
         type: 'directory',
-        displayPath: relative(getCwd(), attachment.path as string),
+        displayPath: relative(getCwd(), attachment.path),
       },
     } as SerializedMessage // Cast entire message since we know the structure is correct
   }
@@ -150,12 +177,12 @@ function migrateLegacyAttachmentTypes(message: Message): Message {
   // Backfill displayPath for attachments from old sessions
   if (!('displayPath' in attachment)) {
     const path =
-      'filename' in attachment
-        ? (attachment.filename as string)
-        : 'path' in attachment
-          ? (attachment.path as string)
-          : 'skillDir' in attachment
-            ? (attachment.skillDir as string)
+      isNonEmptyString(attachment.filename)
+        ? attachment.filename
+        : isNonEmptyString(attachment.path)
+          ? attachment.path
+          : isNonEmptyString(attachment.skillDir)
+            ? attachment.skillDir
             : undefined
     if (path) {
       return {
@@ -225,6 +252,35 @@ function shouldPreserveThinkingBlocksForProviderReplay(): boolean {
   )
 }
 
+/**
+ * Strip protected-thinking blocks from history only when the active provider
+ * tolerates it. Mirrors the gate used during session-resume deserialization:
+ * strip for non-preserve third-party providers, leave Anthropic-native and
+ * preserve-reasoning providers (DeepSeek/Kimi/Z.AI GLM — which 400 on a
+ * stripped block, issue #957) untouched.
+ *
+ * Exposed for callers that rewrite history across a model change (e.g. smart
+ * routing's per-turn model swap), so a model-bound thinking signature is never
+ * replayed to a different model without re-creating the preserve-reasoning 400.
+ */
+export function stripThinkingBlocksIfProviderAllows(
+  messages: NormalizedMessage[],
+): NormalizedMessage[] {
+  const provider = getAPIProvider()
+  const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
+    processEnv: process.env,
+    model: process.env.OPENAI_MODEL,
+    providerCategory: provider as NonNullable<
+      Parameters<typeof usesAnthropicNativeMessageFormat>[0]
+    >['providerCategory'],
+  })
+  const isThirdPartyProvider = provider !== 'foundry' && !isAnthropicNativeTransport
+  if (isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()) {
+    return stripThinkingBlocks(messages)
+  }
+  return messages
+}
+
 function parsePrIdentifier(value: string): number | null {
   const directNumber = parseInt(value, 10)
   if (!isNaN(directNumber) && directNumber > 0) {
@@ -278,9 +334,10 @@ export function deserializeMessagesWithInterruptDetection(
 ): DeserializeResult {
   try {
     // Transform legacy attachment types before processing
-    const migratedMessages = serializedMessages.map(
-      migrateLegacyAttachmentTypes,
-    )
+    const migratedMessages = serializedMessages.flatMap(message => {
+      const migratedMessage = migrateLegacyAttachmentTypes(message)
+      return migratedMessage ? [migratedMessage] : []
+    })
 
     // Strip invalid or dangerous permissionMode values from deserialized user
     // messages. The field is unvalidated JSON from disk and only
@@ -319,22 +376,7 @@ export function deserializeMessagesWithInterruptDetection(
     // outgoing OpenAI-format message. Stripping the block leaves the shim with
     // no reasoning text to attach, and the provider 400s with
     // "reasoning_content in the thinking mode must be passed back" (issue #957).
-    const provider = getAPIProvider()
-    const isAnthropicNativeTransport = usesAnthropicNativeMessageFormat({
-      processEnv: process.env,
-      model: process.env.OPENAI_MODEL,
-      // runtimeMetadata's inline providerCategory union predates the newer
-      // 'xai'/'xiaomi-mimo' categories; they take the same third-party path.
-      providerCategory: provider as NonNullable<
-        Parameters<typeof usesAnthropicNativeMessageFormat>[0]
-      >['providerCategory'],
-    })
-    const isThirdPartyProvider =
-      provider !== 'foundry' && !isAnthropicNativeTransport
-    const thinkingStripped =
-      isThirdPartyProvider && !shouldPreserveThinkingBlocksForProviderReplay()
-        ? stripThinkingBlocks(filteredThinking)
-        : filteredThinking
+    const thinkingStripped = stripThinkingBlocksIfProviderAllows(filteredThinking)
 
     // Filter out assistant messages with only whitespace text content.
     // This can happen when model outputs "\n\n" before thinking, user cancels mid-stream.
@@ -575,9 +617,21 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     if (message.type !== 'attachment') {
       continue
     }
-    if (message.attachment.type === 'invoked_skills') {
-      for (const skill of message.attachment.skills) {
-        if (skill.name && skill.path && skill.content) {
+    const attachment = getAttachmentRecord(message)
+    if (!attachment) {
+      continue
+    }
+    if (attachment.type === 'invoked_skills') {
+      if (!Array.isArray(attachment.skills)) {
+        continue
+      }
+      for (const skill of attachment.skills) {
+        if (
+          isRecord(skill) &&
+          isNonEmptyString(skill.name) &&
+          isNonEmptyString(skill.path) &&
+          isNonEmptyString(skill.content)
+        ) {
           // Resume only happens for the main session, so agentId is null
           addInvokedSkill(skill.name, skill.path, skill.content, null)
         }
@@ -587,7 +641,7 @@ export function restoreSkillStateFromMessages(messages: Message[]): void {
     // in the transcript the model is about to see. sentSkillNames is
     // process-local, so without this every resume re-announces the same
     // ~600 tokens. Fire-once latch; consumed on the first attachment pass.
-    if (message.attachment.type === 'skill_listing') {
+    if (attachment.type === 'skill_listing') {
       suppressNextSkillListing()
     }
   }

@@ -1,6 +1,7 @@
 import { isBareMode, isEnvTruthy } from './envUtils.js'
 import { getSecureStorage } from './secureStorage/index.js'
 import { exchangeForCopilotToken } from '../services/github/deviceFlow.js'
+import { logForDebugging } from './debug.js'
 
 /** JSON key in the shared OpenClaude secure storage blob. */
 export const GITHUB_MODELS_STORAGE_KEY = 'githubModels' as const
@@ -120,6 +121,40 @@ export function hydrateGithubModelsTokenFromSecureStorage(): void {
 }
 
 /**
+ * Undo {@link hydrateGithubModelsTokenFromSecureStorage} for the current
+ * session: drop a `GITHUB_TOKEN` (or, for a `copilot_key` blob, a
+ * `GITHUB_COPILOT_KEY`) that was hydrated from secure storage along with its
+ * marker. A user-supplied value — one that does not match the stored
+ * credential — is preserved. No-op when the hydration marker is absent.
+ *
+ * `storedToken` is the secure-storage credential, passed in so callers control
+ * whether it is read before or after they clear it (the delete path reads it
+ * before clearing; the switch-to-Anthropic path leaves it in place).
+ */
+export function clearHydratedGithubModelsTokenFromEnv(storedToken?: string): void {
+  if (process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER] !== '1') {
+    return
+  }
+  const normalizedStored = storedToken?.trim()
+  const sessionToken = process.env.GITHUB_TOKEN?.trim()
+  if (sessionToken && (!normalizedStored || sessionToken === normalizedStored)) {
+    delete process.env.GITHUB_TOKEN
+  }
+  // Hydration has two modes (see hydrateGithubModelsTokenFromSecureStorage): a
+  // `copilot_key` blob populates GITHUB_COPILOT_KEY instead of GITHUB_TOKEN.
+  // Undo that branch symmetrically, otherwise the marker is removed while the
+  // hydrated Copilot key is left behind in the session.
+  const sessionCopilotKey = process.env.GITHUB_COPILOT_KEY?.trim()
+  if (
+    sessionCopilotKey &&
+    (!normalizedStored || sessionCopilotKey === normalizedStored)
+  ) {
+    delete process.env.GITHUB_COPILOT_KEY
+  }
+  delete process.env[GITHUB_MODELS_HYDRATED_ENV_MARKER]
+}
+
+/**
  * Startup auto-refresh for GitHub Models mode.
  *
  * If a stored Copilot token is expired/invalid and an OAuth token is present,
@@ -223,6 +258,52 @@ export function saveGithubModelsToken(
     [GITHUB_MODELS_STORAGE_KEY]: mergedBlob,
   }
   return secureStorage.update(merged as typeof prev)
+}
+
+/**
+ * Force-refresh the Copilot token on 401.
+ *
+ * Only refreshes when the failing credential matches the stored Copilot
+ * token — silently skipping when a provider override, route credential,
+ * or custom auth header is in use, preventing credential substitution.
+ *
+ * Returns true if the refresh succeeded.
+ */
+export async function refreshCopilotTokenOn401(): Promise<boolean> {
+  if (isBareMode()) return false
+
+  // Direct API key users cannot refresh — they need to update the key manually
+  if (process.env.GITHUB_COPILOT_KEY?.trim()) return false
+
+  try {
+    const blob = readGithubModelsCredentialBlob()
+    if (!blob) return false
+    if (blob.credentialType === 'copilot_key') return false
+
+    // Only refresh when the failing credential IS the stored Copilot token.
+    // A provider override, route credential, or manually-set GITHUB_TOKEN
+    // will not match, preventing silent credential substitution.
+    const currentCredential = process.env.OPENAI_API_KEY?.trim()
+    if (!currentCredential || currentCredential !== blob.accessToken) return false
+
+    const oauthToken = blob.oauthAccessToken
+    if (!oauthToken) return false
+
+    const gheUrl = process.env.GITHUB_ENTERPRISE_URL?.trim() || undefined
+    const refreshed = await exchangeForCopilotToken(oauthToken, undefined, gheUrl)
+    const saved = saveGithubModelsToken(refreshed.token, oauthToken)
+    if (!saved.success) return false
+
+    process.env.GITHUB_TOKEN = refreshed.token
+    process.env.OPENAI_API_KEY = refreshed.token
+    return true
+  } catch (error) {
+    logForDebugging(
+      `[refreshCopilotTokenOn401] failed: ${error instanceof Error ? error.message : String(error)}`,
+      { level: 'warn' },
+    )
+    return false
+  }
 }
 
 export function clearGithubModelsToken(): { success: boolean; warning?: string } {

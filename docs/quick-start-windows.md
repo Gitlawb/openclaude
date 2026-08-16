@@ -68,6 +68,20 @@ openclaude
 
 No API key is needed for Ollama local models.
 
+OpenClaude asks Ollama for a 32768-token context window on each chat request.
+If you need a different size, set `OPENCLAUDE_OLLAMA_NUM_CTX` before launching
+OpenClaude, or start Ollama with a global context setting:
+
+```powershell
+# Quit any existing Ollama app/server first, then run:
+$env:OLLAMA_CONTEXT_LENGTH="32768"
+ollama serve
+```
+
+After a chat request, run `ollama ps` in another PowerShell window and check the
+`CONTEXT` column. It should show the requested size. If it still shows a small
+value such as `4K`, restart the Ollama app/server and try again.
+
 ### Option D: LM Studio
 
 Install LM Studio first from:
@@ -145,6 +159,8 @@ Check the basics:
 - make sure Ollama is installed
 - make sure Ollama is running
 - make sure the model was pulled successfully
+- if same-session chat history appears missing, verify the active `CONTEXT`
+  value with `ollama ps`; OpenClaude requests 32K by default
 
 ### For LM Studio
 

@@ -121,6 +121,10 @@ export function AttachmentMessage({
 
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- teammate_mailbox/skill_discovery handled before switch
   switch (attachment.type) {
+    case 'max_turns_reached':
+      return <Line>
+          <Text color="warning">Reached the maximum number of turns ({attachment.maxTurns}).</Text>
+        </Line>;
     case 'directory':
       return <Line>
           Listed directory <Text bold>{attachment.displayPath + sep}</Text>

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { rm } from 'fs'
-import { appendFile, copyFile, mkdir } from 'fs/promises'
+import { copyFile, mkdir } from 'fs/promises'
 import { dirname, isAbsolute, join, relative } from 'path'
 import { getCwdState } from '../../bootstrap/state.js'
 import type { CompletionBoundary } from '../../state/AppStateStore.js'
@@ -15,6 +15,10 @@ import { checkReadOnlyConstraints } from '../../tools/BashTool/readOnlyValidatio
 import type { SpeculationAcceptMessage } from '../../types/logs.js'
 import type { Message } from '../../types/message.js'
 import { createChildAbortController } from '../../utils/abortController.js'
+import {
+  createAttachmentMessage,
+  getUltrathinkEffortAttachment,
+} from '../../utils/attachments.js'
 import { count } from '../../utils/array.js'
 import { getGlobalConfig } from '../../utils/config.js'
 import { logForDebugging } from '../../utils/debug.js'
@@ -41,8 +45,7 @@ import {
 } from '../../utils/messages.js'
 import { getClaudeTempDir } from '../../utils/permissions/filesystem.js'
 import { extractReadFilesFromMessages } from '../../utils/queryHelpers.js'
-import { getTranscriptPath } from '../../utils/sessionStorage.js'
-import { jsonStringify } from '../../utils/slowOperations.js'
+import { recordSpeculationAccept } from '../../utils/sessionStorage.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -454,8 +457,16 @@ export async function startSpeculation(
   logForDebugging(`[Speculation] Starting speculation ${id}`)
 
   try {
+    const promptMessages = [
+      createUserMessage({ content: suggestionText }),
+      // Prefetch must carry the effort to its provider request but is not a
+      // user activation. handleSpeculationAccept logs the real submission.
+      ...getUltrathinkEffortAttachment(suggestionText, false).map(
+        createAttachmentMessage,
+      ),
+    ]
     const result = await runForkedAgent({
-      promptMessages: [createUserMessage({ content: suggestionText })],
+      promptMessages,
       cacheSafeParams: cacheSafeParams ?? createCacheSafeParams(context),
       skipTranscript: true,
       canUseTool: async (tool, input) => {
@@ -465,14 +476,11 @@ export async function startSpeculation(
         // Check permission mode BEFORE allowing file edits
         if (isWriteTool) {
           const appState = context.toolUseContext.getAppState()
-          const { mode, isBypassPermissionsModeAvailable } =
-            appState.toolPermissionContext
-
+          const { mode } = appState.toolPermissionContext
           const canAutoAcceptEdits =
             mode === 'acceptEdits' ||
             mode === 'bypassPermissions' ||
-            mode === 'fullAccess' ||
-            (mode === 'plan' && isBypassPermissionsModeAvailable)
+            mode === 'fullAccess'
 
           if (!canAutoAcceptEdits) {
             logForDebugging(`[Speculation] Stopping at file edit: ${tool.name}`)
@@ -788,11 +796,9 @@ export async function acceptSpeculation(
       timestamp: new Date().toISOString(),
       timeSavedMs,
     }
-    void appendFile(getTranscriptPath(), jsonStringify(entry) + '\n', {
-      mode: 0o600,
-    }).catch(() => {
+    void recordSpeculationAccept(entry).catch(() => {
       logForDebugging(
-        '[Speculation] Failed to write speculation-accept to transcript',
+        '[Speculation] Failed to queue speculation-accept for transcript',
       )
     })
   }
@@ -874,7 +880,13 @@ export async function handleSpeculationAccept(
 
     // Inject user message first for instant visual feedback before any async work
     const userMessage = createUserMessage({ content: input })
-    setMessages(prev => [...prev, userMessage])
+    // Accepted suggestions bypass processUserInput(), so create the same
+    // keyword attachment it normally would. This keeps the model reminder and
+    // the request-level effort override in query.ts aligned for this path.
+    const ultrathinkAttachments = getUltrathinkEffortAttachment(input).map(
+      createAttachmentMessage,
+    )
+    setMessages(prev => [...prev, userMessage, ...ultrathinkAttachments])
 
     const result = await acceptSpeculation(
       speculationState,
@@ -950,6 +962,7 @@ export async function handleSpeculationAccept(
         messages: [
           ...speculationState.contextRef.current.messages,
           createUserMessage({ content: input }),
+          ...ultrathinkAttachments,
           ...cleanMessages,
         ],
       }

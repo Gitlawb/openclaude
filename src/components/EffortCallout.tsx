@@ -216,10 +216,21 @@ function EffortOptionLabel(t0) {
  * - Max/Team: getting medium via tengu_grey_step2 config; show when enabled
  * - Everyone else: mark as dismissed so it never shows
  */
+// Recent Opus models that get the medium-effort default and therefore the
+// callout. The default Opus is now 4.8, so it must be covered alongside 4.7/4.6.
+// Exported as a pure predicate so the regression can be tested deterministically
+// without mocking the subscriber/config gates (see EffortCallout.modelGate.test).
+export function effortCalloutCoversModel(model: string): boolean {
+  const parsed = parseUserSpecifiedModel(model).toLowerCase();
+  return (
+    parsed.includes('opus-4-8') ||
+    parsed.includes('opus-4-7') ||
+    parsed.includes('opus-4-6')
+  );
+}
+
 export function shouldShowEffortCallout(model: string): boolean {
-  // Only show for Opus 4.6 for now
-  const parsed = parseUserSpecifiedModel(model);
-  if (!parsed.toLowerCase().includes('opus-4-6')) {
+  if (!effortCalloutCoversModel(model)) {
     return false;
   }
   const config = getGlobalConfig();

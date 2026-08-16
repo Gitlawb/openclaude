@@ -12,6 +12,7 @@ import {
   CLAUDE_OPUS_4_5_CONFIG,
   CLAUDE_OPUS_4_6_CONFIG,
   CLAUDE_OPUS_4_7_CONFIG,
+  CLAUDE_OPUS_4_8_CONFIG,
   CLAUDE_OPUS_4_CONFIG,
   CLAUDE_SONNET_4_5_CONFIG,
   CLAUDE_SONNET_4_6_CONFIG,
@@ -20,7 +21,6 @@ import {
 import {
   firstPartyNameToCanonical,
   getCanonicalName,
-  getDefaultMainLoopModelSetting,
   type ModelShortName,
 } from './model/model.js'
 
@@ -126,6 +126,8 @@ export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {
     COST_TIER_5_25,
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_7_CONFIG.firstParty)]:
     COST_TIER_5_25,
+  [firstPartyNameToCanonical(CLAUDE_OPUS_4_8_CONFIG.firstParty)]:
+    COST_TIER_5_25,
 }
 
 /**
@@ -147,23 +149,30 @@ function tokensToUSDCost(modelCosts: ModelCosts, usage: Usage): number {
 export function getModelCosts(model: string, usage: Usage): ModelCosts {
   const shortName = getCanonicalName(model)
 
-  // Check if this is an Opus 4.6 model with fast mode active.
+  // Check if this is a fast-mode-capable Opus model (4.8/4.7/4.6) with fast mode
+  // active. These share the elevated fast-mode pricing the picker advertises, so
+  // the tracked cost must match the displayed price for the current default
+  // (4.8). Non-fast usage stays COST_TIER_5_25, same as the MODEL_COSTS entry.
   if (
+    shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_8_CONFIG.firstParty) ||
+    shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_7_CONFIG.firstParty) ||
     shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_6_CONFIG.firstParty)
   ) {
     const isFastMode = usage.speed === 'fast'
     return getOpus46CostTier(isFastMode)
   }
 
-  const costs = MODEL_COSTS[shortName]
-  if (!costs) {
+  // MODEL_COSTS is a plain object, so a bare `MODEL_COSTS[shortName]` inherits
+  // Object.prototype members: a model id like `constructor` or `__proto__`
+  // (arbitrary strings for custom/OpenAI-compatible providers, and lowercase so
+  // getCanonicalName passes them through unchanged) would return a truthy
+  // prototype value, skip the unknown-model path, and yield NaN costs downstream.
+  // Match on own properties only.
+  if (!Object.hasOwn(MODEL_COSTS, shortName)) {
     trackUnknownModelCost(model, shortName)
-    return (
-      MODEL_COSTS[getCanonicalName(getDefaultMainLoopModelSetting())] ??
-      DEFAULT_UNKNOWN_MODEL_COST
-    )
+    return DEFAULT_UNKNOWN_MODEL_COST
   }
-  return costs
+  return MODEL_COSTS[shortName]
 }
 
 function trackUnknownModelCost(model: string, shortName: ModelShortName): void {
@@ -176,7 +185,8 @@ function trackUnknownModelCost(model: string, shortName: ModelShortName): void {
 }
 
 // Calculate the cost of a query in US dollars.
-// If the model's costs are not found, use the default model's costs.
+// Unknown models use the explicit unknown-model estimate and are marked in
+// session state; they must never inherit an unrelated configured default.
 export function calculateUSDCost(resolvedModel: string, usage: Usage): number {
   const modelCosts = getModelCosts(resolvedModel, usage)
   return tokensToUSDCost(modelCosts, usage)
@@ -228,7 +238,8 @@ export function formatModelPricing(costs: ModelCosts): string {
  */
 export function getModelPricingString(model: string): string | undefined {
   const shortName = getCanonicalName(model)
-  const costs = MODEL_COSTS[shortName]
-  if (!costs) return undefined
-  return formatModelPricing(costs)
+  // Own-property guard: a proto-member id (`constructor`, `__proto__`) would
+  // otherwise return an inherited value and render "$NaN/$NaN per Mtok".
+  if (!Object.hasOwn(MODEL_COSTS, shortName)) return undefined
+  return formatModelPricing(MODEL_COSTS[shortName])
 }

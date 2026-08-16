@@ -31,19 +31,19 @@ export function getFormatDescription(
  * Generates instruction text for Claude to read from a saved output file.
  *
  * @param rawOutputPath - Path to the saved output file
- * @param contentLength - Length of the content in characters
+ * @param contentSizeBytes - UTF-8 byte size of the content
  * @param formatDescription - Description of the content format
  * @param maxReadLength - Optional max chars for Read tool (for Bash output context)
  * @returns Instruction text to include in the tool result
  */
 export function getLargeOutputInstructions(
   rawOutputPath: string,
-  contentLength: number,
+  contentSizeBytes: number,
   formatDescription: string,
   maxReadLength?: number,
 ): string {
   const baseInstructions =
-    `Error: result (${contentLength.toLocaleString()} characters) exceeds maximum allowed tokens. Output has been saved to ${rawOutputPath}.\n` +
+    `Error: result (${contentSizeBytes.toLocaleString()} bytes) exceeds maximum allowed tokens. Output has been saved to ${rawOutputPath}.\n` +
     `Format: ${formatDescription}\n` +
     `Use offset and limit parameters to read specific portions of the file, search within it for specific content, and jq to make structured queries.\n` +
     `REQUIREMENTS FOR SUMMARIZATION/ANALYSIS/REVIEW:\n` +
@@ -56,6 +56,14 @@ export function getLargeOutputInstructions(
   const completionRequirement = `- Before producing ANY summary or analysis, you MUST explicitly describe what portion of the content you have read. ***If you did not read the entire content, you MUST explicitly state this.***\n`
 
   return baseInstructions + truncationWarning + completionRequirement
+}
+
+export function getLargeOutputPersistenceFailureInstructions(
+  content: string,
+  error: string,
+): string {
+  const contentSizeBytes = Buffer.byteLength(content, 'utf8')
+  return `Error: result (${contentSizeBytes.toLocaleString()} bytes) exceeds maximum allowed tokens. Failed to save output to file: ${error}. If this MCP server provides pagination or filtering tools, use them to retrieve specific portions of the data.`
 }
 
 /**

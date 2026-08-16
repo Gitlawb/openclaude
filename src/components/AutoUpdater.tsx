@@ -5,10 +5,12 @@ import { useInterval } from 'usehooks-ts';
 import { useUpdateNotification } from '../hooks/useUpdateNotification.js';
 import { Box, Text } from '../ink.js';
 import { type AutoUpdaterResult, getLatestVersion, getMaxVersion, type InstallStatus, installGlobalPackage, shouldSkipVersion } from '../utils/autoUpdater.js';
+import { getAutoUpdaterNpmMethod, shouldRemoveInstalledSymlinkForNpmUpdate } from '../utils/autoUpdaterRouting.js';
 import { getGlobalConfig, isAutoUpdaterDisabled } from '../utils/config.js';
 import { logForDebugging } from '../utils/debug.js';
 import { getCurrentInstallationType } from '../utils/doctorDiagnostic.js';
 import { installOrUpdateClaudePackage, localInstallationExists } from '../utils/localInstaller.js';
+import { hasNativeDistribution } from '../utils/nativeDistribution.js';
 import { removeInstalledSymlink } from '../utils/nativeInstaller/index.js';
 import { gt, gte } from '../utils/semver.js';
 import { getInitialSettings } from '../utils/settings/settings.js';
@@ -85,7 +87,12 @@ export function AutoUpdater({
       // Remove native installer symlink since we're using JS-based updates
       // But only if user hasn't migrated to native installation
       const config = getGlobalConfig();
-      if (config.installMethod !== 'native') {
+      if (
+        shouldRemoveInstalledSymlinkForNpmUpdate(
+          config.installMethod,
+          hasNativeDistribution(),
+        )
+      ) {
         await removeInstalledSymlink();
       }
 
@@ -100,18 +107,19 @@ export function AutoUpdater({
         return;
       }
 
-      // Choose the appropriate update method based on what's actually running
       let installStatus: InstallStatus;
-      let updateMethod: 'local' | 'global';
-      if (installationType === 'npm-local') {
+      const updateMethod = getAutoUpdaterNpmMethod(
+        installationType,
+        config.installMethod,
+        hasNativeDistribution(),
+      );
+      if (updateMethod === 'local') {
         // Use local update for local installations
         logForDebugging('AutoUpdater: Using local update method');
-        updateMethod = 'local';
         installStatus = await installOrUpdateClaudePackage(channel);
-      } else if (installationType === 'npm-global') {
+      } else if (updateMethod === 'global') {
         // Use global update for global installations
         logForDebugging('AutoUpdater: Using global update method');
-        updateMethod = 'global';
         installStatus = await installGlobalPackage();
       } else if (installationType === 'native') {
         // This shouldn't happen - native should use NativeAutoUpdater
@@ -119,15 +127,9 @@ export function AutoUpdater({
         onChangeIsUpdating(false);
         return;
       } else {
-        // Fallback to config-based detection for unknown types
-        logForDebugging(`AutoUpdater: Unknown installation type, falling back to config`);
-        const isMigrated = config.installMethod === 'local';
-        updateMethod = isMigrated ? 'local' : 'global';
-        if (isMigrated) {
-          installStatus = await installOrUpdateClaudePackage(channel);
-        } else {
-          installStatus = await installGlobalPackage();
-        }
+        logForDebugging(`AutoUpdater: Cannot auto-update ${installationType} build`);
+        onChangeIsUpdating(false);
+        return;
       }
       onChangeIsUpdating(false);
       if (installStatus === 'success') {

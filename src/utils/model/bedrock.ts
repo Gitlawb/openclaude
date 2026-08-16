@@ -1,4 +1,5 @@
 import memoize from 'lodash-es/memoize.js'
+import { importOptionalRuntimeModule } from '../optionalRuntimeModule.js'
 import { refreshAndGetAwsCredentials } from '../auth.js'
 import { getAWSRegion, isEnvTruthy } from '../envUtils.js'
 import { logError } from '../log.js'
@@ -9,7 +10,10 @@ export const getBedrockInferenceProfiles = memoize(async function (): Promise<
 > {
   const [client, { ListInferenceProfilesCommand }] = await Promise.all([
     createBedrockClient(),
-    import('@aws-sdk/client-bedrock'),
+    importOptionalRuntimeModule<typeof import('@aws-sdk/client-bedrock')>(
+      '@aws-sdk/client-bedrock',
+      'AWS Bedrock',
+    ),
   ])
   const allProfiles: Array<{ inferenceProfileId?: string }> = []
   let nextToken: string | undefined
@@ -47,8 +51,35 @@ export function findFirstMatch(
   return profiles.find(p => p.includes(substring)) ?? null
 }
 
+async function getBedrockNoAuthConfig() {
+  const [{ NodeHttpHandler }, { NoAuthSigner }] = await Promise.all([
+    importOptionalRuntimeModule<typeof import('@smithy/node-http-handler')>(
+      '@smithy/node-http-handler',
+      'AWS Bedrock no-auth support',
+    ),
+    importOptionalRuntimeModule<typeof import('@smithy/core')>(
+      '@smithy/core',
+      'AWS Bedrock no-auth support',
+    ),
+  ])
+
+  return {
+    requestHandler: new NodeHttpHandler(),
+    httpAuthSchemes: [
+      {
+        schemeId: 'smithy.api#noAuth',
+        identityProvider: () => async () => ({}),
+        signer: new NoAuthSigner(),
+      },
+    ],
+    httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
+  }
+}
+
 async function createBedrockClient() {
-  const { BedrockClient } = await import('@aws-sdk/client-bedrock')
+  const { BedrockClient } = await importOptionalRuntimeModule<
+    typeof import('@aws-sdk/client-bedrock')
+  >('@aws-sdk/client-bedrock', 'AWS Bedrock')
   // Match the Anthropic Bedrock SDK's region behavior exactly:
   // - Reads AWS_REGION or AWS_DEFAULT_REGION env vars (not AWS config files)
   // - Falls back to 'us-east-1' if neither is set
@@ -63,19 +94,7 @@ async function createBedrockClient() {
       endpoint: process.env.ANTHROPIC_BEDROCK_BASE_URL,
     }),
     ...(await getAWSClientProxyConfig()),
-    ...(skipAuth && {
-      requestHandler: new (
-        await import('@smithy/node-http-handler')
-      ).NodeHttpHandler(),
-      httpAuthSchemes: [
-        {
-          schemeId: 'smithy.api#noAuth',
-          identityProvider: () => async () => ({}),
-          signer: new (await import('@smithy/core')).NoAuthSigner(),
-        },
-      ],
-      httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
-    }),
+    ...(skipAuth ? await getBedrockNoAuthConfig() : {}),
   }
 
   if (!skipAuth && !process.env.AWS_BEARER_TOKEN_BEDROCK) {
@@ -94,9 +113,9 @@ async function createBedrockClient() {
 }
 
 export async function createBedrockRuntimeClient() {
-  const { BedrockRuntimeClient } = await import(
-    '@aws-sdk/client-bedrock-runtime'
-  )
+  const { BedrockRuntimeClient } = await importOptionalRuntimeModule<
+    typeof import('@aws-sdk/client-bedrock-runtime')
+  >('@aws-sdk/client-bedrock-runtime', 'AWS Bedrock')
   const region = getAWSRegion()
   const skipAuth = isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH)
 
@@ -106,21 +125,7 @@ export async function createBedrockRuntimeClient() {
       endpoint: process.env.ANTHROPIC_BEDROCK_BASE_URL,
     }),
     ...(await getAWSClientProxyConfig()),
-    ...(skipAuth && {
-      // BedrockRuntimeClient defaults to HTTP/2 without fallback
-      // proxy servers may not support this, so we explicitly force HTTP/1.1
-      requestHandler: new (
-        await import('@smithy/node-http-handler')
-      ).NodeHttpHandler(),
-      httpAuthSchemes: [
-        {
-          schemeId: 'smithy.api#noAuth',
-          identityProvider: () => async () => ({}),
-          signer: new (await import('@smithy/core')).NoAuthSigner(),
-        },
-      ],
-      httpAuthSchemeProvider: () => [{ schemeId: 'smithy.api#noAuth' }],
-    }),
+    ...(skipAuth ? await getBedrockNoAuthConfig() : {}),
   }
 
   if (!skipAuth && !process.env.AWS_BEARER_TOKEN_BEDROCK) {
@@ -144,7 +149,10 @@ export const getInferenceProfileBackingModel = memoize(async function (
   try {
     const [client, { GetInferenceProfileCommand }] = await Promise.all([
       createBedrockClient(),
-      import('@aws-sdk/client-bedrock'),
+      importOptionalRuntimeModule<typeof import('@aws-sdk/client-bedrock')>(
+      '@aws-sdk/client-bedrock',
+      'AWS Bedrock',
+    ),
     ])
     const command = new GetInferenceProfileCommand({
       inferenceProfileIdentifier: profileId,

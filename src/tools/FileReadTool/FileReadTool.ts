@@ -48,6 +48,10 @@ import {
   ImageResizeError,
   maybeResizeAndDownsampleImageBuffer,
 } from '../../utils/imageResizer.js'
+import {
+  getImageProcessor,
+  ImageProcessorUnavailableError,
+} from './imageProcessor.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { isAutoMemFile } from '../../utils/memoryFileDetection.js'
@@ -817,8 +821,14 @@ function formatFileLines(file: { content: string; startLine: number }): string {
 export const CYBER_RISK_MITIGATION_REMINDER =
   '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n'
 
-// Models where cyber risk mitigation should be skipped
-const MITIGATION_EXEMPT_MODELS = new Set(['claude-opus-4-6'])
+// Models where cyber risk mitigation should be skipped. The recent Opus models
+// (4.8/4.7) inherit 4.6's exemption — 4.8 is now the first-party default, so
+// without this it would get the reminder on every file read that 4.6 did not.
+const MITIGATION_EXEMPT_MODELS = new Set([
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+])
 
 function shouldIncludeFileReadMitigation(): boolean {
   if (isEnvTruthy(process.env.OPENCLAUDE_DISABLE_TOOL_REMINDERS)) {
@@ -1255,15 +1265,13 @@ export async function readImageWithTokenBudget(
       }
     } catch (e) {
       logError(e)
-      // Fallback: heavily compressed version from the SAME buffer
+      // Fallback: heavily compressed version from the SAME buffer, loaded via
+      // the shared optional image processor (NOT a raw import('sharp')). This
+      // keeps the missing-image-processor contract: when no processor is
+      // installed, surface the actionable install hint instead of swallowing it
+      // and returning an image that already exceeded the token budget.
       try {
-        const sharpModule = await import('sharp')
-        // CJS/ESM interop: prefer .default; some loaders expose the callable
-        // as the module itself, hence the cast on the fallback.
-        const sharp =
-          sharpModule.default ||
-          (sharpModule as unknown as typeof sharpModule.default)
-
+        const sharp = await getImageProcessor()
         const fallbackBuffer = await sharp(imageBuffer)
           .resize(400, 400, {
             fit: 'inside',
@@ -1274,6 +1282,10 @@ export async function readImageWithTokenBudget(
 
         return createImageResponse(fallbackBuffer, 'jpeg', originalSize)
       } catch (error) {
+        // No image processor available → surface the install hint rather than
+        // returning an over-budget image. Other failures (e.g. a corrupt
+        // buffer) still degrade gracefully to the original.
+        if (error instanceof ImageProcessorUnavailableError) throw error
         logError(error)
         return createImageResponse(imageBuffer, detectedFormat, originalSize)
       }

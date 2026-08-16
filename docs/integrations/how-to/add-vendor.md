@@ -251,6 +251,18 @@ context windows, output limits, and cross-route capability metadata in
 `src/integrations/models/`, then point catalog entries at those descriptors
 with `modelDescriptorId`.
 
+## Reasoning controls
+
+For direct vendors, record reasoning controls on the exact catalog model
+entry or shared model descriptor only after the vendor API has been probed.
+`capabilities.supportsReasoning` means the model can reason; it does not
+mean `/effort` should send `reasoning_effort` or any other control field.
+
+If the vendor catalog contains both controllable and non-controllable
+reasoning models, annotate each model separately. See
+`docs/integrations/reasoning-effort.md` for the metadata shape and audit
+checklist.
+
 ## OpenAI-compatible UI capability flags
 
 For OpenAI-compatible vendors, be explicit about the provider editor surface:

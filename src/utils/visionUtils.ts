@@ -37,11 +37,18 @@ function hasModelNamePrefix(modelApiName: string, registeredName: string): boole
   return next === undefined || next === ':' || next === '/' || next === '@'
 }
 
+function isCatalogScopedRuntimeDescriptor(
+  descriptor: ReturnType<typeof getModel> | undefined,
+): boolean {
+  return descriptor?.runtimeMetadataScope === 'catalog'
+}
+
 function findModelDescriptorFromCatalog(
   modelApiName: string,
   routeId?: string,
 ) {
   const normalized = normalizedName(modelApiName)
+  const includeAliases = routeId !== undefined
   const routeIds =
     routeId !== undefined
       ? [routeId]
@@ -56,7 +63,9 @@ function findModelDescriptorFromCatalog(
     const entry = getCatalogEntriesForRoute(routeId).find(candidate => {
       return (
         normalizedName(candidate.apiName) === normalized ||
-        normalizedName(candidate.id) === normalized
+        normalizedName(candidate.id) === normalized ||
+        (includeAliases &&
+          (candidate.aliases ?? []).some(alias => normalizedName(alias) === normalized))
       )
     })
     if (entry?.modelDescriptorId) {
@@ -97,15 +106,21 @@ export function findModelDescriptorForApiNameWithRoute(
   }
 
   const direct = getModel(trimmed)
-  if (direct) return direct
+  if (direct && !isCatalogScopedRuntimeDescriptor(direct)) return direct
 
   const catalogDescriptor = findModelDescriptorFromCatalog(trimmed)
-  if (catalogDescriptor) return catalogDescriptor
+  if (
+    catalogDescriptor &&
+    !isCatalogScopedRuntimeDescriptor(catalogDescriptor)
+  ) {
+    return catalogDescriptor
+  }
 
   const normalized = normalizedName(trimmed)
   const models = getAllModels()
 
   const candidates = models
+    .filter(model => !isCatalogScopedRuntimeDescriptor(model))
     .map(model => ({
       model,
       names: [

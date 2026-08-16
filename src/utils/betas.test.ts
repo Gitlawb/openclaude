@@ -43,8 +43,10 @@ const PROVIDER_ENV_KEYS = [
   // the getAPIProvider switch, so a leaked key is interpreted as the
   // default anthropic provider.
   'FIREWORKS_API_KEY',
+  'LONGCAT_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_BETAS',
   'OPENAI_BASE_URL',
@@ -144,6 +146,18 @@ test('getMergedBetas returns a non-empty list for the firstParty provider', asyn
   expect(getMergedBetas(MODEL).length).toBeGreaterThan(0)
 })
 
+test('modelSupportsStructuredOutputs covers the recent Opus models (4.8/4.7/4.6) on firstParty (#1769)', async () => {
+  // No provider env set => firstParty. Pre-fix, 4.7/4.8 were absent from the
+  // allowlist, so first-party requests on the new default Opus 4.8 lost the
+  // structured-output support that 4.6 had.
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-4-8')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-4-7')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-4-6')).toBe(true)
+  // A model outside the allowlist stays false.
+  expect(modelSupportsStructuredOutputs('claude-3-opus')).toBe(false)
+})
+
 test('getMergedBetas returns a non-empty list for the bedrock provider', async () => {
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   const { getMergedBetas } = await importFreshBetas()
@@ -194,6 +208,55 @@ test('getMergedBetas returns [] for GitHub with a non-Claude model', async () =>
 test('isAnthropicProvider is true for firstParty', async () => {
   const { isAnthropicProvider } = await importFreshBetas()
   expect(isAnthropicProvider()).toBe(true)
+})
+
+test('custom Anthropic proxy endpoints do not receive first-party beta headers', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'tenant-model'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+  process.env.ANTHROPIC_BETAS = 'tenant-beta-2026-01-01'
+
+  const {
+    getMergedBetas,
+    getModelBetas,
+    isAnthropicProvider,
+    modelSupportsAutoMode,
+    modelSupportsContextManagement,
+    modelSupportsISP,
+    modelSupportsStructuredOutputs,
+    shouldIncludeFirstPartyOnlyBetas,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
+  expect(isAnthropicProvider()).toBe(false)
+  expect(getMergedBetas('tenant-model')).toEqual([])
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
+  expect(modelSupportsISP('claude-sonnet-4-5')).toBe(true)
+  expect(modelSupportsContextManagement('claude-sonnet-4-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-4-5')).toBe(false)
+  expect(modelSupportsAutoMode('claude-sonnet-4-5')).toBe(false)
+  expect(shouldIncludeFirstPartyOnlyBetas()).toBe(false)
+  expect(shouldUseGlobalCacheScope()).toBe(false)
+})
+
+test('switching from first-party Anthropic to a custom proxy clears beta headers', async () => {
+  const { getModelBetas } = await importFreshBetas()
+  expect(getModelBetas('claude-sonnet-4-6')).not.toEqual([])
+
+  process.env.ANTHROPIC_BASE_URL = 'https://tenant.example'
+  process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'tenant-token'
+  process.env.ANTHROPIC_BETAS = 'tenant-beta-2026-01-01'
+
+  expect(getModelBetas('claude-sonnet-4-6')).toEqual([])
+})
+
+test('first-party Anthropic retains the beta gates excluded for custom proxies', async () => {
+  const {
+    shouldIncludeFirstPartyOnlyBetas,
+    shouldUseGlobalCacheScope,
+  } = await importFreshBetas()
+  expect(shouldIncludeFirstPartyOnlyBetas()).toBe(true)
+  expect(shouldUseGlobalCacheScope()).toBe(true)
 })
 
 test('isAnthropicProvider is true for bedrock', async () => {

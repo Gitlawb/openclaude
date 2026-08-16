@@ -42,7 +42,7 @@ const NULL_RENDERING_TYPES = [
   'companion_intro',
   'token_usage',
   'ultrathink_effort',
-  'max_turns_reached',
+  'ultracode_mode',
   'task_reminder',
   'auto_mode',
   'auto_mode_exit',
