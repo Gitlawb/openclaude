@@ -1146,20 +1146,27 @@ export function runSettingsWriteTransactionSync(
 ): SettingsWriteResult {
   let bytesOnDisk = false
   let cacheInvalidated = false
+  let publishedTargetPath: string | null = null
+  const invalidatePublishedSettings = (): void => {
+    if (!bytesOnDisk || cacheInvalidated || publishedTargetPath === null) return
+    markInternalWrite(filePath)
+    markInternalWrite(publishedTargetPath)
+    resetSettingsCache()
+    cacheInvalidated = true
+  }
   try {
     withSettingsFileLockSync(filePath, context => {
       operation({
         ...context,
-        writeFile(content) {
+        writeFile(content, onPublished) {
           context.writeFile(content, () => {
             bytesOnDisk = true
+            publishedTargetPath = context.targetPath
+            onPublished?.()
           })
         },
       })
-      markInternalWrite(filePath)
-      markInternalWrite(context.targetPath)
-      resetSettingsCache()
-      cacheInvalidated = true
+      invalidatePublishedSettings()
     })
     return {
       status: 'committed',
@@ -1170,6 +1177,10 @@ export function runSettingsWriteTransactionSync(
       error: null,
     }
   } catch (error) {
+    // Publication can succeed immediately before an ownership/release or
+    // caller callback error. Invalidate every byte-bearing outcome so readers
+    // and watcher suppression never retain the pre-write state.
+    invalidatePublishedSettings()
     const committed =
       bytesOnDisk && !(error instanceof SettingsFileLockOwnershipError)
     return {

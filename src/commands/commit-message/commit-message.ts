@@ -3,7 +3,8 @@ import { getAttributionTexts } from '../../utils/attribution.js'
 import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import {
   getInitialSettings,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 
 type ParsedCoAuthor = {
@@ -83,10 +84,10 @@ export function parseCoAuthor(value: string): ParsedCoAuthor | null {
 }
 
 function saveCommitAttribution(commit: string | undefined): string | null {
-  const result = updateSettingsForSource('userSettings', {
+  const result = updateSettingsForSourceWithResult('userSettings', {
     attribution: { commit },
   })
-  if (result.error) {
+  if (!wasSettingsUpdateCommitted(result)) {
     return 'Failed to update user settings. Check your settings file for syntax errors.'
   }
   settingsChangeDetector.notifyChange('userSettings')

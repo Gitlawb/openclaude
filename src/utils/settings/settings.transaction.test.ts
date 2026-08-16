@@ -19,6 +19,7 @@ import {
 } from '../fsOperations.js'
 import {
   getSettingsFileLockPath,
+  runSettingsWriteTransactionSync,
   resolveSettingsFileTarget,
   withSettingsFileLockSync,
 } from './settingsFileLock.js'
@@ -64,10 +65,50 @@ const SETTINGS_LOCK_RELEASE_FAILURE_FIXTURE = join(
   import.meta.dir,
   '../../test/fixtures/settingsLockReleaseFailure.fixture.ts',
 )
+const SETTINGS_SYMLINK_NOTIFICATION_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSymlinkNotification.fixture.ts',
+)
+const SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSyncReleaseFailure.fixture.ts',
+)
+const SETTINGS_SYNC_UNAPPLIED_FIXTURE = join(
+  import.meta.dir,
+  '../../test/fixtures/settingsSyncUnapplied.fixture.ts',
+)
 const SUBPROCESS_TEST_TIMEOUT_MS = 30_000
 const MISSING_PROCESS_PID = 2_147_483_647
 
 setDefaultTimeout(SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('transaction wrapper forwards the publication callback exactly once', () => {
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-published-callback-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  let published = 0
+  try {
+    const result = runSettingsWriteTransactionSync(
+      settingsPath,
+      ({ writeFile }) => {
+        writeFile('{"published":true}\n', () => {
+          published++
+        })
+      },
+    )
+
+    expect(result).toMatchObject({
+      status: 'committed',
+      bytesOnDisk: true,
+      committed: true,
+      cacheInvalidated: true,
+    })
+    expect(published).toBe(1)
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
 
 type ChildResult<T> = {
   exitCode: number
@@ -969,7 +1010,7 @@ test('settings sync does not report a physical write to a retargeted settings sy
         status: 'written-uncommitted',
         bytesOnDisk: true,
         committed: false,
-        cacheInvalidated: false,
+        cacheInvalidated: true,
         error: true,
       },
       physicalWriteLanded: true,
@@ -1386,6 +1427,72 @@ test('a newer settings generation applies after an in-flight older generation', 
   )
 }, SUBPROCESS_TEST_TIMEOUT_MS)
 
+test('a post-apply partial result survives supersession by a failed fetch', async () => {
+  const result = await collectChild<{
+    finalValue: string
+    redownloadResult: {
+      complete: boolean
+      failureKind: string | null
+      settingsSourcesWritten: string[]
+    }
+    startupResult: {
+      complete: boolean
+      failureKind: string | null
+      settingsSourcesWritten: string[]
+    }
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        SETTINGS_SYNC_PARTIAL_FIXTURE,
+        'supersession-after-apply-fetch-fail',
+      ],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+
+  expect(result, `stdout: ${result.stdout}\nstderr: ${result.stderr}`).toMatchObject(
+    {
+      exitCode: 0,
+      value: {
+        finalValue: 'applied-by-startup',
+        redownloadResult: {
+          complete: false,
+          failureKind: 'fetch_failed',
+          settingsSourcesWritten: [],
+        },
+        startupResult: {
+          complete: false,
+          failureKind: 'apply_failed',
+          settingsSourcesWritten: ['userSettings'],
+        },
+      },
+    },
+  )
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('a project-id failure after fetch is classified as preparation failure', async () => {
+  const result = await collectChild<{
+    complete: boolean
+    failureKind: string | null
+    settingsSourcesWritten: string[]
+  }>(
+    Bun.spawn(
+      [process.execPath, SETTINGS_SYNC_PARTIAL_FIXTURE, 'prepare-failure'],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      complete: false,
+      failureKind: 'prepare_failed',
+      settingsSourcesWritten: [],
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
 test('partial settings sync reports committed sources separately from completeness', async () => {
   const result = await collectChild<{
     result: { complete: boolean; settingsSourcesWritten: string[] }
@@ -1450,6 +1557,109 @@ test.each([
   SUBPROCESS_TEST_TIMEOUT_MS,
 )
 
+test('real settings watchers follow symlink peers, suppress internal writes, and retarget', async () => {
+  const result = await collectChild<{
+    skipped: boolean
+    exitCode?: number
+    stderr?: string
+    peerNotified?: string[]
+    internalError?: string | null
+    internalNotified?: string[]
+    retargetExitCode?: number
+    retargetStderr?: string
+    retargetNotified?: string[]
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYMLINK_NOTIFICATION_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  if (skipUnsupportedScenario(result.value.skipped, 'settings symlink notifications')) {
+    return
+  }
+  expect(result).toMatchObject({
+    exitCode: 0,
+    stderr: '',
+    value: {
+      exitCode: 0,
+      stderr: '',
+      peerNotified: expect.arrayContaining(['userSettings', 'projectSettings']),
+      internalError: null,
+      internalNotified: [],
+      retargetExitCode: 0,
+      retargetStderr: '',
+      retargetNotified: expect.arrayContaining([
+        'userSettings',
+        'projectSettings',
+      ]),
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('settings sync retains committed sources when release cleanup fails', async () => {
+  const result = await collectChild<{
+    complete: boolean
+    failureKind: string | null
+    settingsSourcesWritten: string[]
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_RELEASE_FAILURE_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    stderr: '',
+    value: {
+      complete: true,
+      failureKind: null,
+      settingsSourcesWritten: ['userSettings'],
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('settings sync reports oversized and unwritable entries as unapplied', async () => {
+  const result = await collectChild<{
+    oversized: {
+      complete: boolean
+      failureKind: string | null
+      settingsSourcesWritten: string[]
+    }
+    memoryFailure: {
+      complete: boolean
+      failureKind: string | null
+      settingsSourcesWritten: string[]
+    }
+  }>(
+    Bun.spawn([process.execPath, SETTINGS_SYNC_UNAPPLIED_FIXTURE], {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    stderr: '',
+    value: {
+      oversized: {
+        complete: false,
+        failureKind: 'apply_failed',
+        settingsSourcesWritten: [],
+      },
+      memoryFailure: {
+        complete: false,
+        failureKind: 'apply_failed',
+        settingsSourcesWritten: [],
+      },
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
 test('reload plugins notifies committed sources and blocks after a partial apply', async () => {
   const result = await collectChild<{
     notified: string[]
@@ -1478,7 +1688,7 @@ test('reload plugins notifies committed sources and blocks after a partial apply
       refreshed: 0,
       result: {
         value: expect.stringContaining(
-          'remote settings were only partially applied',
+          'Remote settings were only partially applied',
         ),
       },
     },
@@ -1514,6 +1724,37 @@ test('reload plugins fails open to local disk after a total fetch failure', asyn
       result: {
         value: expect.stringContaining(
           'Remote settings could not be downloaded; plugins were refreshed from local disk.',
+        ),
+      },
+    },
+  })
+}, SUBPROCESS_TEST_TIMEOUT_MS)
+
+test('reload plugins blocks a post-fetch preparation failure', async () => {
+  const result = await collectChild<{
+    notified: string[]
+    refreshed: number
+    result: { type: string; value: string }
+  }>(
+    Bun.spawn(
+      [
+        process.execPath,
+        '--feature=DOWNLOAD_USER_SETTINGS',
+        SETTINGS_RELOAD_NOTIFICATION_FIXTURE,
+        'prepare-failed',
+      ],
+      { cwd: process.cwd(), stderr: 'pipe', stdout: 'pipe' },
+    ),
+  )
+
+  expect(result).toMatchObject({
+    exitCode: 0,
+    value: {
+      notified: [],
+      refreshed: 0,
+      result: {
+        value: expect.stringContaining(
+          'Remote settings could not be prepared for local application',
         ),
       },
     },

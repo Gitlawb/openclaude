@@ -94,6 +94,7 @@ import type { ModelAlias } from '../model/aliases.js'
 import {
   applyPermissionUpdates,
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
 } from '../permissions/PermissionUpdate.js'
 import type { PermissionUpdate } from '../permissions/PermissionUpdateSchema.js'
@@ -134,6 +135,32 @@ import { createInProcessPermissionAbortCompleter } from './inProcessPermissionAb
 type SetAppStateFn = (updater: (prev: AppState) => AppState) => void
 
 const PERMISSION_POLL_INTERVAL_MS = 500
+
+function persistAndApplyPermissionUpdates(
+  updates: PermissionUpdate[],
+  toolUseContext: ToolUseContext,
+): string | null {
+  const persistence = persistPermissionUpdates(updates)
+  if (persistence.failedUpdates.length > 0) {
+    const message = permissionPersistenceFailureMessage(
+      persistence.failedUpdates,
+    )
+    logForDebugging(`[inProcessRunner] ${message}`, { level: 'warn' })
+    return message
+  }
+  if (persistence.appliedUpdates.length > 0) {
+    const setToolPermissionContext = getLeaderSetToolPermissionContext()
+    if (setToolPermissionContext) {
+      const currentAppState = toolUseContext.getAppState()
+      const updatedContext = applyPermissionUpdates(
+        currentAppState.toolPermissionContext,
+        persistence.appliedUpdates,
+      )
+      setToolPermissionContext(updatedContext, { preserveMode: true })
+    }
+  }
+  return null
+}
 
 /**
  * Creates a canUseTool function for in-process teammates that properly resolves
@@ -327,24 +354,22 @@ export function createInProcessCanUseTool(
                 toolUseContext.getAppState().toolPermissionContext.mode ===
                   'plan',
               )
-              persistPermissionUpdates(updatesToApply)
-              // Write back permission updates to the leader's shared context
-              if (updatesToApply.length > 0) {
-                const setToolPermissionContext =
-                  getLeaderSetToolPermissionContext()
-                if (setToolPermissionContext) {
-                  const currentAppState = toolUseContext.getAppState()
-                  const updatedContext = applyPermissionUpdates(
-                    currentAppState.toolPermissionContext,
-                    updatesToApply,
-                  )
-                  // Preserve the leader's mode to prevent workers'
-                  // transformed 'acceptEdits' context from leaking back
-                  // to the coordinator
-                  setToolPermissionContext(updatedContext, {
-                    preserveMode: true,
-                  })
-                }
+              // Write committed permission updates back to the leader's
+              // shared context without leaking the worker's transformed mode.
+              const persistenceFailure = persistAndApplyPermissionUpdates(
+                updatesToApply,
+                toolUseContext,
+              )
+              if (persistenceFailure) {
+                resolve({
+                  behavior: 'deny',
+                  message: persistenceFailure,
+                  decisionReason: {
+                    type: 'other',
+                    reason: persistenceFailure,
+                  },
+                })
+                return
               }
               const trimmedFeedback = feedback?.trim()
               resolve({
@@ -451,13 +476,25 @@ export function createInProcessCanUseTool(
             resolve(approval.decision)
             return
           }
-          persistPermissionUpdates(
+          const persistenceFailure = persistAndApplyPermissionUpdates(
             filterPermissionRequestHookUpdates(
               approval.permissionUpdates,
               toolUseContext.getAppState().toolPermissionContext.mode ===
                 'plan',
             ),
+            toolUseContext,
           )
+          if (persistenceFailure) {
+            resolve({
+              behavior: 'deny',
+              message: persistenceFailure,
+              decisionReason: {
+                type: 'other',
+                reason: persistenceFailure,
+              },
+            })
+            return
+          }
           resolve({
             behavior: 'allow',
             updatedInput: finalInput,

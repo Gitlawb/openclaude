@@ -12,7 +12,8 @@ import { convertEffortValueToLevel, type EffortLevel, getAvailableEffortLevels, 
 import { isModelAllowed } from '../utils/model/modelAllowlist.js';
 import { getDefaultMainLoopModel, type ModelSetting, modelDisplayString, parseUserSpecifiedModel } from '../utils/model/model.js';
 import { getModelOptions, SWITCH_PROFILE_VALUE_PREFIX, type ModelOption, parseSwitchProfileValue, resolveSelectedSwitchProfileId } from '../utils/model/modelOptions.js';
-import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { getSettingsForSource } from '../utils/settings/settings.js';
+import type { SettingsJson } from '../utils/settings/types.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
 import { Select } from './CustomSelect/index.js';
 import { Byline } from './design-system/Byline.js';
@@ -22,6 +23,12 @@ import { effortLevelToSymbol } from './EffortIndicator.js';
 export type ModelPickerDiscoveryState = {
   message: string;
   tone?: 'info' | 'success' | 'warning' | 'error';
+};
+export type ModelPickerPersistence = {
+  settingsPatch: SettingsJson;
+  effortValue: EffortLevel | undefined;
+  previousEffortLevel: SettingsJson['effortLevel'];
+  wroteEffort: boolean;
 };
 export type Props = {
   initial: string | null;
@@ -37,7 +44,8 @@ export type Props = {
     model: string | null,
     effort: EffortLevel | undefined,
     switchToProfileId?: string,
-  ) => void;
+    persistence?: ModelPickerPersistence,
+  ) => string | null | void;
   onCancel?: () => void;
   isStandaloneCommand?: boolean;
   showFastModeNotice?: boolean;
@@ -113,6 +121,7 @@ export function ModelPicker(t0) {
   const initialValue = initial === null ? NO_PREFERENCE : initial;
   const isFastMode = useAppState(_temp);
   const [hasToggledEffort, setHasToggledEffort] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const effortValue = useAppState(_temp2);
   let t1;
   if ($[0] !== effortValue) {
@@ -296,6 +305,7 @@ export function ModelPicker(t0) {
   let t14;
   if ($[35] !== effort || $[36] !== hasToggledEffort || $[37] !== onSelect || $[38] !== setAppState || $[39] !== skipSettingsWrite || $[46] !== focusedAvailableLevels || $[47] !== focusedDefaultEffort || $[48] !== selectOptions) {
     t14 = function handleSelect(value_0) {
+      setSaveError(null);
       const selectedValue = resolvePickerOptionValue(selectOptions, value_0) ?? value_0;
       const selectedModel = resolveOptionModel(selectedValue);
       if (selectedValue !== NO_PREFERENCE && selectedModel && !isModelAllowed(selectedModel)) {
@@ -309,22 +319,27 @@ export function ModelPicker(t0) {
       logEvent("tengu_model_command_menu_effort", {
         effort: clampedEffort as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
+      let persistence;
       if (!skipSettingsWrite) {
-        const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(selectedValue), getSettingsForSource("userSettings")?.effortLevel, hasToggledEffort);
+        const previousEffortLevel = getSettingsForSource("userSettings")?.effortLevel;
+        const effortLevel = resolvePickerEffortPersistence(clampedEffort, getDefaultEffortLevelForOption(selectedValue), previousEffortLevel, hasToggledEffort);
         const persistable = toPersistableEffort(effortLevel);
-        if (persistable !== undefined) {
-          updateSettingsForSource("userSettings", {
+        persistence = {
+          settingsPatch: persistable !== undefined ? {
             effortLevel: persistable
-          });
-        }
-        setAppState(prev_0 => ({
-          ...prev_0,
-          effortValue: effortLevel
-        }));
+          } : {},
+          effortValue: effortLevel,
+          previousEffortLevel,
+          wroteEffort: persistable !== undefined
+        };
       }
-      const selectedEffort = hasToggledEffort && selectedModel && modelSupportsEffort(selectedModel) ? clampedEffort : undefined;
+      // `handleCycleEffort` is the capability gate. Once a user has toggled,
+      // carry that exact clamped value to the parent so the coordinated model
+      // transaction updates disk and runtime state together.
+      const selectedEffort = hasToggledEffort ? clampedEffort : undefined;
       if (selectedValue === NO_PREFERENCE) {
-        onSelect(null, selectedEffort);
+        const error = onSelect(null, selectedEffort, undefined, persistence);
+        if (typeof error === "string") setSaveError(error);
         return;
       }
       // Thread the presented option's cross-profile marker (issue #1119) so the
@@ -337,7 +352,8 @@ export function ModelPicker(t0) {
       // ambiguous — the Select cannot tell them apart — so treat it as NOT a
       // switch rather than letting the literal borrow another option's marker.
       const selectedSwitchProfileId = resolveSelectedSwitchProfileId(selectOptions, selectedValue);
-      onSelect(selectedValue, selectedEffort, selectedSwitchProfileId);
+      const error = onSelect(selectedValue, selectedEffort, selectedSwitchProfileId, persistence);
+      if (typeof error === "string") setSaveError(error);
     };
     $[35] = effort;
     $[36] = hasToggledEffort;
@@ -378,7 +394,7 @@ export function ModelPicker(t0) {
   }
   const refreshHint = onRefresh ? <ConfigurableShortcutHint action="modelPicker:refresh" context="ModelPicker" fallback="r" description="refresh models" /> : null;
   const discoveryLine = discoveryState ? <Text color={mapDiscoveryToneToColor(discoveryState.tone)}>{discoveryState.message}{refreshHint ? <Text color="subtle"> {" "}· {refreshHint}</Text> : null}</Text> : refreshHint ? <Text dimColor={true}>{refreshHint}</Text> : null;
-  const t19 = <Box marginBottom={1} flexDirection="column">{t15}{t17}{t18}{discoveryLine}</Box>;
+  const t19 = <Box marginBottom={1} flexDirection="column">{t15}{t17}{t18}{discoveryLine}{saveError ? <Text color="error">{saveError}</Text> : null}</Box>;
   const t20 = onCancel ?? _temp4;
   let t21;
   if ($[49] !== handleFocus || $[50] !== handleSelect || $[51] !== initialFocusValue || $[52] !== selectOptions || $[53] !== t20 || $[54] !== visibleCount) {

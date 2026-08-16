@@ -125,8 +125,11 @@ import { queryCheckpoint } from './utils/queryProfiler.js'
 import { runTools } from './services/tools/toolOrchestration.js'
 import { applyToolResultBudget } from './utils/toolResultStorage.js'
 import { resolveNextFallbackProviderFromState } from './utils/providerFallback.js'
-import { setActiveProviderProfile, getActiveProviderProfile } from './utils/providerProfiles.js'
+import { setActiveProviderProfile, getActiveProviderProfile, getProviderProfiles } from './utils/providerProfiles.js'
 import { getPrimaryModel } from './utils/providerModels.js'
+import { withPrecommittedModelStateUpdate } from './state/onChangeAppState.js'
+import { wasSettingsUpdateCommitted } from './utils/settings/settings.js'
+import { commitModelSettingsTransition, rollbackModelSettingsTransition } from './utils/settings/modelTransition.js'
 import { recordContentReplacement } from './utils/sessionStorage.js'
 import { handleStopHooks } from './query/stopHooks.js'
 import {
@@ -2431,9 +2434,44 @@ async function* queryLoop(
       if (isWithheldRateLimit) {
         const fallback = resolveNextFallbackProviderFromState()
         if (fallback !== null) {
-          const activated = setActiveProviderProfile(fallback.nextProfileId)
-          if (activated) {
+          const targetProfile = getProviderProfiles().find(
+            profile => profile.id === fallback.nextProfileId,
+          )
+          const targetModel = targetProfile
+            ? getPrimaryModel(targetProfile.model)
+            : null
+          if (targetProfile && targetModel) {
             const fromLabel = fallback.fromProfileId ?? 'previous provider'
+            const modelTransition = commitModelSettingsTransition(targetModel)
+            if (!wasSettingsUpdateCommitted(modelTransition.result)) {
+              yield createSystemMessage(
+                `Could not switch to fallback provider ${targetProfile.name}: the model setting was not saved.`,
+                'warning',
+              )
+              yield lastMessage
+              return { reason: 'completed' }
+            }
+
+            let activated: ReturnType<typeof setActiveProviderProfile> = null
+            try {
+              activated = setActiveProviderProfile(fallback.nextProfileId)
+            } catch (error) {
+              logError(error)
+            }
+            if (!activated) {
+              const rollback = rollbackModelSettingsTransition(
+                modelTransition.transition!,
+              )
+              if (rollback.status === 'failed') {
+                yield createSystemMessage(
+                  `Could not restore the previous model setting after fallback provider activation failed: ${rollback.error}`,
+                  'warning',
+                )
+              }
+              yield lastMessage
+              return { reason: 'completed' }
+            }
+
             // Update the in-session model to the activated profile's primary
             // model so the retry doesn't keep sending the rate-limited
             // provider's model id against the new endpoint. Without this, the
@@ -2445,15 +2483,14 @@ async function* queryLoop(
             // the model_fallback branch above which updates both
             // `toolUseContext.options.mainLoopModel` and the in-session app
             // state.
-            const activatedModel = getPrimaryModel(activated.model)
-            if (activatedModel) {
+            withPrecommittedModelStateUpdate(targetModel, () => {
               toolUseContext.setAppState(prev => ({
                 ...prev,
-                mainLoopModel: activatedModel,
+                mainLoopModel: targetModel,
                 mainLoopModelForSession: null,
               }))
-              toolUseContext.options.mainLoopModel = activatedModel
-            }
+            })
+            toolUseContext.options.mainLoopModel = targetModel
             // System informational, NOT an assistant API error. The original
             // 429 is still withheld upstream, so SDK hosts that terminate on
             // `error: 'rate_limit'` assistant messages don't see one for this

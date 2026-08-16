@@ -8,7 +8,8 @@ import {
 } from '../utils/model/providers.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -37,9 +38,10 @@ export function migrateSonnet1mToSonnet45(): void {
 
   const model = getSettingsForSource('userSettings')?.model
   if (model === 'sonnet[1m]') {
-    updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       model: 'sonnet-4-5-20250929[1m]',
     })
+    if (!wasSettingsUpdateCommitted(result)) return
   }
 
   // Also migrate the in-memory override if already set

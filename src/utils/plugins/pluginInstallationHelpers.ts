@@ -18,8 +18,8 @@ import { toError } from '../errors.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { logError } from '../log.js'
 import {
-  getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { buildPluginTelemetryFields } from '../telemetry/pluginTelemetry.js'
 import { clearAllCaches } from './cacheUtils.js'
@@ -32,9 +32,11 @@ import {
 import {
   addInstalledPlugin,
   getGitCommitSha,
+  type PluginInstallationMutation,
 } from './installedPluginsManager.js'
 import { getManagedPluginNames } from './managedPlugins.js'
 import { getMarketplaceCacheOnly, getPluginById } from './marketplaceManager.js'
+import { validatePathWithinBase } from './pathConfinement.js'
 import {
   isOfficialMarketplaceName,
   parsePluginIdentifier,
@@ -84,27 +86,7 @@ export function getCurrentTimestamp(): string {
  * @returns The validated absolute path
  * @throws Error if the path would escape the base directory
  */
-export function validatePathWithinBase(
-  basePath: string,
-  relativePath: string,
-): string {
-  const resolvedPath = resolve(basePath, relativePath)
-  const normalizedBase = resolve(basePath) + sep
-
-  // Check if the resolved path starts with the base path
-  // Adding sep ensures we don't match partial directory names
-  // e.g., /foo/bar should not match /foo/barbaz
-  if (
-    !resolvedPath.startsWith(normalizedBase) &&
-    resolvedPath !== resolve(basePath)
-  ) {
-    throw new Error(
-      `Path traversal detected: "${relativePath}" would escape the base directory`,
-    )
-  }
-
-  return resolvedPath
-}
+export { validatePathWithinBase } from './pathConfinement.js'
 
 /**
  * Cache a plugin (local or external) and add it to installed_plugins.json
@@ -123,7 +105,8 @@ export function validatePathWithinBase(
  *                'managed' scope is used for plugins installed automatically from managed settings.
  * @param projectPath - Project path (required for project/local scopes)
  * @param localSourcePath - For local plugins, the resolved absolute path to the source directory
- * @returns The installation path
+ * @param localSourceBasePath - Marketplace root used to validate local sources
+ * @returns The installation path and exact lock-scoped registry mutation
  */
 export async function cacheAndRegisterPlugin(
   pluginId: string,
@@ -131,12 +114,32 @@ export async function cacheAndRegisterPlugin(
   scope: PluginScope = 'user',
   projectPath?: string,
   localSourcePath?: string,
-): Promise<string> {
+  localSourceBasePath?: string,
+): Promise<{
+  installPath: string
+  registration: PluginInstallationMutation
+}> {
+  let validatedLocalSourcePath: string | undefined
+  if (typeof entry.source === 'string') {
+    if (!localSourceBasePath) {
+      throw new Error(`Missing marketplace root for local plugin ${pluginId}`)
+    }
+    validatedLocalSourcePath = validatePathWithinBase(
+      localSourceBasePath,
+      entry.source,
+    )
+    if (
+      localSourcePath !== undefined &&
+      resolve(localSourcePath) !== validatedLocalSourcePath
+    ) {
+      throw new Error(`Local source path mismatch for plugin ${pluginId}`)
+    }
+  }
   // For local plugins, we need the resolved absolute path
   // Cast to PluginSource since cachePlugin handles any string path at runtime
   const source: PluginSource =
-    typeof entry.source === 'string' && localSourcePath
-      ? (localSourcePath as PluginSource)
+    typeof entry.source === 'string' && validatedLocalSourcePath
+      ? (validatedLocalSourcePath as PluginSource)
       : entry.source
 
   const cacheResult = await cachePlugin(source, {
@@ -148,7 +151,7 @@ export async function cacheAndRegisterPlugin(
   // subdirectory of the marketplace git repo). For external plugins, use the
   // cached path. For git-subdir sources, cachePlugin already captured the SHA
   // before discarding the ephemeral clone (the extracted subdir has no .git).
-  const pathForGitSha = localSourcePath || cacheResult.path
+  const pathForGitSha = validatedLocalSourcePath || cacheResult.path
   const gitCommitSha =
     cacheResult.gitCommitSha ?? (await getGitCommitSha(pathForGitSha))
 
@@ -209,7 +212,7 @@ export async function cacheAndRegisterPlugin(
   }
 
   // Add to both V1 and V2 installed_plugins files with correct scope
-  addInstalledPlugin(
+  const registration = addInstalledPlugin(
     pluginId,
     {
       version,
@@ -222,7 +225,7 @@ export async function cacheAndRegisterPlugin(
     projectPath,
   )
 
-  return finalPath
+  return { installPath: finalPath, registration }
 }
 
 /**
@@ -240,9 +243,9 @@ export function registerPluginInstallation(
   info: PluginInstallationInfo,
   scope: PluginScope = 'user',
   projectPath?: string,
-): void {
+): PluginInstallationMutation {
   const now = getCurrentTimestamp()
-  addInstalledPlugin(
+  return addInstalledPlugin(
     info.pluginId,
     {
       version: info.version || 'unknown',
@@ -429,17 +432,20 @@ export async function installResolvedPlugin({
   // ── ACTION: write entire closure to settings in one call ──
   const closureEnabled: Record<string, true> = {}
   for (const id of resolution.closure) closureEnabled[id] = true
-  const { error } = updateSettingsForSource(settingSource, {
-    enabledPlugins: {
-      ...getSettingsForSource(settingSource)?.enabledPlugins,
-      ...closureEnabled,
-    },
-  })
-  if (error) {
+  const result = updateSettingsForSourceWithFreshSettings(
+    settingSource,
+    freshSettings => ({
+      enabledPlugins: {
+        ...freshSettings.enabledPlugins,
+        ...closureEnabled,
+      },
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
       ok: false,
       reason: 'settings-write-failed',
-      message: error.message,
+      message: result.error?.message ?? 'Settings update was not written',
     }
   }
 
@@ -469,6 +475,7 @@ export async function installResolvedPlugin({
       scope,
       projectPath,
       localSourcePath,
+      info.marketplaceInstallLocation,
     )
   }
 

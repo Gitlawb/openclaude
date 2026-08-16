@@ -25,6 +25,7 @@ export function SandboxSettings(t0) {
     onComplete,
     depCheck
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [theme] = useTheme();
   const currentEnabled = SandboxManager.isSandboxingEnabled();
   const currentAutoAllow = SandboxManager.isAutoAllowBashIfSandboxedEnabled();
@@ -109,33 +110,38 @@ export function SandboxSettings(t0) {
   if ($[13] !== onComplete) {
     t10 = async function handleSelect(value) {
       const mode = value as SandboxMode;
-      bb33: switch (mode) {
-        case "auto-allow":
-          {
-            await SandboxManager.setSandboxSettings({
-              enabled: true,
-              autoAllowBashIfSandboxed: true
-            });
-            onComplete("\u2713 Sandbox enabled with auto-allow for bash commands");
-            break bb33;
-          }
-        case "regular":
-          {
-            await SandboxManager.setSandboxSettings({
-              enabled: true,
-              autoAllowBashIfSandboxed: false
-            });
-            onComplete("\u2713 Sandbox enabled with regular bash permissions");
-            break bb33;
-          }
-        case "disabled":
-          {
-            await SandboxManager.setSandboxSettings({
-              enabled: false,
-              autoAllowBashIfSandboxed: false
-            });
-            onComplete("\u25CB Sandbox disabled");
-          }
+      setSaveError(null);
+      try {
+        bb33: switch (mode) {
+          case "auto-allow":
+            {
+              await SandboxManager.setSandboxSettings({
+                enabled: true,
+                autoAllowBashIfSandboxed: true
+              });
+              onComplete("\u2713 Sandbox enabled with auto-allow for bash commands");
+              break bb33;
+            }
+          case "regular":
+            {
+              await SandboxManager.setSandboxSettings({
+                enabled: true,
+                autoAllowBashIfSandboxed: false
+              });
+              onComplete("\u2713 Sandbox enabled with regular bash permissions");
+              break bb33;
+            }
+          case "disabled":
+            {
+              await SandboxManager.setSandboxSettings({
+                enabled: false,
+                autoAllowBashIfSandboxed: false
+              });
+              onComplete("\u25CB Sandbox disabled");
+            }
+        }
+      } catch (error) {
+        setSaveError(`Failed to update sandbox settings: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
     $[13] = onComplete;
@@ -217,7 +223,7 @@ export function SandboxSettings(t0) {
   } else {
     t17 = $[33];
   }
-  return t17;
+  return <Box flexDirection="column">{t17}{saveError ? <Text color="error">{saveError}</Text> : null}</Box>;
 }
 function SandboxModeTab(t0) {
   const $ = _c(16);

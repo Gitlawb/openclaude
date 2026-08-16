@@ -1,4 +1,5 @@
 import { c as _c } from "react-compiler-runtime";
+import { existsSync } from 'node:fs';
 import figures from 'figures';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -17,7 +18,7 @@ import { loadMarketplacesWithGracefulDegradation } from '../../utils/plugins/mar
 import { loadKnownMarketplacesConfig, removeMarketplaceSource } from '../../utils/plugins/marketplaceManager.js';
 import { getPluginEditableScopes } from '../../utils/plugins/pluginStartupCheck.js';
 import type { EditableSettingSource } from '../../utils/settings/constants.js';
-import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { SETTINGS_UPDATE_NO_CHANGE, getSettingsFilePathForSource, getSettingsForSource, updateSettingsForSourceWithFreshSettingsOrNoop, wasSettingsUpdateApplied } from '../../utils/settings/settings.js';
 import { AddMarketplace } from './AddMarketplace.js';
 import { BrowseMarketplace } from './BrowseMarketplace.js';
 import { DiscoverPlugins } from './DiscoverPlugins.js';
@@ -325,43 +326,32 @@ function buildErrorRows(failedMarketplaces: Array<{
  */
 function removeExtraMarketplace(name: string, sources: Array<{
   source: EditableSettingSource;
-}>): void {
+}>): string | null {
+  let failure: string | null = null;
   for (const {
     source
   } of sources) {
-    const settings = getSettingsForSource(source);
-    if (!settings) continue;
-    const updates: Record<string, unknown> = {};
-
-    // Remove from extraKnownMarketplaces
-    if (settings.extraKnownMarketplaces?.[name]) {
-      updates.extraKnownMarketplaces = {
-        ...settings.extraKnownMarketplaces,
-        [name]: undefined
-      };
-    }
-
-    // Remove associated enabled plugins (format: "plugin@marketplace")
-    if (settings.enabledPlugins) {
-      const suffix = `@${name}`;
-      let removedPlugins = false;
-      const updatedPlugins: Record<string, boolean | string[] | undefined> = {
-        ...settings.enabledPlugins
-      };
-      for (const pluginId in updatedPlugins) {
-        if (pluginId.endsWith(suffix)) {
-          updatedPlugins[pluginId] = undefined;
-          removedPlugins = true;
-        }
+    const settingsPath = getSettingsFilePathForSource(source);
+    if (source !== 'userSettings' && settingsPath && !existsSync(settingsPath)) continue;
+    const suffix = `@${name}`;
+    const result = updateSettingsForSourceWithFreshSettingsOrNoop(source, freshSettings => {
+      const updates: Record<string, unknown> = {};
+      if (freshSettings.extraKnownMarketplaces?.[name]) {
+        updates.extraKnownMarketplaces = {
+          [name]: undefined
+        };
       }
-      if (removedPlugins) {
-        updates.enabledPlugins = updatedPlugins;
+      const removedPlugins = Object.fromEntries(Object.keys(freshSettings.enabledPlugins ?? {}).filter(pluginId => pluginId.endsWith(suffix)).map(pluginId => [pluginId, undefined]));
+      if (Object.keys(removedPlugins).length > 0) {
+        updates.enabledPlugins = removedPlugins;
       }
-    }
-    if (Object.keys(updates).length > 0) {
-      updateSettingsForSource(source, updates);
+      return Object.keys(updates).length > 0 ? updates : SETTINGS_UPDATE_NO_CHANGE;
+    });
+    if (!wasSettingsUpdateApplied(result) && failure === null) {
+      failure = result.error?.message ?? 'settings were not written';
     }
   }
+  return failure;
 }
 function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
   const $ = _c(26);
@@ -453,7 +443,11 @@ function ErrorsTabContent(t0: ErrorsTabContentProps): React.ReactNode {
       case "remove-extra-marketplace":
         {
           const scopes = action.sources.map(_temp8).join(", ");
-          removeExtraMarketplace(action.name, action.sources);
+          const failure = removeExtraMarketplace(action.name, action.sources);
+          if (failure) {
+            setActionMessage(`${figures.cross} Failed to update settings: ${failure}`);
+            break bb77;
+          }
           clearAllCaches();
           setAppState(prev_0 => ({
             ...prev_0,

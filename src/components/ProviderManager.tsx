@@ -115,7 +115,10 @@ import {
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
 import { redactSensitiveInfo, redactUrlForDisplay } from '../utils/redaction.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
-import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
+} from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
   Select,
@@ -1717,7 +1720,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function activateGithubProvider(): string | null {
-    const { error } = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
@@ -1735,8 +1738,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         CLAUDE_CODE_USE_FOUNDRY: undefined as any,
       },
     })
-    if (error) {
-      return error.message
+    if (!wasSettingsUpdateCommitted(result)) {
+      return result.error?.message ?? 'GitHub provider settings were not written'
+    }
+    if (result.error) {
+      logForDebugging(
+        `GitHub provider settings committed with a cleanup warning: ${result.error.message}`,
+        { level: 'warn' },
+      )
     }
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -1768,7 +1777,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return cleared.warning ?? 'Could not clear GitHub credentials.'
     }
 
-    const { error } = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,
         OPENAI_MODEL: undefined as any,
@@ -1776,8 +1785,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_API_BASE: undefined as any,
       },
     })
-    if (error) {
-      return error.message
+    if (!wasSettingsUpdateCommitted(result)) {
+      return result.error?.message ?? 'GitHub provider settings were not written'
+    }
+    if (result.error) {
+      logForDebugging(
+        `GitHub provider settings removal committed with a cleanup warning: ${result.error.message}`,
+        { level: 'warn' },
+      )
     }
 
     delete process.env.CLAUDE_CODE_USE_GITHUB

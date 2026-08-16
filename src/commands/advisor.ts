@@ -11,7 +11,10 @@ import {
   parseUserSpecifiedModel,
 } from '../utils/model/model.js'
 import { validateModel } from '../utils/model/validateModel.js'
-import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
+} from '../utils/settings/settings.js'
 
 const call: LocalCommandCall = async (args, context) => {
   const arg = args.trim().toLowerCase()
@@ -42,11 +45,19 @@ const call: LocalCommandCall = async (args, context) => {
 
   if (arg === 'unset' || arg === 'off') {
     const prev = context.getAppState().advisorModel
+    const result = updateSettingsForSourceWithResult('userSettings', {
+      advisorModel: undefined,
+    })
+    if (!wasSettingsUpdateCommitted(result)) {
+      return {
+        type: 'text',
+        value: `Failed to disable advisor: ${result.error?.message ?? 'settings were not written'}`,
+      }
+    }
     context.setAppState(s => {
       if (s.advisorModel === undefined) return s
       return { ...s, advisorModel: undefined }
     })
-    updateSettingsForSource('userSettings', { advisorModel: undefined })
     return {
       type: 'text',
       value: prev
@@ -74,12 +85,19 @@ const call: LocalCommandCall = async (args, context) => {
     }
   }
 
+  const result = updateSettingsForSourceWithResult('userSettings', {
+    advisorModel: normalizedModel,
+  })
+  if (!wasSettingsUpdateCommitted(result)) {
+    return {
+      type: 'text',
+      value: `Failed to set advisor: ${result.error?.message ?? 'settings were not written'}`,
+    }
+  }
   context.setAppState(s => {
     if (s.advisorModel === normalizedModel) return s
     return { ...s, advisorModel: normalizedModel }
   })
-  updateSettingsForSource('userSettings', { advisorModel: normalizedModel })
-
   if (!modelSupportsAdvisor(baseModel)) {
     return {
       type: 'text',

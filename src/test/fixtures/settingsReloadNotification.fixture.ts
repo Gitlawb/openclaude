@@ -1,5 +1,5 @@
 import { mock } from 'bun:test'
-import { handleSettingsDownloadResult } from '../../services/settingsSync/downloadLifecycle.js'
+import { handleReloadSettingsDownloadResult } from '../../services/settingsSync/downloadLifecycle.js'
 
 const notified: string[] = []
 let refreshed = 0
@@ -10,7 +10,7 @@ mock.module('bun:bundle', () => ({
 }))
 mock.module('../../bootstrap/state.js', () => ({ getIsRemoteMode: () => true }))
 mock.module('../../services/settingsSync/index.js', () => ({
-  handleSettingsDownloadResult,
+  handleReloadSettingsDownloadResult,
   redownloadUserSettings: async () =>
     scenario === 'fetch-failed'
       ? {
@@ -18,11 +18,17 @@ mock.module('../../services/settingsSync/index.js', () => ({
           failureKind: 'fetch_failed',
           settingsSourcesWritten: [],
         }
-      : {
+      : scenario === 'prepare-failed'
+        ? {
+            complete: false,
+            failureKind: 'prepare_failed',
+            settingsSourcesWritten: [],
+          }
+        : {
           complete: false,
           failureKind: 'apply_failed',
           settingsSourcesWritten: ['userSettings', 'localSettings'],
-        },
+          },
 }))
 mock.module('../../utils/plugins/refresh.js', () => ({
   refreshActivePlugins: async () => {

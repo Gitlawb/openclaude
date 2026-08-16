@@ -33,7 +33,7 @@ type Props = {
   onChangeAppState?: (args: {
     newState: AppState;
     oldState: AppState;
-  }) => void;
+  }) => AppState | void;
 };
 const HasAppStateContext = React.createContext<boolean>(false);
 export function AppStateProvider(t0: Props): React.ReactNode {

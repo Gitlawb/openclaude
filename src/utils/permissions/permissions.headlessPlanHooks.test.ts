@@ -7,6 +7,9 @@ import {
   mock,
   test,
 } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod/v4'
 import type { ToolPermissionContext, ToolUseContext } from '../../Tool.js'
 import { createToolFixture } from '../../test/toolFixtures.js'
@@ -16,11 +19,18 @@ import {
 } from '../../test/sharedMutationLock.js'
 import type { PermissionRequestResult } from '../../types/hooks.js'
 import {
+  getClaudeConfigHomeDir,
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../envUtils.js'
+import {
   __getInterruptionTraceSnapshotForTests,
   __resetInterruptionTraceForTests,
   __waitForInterruptionTraceFlushForTests,
 } from '../interruptionTrace.js'
+import { resetSettingsCache } from '../settings/settingsCache.js'
 import { permissionPromptToolResultToPermissionDecision } from './PermissionPromptToolResultSchema.js'
+import type { PermissionUpdate } from './PermissionUpdateSchema.js'
 
 type HookDecision = PermissionRequestResult
 
@@ -1248,6 +1258,100 @@ describe('headless plan-mode PermissionRequest hooks', () => {
         decisionReason: { type: 'mode', mode: 'plan' },
       })
       expect(state.getPermissionContext().mode).toBe('plan')
+    },
+  )
+
+  test.each(['SDK', 'interactive', 'headless', 'prompt'] as const)(
+    '%s permission approval fails closed when its durable update is rejected',
+    async executionPath => {
+      const tempRoot = mkdtempSync(join(tmpdir(), 'permission-persistence-fail-'))
+      const blockedConfigDir = join(tempRoot, 'config-is-a-file')
+      const originalConfigOverride =
+        getClaudeConfigHomeDirOverrideForTesting()
+      writeFileSync(blockedConfigDir, 'not a directory', 'utf8')
+      setClaudeConfigHomeDirForTesting(blockedConfigDir)
+      getClaudeConfigHomeDir.cache?.clear?.()
+      resetSettingsCache()
+
+      try {
+        const readTool = createToolFixture(z.object({}), {
+          name: `${executionPath}PersistenceFailureTool`,
+          isReadOnly: () => true,
+          async checkPermissions() {
+            return { behavior: 'ask' as const, message: 'Review read' }
+          },
+        })
+        const state = planContext({ mode: 'default' })
+        const updates: PermissionUpdate[] = [
+          {
+            type: 'addDirectories',
+            destination: 'userSettings',
+            directories: ['/durable-workspace'],
+          },
+        ]
+        hookDecision = {
+          behavior: 'allow',
+          updatedPermissions: updates,
+        }
+        const structuredIO = new StructuredIO(
+          (async function* () {
+            yield* []
+          })(),
+        )
+
+        const result =
+          executionPath === 'SDK'
+            ? await structuredIO.createCanUseTool()(
+                readTool,
+                {},
+                state.context,
+                assistantMessage,
+                'sdk-persistence-failure',
+                { behavior: 'ask', message: 'Review read' },
+              )
+            : executionPath === 'headless'
+              ? await hasPermissionsToUseTool(
+                  readTool,
+                  {},
+                  state.context,
+                  assistantMessage,
+                  'headless-persistence-failure',
+                )
+              : executionPath === 'interactive'
+                ? await createPermissionContext(
+                    readTool,
+                    {},
+                    state.context,
+                    { message: { id: 'assistant-message' } } as never,
+                    'interactive-persistence-failure',
+                    state.setPermissionContext,
+                  ).runHooks(undefined, undefined)
+                : await permissionPromptToolResultToPermissionDecision(
+                    {
+                      behavior: 'allow',
+                      updatedInput: {},
+                      updatedPermissions: updates,
+                    },
+                    readTool,
+                    {},
+                    state.context,
+                  )
+
+        expect(result).toMatchObject({
+          behavior: 'deny',
+          message: expect.stringContaining('userSettings'),
+        })
+        expect(
+          state
+            .getPermissionContext()
+            .additionalWorkingDirectories.has('/durable-workspace'),
+        ).toBe(false)
+      } finally {
+        setClaudeConfigHomeDirForTesting(originalConfigOverride)
+        getClaudeConfigHomeDir.cache?.clear?.()
+        resetSettingsCache()
+        rmSync(tempRoot, { recursive: true, force: true })
+      }
     },
   )
 })

@@ -138,6 +138,78 @@ try {
         sameResult: startupResult === redownloadResult,
       }),
     )
+  } else if (scenario === 'supersession-after-apply-fetch-fail') {
+    const settingsPath = getSettingsFilePathForSource('userSettings')!
+    writeFileSync(settingsPath, '{"env":{"VALUE":"initial"}}\n', 'utf8')
+    let resolveStartupFetch:
+      | ((value: SettingsSyncFetchResult) => void)
+      | undefined
+    let resolveRedownloadFetch: typeof resolveStartupFetch
+    let markStartupApplyStarted: () => void
+    const startupApplyStarted = new Promise<void>(resolve => {
+      markStartupApplyStarted = resolve
+    })
+    let releaseStartupApply: () => void
+    const startupApplyGate = new Promise<void>(resolve => {
+      releaseStartupApply = resolve
+    })
+    const coordinator = __test.createDownloadCoordinator({
+      shouldDownload: () => true,
+      isEligible: () => true,
+      fetchUserSettings: maxRetries =>
+        new Promise(resolve => {
+          if (maxRetries === 0) resolveRedownloadFetch = resolve
+          else resolveStartupFetch = resolve
+        }),
+      getRepoRemoteHash: async () => null,
+      applyRemoteEntriesToLocal: async entries => {
+        markStartupApplyStarted!()
+        await startupApplyGate
+        writeFileSync(
+          settingsPath,
+          entries[SYNC_KEYS.USER_SETTINGS]!,
+          'utf8',
+        )
+        return {
+          complete: false,
+          failureKind: 'apply_failed',
+          settingsSourcesWritten: ['userSettings'],
+        }
+      },
+    })
+
+    const startup = coordinator.download()
+    resolveStartupFetch!(
+      settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'applied-by-startup'),
+    )
+    await startupApplyStarted
+    const redownload = coordinator.redownload()
+    resolveRedownloadFetch!({ success: false, error: 'offline' })
+    const redownloadResult = await redownload
+    releaseStartupApply!()
+    const startupResult = await startup
+
+    process.stdout.write(
+      JSON.stringify({
+        finalValue: JSON.parse(readFileSync(settingsPath, 'utf8')).env.VALUE,
+        redownloadResult,
+        startupResult,
+      }),
+    )
+  } else if (scenario === 'prepare-failure') {
+    const coordinator = __test.createDownloadCoordinator({
+      shouldDownload: () => true,
+      isEligible: () => true,
+      fetchUserSettings: async () =>
+        settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'never-applied'),
+      getRepoRemoteHash: async () => {
+        throw new Error('project id unavailable')
+      },
+      applyRemoteEntriesToLocal: async () => {
+        throw new Error('apply must not run')
+      },
+    })
+    process.stdout.write(JSON.stringify(await coordinator.download()))
   } else if (scenario === 'settings-partial') {
     const userPath = getSettingsFilePathForSource('userSettings')!
     const localPath = getSettingsFilePathForSource('localSettings')!

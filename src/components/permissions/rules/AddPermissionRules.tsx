@@ -47,7 +47,7 @@ type Props = {
   setToolPermissionContext: (newContext: ToolPermissionContext) => void;
 };
 export function AddPermissionRules(t0) {
-  const $ = _c(26);
+  const $ = _c(27);
   const {
     onAddRules,
     onCancel,
@@ -56,6 +56,7 @@ export function AddPermissionRules(t0) {
     initialContext,
     setToolPermissionContext
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1;
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = SOURCES.map(optionForPermissionSaveDestination);
@@ -79,12 +80,16 @@ export function AddPermissionRules(t0) {
             behavior: ruleBehavior,
             destination
           });
-          persistPermissionUpdate({
+          const persisted = persistPermissionUpdate({
             type: "addRules",
             rules: ruleValues,
             behavior: ruleBehavior,
             destination
           });
+          if (!persisted) {
+            setSaveError("Could not save permission rules. Try again.");
+            return;
+          }
           setToolPermissionContext(updatedContext);
           const rules = ruleValues.map(ruleValue => ({
             ruleValue,
@@ -163,15 +168,16 @@ export function AddPermissionRules(t0) {
     t9 = $[20];
   }
   let t10;
-  if ($[21] !== onCancel || $[22] !== t5 || $[23] !== t9 || $[24] !== title) {
-    t10 = <Dialog title={title} onCancel={onCancel} color="permission">{t5}{t9}</Dialog>;
+  if ($[21] !== onCancel || $[22] !== saveError || $[23] !== t5 || $[24] !== t9 || $[25] !== title) {
+    t10 = <Dialog title={title} onCancel={onCancel} color="permission">{t5}{saveError ? <Text color="error">{saveError}</Text> : null}{t9}</Dialog>;
     $[21] = onCancel;
-    $[22] = t5;
-    $[23] = t9;
-    $[24] = title;
-    $[25] = t10;
+    $[22] = saveError;
+    $[23] = t5;
+    $[24] = t9;
+    $[25] = title;
+    $[26] = t10;
   } else {
-    t10 = $[25];
+    t10 = $[26];
   }
   return t10;
 }

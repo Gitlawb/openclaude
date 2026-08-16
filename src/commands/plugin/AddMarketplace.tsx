@@ -12,6 +12,7 @@ import { logError } from '../../utils/log.js';
 import { clearAllCaches } from '../../utils/plugins/cacheUtils.js';
 import { addMarketplaceSource, saveMarketplaceToSettings } from '../../utils/plugins/marketplaceManager.js';
 import { parseMarketplaceInput } from '../../utils/plugins/parseMarketplaceInput.js';
+import { wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import type { ViewState } from './types.js';
 type Props = {
   inputValue: string;
@@ -69,9 +70,12 @@ export function AddMarketplace({
       } = await addMarketplaceSource(parsed, message => {
         setProgressMessage(message);
       });
-      saveMarketplaceToSettings(name, {
+      const settingsResult = saveMarketplaceToSettings(name, {
         source: resolvedSource
       });
+      if (!wasSettingsUpdateCommitted(settingsResult)) {
+        throw settingsResult.error ?? new Error('Settings update was not written');
+      }
       clearAllCaches();
       let sourceType = parsed.source;
       if (parsed.source === 'github') {

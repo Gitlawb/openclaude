@@ -53,6 +53,7 @@ import {
   applyPermissionUpdate,
   applyPermissionUpdates,
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import type {
@@ -495,8 +496,34 @@ async function runPermissionRequestHooksForHeadlessAgent(
             context.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length) {
+          const persistence = persistPermissionUpdates(permissionUpdates)
+          if (persistence.failedUpdates.length > 0) {
+            const message = permissionPersistenceFailureMessage(
+              persistence.failedUpdates,
+            )
+            return {
+              behavior: 'deny',
+              message,
+              decisionReason: {
+                type: 'hook',
+                hookName: 'PermissionRequest',
+                reason: message,
+              },
+            }
+          }
+          const appliedUpdates = persistence.appliedUpdates
+          if (appliedUpdates.length === 0) {
+            return {
+              behavior: 'allow',
+              updatedInput: finalInput,
+              decisionReason: {
+                type: 'hook',
+                hookName: 'PermissionRequest',
+              },
+            }
+          }
           // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = permissionUpdates
+          const updatedPermissions = appliedUpdates
           let updatedContext = context.getAppState().toolPermissionContext
           context.setAppState(prev => {
             updatedContext = applyPermissionUpdatesToLiveContext(
@@ -509,7 +536,6 @@ async function runPermissionRequestHooksForHeadlessAgent(
               toolPermissionContext: updatedContext,
             }
           })
-          persistPermissionUpdates(permissionUpdates)
         }
         return {
           behavior: 'allow',

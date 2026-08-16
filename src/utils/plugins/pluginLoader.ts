@@ -2298,7 +2298,16 @@ async function loadPluginFromMarketplaceEntryCacheOnly(
       })
       return null
     }
-    pluginPath = join(marketplaceDir, entry.source)
+    try {
+      pluginPath = validatePathWithinBase(marketplaceDir, entry.source)
+    } catch (error) {
+      errorsOut.push({
+        type: 'generic-error',
+        source: pluginId,
+        error: errorMessage(error),
+      })
+      return null
+    }
     // finishLoadingPluginFromPath reads pluginPath — its error handling
     // surfaces ENOENT as a load failure, no need to pre-check here.
   } else {
@@ -2384,7 +2393,17 @@ async function loadPluginFromMarketplaceEntry(
     ).isDirectory()
       ? marketplaceInstallLocation
       : join(marketplaceInstallLocation, '..')
-    const sourcePluginPath = join(marketplaceDir, entry.source)
+    let sourcePluginPath: string
+    try {
+      sourcePluginPath = validatePathWithinBase(marketplaceDir, entry.source)
+    } catch (error) {
+      errorsOut.push({
+        type: 'generic-error',
+        source: pluginId,
+        error: errorMessage(error),
+      })
+      return null
+    }
 
     if (!(await pathExists(sourcePluginPath))) {
       const error = new Error(`Plugin path not found: ${sourcePluginPath}`)

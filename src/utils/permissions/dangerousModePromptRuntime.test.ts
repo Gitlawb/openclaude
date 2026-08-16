@@ -8,6 +8,7 @@ describe('dangerousModePromptRuntime', () => {
   test('startup prompt state and acceptance persistence use the settings-backed runtime wiring', async () => {
     let hasBypassAcceptance = false
     let hasFullAccessAcceptance = false
+    let writeCommitted = true
     const updates: Array<{
       source: string
       settings: Record<string, unknown>
@@ -21,8 +22,19 @@ describe('dangerousModePromptRuntime', () => {
         settings: Record<string, unknown>,
       ) => {
         updates.push({ source, settings })
-        return { error: null }
+        return { error: null, written: writeCommitted }
       },
+      updateSettingsForSourceWithResult: (
+        source: string,
+        settings: Record<string, unknown>,
+      ) => {
+        updates.push({ source, settings })
+        return { error: null, written: writeCommitted }
+      },
+      wasSettingsUpdateCommitted: (result: {
+        written: boolean
+        committed?: boolean
+      }) => result.committed ?? result.written,
     }))
 
     const {
@@ -54,8 +66,8 @@ describe('dangerousModePromptRuntime', () => {
       shouldShow: false,
     })
 
-    persistDangerousModeAcceptance('fullAccess')
-    persistDangerousModeAcceptance('bypassPermissions')
+    expect(persistDangerousModeAcceptance('fullAccess')).toBeNull()
+    expect(persistDangerousModeAcceptance('bypassPermissions')).toBeNull()
 
     expect(updates).toEqual([
       {
@@ -67,5 +79,10 @@ describe('dangerousModePromptRuntime', () => {
         settings: { skipDangerousModePermissionPrompt: true },
       },
     ])
+
+    writeCommitted = false
+    expect(persistDangerousModeAcceptance('fullAccess')).toBe(
+      'Could not save dangerous mode acceptance',
+    )
   })
 })

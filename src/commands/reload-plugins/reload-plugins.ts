@@ -1,7 +1,7 @@
 import { feature } from 'bun:bundle'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import {
-  handleSettingsDownloadResult,
+  handleReloadSettingsDownloadResult,
   redownloadUserSettings,
 } from '../../services/settingsSync/index.js'
 import type { LocalCommandCall } from '../../types/command.js'
@@ -33,15 +33,13 @@ export const call: LocalCommandCall = async (_args, context) => {
     // applyRemoteEntriesToLocal uses markInternalWrite to suppress the
     // file watcher (correct for startup, nothing listening yet); fire
     // notifyChange here so mid-session applySettingsChange runs.
-    const decision = handleSettingsDownloadResult(result, {
-      notify: source => settingsChangeDetector.notifyChange(source),
-      failOpenOnFetchFailure: true,
-    })
+    const decision = handleReloadSettingsDownloadResult(result, source =>
+      settingsChangeDetector.notifyChange(source),
+    )
     if (!decision.proceed) {
       return {
         type: 'text',
-        value:
-          'Could not reload plugins because remote settings were only partially applied. Retry /reload-plugins.',
+        value: `Could not reload plugins: ${decision.error!.message}. Retry /reload-plugins.`,
       }
     }
     if (decision.failureKind === 'fetch_failed') {

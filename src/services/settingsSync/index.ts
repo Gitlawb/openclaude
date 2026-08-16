@@ -54,6 +54,7 @@ import {
 
 export {
   assertHeadlessPluginPreparationReady,
+  handleReloadSettingsDownloadResult,
   handleSettingsDownloadResult,
   prepareHeadlessPluginsAfterSettingsDownload,
 } from './downloadLifecycle.js'
@@ -72,12 +73,59 @@ function noOpSettingsDownloadResult(): SettingsDownloadResult {
   return { complete: true, failureKind: null, settingsSourcesWritten: [] }
 }
 
-function failedSettingsDownloadResult(): SettingsDownloadResult {
+function failedSettingsDownloadResult(
+  failureKind: Exclude<
+    SettingsDownloadResult['failureKind'],
+    null
+  > = 'fetch_failed',
+): SettingsDownloadResult {
   return {
     complete: false,
-    failureKind: 'fetch_failed',
+    failureKind,
     settingsSourcesWritten: [],
   }
+}
+
+function mergeSupersededSettingsDownloadResults(
+  superseded: SettingsDownloadResult,
+  current: SettingsDownloadResult,
+): SettingsDownloadResult {
+  const settingsSourcesWritten = [
+    ...new Set([
+      ...superseded.settingsSourcesWritten,
+      ...current.settingsSourcesWritten,
+    ]),
+  ]
+
+  // A newest complete settings apply supersedes older incomplete disk state.
+  // A complete no-op cannot prove that, so retain an older failure while still
+  // forwarding every committed source to the waiter that started that work.
+  if (current.complete && current.settingsSourcesWritten.length > 0) {
+    if (
+      superseded.settingsSourcesWritten.every(source =>
+        current.settingsSourcesWritten.includes(source),
+      )
+    ) {
+      return current
+    }
+    return { ...current, settingsSourcesWritten }
+  }
+  if (current.complete && superseded.complete) {
+    return { ...current, settingsSourcesWritten }
+  }
+
+  const failures = [superseded, current].filter(
+    (result): result is Extract<SettingsDownloadResult, { complete: false }> =>
+      !result.complete,
+  )
+  const failureKind = failures.some(
+    result => result.failureKind === 'apply_failed',
+  )
+    ? 'apply_failed'
+    : failures.some(result => result.failureKind === 'prepare_failed')
+      ? 'prepare_failed'
+      : 'fetch_failed'
+  return { complete: false, failureKind, settingsSourcesWritten }
 }
 
 /**
@@ -171,7 +219,7 @@ function createDownloadCoordinator(
 
   return createSettingsDownloadCoordinator(
     DEFAULT_MAX_RETRIES,
-    (maxRetries, isCurrent) => {
+    (maxRetries, isCurrent, markResultMustMerge) => {
       const applyCurrentEntries: SettingsDownloadDependencies['applyRemoteEntriesToLocal'] =
         async (entries, projectId) => {
           const previousApplication = applicationTail
@@ -188,6 +236,7 @@ function createDownloadCoordinator(
               )
               return noOpSettingsDownloadResult()
             }
+            markResultMustMerge()
             return await dependencies.applyRemoteEntriesToLocal(
               entries,
               projectId,
@@ -202,6 +251,7 @@ function createDownloadCoordinator(
         applyRemoteEntriesToLocal: applyCurrentEntries,
       })
     },
+    mergeSupersededSettingsDownloadResults,
   )
 }
 
@@ -254,45 +304,58 @@ async function doDownloadUserSettings(
   dependencies: SettingsDownloadDependencies,
 ): Promise<SettingsDownloadResult> {
   if (dependencies.shouldDownload()) {
+    if (!dependencies.isEligible()) {
+      logForDiagnosticsNoPII('info', 'settings_sync_download_skipped')
+      logEvent('tengu_settings_sync_download_skipped', {})
+      return noOpSettingsDownloadResult()
+    }
+
+    let result: SettingsSyncFetchResult
     try {
-      if (!dependencies.isEligible()) {
-        logForDiagnosticsNoPII('info', 'settings_sync_download_skipped')
-        logEvent('tengu_settings_sync_download_skipped', {})
-        return noOpSettingsDownloadResult()
-      }
-
       logForDiagnosticsNoPII('info', 'settings_sync_download_starting')
-      const result = await dependencies.fetchUserSettings(maxRetries)
-      if (!result.success) {
-        logForDiagnosticsNoPII('warn', 'settings_sync_download_fetch_failed')
-        logEvent('tengu_settings_sync_download_fetch_failed', {})
-        return failedSettingsDownloadResult()
-      }
+      result = await dependencies.fetchUserSettings(maxRetries)
+    } catch {
+      logForDiagnosticsNoPII('error', 'settings_sync_download_fetch_error')
+      logEvent('tengu_settings_sync_download_fetch_error', {})
+      return failedSettingsDownloadResult('fetch_failed')
+    }
+    if (!result.success) {
+      logForDiagnosticsNoPII('warn', 'settings_sync_download_fetch_failed')
+      logEvent('tengu_settings_sync_download_fetch_failed', {})
+      return failedSettingsDownloadResult('fetch_failed')
+    }
 
-      if (result.isEmpty) {
-        logForDiagnosticsNoPII('info', 'settings_sync_download_empty')
-        logEvent('tengu_settings_sync_download_empty', {})
-        return noOpSettingsDownloadResult()
-      }
+    if (result.isEmpty) {
+      logForDiagnosticsNoPII('info', 'settings_sync_download_empty')
+      logEvent('tengu_settings_sync_download_empty', {})
+      return noOpSettingsDownloadResult()
+    }
 
-      const entries = result.data!.content.entries
-      const projectId = await dependencies.getRepoRemoteHash()
-      const entryCount = Object.keys(entries).length
-      logForDiagnosticsNoPII('info', 'settings_sync_download_applying', {
-        entryCount,
-      })
-      if (!isCurrent()) {
-        logForDiagnosticsNoPII('info', 'settings_sync_download_superseded')
-        return noOpSettingsDownloadResult()
-      }
+    const entries = result.data!.content.entries
+    let projectId: string | null
+    try {
+      projectId = await dependencies.getRepoRemoteHash()
+    } catch {
+      logForDiagnosticsNoPII('error', 'settings_sync_download_prepare_error')
+      logEvent('tengu_settings_sync_download_prepare_error', {})
+      return failedSettingsDownloadResult('prepare_failed')
+    }
+
+    const entryCount = Object.keys(entries).length
+    logForDiagnosticsNoPII('info', 'settings_sync_download_applying', {
+      entryCount,
+    })
+    if (!isCurrent()) {
+      logForDiagnosticsNoPII('info', 'settings_sync_download_superseded')
+      return noOpSettingsDownloadResult()
+    }
+    try {
       const applyResult = await dependencies.applyRemoteEntriesToLocal(
         entries,
         projectId,
       )
-      if (!isCurrent()) {
-        logForDiagnosticsNoPII('info', 'settings_sync_download_superseded')
-        return noOpSettingsDownloadResult()
-      }
+      // Once apply starts its real result is authoritative even if a newer
+      // generation begins. The coordinator merges it into the winning waiter.
       if (!applyResult.complete) {
         logForDiagnosticsNoPII('warn', 'settings_sync_download_apply_failed')
         logEvent('tengu_settings_sync_download_apply_failed', { entryCount })
@@ -301,10 +364,9 @@ async function doDownloadUserSettings(
       logEvent('tengu_settings_sync_download_success', { entryCount })
       return applyResult
     } catch {
-      // Fail-open: log error but don't block CCR startup
-      logForDiagnosticsNoPII('error', 'settings_sync_download_error')
-      logEvent('tengu_settings_sync_download_error', {})
-      return failedSettingsDownloadResult()
+      logForDiagnosticsNoPII('error', 'settings_sync_download_apply_error')
+      logEvent('tengu_settings_sync_download_apply_error', { entryCount })
+      return failedSettingsDownloadResult('apply_failed')
     }
   }
   return noOpSettingsDownloadResult()

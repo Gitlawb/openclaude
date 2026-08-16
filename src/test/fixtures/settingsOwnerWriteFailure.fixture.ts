@@ -50,25 +50,27 @@ try {
     lockModule.resolveSettingsFileTarget(settingsPath),
   )
 
-  const first = settingsModule.updateSettingsForSource('userSettings', {
-    env: { FIRST: 'rejected' },
-  })
+  const first = settingsModule.updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    () => ({ env: { FIRST: 'rejected' } }),
+  )
   const lockAbsentAfterFailure = !fs.existsSync(lockPath)
   const abortedQuarantineAbsent = readdirSync(configDir).every(
     name => !name.startsWith('.openclaude-settings-aborted-'),
   )
-  const second = settingsModule.updateSettingsForSource('userSettings', {
-    env: { SECOND: 'committed' },
-  })
+  const second = settingsModule.updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    () => ({ env: { SECOND: 'committed' } }),
+  )
 
   process.stdout.write(
     JSON.stringify({
       firstError: first.error?.message ?? null,
-      firstCommitted: first.error === null,
+      firstCommitted: settingsModule.wasSettingsUpdateCommitted(first),
       lockAbsentAfterFailure,
       abortedQuarantineAbsent,
       secondError: second.error?.message ?? null,
-      secondCommitted: second.error === null,
+      secondCommitted: settingsModule.wasSettingsUpdateCommitted(second),
       settings: settingsModule.getSettingsForSource('userSettings'),
     }),
   )

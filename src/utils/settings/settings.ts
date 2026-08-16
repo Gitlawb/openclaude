@@ -30,7 +30,7 @@ import {
 import {
   runSettingsWriteTransactionSync,
   settingsWriteNotRequestedResult,
-  type SettingsWriteResult,
+  type SettingsWriteResult as SettingsTransactionResult,
 } from './settingsFileLock.js'
 import {
   getManagedFilePath,
@@ -441,6 +441,42 @@ export function updateSettingsForSource(
 }
 
 /**
+ * Rich settings-write result for stateful callers. `written` is retained as
+ * the caller-facing byte-publication spelling while the transaction fields
+ * expose the complete low-level lifecycle.
+ */
+export type SettingsWriteResult = SettingsTransactionResult & {
+  written: boolean
+  /** The requested state already existed in the lock-scoped fresh snapshot. */
+  unchanged?: boolean
+}
+
+/** Return from a fresh-settings updater when no write is necessary. */
+export const SETTINGS_UPDATE_NO_CHANGE = Symbol('settings-update-no-change')
+
+/** True only when the requested bytes committed to the logical settings path. */
+export function wasSettingsUpdateCommitted(
+  result: Pick<SettingsWriteResult, 'committed' | 'written'> | {
+    committed?: boolean
+    written: boolean
+  },
+): boolean {
+  return result.committed ?? result.written
+}
+
+/** True when a transaction committed bytes or verified the requested state. */
+export function wasSettingsUpdateApplied(
+  result:
+    | SettingsWriteResult
+    | { error: Error | null; written: boolean; committed?: boolean; unchanged?: boolean },
+): boolean {
+  return (
+    wasSettingsUpdateCommitted(result) ||
+    (result.unchanged === true && result.error === null)
+  )
+}
+
+/**
  * Structured settings-write lifecycle for internal callers that must
  * distinguish publication from cleanup. The legacy public wrapper above keeps
  * its synchronous `{ error }`-only compatibility surface.
@@ -449,19 +485,47 @@ export function updateSettingsForSourceWithResult(
   source: EditableSettingSource,
   settings: SettingsJson,
 ): SettingsWriteResult {
+  return updateSettingsForSourceWithFreshSettings(source, () => settings)
+}
+
+/**
+ * Compute a read-dependent patch from the fresh lock-scoped file contents.
+ * This prevents concurrent append/remove callers from overwriting one another.
+ */
+export function updateSettingsForSourceWithFreshSettings(
+  source: EditableSettingSource,
+  createSettingsPatch: (settings: SettingsJson) => SettingsJson,
+): SettingsWriteResult {
+  return updateSettingsForSourceWithFreshSettingsOrNoop(
+    source,
+    createSettingsPatch,
+  )
+}
+
+/** Fresh-settings variant that can explicitly verify a no-op. */
+export function updateSettingsForSourceWithFreshSettingsOrNoop(
+  source: EditableSettingSource,
+  createSettingsPatch: (
+    settings: SettingsJson,
+  ) => SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE,
+): SettingsWriteResult {
   if (
     (source as unknown) === 'policySettings' ||
     (source as unknown) === 'flagSettings'
   ) {
-    return settingsWriteNotRequestedResult()
+    const result = settingsWriteNotRequestedResult()
+    return { ...result, written: false }
   }
 
   // Create the folder if needed
   const filePath = getSettingsFilePathForSource(source)
   if (!filePath) {
-    return settingsWriteNotRequestedResult()
+    const result = settingsWriteNotRequestedResult()
+    return { ...result, written: false }
   }
 
+  let noChangeRequested = false
+  let callbackError: Error | null = null
   const writeResult = runSettingsWriteTransactionSync(
     filePath,
     ({ targetPath, writeFile }) => {
@@ -502,55 +566,90 @@ export function updateSettingsForSourceWithResult(
         }
       }
 
-      const updatedSettings = mergeWith(
+      let settings: SettingsJson | typeof SETTINGS_UPDATE_NO_CHANGE
+      try {
+        settings = createSettingsPatch(structuredClone(existingSettings || {}))
+      } catch (error) {
+        callbackError = error instanceof Error ? error : new Error(String(error))
+        throw callbackError
+      }
+      if (settings === SETTINGS_UPDATE_NO_CHANGE) {
+        noChangeRequested = true
+        return
+      }
+
+      const updatedSettings = applySettingsPatch(
         existingSettings || {},
         settings,
-        (
-          _objValue: unknown,
-          srcValue: unknown,
-          key: string | number | symbol,
-          object: Record<string | number | symbol, unknown>,
-        ) => {
-          // Handle undefined as deletion
-          if (srcValue === undefined && object && typeof key === 'string') {
-            delete object[key]
-            return undefined
-          }
-          // For arrays, always replace with the provided array
-          // This puts the responsibility on the caller to compute the desired final state
-          if (Array.isArray(srcValue)) {
-            return srcValue
-          }
-          // For non-arrays, let lodash handle the default merge behavior
-          return undefined
-        },
       )
 
       writeFile(jsonStringify(updatedSettings, null, 2) + '\n')
     },
   )
 
-  if (writeResult.committed) {
-    if (source === 'localSettings') {
-      // Okay to add to gitignore async without awaiting
-      void addFileGlobRuleToGitignore(
-        getRelativeSettingsFilePathForSource('localSettings'),
-        getOriginalCwd(),
-      )
-    }
+  if (noChangeRequested && writeResult.error === null) {
+    // The fresh lock-scoped snapshot can be newer than the public parser cache.
+    resetSettingsCache()
+  }
+
+  if (source === 'localSettings' && writeResult.bytesOnDisk) {
+    // Bytes can land before ownership/release reports an error; retain the
+    // local-settings gitignore side effect for every physical publication.
+    void addFileGlobRuleToGitignore(
+      getRelativeSettingsFilePathForSource('localSettings'),
+      getOriginalCwd(),
+    )
   }
 
   if (writeResult.error) {
-    const error = new Error(
+    const error = callbackError ?? new Error(
       writeResult.committed
         ? `Settings update committed but cleanup failed at ${filePath}: ${writeResult.error}`
         : `Failed to update settings at ${filePath}: ${writeResult.error}`,
     )
     logError(error)
-    return { ...writeResult, error }
+    return {
+      ...writeResult,
+      error,
+      written: writeResult.bytesOnDisk,
+    }
   }
 
-  return writeResult
+  if (noChangeRequested) {
+    return {
+      ...writeResult,
+      status: 'not-requested',
+      committed: false,
+      written: false,
+      unchanged: true,
+    }
+  }
+
+  return { ...writeResult, written: writeResult.bytesOnDisk }
+}
+
+/** Apply the deletion and array-replacement semantics shared by all writes. */
+export function applySettingsPatch(
+  existingSettings: SettingsJson,
+  settings: SettingsJson,
+): SettingsJson {
+  return mergeWith(
+    structuredClone(existingSettings),
+    settings,
+    (
+      _objValue: unknown,
+      srcValue: unknown,
+      key: string | number | symbol,
+      object: Record<string | number | symbol, unknown>,
+    ) => {
+      if (srcValue === undefined && object && typeof key === 'string') {
+        delete object[key]
+        return undefined
+      }
+      if (Array.isArray(srcValue)) return srcValue
+      return undefined
+    },
+  )
 }
 
 /**

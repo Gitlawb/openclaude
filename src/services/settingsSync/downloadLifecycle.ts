@@ -1,6 +1,9 @@
 export type SettingsDownloadSource = 'userSettings' | 'localSettings'
 
-export type SettingsDownloadFailureKind = 'fetch_failed' | 'apply_failed'
+export type SettingsDownloadFailureKind =
+  | 'fetch_failed'
+  | 'prepare_failed'
+  | 'apply_failed'
 
 export type SettingsDownloadResult =
   | {
@@ -38,37 +41,79 @@ export function createSettingsDownloadCoordinator(
   run: (
     maxRetries: number,
     isCurrent: () => boolean,
+    markResultMustMerge: () => void,
   ) => Promise<SettingsDownloadResult>,
+  mergeSupersededResults?: (
+    superseded: SettingsDownloadResult,
+    current: SettingsDownloadResult,
+  ) => SettingsDownloadResult,
 ): SettingsDownloadCoordinator {
   let generation = 0
   let currentPromise: Promise<SettingsDownloadResult> | null = null
-  let supersedeCurrent: (() => void) | null = null
+  let supersedeCurrent: ((followReplacement: boolean) => void) | null = null
 
   const start = (maxRetries: number): Promise<SettingsDownloadResult> => {
     const supersedePrevious = supersedeCurrent
     const taskGeneration = ++generation
-    let markSuperseded: () => void
-    const superseded = new Promise<void>(resolve => {
+    let resultMustMerge = false
+    let markSuperseded: (followReplacement: boolean) => void
+    const superseded = new Promise<boolean>(resolve => {
       markSuperseded = resolve
     })
     supersedeCurrent = markSuperseded!
     const runPromise = run(
       maxRetries,
       () => taskGeneration === generation,
+      () => {
+        resultMustMerge = true
+      },
+    )
+    // Observe both branches immediately. A superseded runner may reject after
+    // the coordination race has moved its waiter to the current generation.
+    const settledRunPromise = runPromise.then(
+      result => ({ kind: 'result' as const, result }),
+      error => ({ kind: 'rejected' as const, error }),
     )
     const coordinatedPromise = (async () => {
       const outcome = await Promise.race([
-        runPromise.then(result => ({ kind: 'result' as const, result })),
-        superseded.then(() => ({ kind: 'superseded' as const })),
+        settledRunPromise,
+        superseded.then(followReplacement => ({
+          kind: 'superseded' as const,
+          followReplacement,
+        })),
       ])
-      if (outcome.kind === 'superseded' || taskGeneration !== generation) {
-        return currentPromise ?? runPromise
+      if (outcome.kind === 'superseded' && !outcome.followReplacement) {
+        const resetOutcome = await settledRunPromise
+        if (resetOutcome.kind === 'rejected') throw resetOutcome.error
+        return resetOutcome.result
       }
+      if (outcome.kind === 'superseded' || taskGeneration !== generation) {
+        const replacement = currentPromise
+        if (replacement !== null && replacement !== coordinatedPromise) {
+          const currentResult = await replacement
+          if (!mergeSupersededResults || !resultMustMerge) return currentResult
+          const supersededOutcome = await settledRunPromise
+          if (supersededOutcome.kind === 'rejected') return currentResult
+          return mergeSupersededResults(
+            supersededOutcome.result,
+            currentResult,
+          )
+        }
+        const supersededOutcome = await settledRunPromise
+        if (replacement === null || replacement === coordinatedPromise) {
+          if (supersededOutcome.kind === 'rejected') {
+            throw supersededOutcome.error
+          }
+          return supersededOutcome.result
+        }
+        return replacement
+      }
+      if (outcome.kind === 'rejected') throw outcome.error
       return outcome.result
     })()
     currentPromise = coordinatedPromise
     // Resolve older waiters only after currentPromise points at this generation.
-    supersedePrevious?.()
+    supersedePrevious?.(true)
     return coordinatedPromise
   }
 
@@ -80,9 +125,13 @@ export function createSettingsDownloadCoordinator(
       return start(0)
     },
     reset() {
+      const supersedePrevious = supersedeCurrent
       generation++
       currentPromise = null
       supersedeCurrent = null
+      // Detach an in-flight waiter from the cache. With no replacement it
+      // still observes its own result/rejection; the next download starts new.
+      supersedePrevious?.(false)
     },
   }
 }
@@ -127,9 +176,25 @@ export function handleSettingsDownloadResult(
   const error = new Error(
     result.failureKind === 'fetch_failed'
       ? 'Remote settings could not be downloaded'
-      : 'Remote settings were only partially applied',
+      : result.failureKind === 'prepare_failed'
+        ? 'Remote settings could not be prepared for local application'
+        : 'Remote settings were only partially applied',
   )
   return { proceed: false, failureKind: result.failureKind, error }
+}
+
+/**
+ * Shared SDK and slash-command reload contract: network-only fetch failure is
+ * fail-open to plugins already on disk; preparation/apply failures fail closed.
+ */
+export function handleReloadSettingsDownloadResult(
+  result: SettingsDownloadResult,
+  notify: (source: SettingsDownloadSource) => void,
+): SettingsDownloadDecision {
+  return handleSettingsDownloadResult(result, {
+    notify,
+    failOpenOnFetchFailure: true,
+  })
 }
 
 export type HeadlessPluginPreparationResult =

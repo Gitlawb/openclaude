@@ -87,6 +87,15 @@ let actualSettingsModule: SettingsModule | undefined
 let settingsForTest: SettingsJson & {
   providerProfileModelPickerMode?: ProviderProfileModelPickerModeForTest
 } = {}
+let modelWriteResult: { error: Error | null; written: boolean } = {
+  error: null,
+  written: true,
+}
+let modelSettingsWrites: SettingsJson[] = []
+let modelSettingsMockActive = false
+let freshSettingsUpdateForTest:
+  | SettingsModule['updateSettingsForSourceWithFreshSettingsOrNoop']
+  | undefined
 let scopedLocalOpenAIModelCacheState:
   | {
       additionalModelOptionsCache?: ModelOption[]
@@ -107,10 +116,62 @@ async function mockSettingsForTest(): Promise<void> {
   actualSettingsModule ??= await import(
     `../../utils/settings/settings.ts?modelCommandSettingsActual=${Date.now()}-${Math.random()}`
   )
+  modelSettingsMockActive = true
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettingsModule!,
     getInitialSettings: () => settingsForTest,
     getSettings_DEPRECATED: () => settingsForTest,
+    updateSettingsForSource: (_source: string, patch: SettingsJson) => {
+      if (!modelSettingsMockActive) {
+        return actualSettingsModule!.updateSettingsForSource(
+          _source as never,
+          patch,
+        )
+      }
+      modelSettingsWrites.push(patch)
+      return modelWriteResult
+    },
+    updateSettingsForSourceWithResult: (_source: string, patch: SettingsJson) => {
+      if (!modelSettingsMockActive) {
+        return actualSettingsModule!.updateSettingsForSourceWithResult(
+          _source as never,
+          patch,
+        )
+      }
+      modelSettingsWrites.push(patch)
+      return modelWriteResult
+    },
+    updateSettingsForSourceWithFreshSettings: (
+      _source: string,
+      createPatch: (settings: SettingsJson) => SettingsJson,
+    ) => {
+      if (!modelSettingsMockActive) {
+        return actualSettingsModule!.updateSettingsForSourceWithFreshSettings(
+          _source as never,
+          createPatch,
+        )
+      }
+      const patch = createPatch(structuredClone(settingsForTest))
+      modelSettingsWrites.push(patch)
+      if (modelWriteResult.written) {
+        settingsForTest = { ...settingsForTest, ...patch }
+      }
+      return modelWriteResult
+    },
+    updateSettingsForSourceWithFreshSettingsOrNoop: (
+      ...args: Parameters<
+        SettingsModule['updateSettingsForSourceWithFreshSettingsOrNoop']
+      >
+    ) =>
+      !modelSettingsMockActive
+        ? actualSettingsModule!.updateSettingsForSourceWithFreshSettingsOrNoop(
+            ...args,
+          )
+        : freshSettingsUpdateForTest
+        ? freshSettingsUpdateForTest(...args)
+        : actualSettingsModule!.updateSettingsForSourceWithFreshSettingsOrNoop(
+            ...args,
+          ),
   }))
   mock.module('../../utils/model/modelAllowlist.js', () => ({
     isModelAllowed: isModelAllowedForTest,
@@ -201,6 +262,9 @@ beforeEach(async () => {
   await acquireSharedMutationLock('commands/model/model.test.tsx')
   mock.restore()
   settingsForTest = {}
+  modelWriteResult = { error: null, written: true }
+  modelSettingsWrites = []
+  freshSettingsUpdateForTest = undefined
   await mockSettingsForTest()
   scopedLocalOpenAIModelCacheState = undefined
   useSettings({} as SettingsJson)
@@ -208,9 +272,11 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
+    modelSettingsMockActive = false
     mock.restore()
     resetSettingsCache()
     settingsForTest = {}
+    freshSettingsUpdateForTest = undefined
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('CLAUDE_CODE_USE_GEMINI', originalEnv.CLAUDE_CODE_USE_GEMINI)
     restoreEnv('CLAUDE_CODE_USE_GITHUB', originalEnv.CLAUDE_CODE_USE_GITHUB)
@@ -2995,12 +3061,14 @@ test('cross-profile /model switch drops latched fast mode before activating an u
   // against the source provider (before activation), otherwise it short-circuits
   // to 'unchanged' once the new provider is active and leaves fastMode latched.
   let targetProfileActivated = false
+  const syncFastModeModelRestoreAfterSelection = mock(() => {})
   mock.module('../../utils/fastMode.js', () => ({
     ...REAL_FAST_MODE_FOR_MODEL_TEST,
     isFastModeEnabled: () => !targetProfileActivated,
     isFastModeSupportedByModel: (m: string | null) => m === 'claude-opus-4-7',
     isFastModeAvailable: () => true,
     clearFastModeCooldown: () => {},
+    syncFastModeModelRestoreAfterSelection,
   }))
   mockProviderProfiles({
     getProviderProfiles: () => [
@@ -3084,10 +3152,179 @@ test('cross-profile /model switch drops latched fast mode before activating an u
       observedStates.some(state => state.fastMode === false),
     )
     expect(observedStates.at(-1)?.fastMode).toBe(false)
+    expect(syncFastModeModelRestoreAfterSelection).toHaveBeenCalledWith(
+      'gpt-5-mini',
+      false,
+    )
   } finally {
     instance.unmount()
     // Restore the real fast-mode module for sibling tests in this file.
     mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+  }
+})
+
+test('cross-profile /model switch does not activate the target profile when the model write is rejected', async () => {
+  const clearFastModeCooldown = mock(() => {})
+  mock.module('../../utils/fastMode.js', () => ({
+    ...REAL_FAST_MODE_FOR_MODEL_TEST,
+    isFastModeEnabled: () => true,
+    clearFastModeCooldown,
+  }))
+  const setActiveProviderProfile = mock(() => ({
+    id: 'profile_openai',
+    name: 'OpenAI',
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-5-mini',
+  }))
+  mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      },
+    ],
+    setActiveProviderProfile,
+  } as never)
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+  modelWriteResult = { error: null, written: false }
+
+  const doneMessages: string[] = []
+  const onDone = mock((message?: string) => {
+    if (message) doneMessages.push(message)
+  })
+  const { getDefaultAppState, AppStateProvider } = await import('../../state/AppState.js')
+  const { call } = await importFreshModelModule('cross-profile-rejected-model-write')
+  const element = await call(onDone, {} as never, '')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+      undefined,
+      'profile_openai',
+    )
+
+    await waitForCondition(() => doneMessages.length > 0)
+    expect(modelSettingsWrites).toEqual([{ model: 'gpt-5-mini' }])
+    expect(setActiveProviderProfile).not.toHaveBeenCalled()
+    expect(clearFastModeCooldown).not.toHaveBeenCalled()
+    expect(doneMessages.at(0) ?? '').toContain('Could not save model selection')
+  } finally {
+    instance.unmount()
+    mock.module('../../utils/fastMode.js', () => REAL_FAST_MODE_FOR_MODEL_TEST)
+  }
+})
+
+test('cross-profile /model switch preserves a newer peer model when provider activation fails', async () => {
+  const setActiveProviderProfile = mock(() => null)
+  mockProviderProfiles({
+    getProviderProfiles: () => [
+      {
+        id: 'profile_openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5-mini',
+      },
+    ],
+    setActiveProviderProfile,
+  } as never)
+
+  const transition = {
+    attempted: { model: 'gpt-5-mini' },
+    previous: { model: 'claude-sonnet-4-6' },
+  }
+  const rollbackModelSettingsTransition = mock(() => ({
+    status: 'superseded' as const,
+  }))
+  mock.module('../../utils/settings/modelTransition.js', () => ({
+    commitModelSettingsTransition: (model: string) => {
+      modelSettingsWrites.push({ model })
+      return {
+        result: { error: null, written: true },
+        transition,
+      }
+    },
+    rollbackModelSettingsTransition,
+  }))
+
+  let capturedOnSelect:
+    | ((model: string | null, effort: unknown, switchToProfileId?: string) => void)
+    | undefined
+  mock.module('../../components/ModelPicker.js', () => ({
+    ModelPicker: function MockModelPicker(props: {
+      onSelect?: (
+        model: string | null,
+        effort: unknown,
+        switchToProfileId?: string,
+      ) => void
+    }): React.ReactNode {
+      capturedOnSelect = props.onSelect
+      return null
+    },
+  }))
+
+  const doneMessages: string[] = []
+  const { getDefaultAppState, AppStateProvider } = await import('../../state/AppState.js')
+  const { call } = await importFreshModelModule('cross-profile-peer-rollback')
+  const element = await call(message => {
+    if (message) doneMessages.push(message)
+  }, {} as never, '')
+  const { render } = await import('../../ink.js')
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+  const instance = await render(
+    <AppStateProvider initialState={getDefaultAppState()}>
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  try {
+    await waitForCondition(() => capturedOnSelect !== undefined)
+    capturedOnSelect?.(
+      encodeSwitchProfileValue('profile_openai', 'gpt-5-mini'),
+      undefined,
+      'profile_openai',
+    )
+
+    await waitForCondition(() => doneMessages.length > 0)
+    expect(modelSettingsWrites).toEqual([{ model: 'gpt-5-mini' }])
+    expect(setActiveProviderProfile).toHaveBeenCalledWith('profile_openai')
+    expect(rollbackModelSettingsTransition).toHaveBeenCalledWith(transition)
+    expect(doneMessages[0]).toContain(
+      'A newer model setting from another writer was preserved.',
+    )
+  } finally {
+    instance.unmount()
   }
 })
 

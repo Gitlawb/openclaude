@@ -5,7 +5,7 @@ import { dirname } from 'path'
 import {
   assertHeadlessPluginPreparationReady,
   downloadUserSettings,
-  handleSettingsDownloadResult,
+  handleReloadSettingsDownloadResult,
   prepareHeadlessPluginsAfterSettingsDownload,
   redownloadUserSettings,
   type HeadlessPluginPreparationResult,
@@ -2101,13 +2101,17 @@ function runHeadlessStreaming(
       // If CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS is set, races against that
       // deadline and proceeds without plugins on timeout (logging an error).
       if (pluginInstallPromise) {
+        // Detach the cache before any await/assertion can throw. A failed
+        // preparation must never leave a stale rejected promise installed.
+        const pendingPluginInstall = pluginInstallPromise
+        pluginInstallPromise = null
         const timeoutMs = parseInt(
           process.env.CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS || '',
           10,
         )
         if (timeoutMs > 0) {
           const timeout = sleep(timeoutMs).then(() => 'timeout' as const)
-          const result = await Promise.race([pluginInstallPromise, timeout])
+          const result = await Promise.race([pendingPluginInstall, timeout])
           if (result === 'timeout') {
             logError(
               new Error(
@@ -2121,10 +2125,9 @@ function runHeadlessStreaming(
             assertHeadlessPluginPreparationReady(result)
           }
         } else {
-          const result = await pluginInstallPromise
+          const result = await pendingPluginInstall
           assertHeadlessPluginPreparationReady(result)
         }
-        pluginInstallPromise = null
 
         // Refresh commands, agents, and hooks now that plugins are installed
         await refreshPluginState()
@@ -3296,10 +3299,10 @@ function runHeadlessStreaming(
               // Re-pull user settings so enabledPlugins pushed from the
               // user's local CLI take effect before the cache sweep.
               const result = await redownloadUserSettings()
-              const decision = handleSettingsDownloadResult(result, {
-                notify: source => settingsChangeDetector.notifyChange(source),
-                failOpenOnFetchFailure: false,
-              })
+              const decision = handleReloadSettingsDownloadResult(
+                result,
+                source => settingsChangeDetector.notifyChange(source),
+              )
               if (!decision.proceed) {
                 throw decision.error
               }

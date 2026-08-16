@@ -1,5 +1,5 @@
 type Listener = () => void
-type OnChange<T> = (args: { newState: T; oldState: T }) => void
+type OnChange<T> = (args: { newState: T; oldState: T }) => T | void
 
 export type Store<T> = {
   getState: () => T
@@ -22,7 +22,9 @@ export function createStore<T>(
       const next = updater(prev)
       if (Object.is(next, prev)) return
       state = next
-      onChange?.({ newState: next, oldState: prev })
+      const acceptedState = onChange?.({ newState: next, oldState: prev })
+      if (acceptedState !== undefined) state = acceptedState
+      if (Object.is(state, prev)) return
       for (const listener of listeners) listener()
     },
 
