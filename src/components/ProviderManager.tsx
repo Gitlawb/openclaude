@@ -4058,17 +4058,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 }
                 break
               case 'logout-codex-oauth': {
-                const cleared = clearCodexCredentials()
-                if (!cleared.success) {
-                  setErrorMessage(
-                    cleared.warning ??
-                      'Could not clear Codex OAuth credentials.',
-                  )
-                  break
-                }
-
-                setHasStoredCodexOAuthCredentials(false)
-                setStoredCodexOAuthProfileId(undefined)
                 const codexProfile = findCodexOAuthProfile(
                   getProviderProfiles(),
                   storedCodexOAuthProfileId,
@@ -4082,16 +4071,30 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                   }
                   if (!result.removed) {
                     setErrorMessage(
-                      'Codex OAuth credentials were cleared, but the Codex profile could not be removed.',
+                      'The Codex OAuth profile could not be removed, so its credentials were not cleared.',
                     )
                     refreshProfiles()
                     break
                   }
 
-                  clearPersistedCodexOAuthProfile()
                   settingsOverrideError = result.activeProfileId
                     ? clearStartupProviderOverrideFromUserSettings()
                     : null
+                }
+
+                const cleared = clearCodexCredentials()
+                if (!cleared.success) {
+                  setErrorMessage(
+                    cleared.warning ??
+                      'Could not clear Codex OAuth credentials.',
+                  )
+                  break
+                }
+
+                setHasStoredCodexOAuthCredentials(false)
+                setStoredCodexOAuthProfileId(undefined)
+                if (codexProfile) {
+                  clearPersistedCodexOAuthProfile()
                 }
 
                 refreshProfiles()
@@ -4103,17 +4106,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 break
               }
               case 'logout-xai-oauth': {
-                const cleared = clearXaiCredentials()
-                if (!cleared.success) {
-                  setErrorMessage(
-                    cleared.warning ??
-                      'Could not clear xAI OAuth credentials.',
-                  )
-                  break
-                }
-
-                setHasStoredXaiOAuthCredentials(false)
-                setStoredXaiOAuthProfileId(undefined)
                 const xaiProfile = findXaiOAuthProfile(
                   getProviderProfiles(),
                   storedXaiOAuthProfileId,
@@ -4127,16 +4119,30 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                   }
                   if (!result.removed) {
                     setErrorMessage(
-                      'xAI OAuth credentials were cleared, but the xAI profile could not be removed.',
+                      'The xAI OAuth profile could not be removed, so its credentials were not cleared.',
                     )
                     refreshProfiles()
                     break
                   }
 
-                  clearPersistedXaiOAuthProfile()
                   settingsOverrideError = result.activeProfileId
                     ? clearStartupProviderOverrideFromUserSettings()
                     : null
+                }
+
+                const cleared = clearXaiCredentials()
+                if (!cleared.success) {
+                  setErrorMessage(
+                    cleared.warning ??
+                      'Could not clear xAI OAuth credentials.',
+                  )
+                  break
+                }
+
+                setHasStoredXaiOAuthCredentials(false)
+                setStoredXaiOAuthProfileId(undefined)
+                if (xaiProfile) {
+                  clearPersistedXaiOAuthProfile()
                 }
 
                 refreshProfiles()

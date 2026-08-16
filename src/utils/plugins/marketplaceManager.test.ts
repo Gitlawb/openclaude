@@ -154,6 +154,7 @@ test('marketplace removal preserves an out-of-cache install location', async () 
   try {
     process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
     setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+    resetSettingsCache()
     mkdirSync(outsideCache, { recursive: true })
     writeFileSync(sentinel, 'keep', 'utf8')
     await saveKnownMarketplacesConfig({
@@ -171,6 +172,7 @@ test('marketplace removal preserves an out-of-cache install location', async () 
     expect(existsSync(sentinel)).toBe(true)
     expect((await loadKnownMarketplacesConfig()).legacy).toBeUndefined()
   } finally {
+    resetSettingsCache()
     setClaudeConfigHomeDirForTesting(originalConfigOverride)
     if (originalPluginCacheDir === undefined) {
       delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR

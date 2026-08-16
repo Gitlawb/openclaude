@@ -138,6 +138,8 @@ test('a no-op with a transaction error is not accepted as persisted', () => {
 })
 
 test('a concurrent permission deletion is a lock-scoped no-op', () => {
+  let writerInvoked = false
+  let capturedPatch: unknown
   expect(
     deletePermissionRuleFromSettings(
       {
@@ -148,13 +150,15 @@ test('a concurrent permission deletion is a lock-scoped no-op', () => {
       {
         getSettings: () => ({ permissions: { allow: ['Read(base)'] } }),
         updateFreshSettingsOrNoop: (_source, createPatch) => {
-          const patch = createPatch({ permissions: { allow: [] } })
-          expect(patch).toBe(SETTINGS_UPDATE_NO_CHANGE)
+          writerInvoked = true
+          capturedPatch = createPatch({ permissions: { allow: [] } })
           return settingsWriteResult({ written: false, unchanged: true })
         },
       },
     ),
   ).toBe(false)
+  expect(writerInvoked).toBe(true)
+  expect(capturedPatch).toBe(SETTINGS_UPDATE_NO_CHANGE)
 })
 
 test('managed-rules-only policy rejects additions before writing', () => {

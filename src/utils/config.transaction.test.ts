@@ -29,3 +29,25 @@ test('a committed global config write is not replayed when lock release fails', 
     cachedValue: 1,
   })
 })
+
+test('the release-failure fixture emits parseable diagnostics when its on-disk read fails', async () => {
+  const processResult = Bun.spawn(
+    [process.execPath, RELEASE_FAILURE_FIXTURE, 'missing-config'],
+    {
+      cwd: process.cwd(),
+      stderr: 'pipe',
+      stdout: 'pipe',
+    },
+  )
+  const [exitCode, stdout] = await Promise.all([
+    processResult.exited,
+    new Response(processResult.stdout).text(),
+  ])
+
+  expect(exitCode).not.toBe(0)
+  expect(JSON.parse(stdout)).toMatchObject({
+    persisted: true,
+    updaterCalls: 1,
+    error: expect.stringContaining('ENOENT'),
+  })
+})

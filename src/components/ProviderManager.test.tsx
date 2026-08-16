@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -197,6 +197,7 @@ function createDeferred<T>(): {
 
 function mockProviderProfilesModule(options?: {
   addProviderProfile?: (...args: unknown[]) => unknown
+  deleteProviderProfile?: (...args: unknown[]) => unknown
   getActiveProviderProfile?: () => unknown
   getProviderProfiles?: () => unknown[]
   updateProviderProfile?: (...args: unknown[]) => unknown
@@ -205,7 +206,9 @@ function mockProviderProfilesModule(options?: {
   mock.module('../utils/providerProfiles.js', () => ({
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
-    deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
+    deleteProviderProfile:
+      options?.deleteProviderProfile ??
+      (() => ({ removed: false, activeProfileId: null })),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
     getProviderPresetDefaults: (preset: string) => {
       if (preset === 'ollama') {
@@ -329,6 +332,8 @@ function mockProviderManagerDependencies(
     addProviderProfile?: (...args: any[]) => unknown
     applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
+    clearXaiCredentials?: () => { success: boolean; warning?: string }
+    deleteProviderProfile?: (...args: any[]) => unknown
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
     probeRouteReadiness?: (
@@ -352,6 +357,8 @@ function mockProviderManagerDependencies(
     }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
+    xaiSyncRead?: () => unknown
+    xaiAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
@@ -403,6 +410,7 @@ function mockProviderManagerDependencies(
 
   mockProviderProfilesModule({
     addProviderProfile: options?.addProviderProfile,
+    deleteProviderProfile: options?.deleteProviderProfile,
     getActiveProviderProfile: options?.getActiveProviderProfile,
     getProviderProfiles: options?.getProviderProfiles,
     updateProviderProfile: options?.updateProviderProfile,
@@ -452,6 +460,21 @@ function mockProviderManagerDependencies(
     readCodexCredentialsAsync:
       options?.codexAsyncRead ?? (async () => undefined),
   }))
+
+  if (
+    options?.clearXaiCredentials ||
+    options?.xaiSyncRead ||
+    options?.xaiAsyncRead
+  ) {
+    mock.module('../utils/xaiCredentials.js', () => ({
+      clearXaiCredentials:
+        options?.clearXaiCredentials ?? (() => ({ success: true })),
+      readXaiCredentials:
+        options?.xaiSyncRead ?? (() => undefined),
+      readXaiCredentialsAsync:
+        options?.xaiAsyncRead ?? (async () => undefined),
+    }))
+  }
 
   mock.module('../utils/providerProfile.js', () => ({
     applySavedProfileToCurrentSession:
@@ -5727,6 +5750,111 @@ test('ProviderManager resolves Codex OAuth state from async storage without sync
   expect(output).toContain('Log out Codex OAuth')
   expect(codexSyncRead).not.toHaveBeenCalled()
   expect(codexAsyncRead).toHaveBeenCalled()
+})
+
+test('ProviderManager preserves Codex OAuth credentials when profile deletion fails', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  const customSelectModule = await import('./CustomSelect/index.js')
+  let selectLogout: ((value: string) => void) | undefined
+  spyOn(customSelectModule, 'Select').mockImplementation(
+    ((props: {
+      options: Array<{ value: string }>
+      onChange(value: string): void
+    }) => {
+      if (props.options.some(option => option.value === 'logout-codex-oauth')) {
+        selectLogout = props.onChange
+      }
+      return null
+    }) as never,
+  )
+  const codexProfile = {
+    id: 'provider_codex_oauth',
+    provider: 'openai',
+    name: 'Codex OAuth',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    model: 'codexplan',
+    apiKey: '',
+  }
+  const deleteProviderProfile = mock(() => {
+    throw new Error('provider registry is locked')
+  })
+  const clearCodexCredentials = mock(() => ({ success: true }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    clearCodexCredentials,
+    codexAsyncRead: async () => ({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      profileId: codexProfile.id,
+    }),
+    deleteProviderProfile,
+    getProviderProfiles: () => [codexProfile],
+  })
+
+  const { ProviderManager } = await import(
+    `./ProviderManager.js?codex-logout-delete-failure=${Date.now()}`
+  )
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForCondition(() => selectLogout !== undefined)
+    selectLogout?.('logout-codex-oauth')
+
+    expect(deleteProviderProfile).toHaveBeenCalledWith(codexProfile.id)
+    expect(clearCodexCredentials).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager preserves xAI OAuth credentials when profile deletion fails', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  const customSelectModule = await import('./CustomSelect/index.js')
+  let selectLogout: ((value: string) => void) | undefined
+  spyOn(customSelectModule, 'Select').mockImplementation(
+    ((props: {
+      options: Array<{ value: string }>
+      onChange(value: string): void
+    }) => {
+      if (props.options.some(option => option.value === 'logout-xai-oauth')) {
+        selectLogout = props.onChange
+      }
+      return null
+    }) as never,
+  )
+  const xaiProfile = {
+    id: 'provider_xai_oauth',
+    provider: 'xai',
+    name: 'xAI OAuth',
+    baseUrl: 'https://api.x.ai/v1',
+    model: 'grok-4.6',
+    apiKey: '',
+  }
+  const deleteProviderProfile = mock(() => {
+    throw new Error('provider registry is locked')
+  })
+  const clearXaiCredentials = mock(() => ({ success: true }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    clearXaiCredentials,
+    deleteProviderProfile,
+    getProviderProfiles: () => [xaiProfile],
+    xaiAsyncRead: async () => ({
+      accessToken: 'xai-access-token',
+      refreshToken: 'xai-refresh-token',
+    }),
+  })
+
+  const { ProviderManager } = await import(
+    `./ProviderManager.js?xai-logout-delete-failure=${Date.now()}`
+  )
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForCondition(() => selectLogout !== undefined)
+    selectLogout?.('logout-xai-oauth')
+
+    expect(deleteProviderProfile).toHaveBeenCalledWith(xaiProfile.id)
+    expect(clearXaiCredentials).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
 })
 
 test('ProviderManager hides Codex OAuth setup in bare mode', async () => {

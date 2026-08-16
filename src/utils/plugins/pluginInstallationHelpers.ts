@@ -365,11 +365,18 @@ export async function installResolvedPlugin({
   entry,
   scope,
   marketplaceInstallLocation,
+  dependencies = {},
 }: {
   pluginId: string
   entry: PluginMarketplaceEntry
   scope: 'user' | 'project' | 'local'
   marketplaceInstallLocation?: string
+  dependencies?: {
+    cacheAndRegisterPlugin?: typeof cacheAndRegisterPlugin
+    updateFresh?: typeof updateSettingsForSourceWithFreshSettings
+    compareAndSwap?: typeof compareAndSwapPluginInstallation
+    reportError?: typeof logError
+  }
 }): Promise<InstallCoreResult> {
   const settingSource = scopeToSettingSource(scope)
 
@@ -497,7 +504,9 @@ export async function installResolvedPlugin({
   }> = []
   try {
     for (const { id, info, localSourcePath } of materializationPlan) {
-      const { registration } = await cacheAndRegisterPlugin(
+      const { registration } = await (
+        dependencies.cacheAndRegisterPlugin ?? cacheAndRegisterPlugin
+      )(
         id,
         info.entry,
         scope,
@@ -508,14 +517,21 @@ export async function installResolvedPlugin({
       registrations.push({ id, mutation: registration })
     }
   } catch (error) {
-    rollbackPluginRegistrations(registrations, scope, projectPath)
+    rollbackPluginRegistrations(
+      registrations,
+      scope,
+      projectPath,
+      dependencies,
+    )
     throw error
   }
 
   // ── ACTION: publish the entire closure to settings in one call ──
   const closureEnabled: Record<string, true> = {}
   for (const id of resolution.closure) closureEnabled[id] = true
-  const result = updateSettingsForSourceWithFreshSettings(
+  const result = (
+    dependencies.updateFresh ?? updateSettingsForSourceWithFreshSettings
+  )(
     settingSource,
     freshSettings => ({
       enabledPlugins: {
@@ -525,7 +541,12 @@ export async function installResolvedPlugin({
     }),
   )
   if (!wasSettingsUpdateCommitted(result)) {
-    rollbackPluginRegistrations(registrations, scope, projectPath)
+    rollbackPluginRegistrations(
+      registrations,
+      scope,
+      projectPath,
+      dependencies,
+    )
     return {
       ok: false,
       reason: 'settings-write-failed',
@@ -548,15 +569,37 @@ function rollbackPluginRegistrations(
   }>,
   scope: PluginScope,
   projectPath?: string,
+  dependencies: {
+    compareAndSwap?: typeof compareAndSwapPluginInstallation
+    reportError?: typeof logError
+  } = {},
 ): void {
-  for (const { id, mutation } of registrations.reverse()) {
-    compareAndSwapPluginInstallation(
-      id,
-      scope,
-      projectPath,
-      mutation.current,
-      mutation.previous,
-    )
+  const compareAndSwap =
+    dependencies.compareAndSwap ?? compareAndSwapPluginInstallation
+  const reportError = dependencies.reportError ?? logError
+  for (const { id, mutation } of [...registrations].reverse()) {
+    try {
+      const restored = compareAndSwap(
+        id,
+        scope,
+        projectPath,
+        mutation.current,
+        mutation.previous,
+      )
+      if (!restored) {
+        reportError(
+          new Error(
+            `Plugin registration rollback for '${id}' was skipped because the installation changed concurrently`,
+          ),
+        )
+      }
+    } catch (error) {
+      reportError(
+        new Error(`Plugin registration rollback for '${id}' failed`, {
+          cause: toError(error),
+        }),
+      )
+    }
   }
 }
 

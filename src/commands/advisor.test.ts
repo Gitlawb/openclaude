@@ -10,6 +10,7 @@ import * as settingsModule from '../utils/settings/settings.js'
 import command from './advisor.js'
 
 let writeSpy: ReturnType<typeof spyOn>
+let validateModelSpy: ReturnType<typeof spyOn> | undefined
 
 beforeEach(async () => {
   await acquireSharedMutationLock('commands/advisor.test.ts')
@@ -18,6 +19,8 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     writeSpy?.mockRestore()
+    validateModelSpy?.mockRestore()
+    validateModelSpy = undefined
   } finally {
     releaseSharedMutationLock()
   }
@@ -37,7 +40,7 @@ function makeContext() {
 }
 
 test('advisor enable reports the settings write error', async () => {
-  spyOn(validateModelModule, 'validateModel').mockResolvedValue({
+  validateModelSpy = spyOn(validateModelModule, 'validateModel').mockResolvedValue({
     valid: true,
   })
   writeSpy = spyOn(

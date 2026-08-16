@@ -1,7 +1,8 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
-import { normalizeNameForMCP } from '../services/mcp/normalization.js';
+import { deduplicateServerNames, normalizeNameForMCP } from '../services/mcp/normalization.js';
+import { logError } from '../utils/log.js';
 import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
 import { Text } from '../ink.js';
@@ -44,13 +45,17 @@ export function MCPServerApprovalDialog(t0) {
           }
         case "no":
           {
-            const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => ({
-              disabledMcpjsonServers: [...new Set([...(freshSettings_0.disabledMcpjsonServers ?? []), serverName])]
-            }));
+            const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => {
+              const normalizedServerName = normalizeNameForMCP(serverName);
+              return {
+                enabledMcpjsonServers: (freshSettings_0.enabledMcpjsonServers ?? []).filter(enabledServer => normalizeNameForMCP(enabledServer) !== normalizedServerName),
+                disabledMcpjsonServers: deduplicateServerNames([...(freshSettings_0.disabledMcpjsonServers ?? []), serverName])
+              };
+            });
             if (wasSettingsUpdateCommitted(result_0)) {
               onDone();
             } else {
-              setSaveError(`Could not save MCP server preference: ${result_0.error?.message ?? "settings were not written"}`);
+              logError(new Error(`Could not save MCP server decline for ${serverName}: ${result_0.error?.message ?? "settings were not written"}`));
               onDone();
             }
           }
@@ -115,13 +120,4 @@ export function MCPServerApprovalDialog(t0) {
     t7 = $[13];
   }
   return t7;
-}
-function deduplicateServerNames(serverNames: string[]) {
-  const seen = new Set<string>();
-  return serverNames.filter(serverName => {
-    const normalizedName = normalizeNameForMCP(serverName);
-    if (seen.has(normalizedName)) return false;
-    seen.add(normalizedName);
-    return true;
-  });
 }

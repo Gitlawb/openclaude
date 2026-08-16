@@ -661,13 +661,19 @@ export function isSandboxPermissionRequest(
 ): SandboxPermissionRequestMessage | null {
   try {
     const parsed = jsonParse(messageText)
+    const host =
+      typeof parsed?.hostPattern?.host === 'string'
+        ? normalizeSandboxDomainPattern(parsed.hostPattern.host)
+        : null
     if (
       parsed &&
       parsed.type === 'sandbox_permission_request' &&
-      typeof parsed.hostPattern?.host === 'string' &&
-      normalizeSandboxDomainPattern(parsed.hostPattern.host)
+      host
     ) {
-      return parsed as SandboxPermissionRequestMessage
+      return {
+        ...parsed,
+        hostPattern: { ...parsed.hostPattern, host },
+      } as SandboxPermissionRequestMessage
     }
   } catch {
     // Not JSON or not a valid sandbox permission request
@@ -683,13 +689,16 @@ export function isSandboxPermissionResponse(
 ): SandboxPermissionResponseMessage | null {
   try {
     const parsed = jsonParse(messageText)
+    const host =
+      typeof parsed?.host === 'string'
+        ? normalizeSandboxDomainPattern(parsed.host)
+        : null
     if (
       parsed &&
       parsed.type === 'sandbox_permission_response' &&
-      typeof parsed.host === 'string' &&
-      normalizeSandboxDomainPattern(parsed.host)
+      host
     ) {
-      return parsed as SandboxPermissionResponseMessage
+      return { ...parsed, host } as SandboxPermissionResponseMessage
     }
   } catch {
     // Not JSON or not a valid sandbox permission response

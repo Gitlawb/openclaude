@@ -40,26 +40,41 @@ try {
   getClaudeConfigHomeDir.cache?.clear?.()
   getGlobalClaudeFile.cache?.clear?.()
 
-  const config = await import('../../utils/config.js')
-  config.enableConfigs()
-  config.getGlobalConfig()
   let updaterCalls = 0
-  const persisted = config.saveGlobalConfig(current => {
-    updaterCalls++
-    return { ...current, promptQueueUseCount: 1 }
-  })
-  const configPath = join(configDir, '.openclaude.json')
-  const onDisk = JSON.parse(readFileSync(configPath, 'utf8'))
-  const cached = config.getGlobalConfig()
+  let persisted: boolean | undefined
+  try {
+    const config = await import('../../utils/config.js')
+    config.enableConfigs()
+    config.getGlobalConfig()
+    persisted = config.saveGlobalConfig(current => {
+      updaterCalls++
+      return { ...current, promptQueueUseCount: 1 }
+    })
+    const configPath = join(configDir, '.openclaude.json')
+    if (process.argv[2] === 'missing-config') {
+      rmSync(configPath, { force: true })
+    }
+    const onDisk = JSON.parse(readFileSync(configPath, 'utf8'))
+    const cached = config.getGlobalConfig()
 
-  process.stdout.write(
-    JSON.stringify({
-      persisted,
-      updaterCalls,
-      onDiskValue: onDisk.promptQueueUseCount,
-      cachedValue: cached.promptQueueUseCount,
-    }),
-  )
+    process.stdout.write(
+      JSON.stringify({
+        persisted,
+        updaterCalls,
+        onDiskValue: onDisk.promptQueueUseCount,
+        cachedValue: cached.promptQueueUseCount,
+      }),
+    )
+  } catch (error) {
+    process.stdout.write(
+      JSON.stringify({
+        persisted,
+        updaterCalls,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    )
+    throw error
+  }
 } finally {
   if (previousNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = previousNodeEnv

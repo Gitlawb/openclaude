@@ -281,7 +281,14 @@ try {
     } finally {
       if (!lockHolder.killed && lockHolder.exitCode === null) {
         writeFileSync(releaseMarker, 'release', 'utf8')
-        await lockHolder.exited
+        const exited = await Promise.race([
+          lockHolder.exited.then(() => true),
+          Bun.sleep(2_000).then(() => false),
+        ])
+        if (!exited && lockHolder.exitCode === null) {
+          lockHolder.kill(9)
+          await lockHolder.exited
+        }
       }
     }
   } else {

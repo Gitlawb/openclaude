@@ -2,7 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import partition from 'lodash-es/partition.js';
 import React, { useCallback } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
-import { normalizeNameForMCP } from '../services/mcp/normalization.js';
+import { deduplicateServerNames, normalizeNameForMCP } from '../services/mcp/normalization.js';
 import { Box, Text } from '../ink.js';
 import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -32,15 +32,12 @@ export function MCPServerMultiselectDialog(t0) {
       });
       const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => {
         const approvedNames = new Set(approvedServers.map(normalizeNameForMCP));
-        const enabledMcpjsonServers = deduplicateServerNames([...(freshSettings.enabledMcpjsonServers ?? []), ...approvedServers]);
+        const rejectedNames = new Set(rejectedServers.map(normalizeNameForMCP));
+        const enabledMcpjsonServers = deduplicateServerNames([...(freshSettings.enabledMcpjsonServers ?? []).filter(server => !rejectedNames.has(normalizeNameForMCP(server))), ...approvedServers]);
         const disabledMcpjsonServers = deduplicateServerNames([...(freshSettings.disabledMcpjsonServers ?? []).filter(server => !approvedNames.has(normalizeNameForMCP(server))), ...rejectedServers.filter(server => !approvedNames.has(normalizeNameForMCP(server)))]);
         return {
-          ...(approvedServers.length > 0 ? {
-            enabledMcpjsonServers
-          } : {}),
-          ...(approvedServers.length > 0 || rejectedServers.length > 0 ? {
-            disabledMcpjsonServers
-          } : {})
+          enabledMcpjsonServers,
+          disabledMcpjsonServers
         };
       });
       if (wasSettingsUpdateCommitted(result)) {
@@ -59,14 +56,17 @@ export function MCPServerMultiselectDialog(t0) {
   let t2;
   if ($[3] !== onDone || $[4] !== serverNames) {
     t2 = () => {
-      const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => ({
-        disabledMcpjsonServers: [...new Set([...(freshSettings_0.disabledMcpjsonServers ?? []), ...serverNames])]
-      }));
+      const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => {
+        const rejectedNames = new Set(serverNames.map(normalizeNameForMCP));
+        return {
+          enabledMcpjsonServers: (freshSettings_0.enabledMcpjsonServers ?? []).filter(server => !rejectedNames.has(normalizeNameForMCP(server))),
+          disabledMcpjsonServers: deduplicateServerNames([...(freshSettings_0.disabledMcpjsonServers ?? []), ...serverNames])
+        };
+      });
       if (wasSettingsUpdateCommitted(result_0)) {
         onDone();
       } else {
         setSaveError(`Could not save MCP server preferences: ${result_0.error?.message ?? "settings were not written"}`);
-        onDone();
       }
     };
     $[3] = onDone;
@@ -130,15 +130,6 @@ export function MCPServerMultiselectDialog(t0) {
     t9 = $[21];
   }
   return t9;
-}
-function deduplicateServerNames(serverNames: string[]) {
-  const seen = new Set<string>();
-  return serverNames.filter(serverName => {
-    const normalizedName = normalizeNameForMCP(serverName);
-    if (seen.has(normalizedName)) return false;
-    seen.add(normalizedName);
-    return true;
-  });
 }
 function _temp(server_0) {
   return {
