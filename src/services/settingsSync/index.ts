@@ -33,9 +33,8 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
 } from '../../utils/model/providers.js'
-import { markInternalWrite } from '../../utils/settings/internalWrites.js'
 import { getSettingsFilePathForSource } from '../../utils/settings/settings.js'
-import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+import { replaceSettingsFileSync } from '../../utils/settings/settingsFileTransaction.js'
 import { sleep } from '../../utils/sleep.js'
 import { getClaudeCodeUserAgent } from '../../utils/userAgent.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
@@ -477,6 +476,20 @@ async function writeFileForSync(
   }
 }
 
+function writeSettingsFileForSync(
+  filePath: string,
+  content: string,
+): boolean {
+  try {
+    replaceSettingsFileSync(filePath, content)
+    logForDiagnosticsNoPII('info', 'settings_sync_file_written')
+    return true
+  } catch {
+    logForDiagnosticsNoPII('warn', 'settings_sync_file_write_failed')
+    return false
+  }
+}
+
 /**
  * Apply remote entries to local files (CCR pull pattern).
  * Only writes files that match expected keys.
@@ -488,10 +501,14 @@ async function writeFileForSync(
 async function applyRemoteEntriesToLocal(
   entries: Record<string, string>,
   projectId: string | null,
-): Promise<void> {
+): Promise<{
+  appliedCount: number
+  settingsFilesWritten: number
+  memoryFilesWritten: number
+}> {
   let appliedCount = 0
-  let settingsWritten = false
-  let memoryWritten = false
+  let settingsFilesWritten = 0
+  let memoryFilesWritten = 0
 
   // Helper to check size limit (defense-in-depth, matches backend limit)
   const exceedsSizeLimit = (content: string, _path: string): boolean => {
@@ -514,11 +531,9 @@ async function applyRemoteEntriesToLocal(
       userSettingsPath &&
       !exceedsSizeLimit(userSettingsContent, userSettingsPath)
     ) {
-      // Mark as internal write to prevent spurious change detection
-      markInternalWrite(userSettingsPath)
-      if (await writeFileForSync(userSettingsPath, userSettingsContent)) {
+      if (writeSettingsFileForSync(userSettingsPath, userSettingsContent)) {
         appliedCount++
-        settingsWritten = true
+        settingsFilesWritten++
       }
     }
   }
@@ -530,7 +545,7 @@ async function applyRemoteEntriesToLocal(
     if (!exceedsSizeLimit(userMemoryContent, userMemoryPath)) {
       if (await writeFileForSync(userMemoryPath, userMemoryContent)) {
         appliedCount++
-        memoryWritten = true
+        memoryFilesWritten++
       }
     }
   }
@@ -545,11 +560,11 @@ async function applyRemoteEntriesToLocal(
         localSettingsPath &&
         !exceedsSizeLimit(projectSettingsContent, localSettingsPath)
       ) {
-        // Mark as internal write to prevent spurious change detection
-        markInternalWrite(localSettingsPath)
-        if (await writeFileForSync(localSettingsPath, projectSettingsContent)) {
+        if (
+          writeSettingsFileForSync(localSettingsPath, projectSettingsContent)
+        ) {
           appliedCount++
-          settingsWritten = true
+          settingsFilesWritten++
         }
       }
     }
@@ -561,21 +576,31 @@ async function applyRemoteEntriesToLocal(
       if (!exceedsSizeLimit(projectMemoryContent, localMemoryPath)) {
         if (await writeFileForSync(localMemoryPath, projectMemoryContent)) {
           appliedCount++
-          memoryWritten = true
+          memoryFilesWritten++
         }
       }
     }
   }
 
   // Invalidate caches so subsequent reads pick up new content
-  if (settingsWritten) {
-    resetSettingsCache()
-  }
-  if (memoryWritten) {
+  if (memoryFilesWritten > 0) {
     clearMemoryFileCaches()
   }
 
   logForDiagnosticsNoPII('info', 'settings_sync_applied', {
     appliedCount,
   })
+  return { appliedCount, settingsFilesWritten, memoryFilesWritten }
+}
+
+/** @internal Direct apply seam for focused settings-file transaction tests. */
+export function _applyRemoteEntriesToLocalForTesting(
+  entries: Record<string, string>,
+  projectId: string | null,
+): Promise<{
+  appliedCount: number
+  settingsFilesWritten: number
+  memoryFilesWritten: number
+}> {
+  return applyRemoteEntriesToLocal(entries, projectId)
 }
