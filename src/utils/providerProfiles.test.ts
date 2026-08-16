@@ -1495,6 +1495,56 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('xai')
   })
 
+  test('retargeted xAI profiles keep route identity without applying dedicated credentials', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'xai',
+        name: 'xAI proxy',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'grok-4.6',
+        apiKey: 'xai-test-key',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+  })
+
+  test('re-applies a retargeted xAI profile when withheld credentials drift back into env', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const xaiProxy = buildProfile({
+      id: 'xai_proxy',
+      provider: 'xai',
+      name: 'xAI proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'grok-4.6',
+      apiKey: 'xai-test-key',
+    })
+    applyProviderProfileToProcessEnv(xaiProxy)
+
+    process.env.OPENAI_API_KEY = 'xai-test-key'
+    process.env.OPENAI_API_KEYS = 'xai-test-key'
+    process.env.XAI_API_KEY = 'xai-test-key'
+    delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [xaiProxy],
+      activeProviderProfileId: 'xai_proxy',
+    } as any)
+
+    expect(applied?.id).toBe('xai_proxy')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEYS).toBeUndefined()
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+  })
+
   test('does not mirror XAI_API_KEY for a lookalike host containing "x.ai"', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -3354,7 +3404,7 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
-  test('retargeted xAI profiles retain dedicated-key identity in the startup env', async () => {
+  test('retargeted xAI profiles keep route identity but persist without their dedicated credential', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.chdir(tempDir)
@@ -3388,9 +3438,36 @@ describe('setActiveProviderProfile', () => {
         CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
         OPENAI_BASE_URL: 'https://proxy.example/v1',
         OPENAI_MODEL: 'grok-4.6',
-        OPENAI_API_KEY: 'xai-test-key',
-        XAI_API_KEY: 'xai-test-key',
       })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          XAI_API_KEY: 'ambient-xai-key',
+          OPENAI_API_KEY: 'ambient-xai-key',
+        },
+      })
+
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
+      expect(startupEnv.XAI_API_KEY).toBeUndefined()
+      expect(startupEnv.OPENAI_API_KEY).toBeUndefined()
+
+      const legacyStartupEnv = await buildStartupEnvFromProfile({
+        persisted: {
+          ...persisted,
+          env: {
+            ...persisted.env,
+            OPENAI_API_KEY: 'xai-test-key',
+            XAI_API_KEY: 'xai-test-key',
+          },
+        },
+        processEnv: {},
+      })
+      expect(legacyStartupEnv.OPENAI_API_KEY).toBeUndefined()
+      expect(legacyStartupEnv.XAI_API_KEY).toBeUndefined()
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

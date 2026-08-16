@@ -253,9 +253,10 @@ export async function executeOpenAIRequest(
     baseUrl: request.baseUrl,
     processEnv: requestProcessEnv,
   })
-  // xAI OAuth credentials are valid only for xAI's API host. A route ID may
-  // survive an edited provider profile, so it is not sufficient authorization
-  // to send the stored bearer to the effective request URL.
+  // xAI OAuth and XAI_API_KEY are valid only for xAI's API host. A retained
+  // xAI route id is not authorization to send those secrets to a proxy.
+  // A distinct OPENAI_API_KEY on that proxy is a proxy credential, not an
+  // xAI secret — drop only values that also appear in XAI_API_KEY.
   const isXaiRoute = Boolean(request.baseUrl?.trim()) &&
     isCanonicalXaiInferenceBaseUrl(request.baseUrl)
   const xaiCredentials = new Set(

@@ -1259,6 +1259,17 @@ export function resolveActiveRouteIdFromEnv(
       return matchedRoute
     }
 
+    const retainedRouteId = processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+    // Only xAI needs this env stamp to survive a proxy URL. ApiSmart's
+    // dedicated key never rides OPENAI_API_KEY after persist/relaunch, and
+    // it has no OAuth injector keyed off route id. xAI still must keep
+    // identity so OAuth stays off the proxy and XAI_API_KEY values can be
+    // filtered from generic pools. Host matching already returned above
+    // when the URL is canonical.
+    if (retainedRouteId === 'xai') {
+      return 'xai'
+    }
+
     if (options?.activeProfileProvider) {
       const route = resolveProfileRoute(options.activeProfileProvider)
       if (

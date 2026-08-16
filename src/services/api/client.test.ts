@@ -998,6 +998,26 @@ test('env-only xAI fallback preserves xAI OPENAI_API_BASE host overrides', async
   expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
 })
 
+test('env-only xAI fallback does not copy XAI_API_KEY onto an insecure xAI URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_API_KEY = 'stale-openai-key'
+  process.env.OPENAI_BASE_URL = 'http://api.x.ai/v1'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'grok-4',
+  })
+
+  expect(process.env.OPENAI_BASE_URL).toBe('http://api.x.ai/v1')
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+})
+
 test('env-only xAI fallback drops unsupported OpenAI shim options', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined

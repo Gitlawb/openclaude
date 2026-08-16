@@ -55,6 +55,7 @@ import {
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -159,6 +160,20 @@ function isApismartProfile(profile: ProviderProfile): boolean {
   // Only the documented `/v1` inference URL may carry the dedicated key —
   // host-only or path-suffixed ApiSmart URLs are treated as retargeted.
   return !baseUrl || isCanonicalApismartInferenceBaseUrl(baseUrl)
+}
+
+function isCanonicalXaiProfile(profile: ProviderProfile): boolean {
+  const baseUrl = profile.baseUrl?.trim()
+  // Missing base URL resolves to api.x.ai, which is canonical. HTTP, non-443,
+  // and proxy hosts must not carry the dedicated xAI credential.
+  return !baseUrl || isCanonicalXaiInferenceBaseUrl(baseUrl)
+}
+
+function withholdRetargetedXaiCredential(profile: ProviderProfile): boolean {
+  return (
+    resolveProfileRoute(profile.provider).routeId === 'xai' &&
+    !isCanonicalXaiProfile(profile)
+  )
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -649,6 +664,7 @@ function isProcessEnvAlignedWithProfile(
   const includeApiKey = options?.includeApiKey ?? true
   const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
+  const withholdXaiKey = withholdRetargetedXaiCredential(profile)
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
     return false
@@ -784,14 +800,24 @@ function isProcessEnvAlignedWithProfile(
       expectedContextWindows,
     ) &&
     (!includeApiKey ||
-      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
+      (withholdXaiKey
+        ? !trimOrUndefined(processEnv.OPENAI_API_KEY) &&
+          !trimOrUndefined(processEnv.OPENAI_API_KEYS)
+        : sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
       : true) &&
-    (isXaiBaseUrl(profile.baseUrl)
+    (resolveProfileRoute(profile.provider).routeId === 'xai'
       ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+        processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'xai'
+      : true) &&
+    ((isXaiBaseUrl(profile.baseUrl) ||
+      resolveProfileRoute(profile.provider).routeId === 'xai')
+      ? !includeApiKey ||
+        (withholdXaiKey
+          ? !trimOrUndefined(processEnv.XAI_API_KEY)
+          : sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey))
       : true) &&
     (isAimlapiRoute
       ? !includeApiKey ||
@@ -1001,7 +1027,12 @@ export function applyProviderProfileToProcessEnv(
 
     const withholdRetargetedApismartCredential =
       route.routeId === 'apismart' && !isApismartProfile(profile)
-    if (profile.apiKey && !withholdRetargetedApismartCredential) {
+    const withholdXaiKey = withholdRetargetedXaiCredential(profile)
+    if (
+      profile.apiKey &&
+      !withholdRetargetedApismartCredential &&
+      !withholdXaiKey
+    ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
@@ -1082,6 +1113,12 @@ export function applyProviderProfileToProcessEnv(
         openAIProfileEnv.AIMLAPI_API_KEY =
           openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
       }
+    }
+    if (route.routeId === 'xai') {
+      // Keep xAI identity on retargeted/proxy session env so request-time
+      // withholding can refuse mirrored OPENAI_API_KEY / OAuth even when
+      // dedicated keys were not applied.
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
     }
     // Keep ApiSmart route identity even when the profile is retargeted to a
     // proxy. Dedicated credentials stay withheld above; the route id is what
@@ -1384,11 +1421,16 @@ function buildOpenAICompatibleStartupEnv(
   const withholdRetargetedApismartCredential =
     resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
     !isApismartProfile(activeProfile)
+  const withholdXaiKey = withholdRetargetedXaiCredential(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdXaiKey
+  ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1472,13 +1514,17 @@ function buildOpenAICompatibleStartupEnv(
   if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
-  // Preserve xAI identity too: an edited xAI profile can target a proxy, but
-  // that must not turn its dedicated API key into a generic proxy credential
-  // after the profile is persisted and relaunched.
+  // Preserve xAI identity on retargeted/proxy startup envs so relaunch
+  // withholding can refuse ambient dedicated credentials. Canonical profiles
+  // already stamp this via the keyed strict-env branch.
   if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
   }
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdXaiKey
+  ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
@@ -1743,6 +1789,9 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
+    return
+  }
+  if (withholdRetargetedXaiCredential(profile)) {
     return
   }
 

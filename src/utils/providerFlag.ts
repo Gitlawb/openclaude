@@ -29,7 +29,10 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
+import {
+  isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
+} from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
@@ -570,7 +573,18 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
       process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.6'
       if (model) process.env.OPENAI_MODEL = model
-      if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
+      // Keep a user proxy URL (`??=` above), but never turn the dedicated
+      // xAI secret into a generic credential for that host. A mirrored copy
+      // that already equals XAI_API_KEY is stripped; a distinct OPENAI_API_KEY
+      // is left for the proxy.
+      if (!isCanonicalXaiInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) {
+        if (
+          process.env.OPENAI_API_KEY !== undefined &&
+          process.env.OPENAI_API_KEY === process.env.XAI_API_KEY
+        ) {
+          delete process.env.OPENAI_API_KEY
+        }
+      } else if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
       }
       break

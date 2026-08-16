@@ -1143,6 +1143,38 @@ describe('applyProviderFlag - xai', () => {
 
     expect(process.env.OPENAI_API_KEY).toBe('existing-openai-key')
   })
+
+  test('does not copy XAI_API_KEY onto a retargeted proxy URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+    process.env.XAI_API_KEY = 'xai-secret-key'
+    delete process.env.OPENAI_API_KEY
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.XAI_API_KEY).toBe('xai-secret-key')
+  })
+
+  test('strips a mirrored XAI_API_KEY from OPENAI_API_KEY on a retargeted proxy URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+    process.env.XAI_API_KEY = 'xai-secret-key'
+    process.env.OPENAI_API_KEY = 'xai-secret-key'
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('keeps a distinct OPENAI_API_KEY on a retargeted xAI proxy URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+    process.env.XAI_API_KEY = 'xai-secret-key'
+    process.env.OPENAI_API_KEY = 'proxy-owned-key'
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('proxy-owned-key')
+  })
 })
 
 describe('applyProviderFlag - invalid provider', () => {

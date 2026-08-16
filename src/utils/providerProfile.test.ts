@@ -1641,6 +1641,153 @@ test('xai non-OAuth profile (legacy api-key flow) still accepts OPENAI_API_KEY f
   assert.equal(env.OPENAI_API_KEY, 'xai-disguised-as-openai-key')
 })
 
+test('openai launch withholds ambient xAI credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-xai-key',
+      XAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.XAI_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_MODEL: 'grok-4.6',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.x.ai/v1',
+      OPENAI_API_KEY: 'ambient-xai-key',
+      XAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-xai-key')
+  assert.equal(canonical.XAI_API_KEY, 'ambient-xai-key')
+})
+
+test('openai launch drops legacy persisted xAI keys from a retargeted proxy profile', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+      OPENAI_API_KEY: 'legacy-xai-key',
+      XAI_API_KEY: 'legacy-xai-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.XAI_API_KEY, undefined)
+})
+
+test('legacy xai launch withholds dedicated credentials from a retargeted proxy URL', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_API_KEY: 'xai-persisted-key',
+      OPENAI_API_KEY: 'xai-persisted-key',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      XAI_API_KEY: 'ambient-xai-key',
+      OPENAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example.com/v1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.XAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
+test('openai launch keeps a distinct proxy OPENAI_API_KEY on a retargeted xAI profile', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'proxy-owned-key',
+      XAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.OPENAI_API_KEY, 'proxy-owned-key')
+  assert.equal(env.XAI_API_KEY, undefined)
+})
+
+test('openai launch infers retargeted xAI identity from a legacy persisted dedicated key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+      OPENAI_API_KEY: 'legacy-xai-key',
+      XAI_API_KEY: 'legacy-xai-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'legacy-xai-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.XAI_API_KEY, undefined)
+})
+
+test('openai launch restores profile-owned custom auth on a retargeted xAI proxy', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'profile-own-proxy-secret',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_AUTH_HEADER: 'X-Ambient-Auth',
+      OPENAI_AUTH_HEADER_VALUE: 'ambient-canonical-secret',
+      XAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.OPENAI_AUTH_HEADER, 'X-Proxy-Auth')
+  assert.equal(env.OPENAI_AUTH_HEADER_VALUE, 'profile-own-proxy-secret')
+  assert.equal(env.XAI_API_KEY, undefined)
+})
+
 test('codex launch clears openai-compatible format and custom auth env', async () => {
   const env = await buildLaunchEnv({
     profile: 'codex',

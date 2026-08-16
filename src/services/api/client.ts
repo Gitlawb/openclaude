@@ -44,6 +44,7 @@ import {
   getMiniMaxBaseUrlOverride,
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -250,7 +251,17 @@ function applyXaiEnvOnlyDefaults(): void {
       ? modelOverride
       : undefined) ??
     getRouteDefaultModel('xai')
-  process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  // Dedicated xAI credentials belong only to the documented HTTPS API origin.
+  // An api.x.ai host override can still be HTTP or a non-443 port; do not
+  // copy XAI_API_KEY onto that URL as OPENAI_API_KEY.
+  if (
+    process.env.XAI_API_KEY?.trim() &&
+    isCanonicalXaiInferenceBaseUrl(process.env.OPENAI_BASE_URL)
+  ) {
+    process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
+  } else {
+    delete process.env.OPENAI_API_KEY
+  }
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
   delete process.env.OPENAI_AUTH_HEADER

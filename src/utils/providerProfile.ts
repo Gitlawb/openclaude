@@ -26,6 +26,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -1092,7 +1093,12 @@ function buildXaiProfileEnv(options: {
       defaultModel,
   }
 
-  if (key) {
+  env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  // Dedicated xAI credentials are valid only for api.x.ai. A retargeted
+  // profile keeps route identity so request-time withholding can refuse
+  // leftover generic keys, but must not attach XAI_API_KEY / a mirrored
+  // OPENAI_API_KEY to a proxy URL.
+  if (key && isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL)) {
     env.OPENAI_API_KEY = key
     env.XAI_API_KEY = key
   }
@@ -1484,6 +1490,19 @@ function isSameConfiguredEndpoint(
   return normalizedLeft !== null && normalizedLeft === normalize(right)
 }
 
+function collectXaiCredentialValues(
+  ...sources: Array<string | undefined>
+): Set<string> {
+  return new Set(sources.flatMap(value => parseCredentialList(value)))
+}
+
+function withoutXaiCredentialValues(
+  value: string | undefined,
+  xaiSecrets: Set<string>,
+): string[] {
+  return parseCredentialList(value).filter(item => !xaiSecrets.has(item))
+}
+
 export async function buildLaunchEnv(options: {
   profile: ProviderProfile
   persisted: ProfileFile | null
@@ -1787,13 +1806,22 @@ export async function buildLaunchEnv(options: {
     // override; otherwise leave the env keyless and let openaiShim
     // resolve the stored OAuth access token at request time.
     const isOAuthProfile = persistedEnv.XAI_CREDENTIAL_SOURCE === 'oauth'
-    const xaiKey = isOAuthProfile
-      ? sanitizeApiKey(processEnv.XAI_API_KEY) ||
-        sanitizeApiKey(persistedEnv.XAI_API_KEY)
-      : sanitizeApiKey(processEnv.XAI_API_KEY) ||
-        sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
-        sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
-        sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+    const resolvedXaiBaseUrl = shellOpenAIBaseUrl || persistedOpenAIBaseUrl
+    const isCanonicalXaiLaunch =
+      !resolvedXaiBaseUrl?.trim() ||
+      isCanonicalXaiInferenceBaseUrl(resolvedXaiBaseUrl)
+    // Retargeted xAI launch files must not inherit a dedicated or mirrored
+    // key. buildXaiProfileEnv also withholds on the resolved URL; skip the
+    // sources here so a proxy profile cannot pick OPENAI_API_KEY as xAI.
+    const xaiKey = !isCanonicalXaiLaunch
+      ? undefined
+      : isOAuthProfile
+        ? sanitizeApiKey(processEnv.XAI_API_KEY) ||
+          sanitizeApiKey(persistedEnv.XAI_API_KEY)
+        : sanitizeApiKey(processEnv.XAI_API_KEY) ||
+          sanitizeApiKey(persistedEnv.XAI_API_KEY) ||
+          sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
+          sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
 
     const env = buildXaiProfileEnv({
       model: shellOpenAIModel || persistedOpenAIModel,
@@ -2080,14 +2108,61 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'apismart' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(env.OPENAI_BASE_URL)
+  // Older xAI proxy files persisted XAI_API_KEY without a route id. Infer
+  // identity from that dedicated key so relaunch can withhold it instead of
+  // treating the file as a generic OpenAI proxy.
+  const inferredRetargetedXaiIdentity =
+    Boolean(sanitizeApiKey(persistedEnv.XAI_API_KEY)) &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL)
+  if (inferredRetargetedXaiIdentity && !env.CLAUDE_CODE_PROVIDER_ROUTE_ID) {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  }
+  const isNoncanonicalXaiLaunch =
+    (effectiveOpenAIRouteId === 'xai' || inferredRetargetedXaiIdentity) &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
-    isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch
+    isNoncanonicalAimlapiLaunch ||
+    isNoncanonicalApismartLaunch ||
+    isNoncanonicalXaiLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
-    const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
-    if (persistedCredential) {
-      env[persistedCredential.envVar] = persistedCredential.value
+    if (isNoncanonicalXaiLaunch) {
+      // Drop mirrored xAI secrets, but keep a distinct generic key — that is
+      // the proxy credential `--provider xai` also preserves.
+      const xaiSecrets = collectXaiCredentialValues(
+        processEnv.XAI_API_KEY,
+        persistedEnv.XAI_API_KEY,
+      )
+      const persistedGeneric = resolveOpenAICredentialEnvSelection(persistedEnv)
+      const shellGeneric = resolveOpenAICredentialEnvSelection(processEnv)
+      const restoreGeneric = (
+        selection: OpenAICredentialEnvSelection | undefined,
+      ) => {
+        if (!selection || selection.kind !== 'usable') {
+          return false
+        }
+        const filtered = withoutXaiCredentialValues(
+          selection.value,
+          xaiSecrets,
+        )
+        if (filtered.length === 0) {
+          return false
+        }
+        env[selection.envVar] = filtered.join(',')
+        return true
+      }
+      if (!restoreGeneric(shellGeneric)) {
+        restoreGeneric(persistedGeneric)
+      }
+    } else {
+      // Aimlapi/apismart may restore a profile-owned proxy credential.
+      const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
+      if (persistedCredential) {
+        env[persistedCredential.envVar] = persistedCredential.value
+      }
     }
     // Custom authentication is a second credential channel, not just transport
     // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
@@ -2122,6 +2197,7 @@ export async function buildLaunchEnv(options: {
     'MIMO_API_KEY',
     'NVIDIA_API_KEY',
     'VENICE_API_KEY',
+    'XAI_API_KEY',
   ] as const) {
     // AI/ML API accepts the generic OPENAI_API_KEY, so it does not need an
     // unconditional carry-over. Only mirror AIMLAPI_API_KEY when the launch
@@ -2131,6 +2207,16 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'APISMART_API_KEY' && effectiveOpenAIRouteId !== 'apismart') {
+      continue
+    }
+    if (dedicatedKey === 'XAI_API_KEY' && effectiveOpenAIRouteId !== 'xai') {
+      continue
+    }
+    if (
+      dedicatedKey === 'XAI_API_KEY' &&
+      !!env.OPENAI_BASE_URL?.trim() &&
+      !isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL)
+    ) {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
@@ -2285,7 +2371,17 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'apismart' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
-  if (hasConcreteProviderSelection(processEnv) && !persistedApismartProxy) {
+  const persistedXaiProxy =
+    persisted?.profile === 'openai' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalXaiInferenceBaseUrl(persisted.env.OPENAI_BASE_URL) &&
+    (persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'xai' ||
+      Boolean(sanitizeApiKey(persisted.env.XAI_API_KEY)))
+  if (
+    hasConcreteProviderSelection(processEnv) &&
+    !persistedApismartProxy &&
+    !persistedXaiProxy
+  ) {
     return processEnv
   }
 
