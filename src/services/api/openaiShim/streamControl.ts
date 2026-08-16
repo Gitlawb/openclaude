@@ -1,3 +1,10 @@
+import {
+  flushInterruptionTrace,
+  getInterruptionSignalAbortEventId,
+  setInterruptionErrorCausalEventId,
+  traceInterruptionEvent,
+} from '../../../utils/interruptionTrace.js'
+
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000
 const MAX_STREAM_IDLE_TIMEOUT_MS = 2_147_483_647
 
@@ -57,13 +64,79 @@ export function getStreamIdleTimeoutMs(): number {
     : DEFAULT_STREAM_IDLE_TIMEOUT_MS
 }
 
+export function createProviderStreamTrace(transport: string) {
+  let lastRawByteTime = performance.now()
+  let lastParsedFrameTime = lastRawByteTime
+  let rawByteCount = 0
+  let parsedFrameCount = 0
+  let controlFrameCount = 0
+  let ignoredFrameCount = 0
+  let causalEventId: string | undefined
+
+  const fields = () => ({
+    subsystem: 'provider_stream',
+    transport,
+    rawByteCount,
+    parsedFrameCount,
+    controlFrameCount,
+    ignoredFrameCount,
+  })
+
+  traceInterruptionEvent('provider_stream.read_started', fields())
+
+  return {
+    recordRaw(value: Uint8Array | undefined): void {
+      if (!value || value.byteLength === 0) return
+      lastRawByteTime = performance.now()
+      rawByteCount += value.byteLength
+      if (rawByteCount === value.byteLength) {
+        traceInterruptionEvent('provider_stream.first_raw_byte', fields())
+      }
+    },
+    recordParsed(): void {
+      lastParsedFrameTime = performance.now()
+      parsedFrameCount++
+    },
+    recordControl(): void {
+      controlFrameCount++
+    },
+    recordIgnored(): void {
+      ignoredFrameCount++
+    },
+    recordIdleTimeout(error: unknown): void {
+      const now = performance.now()
+      causalEventId = traceInterruptionEvent('provider_stream.idle_timeout', {
+        ...fields(),
+        sinceLastRawByteMs: now - lastRawByteTime,
+        sinceLastParsedFrameMs: now - lastParsedFrameTime,
+      })
+      setInterruptionErrorCausalEventId(error, causalEventId)
+      flushInterruptionTrace('provider_stream_idle_timeout')
+    },
+    recordEof(): void {
+      traceInterruptionEvent('provider_stream.eof', fields())
+    },
+    recordClosed(outcome: string, signal?: AbortSignal): void {
+      traceInterruptionEvent('provider_stream.reader_closed', {
+        ...fields(),
+        outcome,
+        reason: signal?.reason,
+        causalEventId:
+          (signal && getInterruptionSignalAbortEventId(signal)) ??
+          causalEventId,
+      })
+    },
+  }
+}
+
 export async function readWithIdleTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number,
   options: {
     signal?: AbortSignal
     cancelReader?: (error?: unknown) => void
-    onTimeout?: () => void
+    onTimeout?: (error: unknown) => void
+    createTimeoutError?: () => unknown
   } = {},
 ): Promise<StreamReadResult> {
   const signal = options.signal
@@ -111,9 +184,15 @@ export async function readWithIdleTimeout(
     }
 
     timeoutId = setTimeout(() => {
-      const error = new StreamIdleTimeoutError(timeoutMs)
+      let error: unknown
       try {
-        options.onTimeout?.()
+        error = options.createTimeoutError?.()
+      } catch {
+        // Fall back to the standard timeout error.
+      }
+      error ??= new StreamIdleTimeoutError(timeoutMs)
+      try {
+        options.onTimeout?.(error)
       } catch {
         // Ignore diagnostic callback failures.
       }
@@ -140,27 +219,33 @@ export async function* anthropicSsePassthrough<T extends object>(
   const decoder = new TextDecoder()
   let buffer = ''
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
+  let lastDataTime = performance.now()
   let streamComplete = false
+  let protocolComplete = false
+  let readerFailed = false
+  const streamTrace = createProviderStreamTrace('anthropic_messages')
 
   try {
     while (true) {
       const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
         signal,
         cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        onTimeout: error => {
+          const elapsed = Math.round((performance.now() - lastDataTime) / 1000)
           logForDebugging(
             `Anthropic-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
             { level: 'error' },
           )
+          streamTrace.recordIdleTimeout(error)
         },
       })
       if (done) {
         streamComplete = true
+        streamTrace.recordEof()
         buffer += decoder.decode()
       } else {
-        if (value) lastDataTime = Date.now()
+        if (value) lastDataTime = performance.now()
+        streamTrace.recordRaw(value)
         throwIfStreamAborted(signal)
         buffer += decoder.decode(value, { stream: true })
       }
@@ -170,10 +255,14 @@ export async function* anthropicSsePassthrough<T extends object>(
         throwIfStreamAborted(signal)
         const lines = chunk.split(/\r\n|\n|\r/).map(line => line.trim()).filter(Boolean)
         const dataLines = lines.filter(line => line.startsWith('data:'))
-        if (dataLines.length === 0) continue
+        if (dataLines.length === 0) {
+          streamTrace.recordControl()
+          continue
+        }
         const rawData = dataLines.map(line => line.slice(5).replace(/^ /, '')).join('\n')
         if (rawData === '[DONE]') {
-          streamComplete = true
+          streamTrace.recordControl()
+          protocolComplete = true
           readerCanceller.cancel()
           return
         }
@@ -182,17 +271,41 @@ export async function* anthropicSsePassthrough<T extends object>(
           parsed = JSON.parse(rawData) as T
         } catch {
           // Ignore malformed frames and continue parsing later frames.
+          streamTrace.recordIgnored()
           continue
         }
         if (parsed && typeof parsed === 'object' && 'type' in parsed) {
+          streamTrace.recordParsed()
+          if ((parsed as { type?: unknown }).type === 'message_stop') {
+            protocolComplete = true
+          }
           throwIfStreamAborted(signal)
           yield parsed as Awaited<T>
+        } else {
+          streamTrace.recordIgnored()
         }
       }
       if (done) break
     }
+  } catch (error) {
+    readerFailed = true
+    throw error
   } finally {
-    if (!streamComplete || signal?.aborted) readerCanceller.cancel(createStreamAbortError())
+    streamTrace.recordClosed(
+      signal?.aborted
+        ? 'root_aborted'
+        : readerFailed
+          ? 'failed'
+          : protocolComplete
+            ? 'complete'
+          : streamComplete
+            ? 'eof_without_terminal'
+            : 'incomplete',
+      signal,
+    )
+    if (!streamComplete || signal?.aborted) {
+      readerCanceller.cancel(createStreamAbortError())
+    }
     readerCanceller.cleanup()
     reader.releaseLock()
   }

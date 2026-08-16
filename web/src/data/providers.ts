@@ -189,6 +189,14 @@ export const providers: Provider[] = [
     notes: 'OpenAI-compatible hosted open models with reasoning support at https://api.atlascloud.ai/v1.',
   },
   {
+    id: 'apismart',
+    name: 'ApiSmart',
+    group: 'gateways',
+    setup: '/provider or env vars',
+    envVars: ['APISMART_API_KEY', 'APISMART_MODEL'],
+    notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1; defaults to DEEPSEEK_V4_FLASH with hybrid /v1/models discovery.',
+  },
+  {
     id: 'cloudflare',
     name: 'Cloudflare Workers AI',
     group: 'gateways',
@@ -228,7 +236,7 @@ export const providers: Provider[] = [
     group: 'vendors',
     setup: '/provider or env vars',
     envVars: ['XAI_API_KEY'],
-    notes: 'Grok models at https://api.x.ai/v1; defaults to grok-4.3.',
+    notes: 'Grok models at https://api.x.ai/v1; defaults to grok-4.6.',
   },
   {
     id: 'deepseek',

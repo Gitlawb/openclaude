@@ -1,6 +1,7 @@
 import { buildAnthropicUsageFromRawUsage } from '../cacheMetrics.js'
 import type { AnthropicStreamEvent, AnthropicUsage } from '../codexShim.js'
 import { logForDebugging } from '../../../utils/debug.js'
+import type { createProviderStreamTrace } from './streamControl.js'
 
 type ReaderCanceller = {
   cancel(error?: unknown): void
@@ -16,6 +17,7 @@ export type GeminiStreamDependencies = {
     reader: ReadableStreamDefaultReader<Uint8Array>,
     signal?: AbortSignal,
   ): ReaderCanceller
+  createProviderStreamTrace: typeof createProviderStreamTrace
   createStreamAbortError(): DOMException
   getStreamIdleTimeoutMs(): number
   makeMessageId(): string
@@ -25,7 +27,7 @@ export type GeminiStreamDependencies = {
     options?: {
       signal?: AbortSignal
       cancelReader?: (error?: unknown) => void
-      onTimeout?: () => void
+      onTimeout?: (error: unknown) => void
     },
   ): Promise<StreamReadResult>
   throwIfStreamAborted(signal?: AbortSignal): void
@@ -39,6 +41,7 @@ export async function* geminiSseToAnthropic(
 ): AsyncGenerator<AnthropicStreamEvent> {
   const {
     createReaderCanceller,
+    createProviderStreamTrace,
     createStreamAbortError,
     getStreamIdleTimeoutMs,
     makeMessageId,
@@ -59,8 +62,11 @@ export async function* geminiSseToAnthropic(
   let usage: Partial<AnthropicUsage> | undefined
   let finishReason: string | undefined
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
+  let lastDataTime = performance.now()
   let streamComplete = false
+  let protocolComplete = false
+  let readerFailed = false
+  const streamTrace = createProviderStreamTrace('gemini_sse')
 
   const emitMessageStart = async function* () {
     if (hasEmittedStart) return
@@ -98,20 +104,23 @@ export async function* geminiSseToAnthropic(
         {
           signal,
           cancelReader: readerCanceller.cancel,
-          onTimeout: () => {
-            const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+          onTimeout: error => {
+            const elapsed = Math.round((performance.now() - lastDataTime) / 1000)
             logForDebugging(
               `Gemini SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
               { level: 'error' },
             )
+            streamTrace.recordIdleTimeout(error)
           },
         },
       )
       if (done) {
         streamComplete = true
+        streamTrace.recordEof()
         break
       }
-      if (value) lastDataTime = Date.now()
+      if (value) lastDataTime = performance.now()
+      streamTrace.recordRaw(value)
 
       throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
@@ -122,10 +131,15 @@ export async function* geminiSseToAnthropic(
         throwIfStreamAborted(signal)
         const lines = chunk.split('\n').map(line => line.trim()).filter(Boolean)
         const dataLines = lines.filter(line => line.startsWith('data: '))
-        if (dataLines.length === 0) continue
+        if (dataLines.length === 0) {
+          streamTrace.recordControl()
+          continue
+        }
 
         const rawData = dataLines.map(line => line.slice(6)).join('\n')
         if (rawData === '[DONE]') {
+          streamTrace.recordControl()
+          protocolComplete = true
           yield* emitMessageStart()
           if (hasEmittedTextStart || hasEmittedCurrentTool) {
             throwIfStreamAborted(signal)
@@ -149,8 +163,15 @@ export async function* geminiSseToAnthropic(
 
         let parsed: Record<string, unknown>
         try {
-          parsed = JSON.parse(rawData) as Record<string, unknown>
+          const value: unknown = JSON.parse(rawData)
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            streamTrace.recordIgnored()
+          } else {
+            streamTrace.recordParsed()
+          }
+          parsed = value as Record<string, unknown>
         } catch {
+          streamTrace.recordIgnored()
           continue
         }
 
@@ -173,6 +194,7 @@ export async function* geminiSseToAnthropic(
         const candidate = candidates[0]
         if (typeof candidate.finishReason === 'string') {
           finishReason = candidate.finishReason
+          protocolComplete = true
         }
 
         const content = candidate.content as
@@ -267,8 +289,22 @@ export async function* geminiSseToAnthropic(
     }
     throwIfStreamAborted(signal)
     yield { type: 'message_stop' }
-    streamComplete = true
+  } catch (error) {
+    readerFailed = true
+    throw error
   } finally {
+    streamTrace.recordClosed(
+      signal?.aborted
+        ? 'root_aborted'
+        : readerFailed
+          ? 'failed'
+          : protocolComplete
+            ? 'complete'
+          : streamComplete
+            ? 'eof_without_terminal'
+            : 'incomplete',
+      signal,
+    )
     if (!streamComplete || signal?.aborted) {
       readerCanceller.cancel(createStreamAbortError())
     }

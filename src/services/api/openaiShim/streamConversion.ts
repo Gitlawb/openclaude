@@ -16,6 +16,7 @@ import {
   getStreamStats,
   processStreamChunk,
 } from '../../../utils/streamingOptimizer.js'
+import type { createProviderStreamTrace } from './streamControl.js'
 
 type ParsedRawToolCall = { id: string; name: string; argumentsJson: string }
 type ParsedTextToolCall = { id: string; name: string; arguments: unknown }
@@ -65,6 +66,7 @@ export type StreamConversionDependencies = {
     reader: ReadableStreamDefaultReader<Uint8Array>,
     signal?: AbortSignal,
   ): ReaderCanceller
+  createProviderStreamTrace: typeof createProviderStreamTrace
   createStreamAbortError(): DOMException
   findXmlToolCallOpener(text: string, allowHy3: boolean): number
   geminiThoughtSignatureFromExtraContent(extraContent: unknown): string | undefined
@@ -85,7 +87,7 @@ export type StreamConversionDependencies = {
     options?: {
       signal?: AbortSignal
       cancelReader?: (error?: unknown) => void
-      onTimeout?: () => void
+      onTimeout?: (error: unknown) => void
     },
   ): Promise<StreamReadResult>
   repairPossiblyTruncatedObjectJson(raw: string): string | null
@@ -116,6 +118,7 @@ export async function* openaiStreamToAnthropic(
     convertNonStreamingResponseToAnthropicMessage,
     couldBeRawToolCallsRequestedPrefix,
     createReaderCanceller,
+    createProviderStreamTrace,
     createStreamAbortError,
     findXmlToolCallOpener,
     geminiThoughtSignatureFromExtraContent,
@@ -154,6 +157,8 @@ export async function* openaiStreamToAnthropic(
   let lastStopReason: 'tool_use' | 'max_tokens' | 'end_turn' | null = null
   let hasEmittedFinalUsage = false
   let protocolComplete = false
+  let providerTerminalObserved = false
+  let readerFailed = false
   let hasProcessedFinishReason = false
   // Accumulated text for Ollama text-based tool call fallback parsing (#1053)
   let accumulatedText = ''
@@ -299,8 +304,9 @@ export async function* openaiStreamToAnthropic(
   const decoder = new TextDecoder()
   let buffer = ''
   const streamIdleTimeoutMs = getStreamIdleTimeoutMs()
-  let lastDataTime = Date.now()
+  let lastDataTime = performance.now()
   let streamComplete = false
+  const streamTrace = createProviderStreamTrace('openai_chat_completions')
 
   const closeActiveContentBlock = async function* () {
     if (!hasEmittedContentStart) return
@@ -463,19 +469,22 @@ export async function* openaiStreamToAnthropic(
       const { done, value } = await readWithIdleTimeout(reader, streamIdleTimeoutMs, {
         signal,
         cancelReader: readerCanceller.cancel,
-        onTimeout: () => {
-          const elapsed = Math.round((Date.now() - lastDataTime) / 1000)
+        onTimeout: error => {
+          const elapsed = Math.round((performance.now() - lastDataTime) / 1000)
           logForDebugging(
             `OpenAI-compatible SSE stream idle for ${elapsed}s (limit: ${streamIdleTimeoutMs / 1000}s). Connection likely dropped.`,
             { level: 'error' },
           )
+          streamTrace.recordIdleTimeout(error)
         },
       })
       if (done) {
         streamComplete = true
+        streamTrace.recordEof()
         break
       }
-      if (value) lastDataTime = Date.now()
+      if (value) lastDataTime = performance.now()
+      streamTrace.recordRaw(value)
 
       throwIfStreamAborted(signal)
       buffer += decoder.decode(value, { stream: true })
@@ -487,17 +496,32 @@ export async function* openaiStreamToAnthropic(
       const trimmed = line.trim()
       if (!trimmed) continue
       if (trimmed === 'data: [DONE]') {
+        streamTrace.recordControl()
         // `[DONE]` is protocol completion; do not wait for a transport EOF.
         // Leave streamComplete false so finally cancels an unread response body.
         protocolComplete = true
         break
       }
-      if (!trimmed.startsWith('data: ')) continue
+      if (!trimmed.startsWith('data: ')) {
+        if (trimmed.startsWith(':') || trimmed.startsWith('event:')) {
+          streamTrace.recordControl()
+        } else {
+          streamTrace.recordIgnored()
+        }
+        continue
+      }
 
       let chunk: OpenAIStreamChunk
       try {
-        chunk = JSON.parse(trimmed.slice(6))
+        const parsed: unknown = JSON.parse(trimmed.slice(6))
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          streamTrace.recordIgnored()
+        } else {
+          streamTrace.recordParsed()
+        }
+        chunk = parsed as OpenAIStreamChunk
       } catch {
+        streamTrace.recordIgnored()
         continue
       }
 
@@ -752,6 +776,7 @@ export async function* openaiStreamToAnthropic(
         // Finish — guard ensures we only process finish_reason once even if
         // multiple chunks arrive with finish_reason set (some providers do this)
         if (choice.finish_reason && !hasProcessedFinishReason) {
+          providerTerminalObserved = true
           hasProcessedFinishReason = true
 
           // Close any open thinking block that wasn't closed by content transition
@@ -1083,7 +1108,22 @@ export async function* openaiStreamToAnthropic(
       if (protocolComplete) break
     }
     yield* finalizeIncompleteStream()
+  } catch (error) {
+    readerFailed = true
+    throw error
   } finally {
+    streamTrace.recordClosed(
+      signal?.aborted
+        ? 'root_aborted'
+        : readerFailed
+          ? 'failed'
+          : protocolComplete || providerTerminalObserved
+            ? 'complete'
+          : streamComplete
+            ? 'eof_without_terminal'
+            : 'incomplete',
+      signal,
+    )
     if (!streamComplete || signal?.aborted) {
       readerCanceller.cancel(createStreamAbortError())
     }

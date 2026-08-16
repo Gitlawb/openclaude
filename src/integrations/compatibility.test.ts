@@ -19,6 +19,7 @@ import type { ProviderPreset } from '../utils/providerProfiles.js'
 const EXPECTED_PRESETS = [
   'anthropic',
   'atlas-cloud',
+  'apismart',
   'aimlapi',
   'openai',
   'ollama',

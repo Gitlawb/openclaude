@@ -20,6 +20,7 @@ import {
 } from '../../Tool.js'
 import { assembleToolPool, getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
+import { requestSdkRootAbort } from './interruption.js'
 import { init } from '../init.js'
 import {
   resolveSessionFilePath,
@@ -756,8 +757,9 @@ class QueryImpl implements Query {
   }
 
   close(): void {
-    this.interrupt()
-    this.abortController.abort()
+    const wrapperController = this.abortController
+    this.interruptWithSource('sdk_close')
+    requestSdkRootAbort(wrapperController, 'sdk_close', 'sdk_query')
     // Disconnect MCP clients to prevent resource leaks
     const mcpClients = this._engine?.getMcpClients?.() ?? []
     for (const client of mcpClients) {
@@ -773,8 +775,14 @@ class QueryImpl implements Query {
   }
 
   interrupt(): void {
+    this.interruptWithSource('sdk_interrupt')
+  }
+
+  private interruptWithSource(source: string): void {
     if (this._engine) {
-      this._engine.interrupt()
+      this._engine.interrupt(source)
+    } else {
+      requestSdkRootAbort(this.abortController, source, 'sdk_query')
     }
     // Deny all pending permission prompts before clearing
     for (const [toolUseId, pending] of this.pendingPermissionPrompts) {

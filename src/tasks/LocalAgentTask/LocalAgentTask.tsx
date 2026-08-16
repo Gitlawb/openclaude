@@ -16,6 +16,7 @@ import { registerCleanup } from '../../utils/cleanupRegistry.js';
 import { getToolSearchOrReadInfo } from '../../utils/collapseReadSearch.js';
 import { enqueuePendingNotification } from '../../utils/messageQueueManager.js';
 import { getAgentTranscriptPath } from '../../utils/sessionStorage.js';
+import { requestAbort } from '../../utils/interruptionTrace.js';
 import { evictTaskOutput, getTaskOutputPath, initTaskOutputAsSymlink } from '../../utils/task/diskOutput.js';
 import { PANEL_GRACE_MS, registerTask, updateTaskState } from '../../utils/task/framework.js';
 import { emitTaskProgress } from '../../utils/task/sdkProgress.js';
@@ -271,21 +272,34 @@ export const LocalAgentTask: Task = {
   name: 'LocalAgentTask',
   type: 'local_agent',
   async kill(taskId, setAppState) {
-    killAsyncAgent(taskId, setAppState);
+    killAsyncAgent(taskId, setAppState, { source: 'task_stop' });
   }
 };
 
 /**
  * Kill an agent task. No-op if already killed/completed.
  */
-export function killAsyncAgent(taskId: string, setAppState: SetAppState): void {
+export type AgentKillTrace = {
+  source: string;
+  causalEventId?: string;
+};
+
+export function killAsyncAgent(taskId: string, setAppState: SetAppState, trace: AgentKillTrace = { source: 'agent_cleanup' }): void {
   let killed = false;
   updateTaskState<LocalAgentTaskState>(taskId, setAppState, task => {
     if (task.status !== 'running') {
       return task;
     }
     killed = true;
-    task.abortController?.abort();
+    if (task.abortController && !task.abortController.signal.aborted) {
+      requestAbort(task.abortController, undefined, {
+        source: trace.source,
+        subsystem: 'local_agent_task',
+        controllerRole: 'background-agent',
+        subagentId: taskId,
+        causalEventId: trace.causalEventId
+      });
+    }
     task.unregisterCleanup?.();
     return {
       ...task,
@@ -306,10 +320,10 @@ export function killAsyncAgent(taskId: string, setAppState: SetAppState): void {
  * Kill all running agent tasks.
  * Used by ESC cancellation in coordinator mode to stop all subagents.
  */
-export function killAllRunningAgentTasks(tasks: Record<string, TaskState>, setAppState: SetAppState): void {
+export function killAllRunningAgentTasks(tasks: Record<string, TaskState>, setAppState: SetAppState, trace: AgentKillTrace): void {
   for (const [taskId, task] of Object.entries(tasks)) {
     if (task.type === 'local_agent' && task.status === 'running') {
-      killAsyncAgent(taskId, setAppState);
+      killAsyncAgent(taskId, setAppState, trace);
     }
   }
 }
@@ -483,7 +497,13 @@ export function registerAsyncAgent({
   void initTaskOutputAsSymlink(agentId, getAgentTranscriptPath(asAgentId(agentId)));
 
   // Create abort controller - if parent provided, create child that auto-aborts with parent
-  const abortController = parentAbortController ? createChildAbortController(parentAbortController) : createAbortController();
+  const abortController = parentAbortController
+    ? createChildAbortController(parentAbortController, undefined, {
+        subsystem: 'local_agent_task',
+        controllerRole: 'background-agent',
+        subagentId: agentId,
+      })
+    : createAbortController();
   const taskState: LocalAgentTaskState = {
     ...createTaskStateBase(agentId, 'local_agent', description, toolUseId),
     type: 'local_agent',

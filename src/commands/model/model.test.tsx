@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, setSystemTime, test } from 'bun:test'
 import React from 'react'
 
 import { getAdditionalModelOptionsCacheScope } from '../../services/api/providerConfig.js'
@@ -1308,6 +1308,18 @@ test('/model applies auto provider surface for single-model descriptor profiles'
           'Recommended · Provider: OpenRouter (openai/gpt-5-mini)',
       },
       {
+        value: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.6)',
+      },
+      {
+        value: 'x-ai/grok-4.5',
+        label: 'Grok 4.5 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.5)',
+      },
+      {
         value: activeProfile.model,
         label: activeProfile.model,
         description: 'Provider: OpenRouter',
@@ -1429,31 +1441,94 @@ test('/model applies auto provider surface for single-model static descriptor pr
     getActiveProviderProfile: () => activeProfile,
   })
 
-  const rendered = await renderModelCommandWithCapturedPicker(
-    'descriptor-picker-auto-provider-static-mode',
-  )
+  // Pin the clock inside the Ling Tiny availability window (its catalog
+  // entry expires via availableUntil on 2026-08-13T10:00Z) so this expected
+  // list stays deterministic after that date passes in real time.
+  setSystemTime(new Date('2026-08-12T00:00:00Z'))
   try {
-    expect(
-      (rendered.getCapturedProps().optionsOverride as ModelOption[]).map(
-        option => option.value,
-      ),
-    ).toEqual([
-      'auto',
-      'mimo-v2.5-pro',
-      'mimo-v2.5',
-      'mimo-v2-flash',
-      'google/gemini-3.1-flash-lite',
-      'minimax/minimax-m3',
-      'qwen/qwen3.7-max',
-      'z-ai/glm-5.2',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'inclusionai/ling-3.0-flash:free',
-      'mindai/macaron-v1-tall',
-      'tencent/hy3',
-    ])
+    const rendered = await renderModelCommandWithCapturedPicker(
+      'descriptor-picker-auto-provider-static-mode',
+    )
+    try {
+      expect(
+        (rendered.getCapturedProps().optionsOverride as ModelOption[]).map(
+          option => option.value,
+        ),
+      ).toEqual([
+        'auto',
+        'mimo-v2.5-pro',
+        'mimo-v2.5',
+        'mimo-v2-flash',
+        'google/gemini-3.1-flash-lite',
+        'minimax/minimax-m3',
+        'qwen/qwen3.7-max',
+        'z-ai/glm-5.2',
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        'nvidia/nemotron-3-ultra-550b-a55b',
+        'inclusionai/ling-3.0-flash',
+        'inclusionai/ling-3.0-tiny:free',
+        'mindai/macaron-v1-tall',
+        'mindai/macaron-v1-venti',
+        'tencent/hy3',
+      ])
+    } finally {
+      rendered.instance.unmount()
+      rendered.stdout.end()
+    }
   } finally {
-    rendered.instance.unmount()
-    rendered.stdout.end()
+    setSystemTime()
+  }
+})
+
+test('/model drops expired availableUntil entries from the static picker after the cutoff', async () => {
+  const activeProfile = {
+    id: 'opengateway-profile',
+    name: 'Gitlawb Opengateway',
+    provider: 'gitlawb-opengateway',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'sk-opengateway',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  process.env.OPENAI_API_KEY = activeProfile.apiKey
+  process.env.OPENAI_MODEL = activeProfile.model
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.OPENROUTER_API_KEY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mockProviderProfiles({
+    getActiveProviderProfile: () => activeProfile,
+  })
+
+  // Just past the Ling Tiny window (availableUntil 2026-08-13T10:00Z): the
+  // picker must not offer the id the gateway now rejects with a 400.
+  setSystemTime(new Date('2026-08-13T10:00:01Z'))
+  try {
+    const rendered = await renderModelCommandWithCapturedPicker(
+      'descriptor-picker-expired-entry-hidden',
+    )
+    try {
+      const values = (
+        rendered.getCapturedProps().optionsOverride as ModelOption[]
+      ).map(option => option.value)
+      expect(values).not.toContain('inclusionai/ling-3.0-tiny:free')
+      // The rest of the static catalog is untouched by the expiry.
+      expect(values).toContain('inclusionai/ling-3.0-flash')
+      expect(values).toContain('nvidia/nemotron-3-ultra-550b-a55b:free')
+    } finally {
+      rendered.instance.unmount()
+      rendered.stdout.end()
+    }
+  } finally {
+    setSystemTime()
   }
 })
 
@@ -1507,6 +1582,18 @@ test('/model applies providerProfileModelPickerMode provider override on descrip
         description: 'Recommended · Provider: OpenRouter',
         descriptionForModel:
           'Recommended · Provider: OpenRouter (openai/gpt-5-mini)',
+      },
+      {
+        value: 'x-ai/grok-4.6',
+        label: 'Grok 4.6 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.6)',
+      },
+      {
+        value: 'x-ai/grok-4.5',
+        label: 'Grok 4.5 (via OpenRouter)',
+        description: 'Provider: OpenRouter',
+        descriptionForModel: 'Provider: OpenRouter (x-ai/grok-4.5)',
       },
       {
         value: 'openai/gpt-oss-120b:free',

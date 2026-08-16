@@ -1,12 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { verifyDist, npmFreshnessFailure } from './verify-dist'
+import { verifyDist } from './verify-dist'
 import { SITE } from '../src/data/site'
 import { docsPages } from '../src/data/docsNav'
-import { releases, releaseUrl } from '../src/data/releases'
 import { heroes } from '../src/data/buddy'
 import { partners, community } from '../src/data/partners'
 
@@ -18,23 +17,17 @@ function writePage(dist: string, route: string, html: string): void {
 
 /** Build a minimal dist/ that satisfies every verifyDist assertion. */
 function writeValidFixture(dist: string): void {
-  const navLinks = ['/buddy/', '/changelog/'].map(h => `<a href="${h}">x</a>`).join('')
+  const navLinks = [`<a href="/buddy/">x</a>`, `<a href="${SITE.releasesUrl}" target="_blank" rel="noopener">x</a>`].join('')
   writePage(
     dist,
     '/',
-    `<html>v${SITE.version}${navLinks}${partners
+    `<html>${navLinks}${partners
       .map(p => `<a href="${p.url}"><img src="${p.logo}"></a>`)
       .join('')}${community.map(c => `<a href="${c.url}">x</a>`).join('')}</html>`,
   )
-  const sidebar = docsPages.map(p => `<a href="${p.href}">x</a>`).join('')
+  const sidebar = `${docsPages.map(p => `<a href="${p.href}">x</a>`).join('')}<a href="${SITE.releasesUrl}" target="_blank" rel="noopener">x</a>`
   for (const p of docsPages) writePage(dist, p.href, `<html>${sidebar}</html>`)
-  writePage(
-    dist,
-    '/changelog/',
-    `<html>v${SITE.version}${releases
-      .map(r => `<a href="${releaseUrl(r.version)}">v${r.version}</a>`)
-      .join('')}</html>`,
-  )
+  writePage(dist, '/changelog/', `<html><meta http-equiv="refresh" content="0;url=${SITE.releasesUrl}"><meta name="robots" content="noindex">${SITE.releasesUrl}</html>`)
   writePage(
     dist,
     '/buddy/',
@@ -44,7 +37,7 @@ function writeValidFixture(dist: string): void {
   for (const h of heroes) writeFileSync(join(dist, 'buddy', `${h.id}.svg`), '<svg/>')
   writeFileSync(
     join(dist, 'sitemap-0.xml'),
-    `<urlset>${['/buddy/', '/changelog/'].map(r => `<loc>${SITE.url}${r}</loc>`).join('')}</urlset>`,
+    `<urlset><loc>${SITE.url}/buddy/</loc></urlset>`,
   )
 }
 
@@ -58,35 +51,6 @@ function withFixture(mutate: (dist: string) => void): string[] {
     rmSync(dist, { recursive: true, force: true })
   }
 }
-
-describe('release data', () => {
-  test('keeps releases newest first', () => {
-    const versions = releases.map(release => release.version.split('.').map(Number))
-    const sorted = [...versions].sort((a, b) => {
-      for (let i = 0; i < 3; i++) {
-        if (a[i] !== b[i]) return (b[i] ?? 0) - (a[i] ?? 0)
-      }
-      return 0
-    })
-
-    expect(versions).toEqual(sorted)
-  })
-
-  test('lists the 0.27.0 release with its curated highlights', () => {
-    expect(releases.find(release => release.version === '0.27.0')).toEqual({
-      version: '0.27.0',
-      date: '2026-07-30',
-      theme: 'auth-ready local proxies and a refreshed web identity',
-      highlights: [
-        'opt-in loopback proxy hosts preserve subscription OAuth authentication',
-        'new Ling 3.0 Flash and Macaron V1 Tall catalog entries',
-        'centered startup logo and updated Ember Block O web branding',
-        'agents can spawn subagents from multi-repository parent sessions',
-        'more reliable tool-failure guard, SDK permission-timeout reporting, stats, and status UI',
-      ],
-    })
-  })
-})
 
 describe('verifyDist', () => {
   test('passes on a complete fixture', () => {
@@ -107,13 +71,50 @@ describe('verifyDist', () => {
 
   test('flags a docs sidebar that lost a navigation link', () => {
     const failures = withFixture(dist => {
-      const sidebar = docsPages
-        .filter(p => p.href !== '/changelog/')
-        .map(p => `<a href="${p.href}">x</a>`)
-        .join('')
+      const sidebar = docsPages.map(p => `<a href="${p.href}">x</a>`).join('')
       writePage(dist, '/docs/', `<html>${sidebar}</html>`)
     })
-    expect(failures).toContain('docs sidebar link /changelog/: missing "href=\\"/changelog/\\""')
+    expect(failures).toContain('docs release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a landing release link that lost target=_blank', () => {
+    const failures = withFixture(dist => {
+      const index = join(dist, 'index.html')
+      writeFileSync(index, readFileSync(index, 'utf8').replace(' target="_blank" rel="noopener"', ' rel="noopener"'))
+    })
+    expect(failures).toContain('landing release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a docs release link that lost rel=noopener', () => {
+    const failures = withFixture(dist => {
+      const docs = join(dist, 'docs', 'index.html')
+      writeFileSync(docs, readFileSync(docs, 'utf8').replace(' target="_blank" rel="noopener"', ' target="_blank"'))
+    })
+    expect(failures).toContain('docs release notes link: missing safe new-tab release link')
+  })
+
+  test('flags an unsafe release link even when another release link is safe', () => {
+    const failures = withFixture(dist => {
+      const index = join(dist, 'index.html')
+      writeFileSync(index, `${readFileSync(index, 'utf8')}<a href="${SITE.releasesUrl}" target="_blank">x</a>`)
+    })
+    expect(failures).toContain('landing release notes link: missing safe new-tab release link')
+  })
+
+  test('flags a legacy changelog page that lost its redirect', () => {
+    const failures = withFixture(dist => {
+      const changelog = join(dist, 'changelog', 'index.html')
+      writeFileSync(changelog, readFileSync(changelog, 'utf8').replace(`<meta http-equiv="refresh" content="0;url=${SITE.releasesUrl}">`, ''))
+    })
+    expect(failures).toContain(`legacy changelog redirect: missing "<meta http-equiv=\\"refresh\\" content=\\"0;url=${SITE.releasesUrl}\\">"`)
+  })
+
+  test('flags a legacy changelog redirect that lost noindex', () => {
+    const failures = withFixture(dist => {
+      const changelog = join(dist, 'changelog', 'index.html')
+      writeFileSync(changelog, readFileSync(changelog, 'utf8').replace('<meta name="robots" content="noindex">', ''))
+    })
+    expect(failures).toContain('legacy changelog noindex: missing "<meta name=\\"robots\\" content=\\"noindex\\">"')
   })
 
   test('flags a missing sprite asset', () => {
@@ -124,7 +125,7 @@ describe('verifyDist', () => {
 
   test('flags a stale landing page missing a partner link', () => {
     const failures = withFixture(dist => {
-      const html = `<html>v${SITE.version}<a href="/buddy/">x</a><a href="/changelog/">x</a>${community
+      const html = `<html><a href="/buddy/">x</a><a href="${SITE.releasesUrl}" target="_blank">x</a>${community
         .map(c => `<a href="${c.url}">x</a>`)
         .join('')}</html>`
       writeFileSync(join(dist, 'index.html'), html)
@@ -137,7 +138,6 @@ describe('verifyDist', () => {
       writeFileSync(join(dist, 'sitemap-0.xml'), `<urlset><loc>${SITE.url}/</loc></urlset>`),
     )
     expect(failures.some(f => f.startsWith('sitemap entry /buddy/'))).toBe(true)
-    expect(failures.some(f => f.startsWith('sitemap entry /changelog/'))).toBe(true)
   })
 
   test('flags a missing sitemap', () => {
@@ -145,46 +145,4 @@ describe('verifyDist', () => {
     expect(failures).toContain('missing dist/sitemap-0.xml')
   })
 
-  test('flags a changelog entry that lost its release URL', () => {
-    const failures = withFixture(dist => {
-      const html = `<html>v${SITE.version}${releases.map(r => `v${r.version}`).join(' ')}</html>`
-      writeFileSync(join(dist, 'changelog', 'index.html'), html)
-    })
-    expect(failures.some(f => f.startsWith('changelog release URL'))).toBe(true)
-  })
-})
-
-describe('npmFreshnessFailure', () => {
-  function fetchReturning(body: unknown, ok = true): typeof fetch {
-    return (() =>
-      Promise.resolve({ ok, json: () => Promise.resolve(body) } as Response)) as typeof fetch
-  }
-
-  test('passes when npm matches the site version', async () => {
-    expect(await npmFreshnessFailure(fetchReturning({ version: SITE.version }))).toBeNull()
-  })
-
-  test('passes when the site is ahead of npm (release PR before publish)', async () => {
-    expect(await npmFreshnessFailure(fetchReturning({ version: '0.1.0' }))).toBeNull()
-  })
-
-  test('fails when npm has a newer release than releases.ts', async () => {
-    const failure = await npmFreshnessFailure(fetchReturning({ version: '999.0.0' }))
-    expect(failure).toContain('999.0.0')
-    expect(failure).toContain('web/src/data/releases.ts')
-    expect(failure).toContain('do not patch it from unrelated PRs')
-  })
-
-  test('skips on network failure instead of breaking the build', async () => {
-    const offline = (() => Promise.reject(new Error('offline'))) as typeof fetch
-    expect(await npmFreshnessFailure(offline)).toBeNull()
-  })
-
-  test('skips on a malformed registry response', async () => {
-    expect(await npmFreshnessFailure(fetchReturning({}))).toBeNull()
-    expect(await npmFreshnessFailure(fetchReturning({ version: 'not-semver' }))).toBeNull()
-    expect(await npmFreshnessFailure(fetchReturning({ version: '01.2.3' }))).toBeNull()
-    expect(await npmFreshnessFailure(fetchReturning({ version: '999.00.0' }))).toBeNull()
-    expect(await npmFreshnessFailure(fetchReturning({}, false))).toBeNull()
-  })
 })

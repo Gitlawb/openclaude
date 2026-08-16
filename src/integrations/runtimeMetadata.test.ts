@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, it, expect } from 'bun:test'
+import { describe, it, expect, spyOn } from 'bun:test'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -16,14 +16,62 @@ import {
   getDiscoveryCacheKey,
   getRouteDiscoveryHeaders,
 } from './discoveryService'
+import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
+import glmBrand from './brands/glm.js'
+import glmModels from './models/glm.js'
+import zaiVendor from './vendors/zai.js'
 
 const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+
+describe('Z.AI GLM-5.3 descriptor contract', () => {
+  it('wires the verified shared model, brand, and direct catalog entry without changing the default', () => {
+    const model = glmModels.find(candidate => candidate.id === 'glm-5.3')
+    expect(model).toMatchObject({
+      id: 'glm-5.3',
+      label: 'GLM 5.3',
+      vendorId: 'zai',
+      brandId: 'glm',
+      classification: ['chat', 'reasoning', 'coding'],
+      defaultModel: 'glm-5.3',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+      runtimeMetadataScope: 'catalog',
+      capabilities: {
+        supportsVision: false,
+        supportsStreaming: true,
+        supportsFunctionCalling: true,
+        supportsJsonMode: true,
+        supportsReasoning: true,
+        supportsPreciseTokenCount: false,
+      },
+    })
+    expect(glmBrand.modelIds?.[0]).toBe('glm-5.3')
+
+    const catalogEntry = zaiVendor.catalog?.models?.[0]
+    expect(catalogEntry).toMatchObject({
+      id: 'glm-5.3',
+      apiName: 'glm-5.3',
+      label: 'GLM-5.3',
+      modelDescriptorId: 'glm-5.3',
+      reasoning: {
+        mode: 'levels',
+        levels: ['low', 'high', 'xhigh'],
+        wireFormat: 'zai_compatible',
+      },
+      transportOverrides: {
+        openaiShim: { enableToolStreaming: true },
+      },
+    })
+    expect(zaiVendor.defaultModel).toBe('glm-5.2')
+  })
+})
 
 async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
   await acquireSharedMutationLock('integrations/runtimeMetadata.test.ts')
   let tempDir: string | null = null
   try {
     tempDir = mkdtempSync(join(tmpdir(), 'openclaude-runtime-metadata-test-'))
+    setClaudeConfigHomeDirForTesting(tempDir)
     process.env.CLAUDE_CONFIG_DIR = tempDir
     return await fn()
   } finally {
@@ -36,6 +84,7 @@ async function withTempConfigDir<T>(fn: () => Promise<T>): Promise<T> {
       if (tempDir) {
         rmSync(tempDir, { recursive: true, force: true })
       }
+      setClaudeConfigHomeDirForTesting(undefined)
     } finally {
       releaseSharedMutationLock()
     }
@@ -73,7 +122,69 @@ describe('resolveModelRuntimeLimits', () => {
       ).toBe(1_000_000)
     })
   })
-  it('uses built-in Z.AI GLM-5.2 runtime limits', () => {
+
+  it('uses the stable xAI OAuth cache identity for discovered runtime limits', async () => {
+    await withTempConfigDir(async () => {
+      const xaiCredentials = await import('../utils/xaiCredentials.js')
+      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockReturnValue({
+        accessToken: 'rotating-access-token',
+        refreshToken: 'stable-account-identity',
+        tokenEndpoint: 'https://auth.x.ai/oauth/token',
+      })
+      try {
+        const baseUrl = 'https://api.x.ai/v1'
+        await setCachedModels(
+          getDiscoveryCacheKey('xai', {
+            baseUrl,
+            apiKey: 'rotating-access-token',
+            cacheKey: 'stable-account-identity',
+          }),
+          {
+            models: [
+              {
+                id: 'grok-4.7',
+                apiName: 'grok-4.7',
+                label: 'grok-4.7',
+                contextWindow: 500_000,
+              },
+            ],
+          },
+        )
+
+        expect(
+          resolveModelRuntimeLimits({
+            model: 'grok-4.7',
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
+              XAI_CREDENTIAL_SOURCE: 'oauth',
+            },
+          }).contextWindow,
+        ).toBe(500_000)
+      } finally {
+        readSpy.mockRestore()
+      }
+    })
+  })
+  it.each([
+    'glm-5.3',
+    'glm-5.3?reasoning=low',
+    'glm-5.3?reasoning=xhigh',
+    'glm-5.3?thinking=disabled',
+  ])('uses verified Z.AI GLM-5.3 runtime limits for %s', model => {
+    const limits = resolveModelRuntimeLimits({
+      model,
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4',
+      },
+    })
+
+    expect(limits.contextWindow).toBe(1_000_000)
+    expect(limits.maxOutputTokens).toBe(131_072)
+  })
+
+  it('keeps the built-in Z.AI GLM-5.2 runtime limits', () => {
     const limits = resolveModelRuntimeLimits({
       model: 'glm-5.2',
       processEnv: {
@@ -83,6 +194,23 @@ describe('resolveModelRuntimeLimits', () => {
 
     expect(limits.contextWindow).toBe(1_000_000)
     expect(limits.maxOutputTokens).toBe(131_072)
+  })
+
+  it.each([
+    ['NVIDIA NIM', 'https://integrate.api.nvidia.com/v1', { NVIDIA_NIM: '1' }],
+    ['OpenRouter', 'https://openrouter.ai/api/v1', { CLAUDE_CODE_USE_OPENAI: '1' }],
+    ['custom endpoint', 'https://proxy.example.test/v1', { CLAUDE_CODE_USE_OPENAI: '1' }],
+  ] as const)('does not leak direct Z.AI GLM-5.3 limits onto %s', (_name, baseUrl, routeEnv) => {
+    expect(resolveModelRuntimeLimits({
+      model: 'glm-5.3',
+      processEnv: {
+        ...routeEnv,
+        OPENAI_BASE_URL: baseUrl,
+      },
+    })).toEqual({
+      contextWindow: undefined,
+      maxOutputTokens: undefined,
+    })
   })
   it('uses the applied provider profile route before generic custom base URL fallback', () => {
     expect(
@@ -166,8 +294,10 @@ describe('resolveModelRuntimeLimits', () => {
 })
 
 describe('AIMLAPI runtime attribution', () => {
-  it('uses the partner override only on the canonical endpoint', () => {
+  it('sends the fixed partner id on the canonical endpoint only', () => {
     const previous = process.env.AIMLAPI_PARTNER_ID
+    // The partner id is locked; an ambient env override must be ignored, never
+    // forwarded to the backend.
     process.env.AIMLAPI_PARTNER_ID = 'part_runtime_override'
     try {
       const canonical = resolveOpenAIShimRuntimeContext({
@@ -176,7 +306,11 @@ describe('AIMLAPI runtime attribution', () => {
         model: 'gpt-4o',
       })
       expect(canonical.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBe(
-        'part_runtime_override',
+        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+      )
+      // The mandatory source header rides on every canonical inference request.
+      expect(canonical.openaiShimConfig.headers?.['X-AIMLAPI-Source']).toBe(
+        'agent/openclaude',
       )
 
       const proxy = resolveOpenAIShimRuntimeContext({
@@ -186,6 +320,7 @@ describe('AIMLAPI runtime attribution', () => {
       })
       // Every catalog attribution header must be stripped on a proxy endpoint,
       // not just the partner id.
+      expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Source']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Partner-ID']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Repo']).toBeUndefined()
       expect(proxy.openaiShimConfig.headers?.['X-AIMLAPI-Integration-Version']).toBeUndefined()
@@ -206,6 +341,7 @@ describe('AIMLAPI runtime attribution', () => {
       baseUrl: 'https://proxy.example.test/v1',
     })
     for (const name of [
+      'X-AIMLAPI-Source',
       'X-AIMLAPI-Partner-ID',
       'X-AIMLAPI-Integration-Repo',
       'X-AIMLAPI-Integration-Version',
@@ -215,27 +351,21 @@ describe('AIMLAPI runtime attribution', () => {
       expect(proxy?.[name]).toBeUndefined()
     }
 
-    // The canonical assertions below compare against the built-in partner id,
-    // so an ambient AIMLAPI_PARTNER_ID in the invoking shell would fail them.
-    const previous = process.env.AIMLAPI_PARTNER_ID
-    delete process.env.AIMLAPI_PARTNER_ID
-    try {
-      const canonical = getRouteDiscoveryHeaders('aimlapi', {
-        baseUrl: 'https://api.aimlapi.com/v1',
-      })
-      expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
-        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
-      )
-      expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
+    // The partner id is locked to the built-in attribution id, so the canonical
+    // assertions hold regardless of any ambient AIMLAPI_PARTNER_ID.
+    const canonical = getRouteDiscoveryHeaders('aimlapi', {
+      baseUrl: 'https://api.aimlapi.com/v1',
+    })
+    expect(canonical?.['X-AIMLAPI-Partner-ID']).toBe(
+      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    )
+    expect(canonical?.['X-AIMLAPI-Source']).toBe('agent/openclaude')
+    expect(canonical?.['HTTP-Referer']).toBe('OpenClaude')
 
-      // A missing base URL falls back to the route default, which is canonical.
-      expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
-        'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
-      )
-    } finally {
-      if (previous === undefined) delete process.env.AIMLAPI_PARTNER_ID
-      else process.env.AIMLAPI_PARTNER_ID = previous
-    }
+    // A missing base URL falls back to the route default, which is canonical.
+    expect(getRouteDiscoveryHeaders('aimlapi')?.['X-AIMLAPI-Partner-ID']).toBe(
+      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    )
   })
 })
 
@@ -256,6 +386,29 @@ describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
     expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
     expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
     expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
+  })
+})
+
+describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.3', () => {
+  it.each([
+    'glm-5.3',
+    'glm-5.3?reasoning=xhigh',
+    'glm-5.3?thinking=disabled',
+  ])('uses the explicit direct-route GLM-5.3 contract for %s', model => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model,
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      processEnv: {},
+    })
+
+    expect(result.routeId).toBe('zai')
+    expect(result.catalogEntry?.id).toBe('glm-5.3')
+    expect(result.openaiShimConfig.thinkingRequestFormat).toBe('zai-compatible')
+    expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    expect(result.openaiShimConfig.requireReasoningContentOnAssistantMessages).toBe(true)
+    expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
+    expect(result.openaiShimConfig.removeBodyFields).toContain('store')
     expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
   })
 })
@@ -462,6 +615,17 @@ describe('resolveOpenAIShimRuntimeContext - Moonshot and Kimi Code catalog metad
     expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
     expect(result.catalogEntry?.reasoning?.defaultLevel).toBe('medium')
   })
+
+  it('resolves the official Grok 4.5 grok-build-latest alias on Atlas Cloud', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'grok-build-latest',
+      baseUrl: 'https://api.atlascloud.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(result.routeId).toBe('atlas-cloud')
+    expect(result.catalogEntry?.id).toBe('xai/grok-4.5')
+    expect(result.catalogEntry?.reasoning?.levels).toEqual(['low', 'medium', 'high'])
+  })
 })
 
 describe('resolveOpenAIShimRuntimeContext - GLM catalog-aware gating', () => {
@@ -646,6 +810,33 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
     expect(gpt55.openaiShimConfig.requiredApiFormat).toBe('responses')
     expect(gpt55.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
 
+    const grok46 = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46.catalogEntry?.id).toBe('hicap-grok-4.6')
+    expect(grok46.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+
+    const grok46Latest = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6-latest',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46Latest.catalogEntry?.id).toBe('hicap-grok-4.6')
+
+    const grokBuildLatest = resolveOpenAIShimRuntimeContext({
+      model: 'grok-build-latest',
+      baseUrl: 'https://api.hicap.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grokBuildLatest.catalogEntry?.id).toBe('hicap-grok-4.5')
+
     const grok = resolveOpenAIShimRuntimeContext({
       model: 'grok-4.3',
       baseUrl: 'https://api.hicap.ai/v1',
@@ -661,6 +852,36 @@ describe('resolveOpenAIShimRuntimeContext - Hicap catalog metadata', () => {
 
 describe('resolveOpenAIShimRuntimeContext - xAI catalog metadata', () => {
   it('uses live xAI model metadata and per-model shim overrides', () => {
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-4.6',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 500_000 })
+
+    const grok46 = resolveOpenAIShimRuntimeContext({
+      model: 'grok-4.6-latest',
+      baseUrl: 'https://api.x.ai/v1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(grok46.routeId).toBe('xai')
+    expect(grok46.catalogEntry?.id).toBe('grok-4.6')
+    expect(grok46.catalogEntry?.reasoning?.levels).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'grok-4.5',
+        baseUrl: 'https://api.x.ai/v1',
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      }),
+    ).toEqual({ contextWindow: 500_000, maxOutputTokens: 32_768 })
+
     expect(
       resolveModelRuntimeLimits({
         model: 'grok-4.20-0309-reasoning',

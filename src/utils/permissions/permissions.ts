@@ -25,6 +25,7 @@ import { extractOutputRedirections } from '../bash/commands.js'
 import { logForDebugging } from '../debug.js'
 import { AbortError, toError } from '../errors.js'
 import { logError } from '../log.js'
+import { requestAbort } from '../interruptionTrace.js'
 import { SandboxManager } from '../sandbox/sandbox-adapter.js'
 import {
   getSettingSourceDisplayNameLowercase,
@@ -524,7 +525,11 @@ async function runPermissionRequestHooksForHeadlessAgent(
           logForDebugging(
             `Hook interrupt: tool=${tool.name} hookMessage=${decision.message}`,
           )
-          context.abortController.abort('interrupt')
+          requestAbort(context.abortController, 'interrupt', {
+            source: 'permission_hook',
+            subsystem: 'tool_permission',
+            controllerRole: 'query-root',
+          })
         }
         return {
           behavior: 'deny',

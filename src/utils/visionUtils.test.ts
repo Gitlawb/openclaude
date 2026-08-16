@@ -63,6 +63,15 @@ describe('findModelDescriptorForApiName', () => {
     expect(descriptor?.capabilities?.supportsVision).toBe(false)
   })
 
+  test('resolves gateway Grok 4.6 names to the shared descriptor', () => {
+    expect(findModelDescriptorForApiName('grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('x-ai/grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('xai/grok-4.6')?.id).toBe('grok-4.6')
+    expect(findModelDescriptorForApiName('grok-4.5')?.id).toBe('grok-4.5')
+    expect(isVisionSupported('grok-4.6')).toBe(true)
+    expect(isVisionSupported('x-ai/grok-4.6')).toBe(true)
+  })
+
   test('does not resolve catalog aliases without a known route', () => {
     expect(findModelDescriptorForApiName('grok-code-fast-1-0825')).toBeUndefined()
   })
@@ -127,6 +136,24 @@ describe('isVisionSupported', () => {
     expect(isVisionSupported('gemini-2.5-pro')).toBe(true)
   })
 
+  test('scopes GLM-5.3 text-only metadata to the direct Z.AI catalog', () => {
+    expect(
+      isVisionSupported('glm-5.3', {
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      }),
+    ).toBe(false)
+    expect(
+      isVisionSupported('glm-5.3', {
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+      }),
+    ).toBe(true)
+    expect(
+      isVisionSupported('glm-5.3', {
+        baseUrl: 'https://proxy.example.test/v1',
+      }),
+    ).toBe(true)
+  })
+
   test('falls open for unknown models so custom / non-registered providers keep working', () => {
     expect(isVisionSupported('custom-vision-corp/secret-model-v1')).toBe(true)
     expect(isVisionSupported('not-a-real-model-xyz')).toBe(true)
@@ -185,6 +212,24 @@ describe('checkVisionCapabilityForFile (issue #1421)', () => {
       'my-custom-provider/vision-experimental',
     )
     expect(result.result).toBe(true)
+  })
+
+  test('only blocks GLM-5.3 image reads on the direct Z.AI route', () => {
+    expect(
+      checkVisionCapabilityForFile('x.png', 'glm-5.3', {
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      }).result,
+    ).toBe(false)
+    expect(
+      checkVisionCapabilityForFile('x.png', 'glm-5.3', {
+        baseUrl: 'https://integrate.api.nvidia.com/v1',
+      }).result,
+    ).toBe(true)
+    expect(
+      checkVisionCapabilityForFile('x.png', 'glm-5.3', {
+        baseUrl: 'https://proxy.example.test/v1',
+      }).result,
+    ).toBe(true)
   })
 
   test('does not gate text-file reads on non-vision models', () => {

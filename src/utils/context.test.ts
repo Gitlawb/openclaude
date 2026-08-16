@@ -525,6 +525,9 @@ test('env-only xAI key uses provider-specific context and output caps before cli
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
   delete process.env.OPENAI_MODEL
 
+  expect(getContextWindowForModel('grok-4.6')).toBe(500_000)
+  expect(getModelMaxOutputTokens('grok-4.6').upperLimit).toBe(500_000)
+  expect(getContextWindowForModel('grok-4.5')).toBe(500_000)
   expect(getContextWindowForModel('grok-4.3')).toBe(1_000_000)
   expect(getModelMaxOutputTokens('grok-4.3')).toEqual({
     default: 32_768,
@@ -904,8 +907,14 @@ test('DashScope glm-4.7 uses provider-specific context and output caps', () => {
 
 test('Z.AI GLM models use Coding Plan output caps', () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 
+  expect(getContextWindowForModel('glm-5.3')).toBe(1_000_000)
+  expect(getModelMaxOutputTokens('glm-5.3')).toEqual({
+    default: 131_072,
+    upperLimit: 131_072,
+  })
   expect(getContextWindowForModel('glm-5.2')).toBe(1_000_000)
   expect(getModelMaxOutputTokens('glm-5.2')).toEqual({
     default: 131_072,

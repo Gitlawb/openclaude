@@ -1,13 +1,15 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { setCachedModels } from './discoveryCache.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from './index.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import { publicBuildVersion } from '../utils/version.js'
+import { setClaudeConfigHomeDirForTesting } from '../utils/envUtils.js'
 
 const originalFetch = globalThis.fetch
 const originalEnv = {
@@ -18,6 +20,7 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  APISMART_API_KEY: process.env.APISMART_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -59,6 +62,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
+  delete process.env.APISMART_API_KEY
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -74,6 +78,7 @@ beforeEach(async () => {
   await acquireSharedMutationLock('discoveryService.test.ts')
   mock.restore()
   tempDir = mkdtempSync(join(tmpdir(), 'openclaude-discovery-service-test-'))
+  setClaudeConfigHomeDirForTesting(tempDir)
   process.env.CLAUDE_CONFIG_DIR = tempDir
   delete process.env.OPENROUTER_API_KEY
   delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
@@ -86,6 +91,7 @@ afterEach(() => {
     mock.restore()
     globalThis.fetch = originalFetch
     rmSync(tempDir, { recursive: true, force: true })
+    setClaudeConfigHomeDirForTesting(undefined)
     restoreEnvValue('CLAUDE_CONFIG_DIR')
     restoreEnvValue('OPENROUTER_API_KEY')
     restoreEnvValue('OPENAI_BASE_URL')
@@ -93,6 +99,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_API_KEY')
     restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
+    restoreEnvValue('APISMART_API_KEY')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -110,6 +117,30 @@ afterEach(() => {
 })
 
 describe('discoverModelsForRoute', () => {
+  test('does not send an ApiSmart key to an overridden discovery URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.APISMART_API_KEY = 'apismart-secret'
+    let didFetch = false
+    let authorization: string | null | undefined
+    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      didFetch = true
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    await discoverModelsForRoute('apismart', {
+      baseUrl: 'https://proxy.example/v1',
+      forceRefresh: true,
+    })
+
+    expect(didFetch).toBe(true)
+    expect(authorization).not.toBe('Bearer apismart-secret')
+  })
+
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
@@ -190,6 +221,24 @@ describe('discoverModelsForRoute', () => {
     expect(callCount).toBe(2)
   })
 
+  test('uses opaque cache partitions for credential-scoped discovery', async () => {
+    const { getDiscoveryCacheKey } = await loadDiscoveryServiceModule()
+
+    const first = getDiscoveryCacheKey('custom', {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'discovery-cache-secret-a',
+    })
+    const second = getDiscoveryCacheKey('custom', {
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'discovery-cache-secret-b',
+    })
+
+    expect(first).toMatch(/^custom:[0-9a-f]{32}$/)
+    expect(first).not.toContain('discovery-cache-secret-a')
+    expect(second).not.toContain('discovery-cache-secret-b')
+    expect(first).not.toBe(second)
+  })
+
   test('preserves stale cache data when refresh fails', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
@@ -258,6 +307,8 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'openai/gpt-5-mini',
+      'x-ai/grok-4.6',
+      'x-ai/grok-4.5',
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
@@ -461,6 +512,7 @@ describe('discoverModelsForRoute', () => {
 
     expect(result?.source).toBe('network')
     expect(capturedHeaders).toEqual({
+      'X-AIMLAPI-Source': 'agent/openclaude',
       'X-AIMLAPI-Partner-ID': 'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
       'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
       'X-AIMLAPI-Integration-Version': publicBuildVersion,
@@ -574,6 +626,85 @@ describe('discoverModelsForRoute', () => {
     expect(['static', 'cache', 'stale-cache']).toContain(result?.source)
     expect(modelNames).toContain('openai/gpt-5-mini')
     expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
+  test('reads xAI OAuth cache identity without refreshing when discovery traffic is disabled', async () => {
+    process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync').mockResolvedValue({
+      accessToken: 'cached-oauth-token',
+      refreshToken: 'stable-account-identity',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    })
+    const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'refreshed-oauth-token',
+    )
+    try {
+      const { discoverModelsForRoute, getDiscoveryCacheKey } =
+        await loadDiscoveryServiceModule()
+      await setCachedModels(
+        getDiscoveryCacheKey('xai', {
+          baseUrl: 'https://api.x.ai/v1',
+          apiKey: 'cached-oauth-token',
+          cacheKey: 'stable-account-identity',
+        }),
+        {
+          models: [
+            {
+              id: 'grok-4.7',
+              apiName: 'grok-4.7',
+              label: 'grok-4.7',
+            },
+          ],
+        },
+      )
+
+      const result = await discoverModelsForRoute('xai', { forceRefresh: true })
+
+      expect(result?.source).toBe('cache')
+      expect(result?.models.map(model => model.apiName)).toContain('grok-4.7')
+      expect(refreshSpy).not.toHaveBeenCalled()
+    } finally {
+      readSpy.mockRestore()
+      refreshSpy.mockRestore()
+    }
+  })
+
+  test('uses the persisted xAI OAuth cache identity after token rotation', async () => {
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const initialCredentials = {
+      accessToken: 'old-access-token',
+      refreshToken: 'old-refresh-token',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    }
+    const refreshedCredentials = {
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+      cacheIdentity: 'old-refresh-token',
+      tokenEndpoint: 'https://auth.x.ai/oauth/token',
+    }
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync')
+      .mockResolvedValueOnce(initialCredentials)
+      .mockResolvedValue(refreshedCredentials)
+    const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'new-access-token',
+    )
+    try {
+      const { resolveDiscoveryRequestOptions } =
+        await loadDiscoveryServiceModule()
+      const result = await resolveDiscoveryRequestOptions('xai', {
+        baseUrl: 'https://api.x.ai/v1',
+      })
+
+      expect(result).toMatchObject({
+        apiKey: 'new-access-token',
+        cacheKey: 'old-refresh-token',
+      })
+      expect(refreshSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      readSpy.mockRestore()
+      refreshSpy.mockRestore()
+    }
   })
 
   test('startup refresh mode performs discovery for startup routes and then reuses cache', async () => {

@@ -585,7 +585,7 @@ test('OPENAI_API_KEYS rejects placeholder values before sending requests', async
       max_tokens: 32,
       stream: false,
     }),
-  ).rejects.toThrow(/SUA_CHAVE|Authentication failed/)
+  ).rejects.toThrow(/invalid credential placeholder|Authentication failed/)
 
   expect(authorizations).toEqual([])
 })

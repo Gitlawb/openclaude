@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import {
   getCachedModels,
   isCacheStale,
@@ -15,6 +14,8 @@ import type {
 import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
+  isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
 } from './routeMetadata.js'
@@ -33,6 +34,11 @@ import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../servi
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
+import {
+  getXaiDiscoveryCacheIdentity,
+  readXaiCredentialsAsync,
+  resolveXaiAccessToken,
+} from '../utils/xaiCredentials.js'
 
 export type RouteDiscoveryResult = {
   routeId: string
@@ -114,11 +120,23 @@ function normalizeDiscoveryCacheHeaders(
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
 }
 
-function hashDiscoveryCachePartition(value: unknown): string {
-  return createHash('sha256')
-    .update(JSON.stringify(value))
-    .digest('hex')
-    .slice(0, 16)
+const FNV1A_128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58dn
+const FNV1A_128_PRIME = 0x0000000001000000000000000000013bn
+
+function fingerprintDiscoveryCachePartition(value: unknown): string {
+  // Discovery results can be account-specific. This only needs a stable,
+  // opaque local cache namespace; it is not password storage, authentication,
+  // integrity protection, or a security boundary. Keep raw credentials out of
+  // the cache key without retaining them in a process-wide memoization cache.
+  let fingerprint = FNV1A_128_OFFSET_BASIS
+  const serialized = JSON.stringify(value) ?? ''
+
+  for (const byte of new TextEncoder().encode(serialized)) {
+    fingerprint ^= BigInt(byte)
+    fingerprint = BigInt.asUintN(128, fingerprint * FNV1A_128_PRIME)
+  }
+
+  return fingerprint.toString(16).padStart(32, '0')
 }
 
 export function getDiscoveryCacheKey(
@@ -126,21 +144,23 @@ export function getDiscoveryCacheKey(
   options?: {
     baseUrl?: string
     apiKey?: string
+    cacheKey?: string
     headers?: Record<string, string>
   },
 ): string {
   const discoveryApiKey = getRouteDiscoveryApiKey(routeId, options)
+  const cacheIdentity = options?.cacheKey ?? discoveryApiKey
   const partition = {
     baseUrl: normalizeDiscoveryCacheBaseUrl(getRouteBaseUrl(routeId, options)),
-    apiKeyHash: discoveryApiKey
-      ? hashDiscoveryCachePartition(discoveryApiKey)
+    apiKeyHash: cacheIdentity
+      ? fingerprintDiscoveryCachePartition(cacheIdentity)
       : '',
     headers: normalizeDiscoveryCacheHeaders(
       getRouteDiscoveryHeaders(routeId, options),
     ),
   }
 
-  return `${routeId}:${hashDiscoveryCachePartition(partition)}`
+  return `${routeId}:${fingerprintDiscoveryCachePartition(partition)}`
 }
 
 function getRouteBaseUrl(
@@ -152,9 +172,20 @@ function getRouteBaseUrl(
 
 function getRouteDiscoveryApiKey(
   routeId: string,
-  options?: { apiKey?: string },
+  options?: { baseUrl?: string; apiKey?: string },
 ): string | undefined {
   if (getRouteCatalog(routeId)?.discovery?.requiresAuth === false) {
+    return undefined
+  }
+
+  const baseUrl = getRouteBaseUrl(routeId, options)
+  // ApiSmart's dedicated token must never be used for an overridden discovery
+  // URL. Apply the same exact inference-endpoint boundary used by requests and
+  // profiles before considering either a caller-provided or ambient key.
+  if (
+    routeId === 'apismart' &&
+    !isCanonicalApismartInferenceBaseUrl(baseUrl)
+  ) {
     return undefined
   }
 
@@ -170,9 +201,52 @@ function getRouteDiscoveryApiKey(
   return firstUsableCredential(
     resolveRouteCredentialValue({
       routeId,
+      baseUrl,
       processEnv: process.env,
     }),
   )
+}
+
+export async function resolveDiscoveryRequestOptions<
+  T extends {
+    apiKey?: string
+    cacheKey?: string
+    baseUrl?: string
+    headers?: Record<string, string>
+  },
+>(
+  routeId: string,
+  options?: T,
+  resolverOptions?: { refreshXaiOAuth?: boolean },
+): Promise<T> {
+  const next = { ...(options ?? {}) } as T
+  if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai') {
+    return next
+  }
+
+  if (!isCanonicalXaiInferenceBaseUrl(getRouteBaseUrl(routeId, next))) {
+    return next
+  }
+
+  let credentials = await readXaiCredentialsAsync()
+  const cacheOnly =
+    shouldSkipNonessentialDiscoveryTraffic() ||
+    resolverOptions?.refreshXaiOAuth === false
+  const token = firstUsableCredential(
+    cacheOnly ? credentials?.accessToken : await resolveXaiAccessToken(),
+  )
+  if (!cacheOnly) {
+    // A refresh can rotate the refresh token. Re-read the persisted blob so
+    // discovery writes under the same stable identity subsequent readers use.
+    credentials = (await readXaiCredentialsAsync()) ?? credentials
+  }
+  if (token) {
+    next.apiKey = token
+    // The access token can rotate while the OAuth account does not. Keep the
+    // cache partition tied to a stable account identity, not a bearer token.
+    next.cacheKey = getXaiDiscoveryCacheIdentity(credentials) ?? token
+  }
+  return next
 }
 
 export function getRouteDiscoveryHeaders(
@@ -344,8 +418,14 @@ export async function discoverModelsForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const cacheKey = getDiscoveryCacheKey(routeId, options)
-  if (!options?.forceRefresh && ttlMs > 0) {
+  // Cache-only reads must not refresh an OAuth token: discovery can be
+  // disabled by privacy policy, and a refresh can rotate the bearer before a
+  // fresh cached result is checked.
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
+  if (!cachedOptions.forceRefresh && ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {
       return {
@@ -386,12 +466,14 @@ export async function discoverModelsForRoute(
   }
 
   try {
-    const discovered = await runDiscovery(routeId, options)
+    const discoveryOptions = await resolveDiscoveryRequestOptions(routeId, options)
+    const discoveryCacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
+    const discovered = await runDiscovery(routeId, discoveryOptions)
     if (discovered === null) {
       throw new Error(`Discovery failed for route ${routeId}`)
     }
 
-    await setCachedModels(cacheKey, { models: discovered })
+    await setCachedModels(discoveryCacheKey, { models: discovered })
     return {
       routeId,
       models: mergeCatalogEntries(staticEntries, discovered),
@@ -445,7 +527,10 @@ export async function refreshStartupDiscoveryForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  const cacheKey = getDiscoveryCacheKey(routeId, options)
+  const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
+    refreshXaiOAuth: false,
+  })
+  const cacheKey = getDiscoveryCacheKey(routeId, cachedOptions)
   if (ttlMs > 0) {
     const cached = await getCachedModels(cacheKey, ttlMs)
     if (cached) {

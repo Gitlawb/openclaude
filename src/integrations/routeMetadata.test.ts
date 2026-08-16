@@ -6,12 +6,20 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getRouteProviderTypeLabel,
+  isApismartBaseUrl,
+  isCanonicalApismartInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+import { ensureIntegrationsLoaded } from './index.js'
+import { _clearRegistryForTesting, registerGateway } from './registry.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../test/sharedMutationLock.js'
 
 test('isCloudflareBaseUrl matches Workers AI host but not the shared AI Gateway', () => {
   // Workers AI lives on api.cloudflare.com.
@@ -221,6 +229,18 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       ATLAS_CLOUD_API_KEY: 'atlas-key',
     }),
   ).toBe('atlas-key')
+  expect(getRouteCredentialEnvVars('apismart')).toEqual(['APISMART_API_KEY'])
+  expect(
+    getRouteCredentialValue('apismart', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('apismart', {
+      OPENAI_API_KEY: 'sk-openai-generic',
+      APISMART_API_KEY: 'apismart-key',
+    }),
+  ).toBe('apismart-key')
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {
@@ -291,6 +311,32 @@ test('route credential discovery ignores mixed placeholder OpenAI pools before s
   ).toBe('sk-openai-single')
 })
 
+test('ApiSmart dedicated credential is limited to the canonical inference base URL', () => {
+  const processEnv = { APISMART_API_KEY: 'apismart-secret' }
+
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v1',
+      processEnv,
+    }),
+  ).toBe('apismart-secret')
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v1/models',
+      processEnv,
+    }),
+  ).toBeUndefined()
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      baseUrl: 'https://gw.apismart.ai/v2',
+      processEnv,
+    }),
+  ).toBeUndefined()
+})
+
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('venice')).toBe('https://api.venice.ai/api/v1')
   expect(getRouteDefaultModel('venice')).toBe('venice-uncensored')
@@ -303,6 +349,53 @@ test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => 
   expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1')).toBe('aimlapi')
   expect(resolveRouteIdFromBaseUrl('https://api.aimlapi.com/v1/chat/completions')).toBe('aimlapi')
+})
+
+test('ApiSmart route metadata uses official OpenAI-compatible defaults', () => {
+  expect(getRouteDefaultBaseUrl('apismart')).toBe('https://gw.apismart.ai/v1')
+  expect(getRouteDefaultModel('apismart')).toBe('DEEPSEEK_V4_FLASH')
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1')).toBe('apismart')
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai/v1/chat/completions')).toBe(
+    'apismart',
+  )
+})
+
+test('isApismartBaseUrl requires the documented HTTPS endpoint', () => {
+  expect(isApismartBaseUrl('https://gw.apismart.ai/v1')).toBe(true)
+  expect(isApismartBaseUrl('http://gw.apismart.ai/v1')).toBe(false)
+  expect(isApismartBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(false)
+  expect(resolveRouteIdFromBaseUrl('http://gw.apismart.ai/v1')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://gw.apismart.ai:8443/v1')).toBe(null)
+})
+
+test('isCanonicalApismartInferenceBaseUrl requires the exact /v1 inference path', () => {
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1')).toBe(
+    true,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/')).toBe(
+    true,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1?x=1')).toBe(
+    false,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1#fragment')).toBe(
+    false,
+  )
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai')).toBe(
+    false,
+  )
+  expect(
+    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v1/models'),
+  ).toBe(false)
+  expect(
+    isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/staging/v1'),
+  ).toBe(false)
+  expect(isCanonicalApismartInferenceBaseUrl('https://gw.apismart.ai/v2')).toBe(
+    false,
+  )
+  // Host-scoped route match still accepts path suffixes for identity.
+  expect(isApismartBaseUrl('https://gw.apismart.ai/v1/models')).toBe(true)
+  expect(isApismartBaseUrl('https://gw.apismart.ai')).toBe(true)
 })
 
 test('AI/ML API route credential discovery ignores placeholder dedicated key', () => {
@@ -438,6 +531,110 @@ test('resolveActiveRouteIdFromEnv treats AI/ML API credential-only env as AI/ML 
   ).toBe('aimlapi')
 })
 
+test('resolveActiveRouteIdFromEnv treats ApiSmart credential-only env as ApiSmart', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv ignores placeholder ApiSmart credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'SUA_CHAVE',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'null',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'undefined',
+    }),
+  ).not.toBe('apismart')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'sua_chave',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'null',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'SUA_CHAVE',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('aimlapi')
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: { APISMART_API_KEY: 'SUA_CHAVE' },
+    }),
+  ).toBeUndefined()
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: { APISMART_API_KEY: 'null' },
+    }),
+  ).toBeUndefined()
+})
+
+test('resolveActiveRouteIdFromEnv prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      CLINE_API_KEY: 'cline-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv prefers ApiSmart over AI/ML API when both dedicated keys are set', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by ApiSmart base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'sk-openai-generic',
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+    }),
+  ).toBe('apismart')
+})
+
+test('resolveActiveRouteIdFromEnv does not retain ApiSmart identity for a retargeted profile', () => {
+  const baseUrl = 'https://proxy.example/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: baseUrl },
+      { activeProfileProvider: 'apismart', activeProfileBaseUrl: baseUrl },
+    ),
+  ).toBe('custom')
+})
+
+test('resolveActiveRouteIdFromEnv honors an explicit competing route over an ambient ApiSmart key', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      AIMLAPI_API_KEY: 'aimlapi-key',
+      OPENAI_BASE_URL: 'https://api.aimlapi.com/v1',
+    }),
+  ).toBe('aimlapi')
+})
+
 test('resolveActiveRouteIdFromEnv prefers dedicated AI/ML API key over ambient OpenAI keys', () => {
   expect(
     resolveActiveRouteIdFromEnv({
@@ -465,6 +662,15 @@ test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with AI/
       CLAUDE_CODE_USE_OPENAI: '1',
     }),
   ).toBe('aimlapi')
+})
+
+test('resolveActiveRouteIdFromEnv keeps explicit OpenAI mode compatible with ApiSmart key-only setup', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      APISMART_API_KEY: 'apismart-key',
+      CLAUDE_CODE_USE_OPENAI: '1',
+    }),
+  ).toBe('apismart')
 })
 
 test('resolveActiveRouteIdFromEnv does not infer AI/ML API with a conflicting OpenAI base URL', () => {
@@ -740,4 +946,66 @@ test('resolveActiveRouteIdFromEnv does not infer Near AI with explicit provider 
       CLAUDE_CODE_USE_GEMINI: '1',
     }),
   ).toBe('gemini')
+})
+
+test('getRouteDefaultModel skips hidden and expired catalog entries in the fallback', async () => {
+  // Self-contained registry mutation (same lock + clear + reload pattern as
+  // registry.test.ts) so the synthetic gateway never leaks into other tests.
+  await acquireSharedMutationLock('integrations/routeMetadata.test.ts')
+  try {
+    _clearRegistryForTesting()
+    registerGateway({
+      id: 'gw-default-fallback',
+      label: 'gw-default-fallback',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: { kind: 'openai-compatible' },
+      // No defaultModel on the descriptor → the catalog fallback path runs.
+      catalog: {
+        source: 'static',
+        models: [
+          // Marked default, but hidden — must be skipped.
+          { id: 'hidden-default', apiName: 'model-hidden', default: true, hidden: true },
+          // availableUntil already past its cutoff — must be skipped.
+          {
+            id: 'expired',
+            apiName: 'model-expired',
+            availableUntil: '2020-01-01T00:00:00Z',
+          },
+          { id: 'valid', apiName: 'model-valid' },
+        ],
+      },
+    })
+    expect(getRouteDefaultModel('gw-default-fallback')).toBe('model-valid')
+
+    // Every entry filtered out → no implicit default at all, rather than an
+    // id the route would reject.
+    _clearRegistryForTesting()
+    registerGateway({
+      id: 'gw-default-fallback-empty',
+      label: 'gw-default-fallback-empty',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: { kind: 'openai-compatible' },
+      catalog: {
+        source: 'static',
+        models: [
+          { id: 'hidden-only', apiName: 'model-hidden', hidden: true },
+          {
+            id: 'expired-only',
+            apiName: 'model-expired',
+            availableUntil: '2020-01-01T00:00:00Z',
+          },
+        ],
+      },
+    })
+    expect(getRouteDefaultModel('gw-default-fallback-empty')).toBeUndefined()
+  } finally {
+    // Nested so the lock is released even if the registry restore throws
+    // (same shape as registry.test.ts's afterEach).
+    try {
+      _clearRegistryForTesting()
+      ensureIntegrationsLoaded()
+    } finally {
+      releaseSharedMutationLock()
+    }
+  }
 })

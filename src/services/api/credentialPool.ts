@@ -130,15 +130,34 @@ export function parseCredentialList(value: string | undefined): string[] {
     .filter(Boolean)
 }
 
+// Template/dotenv sentinels that must never authenticate or win route
+// precedence. Keep this list case-insensitive and shared so dedicated-key
+// providers (ApiSmart, AIMLAPI, OpenAI pools) agree with profile sanitizers.
+const INVALID_CREDENTIAL_PLACEHOLDERS = new Set([
+  'sua_chave',
+  'null',
+  'undefined',
+])
+
+export function isCredentialPlaceholder(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+  return INVALID_CREDENTIAL_PLACEHOLDERS.has(trimmed.toLowerCase())
+}
+
 export function hasInvalidCredentialPlaceholder(value: string | undefined): boolean {
-  return parseCredentialList(value).some(credential => credential === 'SUA_CHAVE')
+  return parseCredentialList(value).some(credential =>
+    isCredentialPlaceholder(credential),
+  )
 }
 
 export function hasUsableOpenAICredential(value: string | undefined): boolean {
   const credentials = parseCredentialList(value)
   return (
     credentials.length > 0 &&
-    credentials.every(credential => credential !== 'SUA_CHAVE')
+    credentials.every(credential => !isCredentialPlaceholder(credential))
   )
 }
 

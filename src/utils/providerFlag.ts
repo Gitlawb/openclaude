@@ -23,10 +23,14 @@ import {
   getVendor,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
   resolveProfileRoute,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
@@ -168,7 +172,16 @@ function getRouteDefaults(provider: string): {
 
 function normalizeBaseUrlEnv(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
-  return trimmed && trimmed !== 'undefined' ? trimmed : undefined
+  if (!trimmed) {
+    return undefined
+  }
+  const normalized = trimmed.toLowerCase()
+  // dotenv / shell sentinels are not usable endpoints. Treating them as
+  // configured would preserve an invalid OPENAI_BASE_URL and block dedicated
+  // provider defaults (for example ApiSmart key mirroring).
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 function getConfiguredOpenAIBaseUrl(): string | undefined {
@@ -226,6 +239,28 @@ function applyOpenAIBaseUrlDefault(provider: string, baseUrl?: string): void {
   ) {
     process.env.OPENAI_BASE_URL = normalizedBaseUrl
   }
+}
+
+function clearUnsupportedOpenAIShimSettings(routeId: string): void {
+  if (!routeSupportsApiFormatSelection(routeId)) {
+    delete process.env.OPENAI_API_FORMAT
+  }
+  if (!routeSupportsAuthHeaders(routeId)) {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
+  }
+}
+
+function usableProviderModelEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 /**
@@ -316,6 +351,9 @@ export function applyProviderFlag(
                       process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
                     ? 'atlas-cloud'
                     : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
+                      ? 'apismart'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                         process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                       ? 'nearai'
                       : process.env.OPENAI_API_KEY !== undefined &&
@@ -369,6 +407,11 @@ export function applyProviderFlag(
       if (hadCustomAnthropicEndpoint) {
         delete process.env.ANTHROPIC_API_KEY
       }
+      // `--provider anthropic` is an explicit selection even though the
+      // default provider has no positive mode flag. Do not let a dedicated
+      // OpenAI-compatible env-only route override it later in startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
@@ -411,6 +454,10 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // An explicit generic OpenAI selection must not be reclassified as a
+      // dedicated env-only gateway during client startup.
+      delete process.env.APISMART_API_KEY
+      delete process.env.APISMART_MODEL
       if (model) process.env.OPENAI_MODEL = model
       break
 
@@ -521,7 +568,7 @@ export function applyProviderFlag(
     case 'xai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
-      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.3'
+      process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.6'
       if (model) process.env.OPENAI_MODEL = model
       if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
@@ -575,6 +622,49 @@ export function applyProviderFlag(
       // the missing ATLAS_CLOUD_API_KEY instead.
       if (process.env.ATLAS_CLOUD_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.ATLAS_CLOUD_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'apismart':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // Keep provider-flag selection on the same descriptor-declared wire
+      // contract as env-only setup and saved profiles. ApiSmart does not
+      // support alternate API formats or custom auth headers.
+      clearUnsupportedOpenAIShimSettings('apismart')
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://gw.apismart.ai/v1',
+      )
+      {
+        const apismartModel = usableProviderModelEnvValue(
+          process.env.APISMART_MODEL,
+        )
+        if (apismartModel) {
+          process.env.OPENAI_MODEL = apismartModel
+        } else {
+          process.env.OPENAI_MODEL ??=
+            usableProviderModelEnvValue(process.env.OPENAI_MODEL) ||
+            defaultModel ||
+            'DEEPSEEK_V4_FLASH'
+        }
+      }
+      if (model) {
+        process.env.OPENAI_MODEL = model
+        process.env.APISMART_MODEL = model
+      }
+      // DedicatedCredentialsOnly: only APISMART_API_KEY authenticates this
+      // route. Mirror it into OPENAI_API_KEY for the shared shim transport,
+      // and clear any stale generic key so another provider's credential is
+      // never forwarded to ApiSmart. Only the documented `/v1` inference URL
+      // is eligible for mirroring (AIMLAPI canonical-host parity).
+      if (
+        hasUsableOpenAICredential(process.env.APISMART_API_KEY) &&
+        isCanonicalApismartInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
       }

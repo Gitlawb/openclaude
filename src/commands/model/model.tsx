@@ -13,9 +13,11 @@ import {
   parseDurationString,
 } from '../../integrations/discoveryCache.js'
 import type { ModelCatalogConfig } from '../../integrations/descriptors.js'
+import { filterAvailableCatalogEntries } from '../../integrations/index.js'
 import {
   discoverModelsForRoute,
   getDiscoveryCacheKey,
+  resolveDiscoveryRequestOptions,
 } from '../../integrations/discoveryService.js'
 import {
   getRouteDescriptor,
@@ -365,17 +367,21 @@ function withInactiveProfileSwitchOptions(
   return additions.length > 0 ? [...options, ...additions] : options
 }
 
-function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
+async function getOpenAIDiscoveryRequestOptions(
+  routeId?: string | null,
+  options?: { refreshXaiOAuth?: boolean },
+): Promise<{
   apiKey?: string
+  cacheKey?: string
   baseUrl?: string
   headers?: Record<string, string>
-} {
+}> {
   const request = resolveProviderRequest({
     model: process.env.OPENAI_MODEL,
     baseUrl: process.env.OPENAI_BASE_URL,
   })
 
-  return {
+  return resolveDiscoveryRequestOptions(routeId ?? 'custom', {
     apiKey: firstUsableCredential(
       resolveRouteCredentialValue({
         routeId,
@@ -385,7 +391,7 @@ function getOpenAIDiscoveryRequestOptions(routeId?: string | null): {
     ),
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
-  }
+  }, options)
 }
 
 // Reconciles fast-mode state when /model picks a new target — both the regular
@@ -457,7 +463,16 @@ async function loadDescriptorDiscoveryContext(
     routeId,
     settingsMode: getProviderProfileModelPickerMode(),
   })
-  const staticEntries = catalog.models ?? []
+  // Availability-filter the static entries (hidden / availableUntil) — this
+  // path reads the descriptor's catalog directly, so it must apply the same
+  // filter as getCatalogEntriesForRoute or an expired time-boxed entry
+  // (e.g. a closed free window) stays selectable in the picker. The RAW list
+  // is kept alongside: the static+discovery merge below dedupes by apiName
+  // with static entries winning, so the expired static entry must still be
+  // present there to block a cached discovery duplicate (which would carry
+  // no availableUntil marker and survive the post-merge filter).
+  const rawStaticEntries = catalog.models ?? []
+  const staticEntries = filterAvailableCatalogEntries(rawStaticEntries)
   const trafficRestricted = isEssentialTrafficOnly()
   const canRefresh = Boolean(
     catalog.discovery && catalog.allowManualRefresh && !trafficRestricted,
@@ -489,7 +504,9 @@ async function loadDescriptorDiscoveryContext(
   }
 
   const ttlMs = parseDurationString(catalog.discoveryCacheTtl ?? 0)
-  const discoveryOptions = getOpenAIDiscoveryRequestOptions(routeId)
+  const discoveryOptions = await getOpenAIDiscoveryRequestOptions(routeId, {
+    refreshXaiOAuth: false,
+  })
   const cacheKey = getDiscoveryCacheKey(routeId, discoveryOptions)
   const cached = await getCachedModels(cacheKey, ttlMs, { includeStale: true })
   const stale = await isCacheStale(cacheKey, ttlMs)
@@ -499,9 +516,13 @@ async function loadDescriptorDiscoveryContext(
     staticEntryCount: staticEntries.length,
     stale,
   }) && !trafficRestricted
-  const mergedEntries = mergeRouteCatalogEntries(
-    staticEntries,
-    cached?.models ?? [],
+  // Merge the RAW static list (see above), then filter: the expired static
+  // entry wins the apiName dedup against any cached discovery duplicate, and
+  // the post-merge filter removes it — so neither copy survives. Filtering
+  // after the merge also covers discovery entries carrying their own
+  // hidden/availableUntil markers (mapModel).
+  const mergedEntries = filterAvailableCatalogEntries(
+    mergeRouteCatalogEntries(rawStaticEntries, cached?.models ?? []),
   )
 
   let discoveryState: ModelPickerDiscoveryState | undefined
@@ -549,7 +570,7 @@ async function loadModelDiscoveryContext(): Promise<ModelDiscoveryContext | null
   }
 
   if (getAdditionalModelOptionsCacheScope()?.startsWith('openai:')) {
-    const { baseUrl } = getOpenAIDiscoveryRequestOptions()
+    const { baseUrl } = await getOpenAIDiscoveryRequestOptions()
     const activeProfile = getActiveProviderProfile()
     const legacyRouteId = routeId ?? 'custom'
     const profileModelSurface = resolveProviderProfileModelSurface({
@@ -870,11 +891,14 @@ function ModelPickerWrapper({
     })
 
     if (discoveryContext.kind === 'descriptor') {
+      const discoveryOptions = await getOpenAIDiscoveryRequestOptions(
+        discoveryContext.routeId,
+      )
       if (manual) {
         await clearDiscoveryCache(
           getDiscoveryCacheKey(
             discoveryContext.routeId,
-            getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+            discoveryOptions,
           ),
         )
       }
@@ -882,7 +906,7 @@ function ModelPickerWrapper({
       const result = await discoverModelsForRoute(
         discoveryContext.routeId,
         {
-          ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+          ...discoveryOptions,
           forceRefresh: true,
         },
       )
@@ -1209,14 +1233,17 @@ async function refreshModelsAndSummarize(): Promise<string> {
   }
 
   if (discoveryContext.kind === 'descriptor') {
+    const discoveryOptions = await getOpenAIDiscoveryRequestOptions(
+      discoveryContext.routeId,
+    )
     await clearDiscoveryCache(
       getDiscoveryCacheKey(
         discoveryContext.routeId,
-        getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+        discoveryOptions,
       ),
     )
     const result = await discoverModelsForRoute(discoveryContext.routeId, {
-      ...getOpenAIDiscoveryRequestOptions(discoveryContext.routeId),
+      ...discoveryOptions,
       forceRefresh: true,
     })
     const nextOptions = mergeActiveProfileModelOptions(

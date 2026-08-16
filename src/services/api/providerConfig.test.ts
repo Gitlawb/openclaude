@@ -314,6 +314,133 @@ test('resolveProviderRequest uses ClinePass model when no explicit base URL is s
   expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
 })
 
+test('resolveProviderRequest honors an explicit ClinePass endpoint over an ambient ApiSmart key', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      CLINE_API_KEY: 'cp-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+      OPENAI_BASE_URL: 'https://api.cline.bot/api/v1',
+    },
+  })
+
+  expect(request.requestedModel).toBe('cline-pass/qwen3.7-max')
+  expect(request.baseUrl).toBe('https://api.cline.bot/api/v1')
+})
+
+test('resolveProviderRequest uses APISMART_MODEL when APISMART_API_KEY is present', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+    },
+  })
+
+  expect(request.requestedModel).toBe('KIMI_K3')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest falls back to OPENAI_MODEL for ApiSmart when APISMART_MODEL is unset', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      OPENAI_MODEL: 'GLM_5.2',
+    },
+  })
+
+  expect(request.requestedModel).toBe('GLM_5.2')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest treats blank APISMART_MODEL as unset for ApiSmart', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: '   ',
+      OPENAI_MODEL: 'QWEN_3_7_MAX',
+    },
+  })
+
+  expect(request.requestedModel).toBe('QWEN_3_7_MAX')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test.each(['null', 'undefined', ' NULL '])(
+  'resolveProviderRequest treats placeholder APISMART_MODEL %s as unset',
+  APISMART_MODEL => {
+    const request = resolveProviderRequest({
+      processEnv: { APISMART_API_KEY: 'apismart-key', APISMART_MODEL },
+    })
+    expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
+  },
+)
+
+test('resolveProviderRequest uses the ApiSmart route default when no model env is set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+    },
+  })
+
+  expect(request.requestedModel).toBe('DEEPSEEK_V4_FLASH')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest ignores APISMART_MODEL without APISMART_API_KEY', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
+test('resolveProviderRequest ignores placeholder ApiSmart credentials', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'SUA_CHAVE',
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_API_KEY: 'openai-key',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
+test('resolveProviderRequest prefers ApiSmart over ClinePass when both dedicated keys are set', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+      CLINE_API_KEY: 'cline-key',
+      CLINE_API_MODEL: 'cline-pass/qwen3.7-max',
+    },
+  })
+
+  expect(request.requestedModel).toBe('KIMI_K3')
+  expect(request.baseUrl).toBe('https://gw.apismart.ai/v1')
+})
+
+test('resolveProviderRequest ignores ApiSmart model when explicit OPENAI_BASE_URL points elsewhere', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      APISMART_API_KEY: 'apismart-key',
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  expect(request.requestedModel).toBe('gpt-4o')
+  expect(request.baseUrl).toBe('https://api.openai.com/v1')
+})
+
 test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
   const sol = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv: {} })
   expect(sol.resolvedModel).toBe('gpt-5.6-sol')
@@ -332,6 +459,16 @@ test('resolveProviderRequest resolves the GPT-5.6 family Codex aliases', () => {
   const bare = resolveProviderRequest({ model: 'gpt-5.6', processEnv: {} })
   expect(bare.resolvedModel).toBe('gpt-5.6-sol')
   expect(bare.reasoning).toEqual({ effort: 'high' })
+})
+
+test('resolveProviderRequest keeps the implicit Codex fallback on Sol with high reasoning', () => {
+  expect(resolveProviderRequest({ processEnv: {} })).toMatchObject({
+    requestedModel: 'codexplan',
+    resolvedModel: 'gpt-5.6-sol',
+    transport: 'codex_responses',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    reasoning: { effort: 'high' },
+  })
 })
 
 test('resolveProviderRequest honors reasoning query overrides on GPT-5.6 aliases', () => {
@@ -353,10 +490,18 @@ test('resolveProviderRequest scopes GPT-5.6 alias effort defaults to the Codex t
     OPENAI_API_KEY: 'test-key',
   }
 
-  const plain = resolveProviderRequest({ model: 'gpt-5.6-sol', processEnv })
-  expect(plain.resolvedModel).toBe('gpt-5.6-sol')
-  expect(plain.transport).not.toBe('codex_responses')
-  expect(plain.reasoning).toBeUndefined()
+  for (const model of ['gpt-5.6', 'gpt-5.6-sol']) {
+    const plain = resolveProviderRequest({ model, processEnv })
+    expect(plain.resolvedModel).toBe('gpt-5.6-sol')
+    expect(plain.transport).not.toBe('codex_responses')
+    expect(plain.reasoning).toBeUndefined()
+  }
+
+  const codexplan = resolveProviderRequest({ model: 'codexplan', processEnv })
+  expect(codexplan.resolvedModel).toBe('gpt-5.6-sol')
+  expect(codexplan.baseUrl).toBe('https://gateway.example/v1')
+  expect(codexplan.transport).not.toBe('codex_responses')
+  expect(codexplan.reasoning).toEqual({ effort: 'high' })
 
   const explicit = resolveProviderRequest({
     model: 'gpt-5.6-sol?reasoning=medium',

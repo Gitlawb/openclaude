@@ -27,6 +27,10 @@ import { errorMessage } from '../../../utils/errors.js'
 import type { PermissionDecision } from '../../../utils/permissions/PermissionResult.js'
 import type { PermissionUpdate } from '../../../utils/permissions/PermissionUpdateSchema.js'
 import { hasPermissionsToUseTool } from '../../../utils/permissions/permissions.js'
+import {
+  getInterruptionSignalAbortTrace,
+  tracePermissionAbortResolution,
+} from '../../../utils/interruptionTrace.js'
 import type { PermissionContext } from '../PermissionContext.js'
 import { createResolveOnce } from '../PermissionContext.js'
 
@@ -127,12 +131,23 @@ function handleInteractivePermission(
     const abortSignal = ctx.toolUseContext.abortController.signal
     const onExternalAbort = () => {
       if (!claim()) return
+      const abortTrace = getInterruptionSignalAbortTrace(abortSignal)
+      tracePermissionAbortResolution(
+        abortTrace.source,
+        abortTrace.causalEventId,
+        'tool_permission',
+      )
       if (bridgeCallbacks && bridgeRequestId) {
         bridgeCallbacks.cancelRequest(bridgeRequestId)
       }
       channelUnsubscribe?.()
       ctx.removeFromQueue()
-      resolveOnce(ctx.cancelAndAbort(undefined, true))
+      resolveOnce(
+        ctx.cancelAndAbort(undefined, true, undefined, {
+          source: abortTrace.source ?? 'permission_abort',
+          causalEventId: abortTrace.causalEventId,
+        }),
+      )
     }
     if (abortSignal.aborted) {
       // Already aborted: cancel and stop setup so we never enqueue a stale prompt.
@@ -190,7 +205,7 @@ function handleInteractivePermission(
           ctx.removeFromQueue()
         }
       },
-      onAbort() {
+      onAbort(source, causalEventId) {
         if (!claim()) return
         if (bridgeCallbacks && bridgeRequestId) {
           bridgeCallbacks.sendResponse(bridgeRequestId, {
@@ -205,7 +220,12 @@ function handleInteractivePermission(
           { decision: 'reject', source: { type: 'user_abort' } },
           { permissionPromptStartTimeMs },
         )
-        resolveOnce(ctx.cancelAndAbort(undefined, true))
+        resolveOnce(
+          ctx.cancelAndAbort(undefined, true, undefined, {
+            source: source ?? 'permission_dialog',
+            causalEventId,
+          }),
+        )
       },
       async onAllow(
         updatedInput,

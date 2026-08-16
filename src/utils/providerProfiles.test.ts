@@ -70,6 +70,8 @@ const RESTORED_KEYS = [
   'VENICE_API_KEY',
   'MIMO_API_KEY',
   'ATLAS_CLOUD_API_KEY',
+  'APISMART_API_KEY',
+  'APISMART_MODEL',
   'CLINE_API_KEY',
   'HICAP_API_KEY',
   'CLOUDFLARE_API_TOKEN',
@@ -261,6 +263,17 @@ function buildAtlasCloudProfile(overrides: Partial<ProviderProfile> = {}): Provi
     baseUrl: 'https://api.atlascloud.ai/v1',
     model: 'deepseek-ai/deepseek-v4-pro',
     apiKey: 'atlas-test-key',
+    ...overrides,
+  })
+}
+
+function buildApismartProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'apismart',
+    name: 'ApiSmart',
+    baseUrl: 'https://gw.apismart.ai/v1',
+    model: 'DEEPSEEK_V4_FLASH',
+    apiKey: 'apismart-test-key',
     ...overrides,
   })
 }
@@ -798,6 +811,171 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.ATLAS_CLOUD_API_KEY).toBe('atlas-test-key')
     expect(getFreshAPIProvider()).toBe('openai')
   })
+
+  test('apismart profile applies OpenAI-compatible env with APISMART_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildApismartProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-test-key')
+    expect(process.env.APISMART_API_KEY).toBe('apismart-test-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('apismart profile clears a stale route-specific model before applying its saved model', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_MODEL = 'KIMI_K3'
+
+    applyProviderProfileToProcessEnv(buildApismartProfile())
+
+    expect(process.env.APISMART_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('DEEPSEEK_V4_FLASH')
+  })
+
+  test('apismart profile without a base URL retains its dedicated credential for the default route', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildApismartProfile({ baseUrl: undefined }))
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('apismart-test-key')
+    expect(process.env.APISMART_API_KEY).toBe('apismart-test-key')
+  })
+
+  test('retargeted ApiSmart profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  })
+
+  test('keyless ApiSmart profile resolves APISMART_API_KEY without persisting it', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: 'https://gw.apismart.ai/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.APISMART_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('keyless ApiSmart profile without a base URL resolves the ambient key as canonical', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: undefined,
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.APISMART_API_KEY).toBe('ambient-apismart-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('keyless canonical ApiSmart profile never promotes a generic OpenAI key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: 'https://gw.apismart.ai/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('keyless custom ApiSmart profile preserves route identity without forwarding the ambient key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.APISMART_API_KEY = 'ambient-apismart-key'
+    process.env.OPENAI_API_KEY = 'ambient-apismart-key'
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({
+        apiKey: undefined,
+        baseUrl: 'https://proxy.example.com/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example.com/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  }, 20_000)
+
+  test('non-canonical ApiSmart host path withholds the dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildApismartProfile({ baseUrl: 'https://gw.apismart.ai/staging/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/staging/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+  })
+
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'addProviderProfile drops placeholder ApiSmart credential %s',
+    async placeholder => {
+      const { addProviderProfile, getProviderProfiles } =
+        await importFreshProviderProfileModules()
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [],
+        activeProviderProfileId: undefined,
+      }))
+
+      const saved = addProviderProfile({
+        provider: 'apismart',
+        name: 'ApiSmart',
+        baseUrl: 'https://gw.apismart.ai/v1',
+        model: 'DEEPSEEK_V4_FLASH',
+        apiKey: placeholder,
+      })
+
+      expect(saved?.apiKey).toBeUndefined()
+      expect(getProviderProfiles()[0]?.apiKey).toBeUndefined()
+    },
+  )
 
   test('cloudflare profile applies OpenAI-compatible env with CLOUDFLARE_API_TOKEN mirror', async () => {
     // Account-scoped URL: a real user has substituted `<ACCOUNT_ID>` for their
@@ -2105,8 +2283,8 @@ describe('applyActiveProviderProfileFromConfig', () => {
     // Regression: the Codex OAuth profile is created with a single
     // `codexplan` model entry, so profileSupportsModel rejected any other
     // Codex model saved via /model (e.g. gpt-5.6-terra) and the next startup
-    // silently reverted to codexplan → gpt-5.5. Codex-backend profiles must
-    // accept every Codex alias model and gpt-5.x free-text picks.
+    // silently reverted to the model behind codexplan. Codex-backend profiles
+    // must accept every Codex alias model and gpt-5.x free-text picks.
     const {
       _setSavedModelOverrideForTesting,
       applyActiveProviderProfileFromConfig,
@@ -2593,7 +2771,7 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.provider).toBe('xai')
     expect(defaults.name).toBe('xAI')
     expect(defaults.baseUrl).toBe('https://api.x.ai/v1')
-    expect(defaults.model).toBe('grok-4.3')
+    expect(defaults.model).toBe('grok-4.6')
     expect(defaults.apiKey).toBe('xai-live-key')
     expect(defaults.requiresApiKey).toBe(true)
   })
@@ -3116,6 +3294,59 @@ describe('setActiveProviderProfile', () => {
         OPENAI_API_KEY: 'cloudflare-test-token',
         CLOUDFLARE_API_TOKEN: 'cloudflare-test-token',
       })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('retargeted ApiSmart profiles keep route identity but persist without their dedicated credential', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const apismartProfile = buildApismartProfile({
+        id: 'apismart_proxy',
+        baseUrl: 'https://proxy.example/v1',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [apismartProfile],
+      }))
+
+      const result = setActiveProviderProfile('apismart_proxy', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('apismart_proxy')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+        OPENAI_BASE_URL: 'https://proxy.example/v1',
+        OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          APISMART_API_KEY: 'ambient-apismart-key',
+          OPENAI_API_KEY: 'ambient-apismart-key',
+        },
+      })
+
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
+      expect(startupEnv.APISMART_API_KEY).toBeUndefined()
+      expect(startupEnv.OPENAI_API_KEY).toBeUndefined()
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

@@ -7,6 +7,10 @@ import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } f
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import {
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
+import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
@@ -376,7 +380,6 @@ function importFreshOpenAIShim(
 
 type StreamIdleTestApi = {
   StreamIdleTimeoutError: new (timeoutMs: number) => Error
-  getApiTimeoutMs: () => number
   getStreamIdleTimeoutMs: () => number
   readWithIdleTimeout: (
     reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -389,7 +392,6 @@ async function getStreamIdleTestApi(cacheKey: string): Promise<StreamIdleTestApi
   const mod = await importFreshOpenAIShim(cacheKey)
   const testApi = mod.__test as unknown as Partial<StreamIdleTestApi>
   expect(typeof testApi.StreamIdleTimeoutError).toBe('function')
-  expect(typeof testApi.getApiTimeoutMs).toBe('function')
   expect(typeof testApi.getStreamIdleTimeoutMs).toBe('function')
   expect(typeof testApi.readWithIdleTimeout).toBe('function')
   return testApi as StreamIdleTestApi
@@ -1373,27 +1375,6 @@ test('stream idle timeout env parser parses and bounds overrides', async () => {
   expect(testApi.getStreamIdleTimeoutMs()).toBe(90_000)
 })
 // openaiShim test extraction seam 024 end
-
-test('API timeout env parser accepts safe positive integers and falls back otherwise', async () => {
-  const testApi = await getStreamIdleTestApi('api-timeout-env-parser')
-
-  delete process.env.API_TIMEOUT_MS
-  expect(testApi.getApiTimeoutMs()).toBe(600_000)
-
-  process.env.API_TIMEOUT_MS = '50'
-  expect(testApi.getApiTimeoutMs()).toBe(50)
-
-  process.env.API_TIMEOUT_MS = ' 50 '
-  expect(testApi.getApiTimeoutMs()).toBe(50)
-
-  process.env.API_TIMEOUT_MS = '3000000000'
-  expect(testApi.getApiTimeoutMs()).toBe(2_147_483_647)
-
-  for (const invalid of ['abc', '-5', '', '0', '1.5', '9007199254740993']) {
-    process.env.API_TIMEOUT_MS = invalid
-    expect(testApi.getApiTimeoutMs()).toBe(600_000)
-  }
-})
 
 // openaiShim test extraction seam 025 start: Anthropic-compatible passthrough stream rejects with idle timeout when it stalls
 test('Anthropic-compatible passthrough stream rejects with idle timeout when it stalls', async () => {
@@ -3787,15 +3768,17 @@ test('the OpenAI shim façade creates independent client instances', () => {
 })
 // openaiShim test extraction seam 112 end
 
-test('raw-text and XML fallback tool calls use one unique sequence', () => {
+test('facade parseTextToolCalls and parseXmlToolCalls share adapter sequencing', () => {
   const text = parseTextToolCalls('{"name":"from_text","arguments":{}}')
-  const xml = parseXmlToolCalls('<tool_call>{"name":"from_xml","arguments":{}}</tool_call>')
+  const xml = parseXmlToolCalls(
+    '<tool_call>{"name":"from_xml","arguments":{}}</tool_call>',
+  )
+
   expect(text.calls[0]?.id).toMatch(/^ollama_tc_\d+$/)
   expect(xml.calls[0]?.id).toMatch(/^xml_tc_\d+$/)
-  const textNum = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
-  const xmlNum = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
-  // Same session counter: the second mint must be exactly one greater than the first.
-  expect(xmlNum).toBe(textNum + 1)
+  const textSequence = Number(text.calls[0]?.id?.replace(/^\D+/, ''))
+  const xmlSequence = Number(xml.calls[0]?.id?.replace(/^\D+/, ''))
+  expect(xmlSequence).toBe(textSequence + 1)
 })
 
 // ---------------------------------------------------------------------------
@@ -4772,6 +4755,49 @@ test('caller abort winning the timeout catch race prevents a retry', async () =>
   expect(fetchCalls).toBe(1)
 })
 
+test('interruption tracing preserves the native AbortSignal.any request path', async () => {
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  const originalAbortSignalAny = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'any',
+  )
+  const nativeAny = AbortSignal.any.bind(AbortSignal)
+  let nativeAnyCalls = 0
+  Object.defineProperty(AbortSignal, 'any', {
+    configurable: true,
+    value: (signals: AbortSignal[]) => {
+      nativeAnyCalls++
+      return nativeAny(signals)
+    },
+  })
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  globalThis.fetch = asMockFetch(
+    mock(async () => makeChatCompletionResponse('gpt-4o-mini')),
+  )
+
+  try {
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    await client.beta.messages.create(
+      {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: false,
+      },
+      { signal: new AbortController().signal },
+    )
+    expect(nativeAnyCalls).toBe(1)
+  } finally {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    if (originalAbortSignalAny) {
+      Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    }
+  }
+})
+
 test('manual signal fallback preserves caller cancellation after headers arrive', async () => {
   process.env.API_TIMEOUT_MS = '200'
   const fetchSignals: AbortSignal[] = []
@@ -4855,6 +4881,8 @@ test('manual signal fallback removes caller forwarding after the body settles', 
   } finally {
     if (originalAbortSignalAny) {
       Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    } else {
+      delete (AbortSignal as { any?: unknown }).any
     }
   }
 })
@@ -5457,6 +5485,100 @@ test.each([
 })
 
 test.each([
+  ['glm-5.3', undefined, undefined],
+  ['glm-5.3?reasoning=low', 'enabled', 'low'],
+  ['glm-5.3?reasoning=high', 'enabled', 'high'],
+  ['glm-5.3?reasoning=xhigh', 'enabled', 'max'],
+  ['glm-5.3?thinking=disabled', 'enabled', 'low'],
+  ['glm-5.3?thinking=disabled&reasoning=high', 'enabled', 'high'],
+] as const)('Z.AI GLM-5.3 serializes the verified request contract for %s', async (
+  model,
+  thinkingType,
+  reasoningEffort,
+) => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.3',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.3')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+  expect(requestBody?.thinking).toEqual(
+    thinkingType ? { type: thinkingType } : undefined,
+  )
+  expect(requestBody?.reasoning_effort).toBe(reasoningEffort)
+})
+
+test('streaming direct Z.AI GLM-5.3 tool requests opt into tool_stream', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.3',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.3',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const stream = await client.beta.messages.create({
+    model: 'glm-5.3',
+    messages: [{ role: 'user', content: 'add two numbers' }],
+    max_tokens: 64,
+    stream: true,
+    tools: [{
+      name: 'add_numbers',
+      description: 'Add two numbers',
+      input_schema: {
+        type: 'object',
+        properties: { a: { type: 'number' }, b: { type: 'number' } },
+        required: ['a', 'b'],
+      },
+    }],
+  })
+  for await (const _event of stream as AsyncIterable<unknown>) {
+    // Drain the mocked response so request execution completes.
+  }
+
+  expect(requestBody?.tool_stream).toBe(true)
+})
+
+test.each([
   'GLM-5.1?reasoning=high',
   'GLM-4.5-Air?reasoning=high',
 ] as const)('Z.AI GLM: %s does not receive GLM-5.2-only reasoning_effort', async model => {
@@ -5496,6 +5618,7 @@ test.each([
 test.each([
   ['non-streaming Z.AI request with tools', 'https://api.z.ai/api/coding/paas/v4', false, true, 'glm-5.2'],
   ['streaming Z.AI request without tools', 'https://api.z.ai/api/coding/paas/v4', true, false, 'glm-5.2'],
+  ['streaming NVIDIA GLM-5.3 request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3'],
   ['streaming non-Z.AI request with tools', 'https://api.openai.com/v1', true, true, 'gpt-4o'],
 ] as const)('does not send tool_stream for %s', async (_name, baseUrl, stream, includeTools, model) => {
   process.env.OPENAI_BASE_URL = baseUrl
@@ -5897,53 +6020,6 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
-test('GitHub Copilot codex responses transport does not replay after a pre-header timeout', async () => {
-  process.env.CLAUDE_CODE_USE_GITHUB = '1'
-  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
-  process.env.OPENAI_API_KEY = 'test-token'
-  process.env.API_TIMEOUT_MS = '20'
-  let fetchCalls = 0
-  const requestUrls: string[] = []
-
-  globalThis.fetch = (async (input, init) => {
-    fetchCalls++
-    requestUrls.push(String(input))
-    return pendingFetchUntilAbort(init)
-  }) as unknown as FetchType
-
-  const safety = new AbortController()
-  const safetyTimer = setTimeout(() => safety.abort(), 500)
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
-  let caught: unknown
-  try {
-    await waitForPromise(
-      client.beta.messages.create(
-        {
-          model: 'gpt-5',
-          messages: [{ role: 'user', content: 'hello' }],
-          max_tokens: 32,
-          stream: false,
-        },
-        { signal: safety.signal },
-      ),
-      750,
-      'GitHub codex responses timeout did not settle',
-    )
-  } catch (error) {
-    caught = error
-  } finally {
-    clearTimeout(safetyTimer)
-  }
-
-  expect(caught).toBeDefined()
-  const error = caught as Error & { constructor: { name: string } }
-  expect(error.constructor.name).toBe('APIConnectionError')
-  expect(isOpenAIRequestNonReplayable(error)).toBe(true)
-  expect(fetchCalls).toBe(1)
-  expect(requestUrls).toEqual([
-    'https://api.githubcopilot.com/responses',
-  ])
-})
 
 test('GitHub Copilot responses fallback does not replay after a pre-header timeout', async () => {
   process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -6089,81 +6165,6 @@ test('GitHub Copilot responses fallback does not retry non-retryable HTTP failur
 
 
 // openaiShim test extraction seam 187 start: GitHub Copilot 401 codex_responses retries with refreshed token
-test('GitHub Copilot 401 codex_responses retries with refreshed token', async () => {
-  const realGithubModule = realGithubModelsCredentials
-  try {
-    const refreshSpy = mock(async () => {
-      process.env.GITHUB_TOKEN = 'refreshed-token'
-      process.env.OPENAI_API_KEY = 'refreshed-token'
-      return true
-    })
-
-    mock.module('../../utils/githubModelsCredentials.js', () => ({
-      ...realGithubModule,
-      refreshCopilotTokenOn401: refreshSpy,
-    }))
-
-    let codexCallCount = 0
-    let firstAuth: string | undefined
-    let secondAuth: string | undefined
-
-    globalThis.fetch = ((_, init) => {
-      codexCallCount++
-      const headers = new Headers(init?.headers)
-      const apiKey = headers.get('authorization')?.replace(/^Bearer /, '')
-
-      if (codexCallCount === 1) {
-        firstAuth = apiKey
-        return Promise.resolve(new Response(JSON.stringify({ error: { message: 'token expired' } }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        }))
-      }
-
-      if (codexCallCount === 2) {
-        secondAuth = apiKey
-        return Promise.resolve(makeCodexSseResponse({
-          response: {
-            id: 'resp_test',
-            output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
-            model: 'gpt-5',
-            usage: { input_tokens: 10, output_tokens: 5 },
-          },
-        }))
-      }
-
-      throw new Error(`unexpected codex call #${codexCallCount}`)
-    }) as unknown as FetchType
-
-    process.env.CLAUDE_CODE_USE_GITHUB = '1'
-    process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
-    process.env.OPENAI_API_KEY = 'initial-token'
-    process.env.GITHUB_TOKEN = 'initial-token'
-
-    const { createOpenAIShimClient: createClient } =
-      await importFreshOpenAIShim('copilot-401-retry-codex')
-
-    const client = createClient({}) as OpenAIShimClient
-
-    const response = await client.beta.messages.create({
-      model: 'gpt-5',
-      messages: [{ role: 'user', content: 'hello' }],
-      max_tokens: 32,
-      stream: false,
-    })
-
-    expect(refreshSpy).toHaveBeenCalledTimes(1)
-    expect(process.env.GITHUB_TOKEN).toBe('refreshed-token')
-    expect(process.env.OPENAI_API_KEY).toBe('refreshed-token')
-    expect(codexCallCount).toBe(2)
-    expect(firstAuth).toBe('initial-token')
-    expect(secondAuth).toBe('refreshed-token')
-    expect(response).toBeDefined()
-    expect((response as Record<string, unknown>).content).toBeDefined()
-  } finally {
-    mock.module('../../utils/githubModelsCredentials.js', () => realGithubModule)
-  }
-})
 // openaiShim test extraction seam 193 end
 
 

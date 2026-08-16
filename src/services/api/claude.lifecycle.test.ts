@@ -14,6 +14,10 @@ import { resetGrowthBook } from '../analytics/growthbook.js'
 import { getEmptyToolPermissionContext } from '../../Tool.js'
 import type { Message } from '../../types/message.js'
 import { QueryLifecycleOperationTracker } from '../../utils/queryLifecycle.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+} from '../../utils/interruptionTrace.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import {
   executeNonStreamingRequest,
@@ -39,6 +43,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
+  'CLAUDE_DISABLE_STREAM_WATCHDOG',
   'CLAUDE_FEATURE_FLAGS_FILE',
   'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
   'GEMINI_API_KEY',
@@ -46,6 +51,7 @@ const envKeys = [
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENCLAUDE_INTERRUPT_TRACE',
   'OPENCLAUDE_MAX_RETRIES',
   'VCR_RECORD',
 ] as const
@@ -139,6 +145,25 @@ function makeOpenAIStreamChunk(
     model: 'glm-5.2',
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   })}\n\n`
+}
+
+function makeOpenAIStreamingResponse(): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            makeOpenAIStreamChunk({ role: 'assistant', content: 'ok' }),
+          ),
+        )
+        controller.enqueue(encoder.encode(makeOpenAIStreamChunk({}, 'stop')))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    }),
+    { headers: { 'content-type': 'text/event-stream' } },
+  )
 }
 
 function makeStallingOpenAIStreamResponse(
@@ -337,6 +362,48 @@ afterEach(() => {
 })
 
 describe('Claude API lifecycle tracking', () => {
+  test('uses the original codexplan selection for custom-gateway defaults', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    let requestBody: Record<string, unknown> | undefined
+
+    globalThis.fetch = (async (_input, init) => {
+      requestBody = parseRequestBody(init)
+      return makeOpenAIStreamingResponse()
+    }) as typeof fetch
+
+    const generator = queryModelWithStreaming({
+      messages: [
+        {
+          type: 'user',
+          uuid: '00000000-0000-0000-0000-000000000001',
+          timestamp: '2026-06-17T00:00:00.000Z',
+          message: { role: 'user', content: 'hello' },
+        } as Message,
+      ],
+      systemPrompt: asSystemPrompt([]),
+      thinkingConfig: { type: 'disabled' },
+      tools: [],
+      signal: new AbortController().signal,
+      options: {
+        ...makeOptions(queryLifecycle),
+        model: 'gpt-5.6-sol',
+        requestModel: 'codexplan',
+      },
+    })
+
+    for await (const _message of generator) {
+      // Drain the stream before asserting its request.
+    }
+
+    expect(requestBody?.model).toBe('gpt-5.6-sol')
+    expect(requestBody?.reasoning_effort).toBe('high')
+  })
+
   test('checks provider-request ownership immediately before dispatch', async () => {
     setClientTestEnv()
     process.env.OPENCLAUDE_MAX_RETRIES = '0'
@@ -429,6 +496,8 @@ describe('Claude API lifecycle tracking', () => {
   test('preserves provider override and query source during 404 non-streaming fallback', async () => {
     setClientTestEnv()
     process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
     const queryLifecycle = new QueryLifecycleOperationTracker()
     const providerBaseURL = 'https://provider.example/v1'
     const requests: {
@@ -480,6 +549,13 @@ describe('Claude API lifecycle tracking', () => {
 
     for await (const message of generator) {
       messages.push(message)
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        (message as { type?: unknown }).type === 'assistant'
+      ) {
+        break
+      }
     }
 
     const streamingRequest = requests.find(request => request.stream === true)
@@ -501,6 +577,27 @@ describe('Claude API lifecycle tracking', () => {
       querySource: 'sdk',
     })
     expect(queryLifecycle.snapshot().apiCalls).toEqual([])
+    const trace = __getInterruptionTraceSnapshotForTests()
+    const creationError = trace.find(
+      entry =>
+        entry.event === 'claude_stream.error' &&
+        entry.phase === 'stream_creation',
+    )
+    const fallbackStarted = trace.find(
+      entry => entry.event === 'claude_stream.fallback_started',
+    )
+    const fallbackSettled = trace.find(
+      entry => entry.event === 'claude_stream.fallback_settled',
+    )
+    expect(creationError).toBeDefined()
+    expect(fallbackStarted).toMatchObject({
+      trigger: '404_stream_creation',
+      causalEventId: creationError?.eventId,
+    })
+    expect(fallbackSettled).toMatchObject({
+      outcome: 'completed',
+      causalEventId: fallbackStarted?.eventId,
+    })
   })
 
   test('parent abort during OpenAI-compatible stream does not start non-streaming fallback', async () => {
@@ -597,9 +694,12 @@ describe('Claude API lifecycle tracking', () => {
 
   test('stream idle timeout respects disabled non-streaming fallback guard', async () => {
     setClientTestEnv()
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
     process.env.OPENCLAUDE_MAX_RETRIES = '0'
     process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = String(TEST_STREAM_IDLE_TIMEOUT_MS)
     process.env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK = '1'
+    process.env.CLAUDE_DISABLE_STREAM_WATCHDOG = '1'
     const queryLifecycle = new QueryLifecycleOperationTracker()
     const parent = new AbortController()
     let fallbackRequests = 0
@@ -665,6 +765,17 @@ describe('Claude API lifecycle tracking', () => {
           JSON.stringify((message as { message?: { content?: unknown } }).message?.content).includes('Stream idle timeout'),
       ),
     ).toBe(true)
+    const trace = __getInterruptionTraceSnapshotForTests()
+    const providerIdle = trace.find(
+      entry =>
+        entry.event === 'provider_stream.idle_timeout' &&
+        entry.transport === 'openai_chat_completions',
+    )
+    const claudeError = trace.find(
+      entry => entry.event === 'claude_stream.error',
+    )
+    expect(providerIdle).toBeDefined()
+    expect(claudeError?.causalEventId).toBe(providerIdle?.eventId)
   })
 
   test('tracks each non-streaming fallback request and clears it on success', async () => {

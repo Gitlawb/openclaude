@@ -12,5 +12,5 @@ export default defineBrand({
     supportsReasoning: true,
     supportsPreciseTokenCount: false,
   },
-  modelIds: ['inclusionai/ling-3.0-flash:free'],
+  modelIds: ['inclusionai/ling-3.0-flash', 'inclusionai/ling-3.0-tiny:free'],
 })

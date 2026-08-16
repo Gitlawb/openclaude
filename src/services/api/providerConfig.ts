@@ -24,9 +24,12 @@ import {
 } from './clinepassUsage/types.js'
 import { getCatalogEntriesForRoute } from '../../integrations/registry.js'
 import {
+  getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isApismartBaseUrl,
   isClinePassBaseUrl,
 } from '../../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential } from './credentialPool.js'
 import {
   openAIShimSupportsApiFormatForModel,
   resolveOpenAIShimRuntimeContext,
@@ -79,7 +82,7 @@ const CODEX_ALIAS_MODELS: Record<
   }
 > = {
   codexplan: {
-    model: 'gpt-5.5',
+    model: 'gpt-5.6-sol',
     reasoningEffort: 'high',
   },
   // GPT-5.6 family (July 2026). `gpt-5.6` follows the Codex CLI convention of
@@ -238,7 +241,10 @@ function asEnvUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   const trimmed = value.trim()
   if (!trimmed) return undefined
-  if (trimmed === 'undefined') {
+  const normalized = trimmed.toLowerCase()
+  // Windows/dotenv templates often materialize unset vars as the literal
+  // strings "undefined" or "null". Neither is a usable endpoint.
+  if (normalized === 'undefined' || normalized === 'null') {
     return undefined
   }
   return trimmed
@@ -253,11 +259,12 @@ function asNamedEnvUrl(
   const trimmed = value.trim()
   if (!trimmed) return undefined
 
-  if (trimmed === 'undefined') {
+  const normalized = trimmed.toLowerCase()
+  if (normalized === 'undefined' || normalized === 'null') {
     if (!warnedUndefinedEnvNames.has(envName)) {
       warnedUndefinedEnvNames.add(envName)
       logForDebugging(
-        `[provider-config] Environment variable ${envName} is the literal string "undefined"; ignoring it.`,
+        `[provider-config] Environment variable ${envName} is the literal string "${trimmed}"; ignoring it.`,
         { level: 'warn' },
       )
     }
@@ -265,6 +272,15 @@ function asNamedEnvUrl(
   }
 
   return trimmed
+}
+
+function asUsableModelEnvValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
 }
 
 function readNestedString(
@@ -930,6 +946,7 @@ export function resolveProviderRequest(options?: {
   const isMistralMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
   const isGeminiMode = isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
   const isClinePassMode = Boolean(processEnv.CLINE_API_KEY?.trim())
+  const isApismartMode = hasUsableOpenAICredential(processEnv.APISMART_API_KEY)
   const explicitBaseUrl = asEnvUrl(options?.baseUrl)
 
   const normalizedMistralEnvBaseUrl = asNamedEnvUrl(
@@ -971,10 +988,31 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ?? primaryEnvBaseUrl ?? fallbackEnvBaseUrl
   const hasConcreteNonClinePassBaseUrl =
     Boolean(concreteBaseUrlBeforeDefault) && !isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
+  const hasConcreteClinePassBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) && isClinePassBaseUrl(concreteBaseUrlBeforeDefault)
   const effectiveClinePassMode =
-    isClinePassMode && !isGithubMode && !hasConcreteNonClinePassBaseUrl
+    isClinePassMode &&
+    // With no endpoint identity, ApiSmart wins the ambiguous dedicated-key
+    // case. An explicit ClinePass endpoint is authoritative, however: an
+    // ambient ApiSmart key must not suppress CLINE_API_MODEL for that route.
+    (!isApismartMode || hasConcreteClinePassBaseUrl) &&
+    !isGithubMode &&
+    !hasConcreteNonClinePassBaseUrl
   const clinePassDefaultModel = effectiveClinePassMode
     ? getRouteDefaultModel('clinepass')
+    : undefined
+
+  // ApiSmart model selection is only valid when no concrete non-ApiSmart
+  // base URL is explicitly provided via options or env. This prevents stale
+  // APISMART_API_KEY/APISMART_MODEL from overriding an explicit OPENAI_BASE_URL
+  // pointing at a different provider.
+  const hasConcreteNonApismartBaseUrl =
+    Boolean(concreteBaseUrlBeforeDefault) &&
+    !isApismartBaseUrl(concreteBaseUrlBeforeDefault)
+  const effectiveApismartMode =
+    isApismartMode && !isGithubMode && !hasConcreteNonApismartBaseUrl
+  const apismartDefaultModel = effectiveApismartMode
+    ? getRouteDefaultModel('apismart')
     : undefined
 
   const requestedModel =
@@ -986,10 +1024,14 @@ export function resolveProviderRequest(options?: {
         : effectiveClinePassMode
           ? processEnv.CLINE_API_MODEL?.trim() ||
             processEnv.OPENAI_MODEL?.trim()
-          : processEnv.OPENAI_MODEL?.trim()) ||
+          : effectiveApismartMode
+            ? asUsableModelEnvValue(processEnv.APISMART_MODEL) ||
+              asUsableModelEnvValue(processEnv.OPENAI_MODEL)
+            : processEnv.OPENAI_MODEL?.trim()) ||
     options?.fallbackModel?.trim() ||
     (isGeminiMode ? DEFAULT_GEMINI_MODEL : undefined) ||
     clinePassDefaultModel ||
+    apismartDefaultModel ||
     (isGithubMode ? 'github:copilot' : 'codexplan')
   const descriptor = parseModelDescriptor(requestedModel)
 
@@ -997,7 +1039,10 @@ export function resolveProviderRequest(options?: {
     explicitBaseUrl ??
     primaryEnvBaseUrl ??
     fallbackEnvBaseUrl ??
-    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined)
+    (effectiveClinePassMode ? DEFAULT_CLINEPASS_API_BASE_URL : undefined) ??
+    (effectiveApismartMode
+      ? getRouteDefaultBaseUrl('apismart') ?? undefined
+      : undefined)
 
   const githubEnterpriseEnvUrl = asGithubEnterpriseEnvUrl(
     processEnv.GITHUB_ENTERPRISE_URL,
@@ -1132,18 +1177,17 @@ export function resolveProviderRequest(options?: {
         ? requestedApiFormat
         : 'chat_completions'
 
-  // The gpt-5.6 alias defaults are Codex-transport-only: off the Codex
+  // Explicit gpt-5.6 alias defaults are Codex-transport-only: off the Codex
   // transport the 5.6 family's effort metadata is owned by the route catalog
   // (#1961), and an OPENAI_API_BASE gateway must not inherit the first-party
   // default. Explicit picks (the /effort override or a ?reasoning= query)
-  // still flow on every transport, and the older aliases (gpt-5.4/5.5,
-  // codexplan) keep the pre-5.6 legacy behavior of carrying their default
-  // effort everywhere.
+  // still flow on every transport, and codexplan keeps its existing behavior
+  // of carrying its high default effort everywhere.
   const requestedReasoning = options?.reasoningEffortOverride
     ? { effort: options.reasoningEffortOverride }
     : descriptor.reasoningFromAlias &&
         transport !== 'codex_responses' &&
-        /^gpt-5\.6/.test(descriptor.baseModel)
+        /^gpt-5\.6(?:-|$|[?[])/i.test(requestedModel.trim())
       ? undefined
       : descriptor.reasoning
   const catalogReasoningLevels =

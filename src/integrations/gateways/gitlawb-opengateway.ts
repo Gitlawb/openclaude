@@ -128,37 +128,66 @@ export default defineGateway({
         },
       },
       // OpenRouter :free endpoint — bills $0 and bypasses the gateway credit
-      // gate, so it works even with an empty credit balance.
+      // gate, so it works even with an empty credit balance. The one free
+      // model kept through the gateway's 2026-08-10 free retirement;
+      // OpenRouter rate-limits it via a shared account-level pool.
       {
         id: 'opengateway-nemotron-3-ultra-free',
         apiName: 'nvidia/nemotron-3-ultra-550b-a55b:free',
         label: 'Nemotron 3 Ultra Free (via Opengateway)',
         modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
-        notes: 'Free',
+        notes: 'Free (rate limited)',
       },
-      // Time-boxed free window on the gateway (delists itself 2026-08-03).
+      // Throttle-free paid sibling of the :free row above.
+      {
+        id: 'opengateway-nemotron-3-ultra',
+        apiName: 'nvidia/nemotron-3-ultra-550b-a55b',
+        label: 'Nemotron 3 Ultra (via Opengateway)',
+        modelDescriptorId: 'nvidia/nemotron-3-ultra-550b-a55b',
+      },
+      // Paid since the gateway's 2026-08-10 free retirement. The ling entry
+      // id keeps its historical "-free" suffix so saved user selections
+      // still resolve; the gateway aliases the old :free api id to paid.
       {
         id: 'opengateway-ling-3.0-flash-free',
-        apiName: 'inclusionai/ling-3.0-flash:free',
-        label: 'Ling 3.0 Flash Free (via Opengateway)',
-        modelDescriptorId: 'inclusionai/ling-3.0-flash:free',
-        notes: 'Free',
+        apiName: 'inclusionai/ling-3.0-flash',
+        label: 'Ling 3.0 Flash (via Opengateway)',
+        modelDescriptorId: 'inclusionai/ling-3.0-flash',
       },
-      // Macaron V1 Tall — served by the gateway via direct Novita (not on
-      // OpenRouter). Free launch window; the gateway delists it 2026-08-10.
+      // Day-0 Novita launch via the gateway's OpenRouter wiring. Lifecycle:
+      // the gateway time-boxes the id server-side (LING_TINY_FREE_END_ISO in
+      // opengateway/src/pricing.ts) and 400s requests after the window;
+      // `availableUntil` below is the client-side guard — catalog resolution
+      // drops the entry at the same instant, so the picker never offers an
+      // id the gateway rejects. Keep the two dates in sync if the window
+      // moves.
+      {
+        id: 'opengateway-ling-3.0-tiny-free',
+        apiName: 'inclusionai/ling-3.0-tiny:free',
+        label: 'Ling 3.0 Tiny Free (via Opengateway)',
+        modelDescriptorId: 'inclusionai/ling-3.0-tiny:free',
+        notes: 'Free through August 13, 2026 (rate limited)',
+        availableUntil: '2026-08-13T10:00:00Z',
+      },
+      // Macaron — served by the gateway via direct Novita (not on
+      // OpenRouter). Paid since 2026-08-10.
       {
         id: 'opengateway-macaron-v1-tall',
         apiName: 'mindai/macaron-v1-tall',
         label: 'Macaron V1 Tall (via Opengateway)',
         modelDescriptorId: 'mindai/macaron-v1-tall',
-        notes: 'Free',
+      },
+      {
+        id: 'opengateway-macaron-v1-venti',
+        apiName: 'mindai/macaron-v1-venti',
+        label: 'Macaron V1 Venti (via Opengateway)',
+        modelDescriptorId: 'mindai/macaron-v1-venti',
       },
       {
         id: 'opengateway-tencent-hy3',
         apiName: 'tencent/hy3',
-        label: 'Tencent HY3 Free (via Opengateway)',
+        label: 'Tencent HY3 (via Opengateway)',
         modelDescriptorId: 'tencent/hy3',
-        notes: 'Free',
       },
     ],
   },

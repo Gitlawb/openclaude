@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { has1mContext } from '../context.js'
-import { parseUserSpecifiedModel } from './model.js'
+import {
+  getProviderRequestModel,
+  parseUserSpecifiedModel,
+  renderModelSetting,
+} from './model.js'
 
 // Regression: the Codex aliases (codexplan/codexspark) dropped the `[1m]`
 // (1M-context) tag while every Claude alias (opus/sonnet/haiku/best) preserved
@@ -26,17 +30,48 @@ describe('parseUserSpecifiedModel — codex alias 1M tag', () => {
     expect(has1mContext(tagged)).toBe(true)
   })
 
-  test('the bare codex aliases are unchanged and carry no 1M tag', () => {
-    expect(parseUserSpecifiedModel('codexplan')).toBe('gpt-5.5')
+  test('the bare codex aliases resolve and carry no 1M tag', () => {
+    expect(parseUserSpecifiedModel('codexplan')).toBe('gpt-5.6-sol')
     expect(parseUserSpecifiedModel('codexspark')).toBe('gpt-5.3-codex-spark')
     expect(has1mContext(parseUserSpecifiedModel('codexplan'))).toBe(false)
     expect(has1mContext(parseUserSpecifiedModel('codexspark'))).toBe(false)
+  })
+
+  test('codexplan reasoning queries stay symbolic for Codex routing', () => {
+    expect(parseUserSpecifiedModel('codexplan?reasoning=medium')).toBe(
+      'codexplan?reasoning=medium',
+    )
   })
 
   test('the tag is case-insensitive and not duplicated', () => {
     const tagged = parseUserSpecifiedModel('codexplan[1m]')
     expect(parseUserSpecifiedModel('CODEXPLAN[1M]')).toBe(tagged)
     expect(tagged.match(/\[1m]/gi)?.length).toBe(1)
+  })
+
+  test('codexplan display identifies the Sol model', () => {
+    expect(renderModelSetting('codexplan')).toBe('codexplan (gpt-5.6-sol)')
+  })
+
+  test('keeps codexplan as the provider request selection after runtime resolution', () => {
+    expect(getProviderRequestModel('codexplan', 'gpt-5.6-sol')).toBe(
+      'codexplan',
+    )
+    expect(getProviderRequestModel('gpt-5.6-sol', 'gpt-5.6-sol')).toBe(
+      'gpt-5.6-sol',
+    )
+    expect(getProviderRequestModel('codexplan', 'gpt-5.6-terra')).toBe(
+      'gpt-5.6-terra',
+    )
+    expect(
+      getProviderRequestModel('codexplan?reasoning=medium', 'gpt-5.6-sol'),
+    ).toBe('codexplan?reasoning=medium')
+    expect(
+      getProviderRequestModel(
+        'codexplan?reasoning=medium',
+        'gpt-5.6-sol?reasoning=medium',
+      ),
+    ).toBe('codexplan?reasoning=medium')
   })
 })
 
@@ -50,6 +85,7 @@ describe('parseUserSpecifiedModel — bare gpt-5.6 resolves to Sol', () => {
   })
 
   test('explicit tier ids pass through unchanged', () => {
+    expect(parseUserSpecifiedModel('gpt-5.5')).toBe('gpt-5.5')
     expect(parseUserSpecifiedModel('gpt-5.6-sol')).toBe('gpt-5.6-sol')
     expect(parseUserSpecifiedModel('gpt-5.6-terra')).toBe('gpt-5.6-terra')
     expect(parseUserSpecifiedModel('gpt-5.6-luna')).toBe('gpt-5.6-luna')

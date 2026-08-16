@@ -8,15 +8,9 @@ import {
 import type { LocalCommandCall } from '../../types/command.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
+import { COPILOT_HEADERS } from '../../services/github/deviceFlow.js'
 import { hydrateGithubModelsTokenFromSecureStorage } from '../../utils/githubModelsCredentials.js'
 import { getMainLoopModel } from '../../utils/model/model.js'
-
-const COPILOT_HEADERS: Record<string, string> = {
-  'User-Agent': 'GitHubCopilotChat/0.26.7',
-  'Editor-Version': 'vscode/1.99.3',
-  'Editor-Plugin-Version': 'copilot-chat/0.26.7',
-  'Copilot-Integration-Id': 'vscode-chat',
-}
 
 // Large system prompt (~6000 chars, ~1500 tokens) to cross the 1024-token cache threshold
 const SYSTEM_PROMPT = [

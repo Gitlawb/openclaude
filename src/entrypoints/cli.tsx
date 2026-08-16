@@ -1,4 +1,8 @@
 import { feature } from 'bun:bundle';
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from '../cli/bgRouting.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -249,6 +253,7 @@ type CliEntrypointOptions = {
 type CliEntrypointImporters = {
   startupProfiler: () => Promise<typeof import('../utils/startupProfiler.js')>
   bg: () => Promise<typeof import('../cli/bg.js')>
+  bgFinalizer: () => Promise<typeof import('../cli/bgFinalizer.js')>
   providerFlag: () => Promise<typeof import('../utils/providerFlag.js')>
   envFile: () => Promise<typeof import('../utils/envFile.js')>
   config: () => Promise<typeof import('../utils/config.js')>
@@ -276,6 +281,7 @@ type CliEntrypointImporters = {
 const defaultCliEntrypointImporters: CliEntrypointImporters = {
   startupProfiler: () => import('../utils/startupProfiler.js'),
   bg: () => import('../cli/bg.js'),
+  bgFinalizer: () => import('../cli/bgFinalizer.js'),
   providerFlag: () => import('../utils/providerFlag.js'),
   envFile: () => import('../utils/envFile.js'),
   config: () => import('../utils/config.js'),
@@ -312,27 +318,21 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
-  // --yolo is registered as a native commander alias of
-  // --dangerously-skip-permissions on the commands that support it (see
-  // main.tsx), so commander resolves it and all opts().dangerouslySkipPermissions
-  // reads work unchanged. The handful of paths that read the raw flag straight
-  // from process.argv (skills pre-parse below, the connect/ssh strip blocks and
-  // the safety notice in main.tsx / statusNoticeDefinitions.tsx) each accept the
-  // --yolo spelling too, so no per-token rewrite is needed here.
-  //
-  // main() is the production entrypoint. In the normal flow it is called with
-  // no arguments, so `args` defaults to `process.argv.slice(2)`. It does NOT
-  // mirror a caller-provided `args` array onto `process.argv`, and it does NOT
-  // forward `args` to `cliMain()` — cliMain() itself reads the global
-  // `process.argv`. Keeping programmatic arguments out of the process-global
-  // argv avoids leaking a permission-bypass flag (or any other caller state)
-  // into an overlapping call or the host process. Callers that need to control
-  // argv should set `process.argv` before calling `cliMain()` directly, or call
-  // `main()` with no args from a fresh process. (The `skills` and `--update`
-  // fast-paths below rewrite `process.argv`, but only to re-route to their own
-  // subcommand, not to inject the caller's args.)
-  const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
+  // The detached CLI is the registered background-session PID. Establish
+  // exact registry ownership and install its terminal finalizer before any
+  // fast path or startup validation can call process.exit(). The private env
+  // value only routes this check; the registry's exact ID/PID match is the
+  // authority.
+  if (
+    process.env[BACKGROUND_SESSION_ID_ENV] !== undefined ||
+    process.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV] !== undefined
+  ) {
+    const { prepareBackgroundSessionFinalizer } = await importers.bgFinalizer()
+    await prepareBackgroundSessionFinalizer()
+  }
+
+  const bgSessionsEnabled = isBgSessionsEnabled(options)
   let reapplyProviderEnvFileValues = () => {}
   let reapplyProviderFlagValues = () => {}
   const reapplyExplicitProviderInputs = () => {

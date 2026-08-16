@@ -48,7 +48,7 @@ export OPENAI_MODEL=gpt-4o
 
 ### Codex via ChatGPT auth
 
-`codexplan` maps to GPT-5.5 on the Codex backend with high reasoning.
+`codexplan` maps to GPT-5.6 Sol on the Codex backend with high reasoning.
 `codexspark` maps to GPT-5.3 Codex Spark for faster loops.
 
 If you use the in-app provider wizard, choose `Codex OAuth` to open ChatGPT sign-in in your browser and let OpenClaude store Codex credentials securely.
@@ -481,6 +481,8 @@ host. Without this variable the behavior is unchanged.
 | `OPENCLAUDE_MAX_TURNS` | No | Per-prompt **local** interactive REPL turn cap for the in-process query loop. Defaults to `50`. Set a larger positive integer for long autonomous local interactive sessions (for example models that take many small tool steps). CLI `--max-turns 0` explicitly disables this cap and prints a cautionary warning. Precedence for a valid override: CLI `--max-turns` → this env var → legacy `CLAUDE_CODE_MAX_TURNS` (only when this var is unset/empty) → `/config` → Max turns (interactive) → `50`. If this env var is set but invalid (zero, negative, non-integer), the default `50` is used and lower layers are not consulted — same pattern as `OPENCLAUDE_MAX_RETRIES`. Does not apply to remote-backed interactive sessions (`connect` / `ssh` / `--remote`). |
 | `OPENCLAUDE_RETRY_DELAY_MS` | No | Base retry delay in milliseconds for APIs that do not send `Retry-After`; exponential backoff starts from this value, capped at 60000 (default: 500) |
 | `OPENCLAUDE_QUERY_HARD_MAX_MS` | No | Foreground query hard maximum in milliseconds. Defaults to 1800000 (30 minutes). Use a larger positive integer for long autonomous sessions; invalid, zero, negative, fractional, or timer-overflow values are ignored with a warning. |
+| `OPENCLAUDE_INTERRUPT_TRACE` | No | Set to `1` or `true` to retain a bounded, privacy-safe interruption lifecycle trace in memory. Disabled by default. The trace contains only allowlisted lifecycle metadata—never prompts, responses, tool arguments, credentials, or raw error messages. |
+| `OPENCLAUDE_INTERRUPT_TRACE_FILE` | No | Optional absolute JSONL output path used only when `OPENCLAUDE_INTERRUPT_TRACE` is enabled. On Linux, missing parent directories are created privately and every parent is opened through `/proc/self/fd` without following symbolic links before the final regular file is appended. If the file already exists, its mode is reset to `0600` on every append, so do not configure a shared file. Other platforms retain the bounded trace in memory but do not write this file because Node does not expose an equivalent safe descriptor-relative traversal API there. Writes are best-effort and never change request behavior. Use a separate path per OpenClaude process and keep the resulting diagnostic file private. |
 | `OPENCLAUDE_DISABLE_CO_AUTHORED_BY` | No | Suppress the default `Co-Authored-By` trailer in generated git commits |
 | `OPENCLAUDE_LOG_TOKEN_USAGE` | No | When truthy (e.g. `verbose`), emits one JSON line on stderr per API request with input/output/cache tokens and the resolved provider. **User-facing debug output** — complements the REPL display controlled by `/config showCacheStats`. Distinct from `CLAUDE_CODE_ENABLE_TOKEN_USAGE_ATTACHMENT`, which is **model-facing** (injects context usage info into the prompt itself). Both can run together. |
 
@@ -525,6 +527,70 @@ addition to the `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` /
   `modelLimits`, and `modelLimits` mainly fills in models that have no built-in
   metadata (a known catalog model keeps its catalog limit unless you set an
   *exact* env override for it).
+
+### Exact-model pricing overrides (`settings.json`)
+
+Use `modelPricing` when a gateway's real price differs from OpenClaude's
+built-in price or unknown-model estimate. Keys match the exact, case-sensitive
+model identifier sent to the API. They are not prefixes, aliases, globs, or
+route/profile-qualified keys.
+
+The four token fields are USD per 1,000,000 tokens. `webSearchRequests` is USD
+per request; it defaults to `$0.01` when omitted. All four token fields are
+required so an omitted cache rate never falls through to an unrelated built-in
+price. Explicit zero is supported, including fully free gateways. The GLM
+entry below is an illustrative paid estimate; replace it with your actual
+gateway rates:
+
+```json
+{
+  "modelPricing": {
+    "nvidia/llama-3.1-nemotron-70b-instruct": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "promptCacheReadTokens": 0,
+      "promptCacheWriteTokens": 0,
+      "webSearchRequests": 0
+    },
+    "z-ai/glm-5.2": {
+      "inputTokens": 0.6,
+      "outputTokens": 2.2,
+      "promptCacheReadTokens": 0.06,
+      "promptCacheWriteTokens": 0.75,
+      "webSearchRequests": 0.01
+    }
+  }
+}
+```
+
+Set this in user settings (`~/.openclaude/settings.json`), local gitignored
+settings (`.openclaude/settings.local.json`), a `--settings`/SDK settings
+source, or managed settings. Shared project settings
+(`.openclaude/settings.json`) are deliberately ignored for `modelPricing`, so
+repository content cannot silently change personal USD accounting. Under the
+current architecture, one key applies to that exact model id across every
+route and profile; route-specific prices are not represented yet.
+
+Pricing precedence is:
+
+1. exact trusted `modelPricing` entry;
+2. built-in known-model pricing, including fast-mode pricing;
+3. the existing unknown-model estimate and warning.
+
+For ordinary provider routes, find the exact pre-canonicalization identifier by
+running with `OPENCLAUDE_LOG_TOKEN_USAGE=verbose` and copying the JSON log
+line's `model` field. Use that value verbatim. Bedrock application inference
+profiles are the exception: cost calculation uses the profile's resolved
+backing model id. For example, an override for `claude-opus-4-8` does not match
+a resolved id such as `claude-opus-4-8-20260815`; dated, backing, or
+provider-suffixed ids need their own exact keys.
+
+Rates must be finite and nonnegative. Token rates are capped at `$100,000` per
+million tokens, web-search rates at `$1,000` per request, model ids at 512
+characters, and the map at 256 entries. These deliberately generous bounds
+reject accidental absurd values. An invalid pricing map is ignored without
+discarding unrelated settings from the same file. `/config` does not currently
+edit record-valued settings, so edit the JSON file directly.
 
 ## Safety strictness
 

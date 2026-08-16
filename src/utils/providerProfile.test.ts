@@ -16,6 +16,7 @@ import {
   applyStartupEnvFromProfile,
   buildStartupEnvFromProfile,
   buildAtomicChatProfileEnv,
+  buildApismartProfileEnv,
   buildCompatibilityProcessEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
@@ -255,6 +256,204 @@ test('openai launch preserves persisted dedicated vendor credentials across rest
   assert.equal(env.OPENAI_MODEL, 'deepseek-ai/deepseek-v4-pro')
   assert.equal(env.OPENAI_API_KEY, 'atlas-secret-key')
   assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-secret-key')
+})
+
+test('openai launch preserves persisted ApiSmart dedicated credentials across restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+      APISMART_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://gw.apismart.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'DEEPSEEK_V4_FLASH')
+  assert.equal(env.OPENAI_API_KEY, 'apismart-secret-key')
+  assert.equal(env.APISMART_API_KEY, 'apismart-secret-key')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+})
+
+test('openai launch prefers dedicated ApiSmart credentials over a legacy generic mirror', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'legacy-generic-key',
+      APISMART_API_KEY: 'dedicated-key',
+    }),
+    goal: 'balanced',
+    processEnv: {},
+  })
+
+  assert.equal(env.APISMART_API_KEY, 'dedicated-key')
+})
+
+test('openai launch backfills APISMART_API_KEY from a legacy OpenAI-shaped ApiSmart profile', async () => {
+  // Pre-dedicated-key persisted envs only stored OPENAI_API_KEY. ApiSmart is
+  // dedicatedCredentialsOnly, so relaunch must recover APISMART_API_KEY from
+  // that mirrored value or the shim authenticates with nothing.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+  assert.equal(env.OPENAI_API_KEY, 'apismart-secret-key')
+  assert.equal(env.APISMART_API_KEY, 'apismart-secret-key')
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    'apismart-secret-key',
+  )
+})
+
+test('openai launch never promotes an ambient generic key to an ApiSmart credential', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_API_KEY: 'generic-openai-key',
+    },
+  })
+
+  assert.equal(env.APISMART_API_KEY, undefined)
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'apismart',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    undefined,
+  )
+})
+
+test('buildApismartProfileEnv prefers APISMART_MODEL over OPENAI_MODEL', () => {
+  const env = buildApismartProfileEnv({
+    apiKey: 'apismart-secret-key',
+    processEnv: {
+      APISMART_MODEL: 'KIMI_K3',
+      OPENAI_MODEL: 'GLM_5.2',
+    },
+  })
+
+  assert.ok(env)
+  assert.equal(env?.OPENAI_MODEL, 'KIMI_K3')
+  assert.equal(env?.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+})
+
+test('buildApismartProfileEnv refuses to copy the dedicated credential to a custom endpoint', () => {
+  const env = buildApismartProfileEnv({
+    apiKey: 'apismart-secret-key',
+    baseUrl: 'https://proxy.example/v1',
+  })
+
+  assert.equal(env, null)
+})
+
+test('buildApismartProfileEnv refuses non-canonical ApiSmart paths', () => {
+  assert.equal(
+    buildApismartProfileEnv({
+      apiKey: 'apismart-secret-key',
+      baseUrl: 'https://gw.apismart.ai/staging/v1',
+    }),
+    null,
+  )
+  assert.equal(
+    buildApismartProfileEnv({
+      apiKey: 'apismart-secret-key',
+      baseUrl: 'https://gw.apismart.ai',
+    }),
+    null,
+  )
+})
+
+test('openai launch withholds ambient ApiSmart credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-apismart-key',
+      APISMART_API_KEY: 'ambient-apismart-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'apismart')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.APISMART_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_API_KEY: 'ambient-apismart-key',
+      APISMART_API_KEY: 'ambient-apismart-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-apismart-key')
+  assert.equal(canonical.APISMART_API_KEY, 'ambient-apismart-key')
+})
+
+test('openai launch carries APISMART_API_KEY only when the route resolves to apismart', async () => {
+  const offRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-openai',
+      APISMART_API_KEY: 'apismart-persisted',
+    }),
+    goal: 'coding',
+    processEnv: {
+      APISMART_API_KEY: 'apismart-ambient',
+    },
+  })
+
+  assert.equal(offRoute.APISMART_API_KEY, undefined)
+
+  const onRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://gw.apismart.ai/v1',
+      OPENAI_MODEL: 'DEEPSEEK_V4_FLASH',
+      OPENAI_API_KEY: 'apismart-key',
+      APISMART_API_KEY: 'apismart-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(onRoute.APISMART_API_KEY, 'apismart-key')
 })
 
 test('openai launch prefers a live dedicated vendor key over the persisted one', async () => {
@@ -717,7 +916,7 @@ test('xai launch uses descriptor defaults and persisted xAI key', async () => {
 
   assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
   assert.equal(env.OPENAI_BASE_URL, 'https://api.x.ai/v1')
-  assert.equal(env.OPENAI_MODEL, 'grok-4.3')
+  assert.equal(env.OPENAI_MODEL, 'grok-4.6')
   assert.equal(env.OPENAI_API_KEY, 'xai-persisted-key')
   assert.equal(env.XAI_API_KEY, 'xai-persisted-key')
 })
@@ -937,6 +1136,25 @@ test('buildStartupEnvFromProfile preserves concrete env-only NIM setup over stal
   assert.equal(env.NVIDIA_API_KEY, 'nvapi-live')
   assert.equal(env.NVIDIA_NIM, '1')
   assert.equal(resolveActiveRouteIdFromEnv(env), 'nvidia-nim')
+})
+
+test('buildStartupEnvFromProfile preserves ApiSmart env-only setup over a saved profile', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    APISMART_API_KEY: 'apismart-live',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'stale-openai-key',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env.APISMART_API_KEY, 'apismart-live')
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'apismart')
+  assert.equal(env.OPENAI_BASE_URL, undefined)
 })
 
 test('buildStartupEnvFromProfile does not activate non-NIM env-only OpenAI-compatible setup', async () => {

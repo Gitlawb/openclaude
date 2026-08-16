@@ -289,7 +289,7 @@ export class GrpcServer {
         } else if (clientMessage.cancel) {
           interrupted = true
           if (engine) {
-            engine.interrupt()
+            engine.interrupt('grpc_cancel')
           }
           call.end()
         }
@@ -312,7 +312,7 @@ export class GrpcServer {
         resolve('no')
       }
       if (engine) {
-        engine.interrupt()
+        engine.interrupt('grpc_stream_end')
       }
       engine = null
       pendingRequests.clear()

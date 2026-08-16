@@ -91,6 +91,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "apismart",
+    "routeKind": "gateway",
+    "routeId": "apismart",
+    "vendorId": "openai",
+    "gatewayId": "apismart",
+    "description": "ApiSmart unified OpenAI-compatible gateway",
+    "apiKeyEnvVars": [
+      "APISMART_API_KEY"
+    ],
+    "modelEnvVars": [
+      "APISMART_MODEL",
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "atlas-cloud",
     "routeKind": "gateway",
     "routeId": "atlas-cloud",
@@ -527,6 +542,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "anthropic",
   "dashscope-cn",
   "dashscope-intl",
+  "apismart",
   "atlas-cloud",
   "azure-openai",
   "bankr",

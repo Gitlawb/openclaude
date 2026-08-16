@@ -38,7 +38,6 @@ import { launchRepl } from './replLauncher.js';
 import { refreshGrowthBookAfterAuthChange } from './services/analytics/growthbook.js';
 import { fetchBootstrapData } from './services/api/bootstrap.js';
 import { refreshStartupDiscoveryForActiveRoute } from './integrations/discoveryService.js';
-import { MAX_AMOUNT_USD_MINOR, MIN_AMOUNT_USD_MINOR } from './integrations/aimlapi/config.js';
 import { prefetchOllamaModels } from './utils/model/ollamaModels.js';
 import { type DownloadResult, downloadSessionFiles, type FilesApiConfig, parseFileSpecs } from './services/api/filesApi.js';
 import { prefetchPassesEligibility } from './services/api/referral.js';
@@ -49,6 +48,7 @@ import { loadRemoteManagedSettings, refreshRemoteManagedSettings } from './servi
 import type { ToolInputJSONSchema } from './Tool.js';
 import { createSyntheticOutputTool, isSyntheticOutputToolEnabled } from './tools/SyntheticOutputTool/SyntheticOutputTool.js';
 import { registerTaskReportCommand } from './cli/commands/taskReport.js';
+import { registerAimlapiCommand } from './cli/aimlapiCommand.js';
 import { getTools } from './tools.js';
 import { canUserConfigureAdvisor, getInitialAdvisorSetting, isAdvisorEnabled, isValidAdvisorModel, modelSupportsAdvisor } from './utils/advisor.js';
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js';
@@ -3975,35 +3975,9 @@ async function run(): Promise<CommanderCommand> {
     await xaiStatus();
   });
 
-  // AI/ML API (aimlapi.com) — log in, open the co-branded top-up page, and
-  // auto-configure the provider with the issued key.
-  const aimlapi = program.command('aimlapi').description('AI/ML API (aimlapi.com) — top up balance and configure the provider').configureHelp(createSortedHelpConfig());
-  aimlapi.command('topup')
-    .description("Log in, open AI/ML API top-up, then set the issued key as OpenClaude's provider")
-    .option('--email <email>', 'AI/ML API account email (or AIMLAPI_EMAIL env)')
-    .option('--amount <usd>', `Top-up amount in USD (min ${MIN_AMOUNT_USD_MINOR / 100}, max ${MAX_AMOUNT_USD_MINOR / 100})`)
-    .addOption(new Option('--method <method>', 'Payment method: card (Stripe) or crypto (NOWPayments)').choices(['card', 'crypto']).default('card'))
-    .option('--model <model>', 'Default model id written into the provider profile', 'gpt-4o')
-    .option('--partner-id <id>', 'Partner id for rebate attribution (part_...)')
-    .option('--no-open', 'Do not auto-open the browser; print the payment URL instead')
-    .action(async (opts: {
-      email?: string;
-      amount?: string;
-      method?: string;
-      model?: string;
-      partnerId?: string;
-      open?: boolean;
-    }) => {
-      const { aimlapiTopup } = await import('./cli/handlers/aimlapi.js');
-      await aimlapiTopup({
-        email: opts.email,
-        amountUsd: opts.amount,
-        method: opts.method === 'crypto' ? 'crypto' : 'card',
-        model: opts.model,
-        partnerId: opts.partnerId,
-        noOpen: opts.open === false,
-      });
-    });
+  // AI/ML API (aimlapi.com) — passwordless sign-in, open the co-branded top-up
+  // page, and auto-configure the provider with the issued key.
+  registerAimlapiCommand(program).configureHelp(createSortedHelpConfig());
 
   /**
    * Helper function to handle marketplace command errors consistently.

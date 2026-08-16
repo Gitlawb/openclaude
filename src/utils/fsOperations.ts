@@ -97,6 +97,18 @@ export type FsOperations = {
   }
   /** Appends string to file */
   appendFileSync(path: string, data: string, options?: { mode?: number }): void
+  /**
+   * Opens a regular file without following path symlinks and appends data.
+   *
+   * Linux only and requires an absolute path; throws on unsupported platforms
+   * or relative paths. A partial write that cannot be rolled back rejects with
+   * `ERR_DIAGNOSTIC_APPEND_UNCERTAIN`.
+   */
+  appendRegularFile(
+    path: string,
+    data: string,
+    options?: { mode?: number },
+  ): Promise<void>
   /** Copies file from source to destination */
   copyFileSync(src: string, dest: string): void
   /** Deletes file */
@@ -544,6 +556,103 @@ export const NodeFsOperations: FsOperations = {
       }
     }
     fs.appendFileSync(path, data)
+  },
+
+  async appendRegularFile(path, data, options) {
+    if (process.platform !== 'linux') {
+      throw new Error('Secure diagnostic file output is available on Linux only')
+    }
+    if (!nodePath.isAbsolute(path)) {
+      throw new Error('Secure diagnostic file output requires an absolute path')
+    }
+
+    const resolvedPath = nodePath.resolve(path)
+    const components = nodePath
+      .relative(nodePath.parse(resolvedPath).root, nodePath.dirname(resolvedPath))
+      .split(nodePath.sep)
+      .filter(Boolean)
+    const directoryFlags = fs.constants.O_RDONLY |
+      fs.constants.O_DIRECTORY |
+      fs.constants.O_NOFOLLOW
+    const descriptorDirectory = '/proc/self/fd'
+    let directoryHandle = await open('/', directoryFlags)
+    let committed = false
+    let operationError: unknown
+
+    try {
+      for (const component of components) {
+        const descriptorPath = `${descriptorDirectory}/${directoryHandle.fd}/${component}`
+        let nextDirectoryHandle
+        try {
+          nextDirectoryHandle = await open(descriptorPath, directoryFlags)
+        } catch (error) {
+          if (getErrnoCode(error) !== 'ENOENT') throw error
+          await mkdirPromise(descriptorPath, { mode: 0o700 })
+          nextDirectoryHandle = await open(descriptorPath, directoryFlags)
+        }
+        try {
+          await directoryHandle.close()
+        } catch (error) {
+          await nextDirectoryHandle.close().catch(() => {})
+          throw error
+        }
+        directoryHandle = nextDirectoryHandle
+      }
+
+      const descriptorPath = `${descriptorDirectory}/${directoryHandle.fd}/${nodePath.basename(resolvedPath)}`
+      const flags = fs.constants.O_APPEND |
+      fs.constants.O_CREAT |
+      fs.constants.O_NONBLOCK |
+      fs.constants.O_WRONLY |
+      fs.constants.O_NOFOLLOW
+      const handle = await open(descriptorPath, flags, options?.mode ?? 0o600)
+      let fileOperationError: unknown
+      try {
+        const stats = await handle.stat()
+        if (!stats.isFile()) {
+          throw new Error('Diagnostics target is not a regular file')
+        }
+        if (options?.mode !== undefined) await handle.chmod(options.mode)
+        try {
+          await handle.writeFile(data, { encoding: 'utf8' })
+          committed = true
+        } catch (error) {
+          try {
+            await handle.truncate(stats.size)
+          } catch (rollbackError) {
+            throw Object.assign(
+              new Error('Diagnostic append may have partially committed', {
+                cause: rollbackError,
+              }),
+              { code: 'ERR_DIAGNOSTIC_APPEND_UNCERTAIN' },
+            )
+          }
+          throw error
+        }
+      } catch (error) {
+        fileOperationError = error
+      }
+      try {
+        await handle.close()
+      } catch (error) {
+        // A close failure after writeFile completed cannot safely be interpreted
+        // as a failed append; replaying would duplicate the committed batch.
+        if (!committed && fileOperationError === undefined) {
+          fileOperationError = error
+        }
+      }
+      if (fileOperationError !== undefined) throw fileOperationError
+    } catch (error) {
+      operationError = error
+    }
+    try {
+      await directoryHandle.close()
+    } catch (error) {
+      // Preserve an earlier operation error so a cleanup failure cannot hide an
+      // uncertain commit and cause the caller to replay the same batch.
+      if (!committed && operationError === undefined) operationError = error
+    }
+    if (operationError !== undefined) throw operationError
   },
 
   copyFileSync(src, dest) {

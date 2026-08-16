@@ -20,7 +20,7 @@ import {
 } from '../context.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
-import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
+import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import {
@@ -91,9 +91,9 @@ export function getSmallFastModel(): ModelName {
   if (getAPIProvider() === 'xiaomi-mimo') {
     return process.env.OPENAI_MODEL || 'mimo-v2-flash'
   }
-  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.3.
+  // xAI — OPENAI_MODEL carries the active Grok model; fall back to Grok 4.6.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   return getDefaultHaikuModel()
 }
@@ -207,9 +207,9 @@ export function getDefaultOpusModel(): ModelName {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: use user-specified model or default to gpt-5.5
+  // Codex provider: use user-specified model or default
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -229,7 +229,7 @@ export function getDefaultOpusModel(): ModelName {
   }
   // xAI — flagship Grok model for "opus"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
@@ -259,7 +259,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -279,7 +279,7 @@ export function getDefaultSonnetModel(): ModelName {
   }
   // xAI — flagship Grok model for "sonnet"-equivalent.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // Default to Sonnet 4.5 for 3P since they may not have 4.6 yet
   if (!isFirstPartyAnthropicProvider()) {
@@ -303,7 +303,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // Codex provider
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // GitHub Copilot provider
   if (getAPIProvider() === 'github') {
@@ -327,7 +327,7 @@ export function getDefaultHaikuModel(): ModelName {
   }
   // xAI — use the current Grok default for "haiku"-equivalent until xAI exposes a smaller live alias.
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
 
   // Haiku 4.5 is available on all platforms (first-party, Foundry, Bedrock, Vertex)
@@ -399,9 +399,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (getAPIProvider() === 'openai') {
     return process.env.OPENAI_MODEL || 'gpt-4o'
   }
-  // Codex provider: always use the configured Codex model (default gpt-5.5)
+  // Codex provider: always use the configured Codex model
   if (getAPIProvider() === 'codex') {
-    return process.env.OPENAI_MODEL || 'gpt-5.5'
+    return process.env.OPENAI_MODEL || 'gpt-5.6-sol'
   }
   // NVIDIA NIM uses OpenAI-compatible model ids. Keep this fallback aligned
   // with the route descriptor so headless sessions never send a Claude model.
@@ -412,9 +412,9 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       'nvidia/llama-3.1-nemotron-70b-instruct'
     )
   }
-  // xAI provider: always use the configured Grok model (default grok-4.3)
+  // xAI provider: always use the configured Grok model (default grok-4.6)
   if (getAPIProvider() === 'xai') {
-    return process.env.OPENAI_MODEL || 'grok-4.3'
+    return process.env.OPENAI_MODEL || getRouteDefaultModel('xai') || 'grok-4.6'
   }
   // MiniMax provider: always use the configured MiniMax model.
   // Keep the env-only fallback aligned with the MiniMax descriptor default
@@ -562,9 +562,15 @@ export function renderDefaultModelSetting(
   return renderModelName(parseUserSpecifiedModel(setting))
 }
 
-export function getOpus46PricingSuffix(fastMode: boolean): string {
+export function getOpus46PricingSuffix(
+  fastMode: boolean,
+  model: string = getModelStrings().opus48,
+): string {
   if (!isFirstPartyAnthropicProvider()) return ''
-  const pricing = formatModelPricing(getOpus46CostTier(fastMode))
+  const pricing = getModelPricingString(model, {
+    speed: fastMode ? 'fast' : 'standard',
+  })
+  if (!pricing) return ''
   const fastModeIndicator = fastMode ? ` (${LIGHTNING_BOLT})` : ''
   return ` ·${fastModeIndicator} ${pricing}`
 }
@@ -595,7 +601,7 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
   }
   // Handle Codex models - show actual model name + resolved model
   if (setting === 'codexplan') {
-    return 'codexplan (gpt-5.5)'
+    return 'codexplan (gpt-5.6-sol)'
   }
   if (setting === 'codexspark') {
     return 'codexspark (gpt-5.3-codex-spark)'
@@ -835,7 +841,7 @@ export function parseUserSpecifiedModel(
   // silently shrink a `codexplan[1m]`/`codexspark[1m]` session back to the
   // model default.
   if (modelString === 'codexplan') {
-    return 'gpt-5.5' + (has1mTag ? '[1m]' : '')
+    return 'gpt-5.6-sol' + (has1mTag ? '[1m]' : '')
   }
   if (modelString === 'codexspark') {
     return 'gpt-5.3-codex-spark' + (has1mTag ? '[1m]' : '')
@@ -894,6 +900,29 @@ export function parseUserSpecifiedModel(
     )
   }
   return modelInputTrimmed
+}
+
+// Runtime code needs the concrete model for capabilities and routing, but a
+// custom gateway still distinguishes the legacy codexplan selection from an
+// explicit GPT-5.6 Sol request when applying its default reasoning effort.
+export function getProviderRequestModel(
+  selectedModel: string,
+  runtimeModel: string,
+): string {
+  const selected = selectedModel.trim()
+  const selectedBase = selected
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  const runtimeBase = runtimeModel
+    .trim()
+    .replace(/\[1m]$/i, '')
+    .split('?', 1)[0]
+    ?.toLowerCase()
+  return selectedBase === 'codexplan' &&
+    runtimeBase === parseUserSpecifiedModel('codexplan')
+    ? selected
+    : runtimeModel
 }
 
 /**

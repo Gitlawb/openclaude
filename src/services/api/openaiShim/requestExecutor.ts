@@ -287,6 +287,7 @@ export async function executeOpenAIRequest(
       requestProcessEnv.VENICE_API_KEY,
       requestProcessEnv.MINIMAX_API_KEY,
       requestProcessEnv.ATLAS_CLOUD_API_KEY,
+      requestProcessEnv.APISMART_API_KEY,
       requestProcessEnv.NEARAI_API_KEY,
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
@@ -353,7 +354,7 @@ export async function executeOpenAIRequest(
       401,
       undefined,
       buildOpenAICompatibilityErrorMessage(
-        'OpenAI API error 401: invalid credential pool placeholder SUA_CHAVE detected',
+        'OpenAI API error 401: invalid credential placeholder detected',
         {
           category: 'auth_invalid',
           requestUrl: request.baseUrl,

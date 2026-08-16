@@ -45,6 +45,22 @@ export default defineVendor({
     source: 'static',
     models: [
       {
+        id: 'glm-5.3',
+        apiName: 'glm-5.3',
+        label: 'GLM-5.3',
+        modelDescriptorId: 'glm-5.3',
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'high', 'xhigh'],
+          wireFormat: 'zai_compatible',
+        },
+        transportOverrides: {
+          openaiShim: {
+            enableToolStreaming: true,
+          },
+        },
+      },
+      {
         id: 'glm-5.2',
         apiName: 'glm-5.2',
         label: 'GLM-5.2',

@@ -28,6 +28,7 @@ import {
   buildXaiOAuthProfileEnv,
   buildXiaomiMimoProfileEnv,
   buildAtlasCloudProfileEnv,
+  buildApismartProfileEnv,
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   deleteProfileFile,
@@ -50,8 +51,10 @@ import {
   type ProviderPreset,
 } from '../integrations/index.js'
 import {
+  getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
+  isCanonicalApismartInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -64,6 +67,7 @@ import {
   sanitizeProfileCustomHeaders,
   serializeProfileCustomHeaders,
 } from './providerCustomHeaders.js'
+import { sanitizeApiKey } from './providerSecrets.js'
 import { getSettings_DEPRECATED } from './settings/settings.js'
 
 export type { ProviderPreset } from '../integrations/index.js'
@@ -147,6 +151,14 @@ function resolveProfileCompatibility(provider: string): {
 function isClinePassProfile(profile: ProviderProfile): boolean {
   const { route } = resolveProfileCompatibility(profile.provider)
   return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
+}
+
+function isApismartProfile(profile: ProviderProfile): boolean {
+  const baseUrl = profile.baseUrl?.trim()
+  // Missing base URL resolves to the ApiSmart default, which is canonical.
+  // Only the documented `/v1` inference URL may carry the dedicated key —
+  // host-only or path-suffixed ApiSmart URLs are treated as retargeted.
+  return !baseUrl || isCanonicalApismartInferenceBaseUrl(baseUrl)
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -353,7 +365,8 @@ function sanitizeProfile(profile: ProviderProfile): ProviderProfile | null {
     provider,
     baseUrl,
     model,
-    apiKey: trimOrUndefined(profile.apiKey),
+    // Drop template/dotenv sentinels so placeholders never persist as keys.
+    apiKey: sanitizeApiKey(trimOrUndefined(profile.apiKey)),
   }
   if (supportsApiFormat && apiFormat) {
     sanitized.apiFormat = apiFormat
@@ -797,6 +810,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
+    (isApismartProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.APISMART_API_KEY, profile.apiKey)
+      : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
@@ -953,6 +970,8 @@ export function applyProviderProfileToProcessEnv(
     const normalizedProfileBaseUrl =
       route.routeId === 'xiaomi-mimo' || route.routeId === 'xiaomi-mimo-token'
         ? normalizeXiaomiMimoBaseUrl(profile.baseUrl) ?? profile.baseUrl
+        : route.routeId === 'apismart' && !profile.baseUrl?.trim()
+          ? getRouteDefaultBaseUrl('apismart') ?? profile.baseUrl
         : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
@@ -980,19 +999,21 @@ export function applyProviderProfileToProcessEnv(
       }
     }
 
-    if (profile.apiKey) {
+    const withholdRetargetedApismartCredential =
+      route.routeId === 'apismart' && !isApismartProfile(profile)
+    if (profile.apiKey && !withholdRetargetedApismartCredential) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
-      if (route.vendorId === 'minimax' || profile.baseUrl.toLowerCase().includes('minimax')) {
+      if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
       }
       if (
         route.gatewayId === 'nvidia-nim' ||
-        profile.baseUrl.toLowerCase().includes('nvidia') ||
-        profile.baseUrl.toLowerCase().includes('integrate.api.nvidia')
+        normalizedProfileBaseUrl.toLowerCase().includes('nvidia') ||
+        normalizedProfileBaseUrl.toLowerCase().includes('integrate.api.nvidia')
       ) {
         openAIProfileEnv.NVIDIA_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'bankr' || profile.baseUrl.toLowerCase().includes('bankr')) {
+      if (route.routeId === 'bankr' || normalizedProfileBaseUrl.toLowerCase().includes('bankr')) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
       if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
@@ -1001,7 +1022,7 @@ export function applyProviderProfileToProcessEnv(
       if (isAimlapiProfile) {
         openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'venice' || profile.baseUrl.toLowerCase().includes('api.venice.ai')) {
+      if (route.routeId === 'venice' || normalizedProfileBaseUrl.toLowerCase().includes('api.venice.ai')) {
         openAIProfileEnv.VENICE_API_KEY = profile.apiKey
       }
       if (
@@ -1011,8 +1032,11 @@ export function applyProviderProfileToProcessEnv(
       ) {
         openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'atlas-cloud' || profile.baseUrl.toLowerCase().includes('atlascloud')) {
+      if (route.routeId === 'atlas-cloud' || normalizedProfileBaseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
+      }
+      if (isApismartProfile(profile)) {
+        openAIProfileEnv.APISMART_API_KEY = profile.apiKey
       }
       if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
@@ -1057,6 +1081,23 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY ?? ambientAimlapiKey
         openAIProfileEnv.AIMLAPI_API_KEY =
           openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
+      }
+    }
+    // Keep ApiSmart route identity even when the profile is retargeted to a
+    // proxy. Dedicated credentials stay withheld above; the route id is what
+    // lets buildLaunchEnv refuse ambient APISMART_API_KEY / mirrored
+    // OPENAI_API_KEY on relaunch (AIMLAPI parity).
+    if (route.routeId === 'apismart') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
+      // Keyless canonical ApiSmart profiles resolve ambient dedicated
+      // credentials the same way AIMLAPI does. Proxy / non-canonical hosts
+      // must not receive the ambient key.
+      if (isApismartProfile(profile)) {
+        const ambientApismartKey = sanitizeApiKey(process.env.APISMART_API_KEY)
+        openAIProfileEnv.OPENAI_API_KEY =
+          openAIProfileEnv.OPENAI_API_KEY ?? ambientApismartKey
+        openAIProfileEnv.APISMART_API_KEY =
+          openAIProfileEnv.APISMART_API_KEY ?? ambientApismartKey
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -1340,11 +1381,14 @@ function buildOpenAICompatibleStartupEnv(
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
+  const withholdRetargetedApismartCredential =
+    resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
+    !isApismartProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
-  if (activeProfile.apiKey) {
+  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1368,6 +1412,9 @@ function buildOpenAICompatibleStartupEnv(
       // persist the dedicated key too or it relaunches unauthenticated.
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+      }
+      if (isApismartProfile(activeProfile)) {
+        strictEnv.APISMART_API_KEY = activeProfile.apiKey
       }
       if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
@@ -1415,7 +1462,13 @@ function buildOpenAICompatibleStartupEnv(
   if (isAimlapiProfile) {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
   }
-  if (activeProfile.apiKey) {
+  // Preserve ApiSmart identity on retargeted/proxy startup envs so relaunch
+  // withholding can refuse ambient dedicated credentials. Canonical profiles
+  // already stamp this via buildApismartProfileEnv.
+  if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
+  }
+  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
@@ -1437,6 +1490,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
+    }
+    if (isApismartProfile(activeProfile)) {
+      env.APISMART_API_KEY = activeProfile.apiKey
     }
     if (isClinePassProfile(activeProfile)) {
       env.CLINE_API_KEY = activeProfile.apiKey
@@ -1627,6 +1683,19 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
+      if (route.routeId === 'apismart' && isApismartProfile(activeProfile)) {
+        const env =
+          buildApismartProfileEnv({
+            model: getPrimaryModel(activeProfile.model),
+            baseUrl: activeProfile.baseUrl,
+            apiKey: activeProfile.apiKey,
+            processEnv: process.env,
+          }) ?? null
+        return env
+          ? { profile: 'openai', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          : null
+      }
+
       if (route.vendorId === 'nearai') {
         const env = buildOpenAICompatibleStartupEnv(activeProfile)
         return env ? { profile: 'openai', env } : null
@@ -1661,6 +1730,9 @@ function triggerStartupDiscoveryRefreshForProfile(
 ): void {
   const route = resolveProfileRoute(profile.provider)
   if (route.routeId === 'unknown-fallback') {
+    return
+  }
+  if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
     return
   }
 

@@ -116,6 +116,21 @@ test('Kimi Code keeps context variants distinct in the active route picker', asy
   expect(options.find(option => option.value === 'k3-256k')?.label).toBe('Kimi K3 (256K)')
 })
 
+test('Z.AI surfaces GLM-5.3 exactly once ahead of GLM-5.2 without changing the default', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_MODEL = 'glm-5.2'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  const options = await getOpenAIModelOptions()
+  const values = options.map(option => option.value)
+
+  expect(values.filter(value => value === 'glm-5.3')).toHaveLength(1)
+  expect(values.indexOf('glm-5.3')).toBeLessThan(values.indexOf('glm-5.2'))
+  expect(options.find(option => option.value === 'glm-5.3')?.label).toBe('GLM-5.3')
+  expect(options.find(option => option.value === null)?.description).toContain('glm-5.2')
+})
+
 test('custom Anthropic endpoints use the third-party default description', async () => {
   process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
   process.env.ANTHROPIC_MODEL = 'proxy-model'
@@ -126,6 +141,19 @@ test('custom Anthropic endpoints use the third-party default description', async
 
   expect(defaultOption?.description).toContain('currently proxy-model')
   expect(defaultOption?.description).not.toContain('$')
+})
+
+test('custom Anthropic endpoints omit first-party pricing from every model option', async () => {
+  process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+  process.env.ANTHROPIC_API_KEY = 'proxy-key'
+
+  const { getModelOptions } = await importFreshModelOptionsModule('firstParty')
+  const options = getModelOptions()
+
+  expect(options.length).toBeGreaterThan(1)
+  for (const option of options) {
+    expect(option.description).not.toContain('$')
+  }
 })
 
 test('OpenRouter active profile cache merges with the static route catalog', async () => {
@@ -161,6 +189,8 @@ test('OpenRouter active profile cache merges with the static route catalog', asy
 
   expect(values).toContain('qwen/qwen3-32b')
   expect(values).toContain('openai/gpt-5-mini')
+  expect(values).toContain('x-ai/grok-4.6')
+  expect(values).toContain('x-ai/grok-4.5')
 })
 
 test('Atlas Cloud canonicalizes static catalog aliases without hiding the catalog', async () => {
@@ -174,6 +204,8 @@ test('Atlas Cloud canonicalizes static catalog aliases without hiding the catalo
   expect(values).toContain('anthropic/claude-opus-4.8')
   expect(values).toContain('deepseek-ai/deepseek-v4-pro')
   expect(values).toContain('xai/grok-build-0.1')
+  expect(values).toContain('xai/grok-4.6')
+  expect(values).toContain('xai/grok-4.5')
   expect(values).toContain('xai/grok-4.3')
   expect(values).not.toContain('claude-opus-4-8')
   expect(values).not.toContain('grok-code-fast-1')
