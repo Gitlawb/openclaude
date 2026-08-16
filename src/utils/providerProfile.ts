@@ -1842,9 +1842,25 @@ export async function buildLaunchEnv(options: {
           }
         : processEnv,
     })
-    const customHeaders = shellCustomHeaders || persistedCustomHeaders
+    const customHeaders = isCanonicalXaiLaunch
+      ? shellCustomHeaders || persistedCustomHeaders
+      : persistedCustomHeaders
     if (customHeaders) {
       env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
+    }
+    if (!isCanonicalXaiLaunch) {
+      if (persistedOpenAIAuthHeader) {
+        env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
+      }
+      if (
+        persistedOpenAIAuthScheme === 'bearer' ||
+        persistedOpenAIAuthScheme === 'raw'
+      ) {
+        env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
+      }
+      if (persistedOpenAIAuthHeaderValue) {
+        env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+      }
     }
     // Preserve the OAuth credential-source marker so startup validation
     // accepts an xAI OAuth profile (no XAI_API_KEY needed; openaiShim

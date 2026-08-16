@@ -1698,6 +1698,25 @@ test('openai launch drops legacy persisted xAI keys from a retargeted proxy prof
   assert.equal(env.XAI_API_KEY, undefined)
 })
 
+test('legacy xai launch withholds ambient custom headers from a retargeted proxy URL', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'xai',
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.3',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Ambient-Secret: ambient-header-secret',
+      XAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example.com/v1')
+  assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, undefined)
+})
+
 test('legacy xai launch withholds dedicated credentials from a retargeted proxy URL', async () => {
   const env = await buildLaunchEnv({
     profile: 'xai',
