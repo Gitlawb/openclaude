@@ -18,6 +18,7 @@ import {
 import { resetSettingsCache } from '../settings/settingsCache.js'
 import { installResolvedPlugin } from './pluginInstallationHelpers.js'
 import { loadInstalledPluginsFromDisk } from './installedPluginsManager.js'
+import { saveKnownMarketplacesConfig } from './marketplaceManager.js'
 
 let tempRoot: string | undefined
 let originalConfigOverride: string | undefined
@@ -159,3 +160,83 @@ test.each([
     expect(String(reportError.mock.calls[0]?.[0])).toContain(expectedMessage)
   },
 )
+
+test('registration rollback unwinds a dependency closure in reverse order', async () => {
+  const marketplaceRoot = join(tempRoot!, 'marketplace')
+  mkdirSync(join(marketplaceRoot, '.claude-plugin'), { recursive: true })
+  mkdirSync(join(marketplaceRoot, 'plugins', 'demo'), { recursive: true })
+  mkdirSync(join(marketplaceRoot, 'plugins', 'dependency'), {
+    recursive: true,
+  })
+  writeFileSync(
+    join(marketplaceRoot, '.claude-plugin', 'marketplace.json'),
+    JSON.stringify({
+      name: 'community',
+      owner: { name: 'Test' },
+      plugins: [
+        {
+          name: 'demo',
+          source: './plugins/demo',
+          strict: false,
+          dependencies: ['dependency'],
+        },
+        {
+          name: 'dependency',
+          source: './plugins/dependency',
+          strict: false,
+        },
+      ],
+    }),
+    'utf8',
+  )
+  await saveKnownMarketplacesConfig({
+    community: {
+      source: { source: 'directory', path: marketplaceRoot },
+      installLocation: marketplaceRoot,
+      lastUpdated: '2026-08-16T00:00:00.000Z',
+    },
+  })
+
+  const rollbackIds: string[] = []
+  const result = await installResolvedPlugin({
+    pluginId: 'demo@community',
+    entry: {
+      name: 'demo',
+      source: './plugins/demo',
+      strict: false,
+      dependencies: ['dependency'],
+    },
+    scope: 'user',
+    marketplaceInstallLocation: marketplaceRoot,
+    dependencies: {
+      cacheAndRegisterPlugin: mock(async (id: string) => {
+        const current = {
+          scope: 'user' as const,
+          installPath: join(tempRoot!, 'cache', id),
+          version: '1.0.0',
+          installedAt: '2026-08-16T00:00:00.000Z',
+          lastUpdated: '2026-08-16T00:00:00.000Z',
+        }
+        return {
+          installPath: current.installPath,
+          registration: { previous: undefined, current },
+        }
+      }),
+      updateFresh: () =>
+        settingsWriteResult({
+          error: new Error('settings file is locked'),
+          written: false,
+        }),
+      compareAndSwap: id => {
+        rollbackIds.push(id)
+        return true
+      },
+    },
+  })
+
+  expect(result).toMatchObject({
+    ok: false,
+    reason: 'settings-write-failed',
+  })
+  expect(rollbackIds).toEqual(['demo@community', 'dependency@community'])
+})

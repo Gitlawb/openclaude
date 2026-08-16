@@ -39,7 +39,7 @@ import {
   createPermissionResponseMessage,
   createSandboxPermissionRequestMessage,
   createSandboxPermissionResponseMessage,
-  writeToMailbox,
+  writeToMailboxWithResult,
 } from '../teammateMailbox.js'
 import { getTeamDir, readTeamFileAsync } from './teamHelpers.js'
 
@@ -724,7 +724,7 @@ export async function sendPermissionRequestViaMailbox(
     })
 
     // Send to leader's mailbox (routes to in-process or file-based based on recipient)
-    await writeToMailbox(
+    const sent = await writeToMailboxWithResult(
       leaderName,
       {
         from: request.workerName,
@@ -734,6 +734,7 @@ export async function sendPermissionRequestViaMailbox(
       },
       request.teamName,
     )
+    if (!sent) return false
 
     logForDebugging(
       `[PermissionSync] Sent permission request ${request.id} to leader ${leaderName} via mailbox`,
@@ -786,7 +787,7 @@ export async function sendPermissionResponseViaMailbox(
     const senderName = getAgentName() || 'team-lead'
 
     // Send to worker's mailbox (routes to in-process or file-based based on recipient)
-    await writeToMailbox(
+    const sent = await writeToMailboxWithResult(
       workerName,
       {
         from: senderName,
@@ -795,6 +796,7 @@ export async function sendPermissionResponseViaMailbox(
       },
       team,
     )
+    if (!sent) return false
 
     logForDebugging(
       `[PermissionSync] Sent permission response for ${requestId} to worker ${workerName} via mailbox`,
@@ -871,7 +873,7 @@ export async function sendSandboxPermissionRequestViaMailbox(
     })
 
     // Send to leader's mailbox (routes to in-process or file-based based on recipient)
-    await writeToMailbox(
+    const sent = await writeToMailboxWithResult(
       leaderName,
       {
         from: workerName,
@@ -881,6 +883,7 @@ export async function sendSandboxPermissionRequestViaMailbox(
       },
       team,
     )
+    if (!sent) return false
 
     logForDebugging(
       `[PermissionSync] Sent sandbox permission request ${requestId} for host ${host} to leader ${leaderName} via mailbox`,
@@ -931,7 +934,7 @@ export async function sendSandboxPermissionResponseViaMailbox(
     const senderName = getAgentName() || 'team-lead'
 
     // Send to worker's mailbox (routes to in-process or file-based based on recipient)
-    await writeToMailbox(
+    const sent = await writeToMailboxWithResult(
       workerName,
       {
         from: senderName,
@@ -940,6 +943,7 @@ export async function sendSandboxPermissionResponseViaMailbox(
       },
       team,
     )
+    if (!sent) return false
 
     logForDebugging(
       `[PermissionSync] Sent sandbox permission response for ${requestId} (host: ${host}, allow: ${allow}) to worker ${workerName} via mailbox`,

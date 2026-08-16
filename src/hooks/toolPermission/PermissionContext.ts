@@ -215,9 +215,6 @@ function createPermissionContext(
           ),
         }
       }
-      if (persistence.appliedUpdates.length === 0) {
-        return { acceptedPermanentUpdates: false }
-      }
       return {
         acceptedPermanentUpdates: persistence.appliedUpdates.some(update =>
           supportsPersistence(update.destination),

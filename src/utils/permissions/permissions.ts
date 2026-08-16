@@ -526,16 +526,6 @@ async function runPermissionRequestHooksForHeadlessAgent(
               },
             }
           }
-          if (appliedUpdates.length === 0) {
-            return {
-              behavior: 'allow',
-              updatedInput: finalInput,
-              decisionReason: {
-                type: 'hook',
-                hookName: 'PermissionRequest',
-              },
-            }
-          }
         }
         return {
           behavior: 'allow',

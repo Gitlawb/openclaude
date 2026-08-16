@@ -48,6 +48,7 @@ const dependencies = {
     if (!writeResult.written) return writeResult
     const patch = createPatch(structuredClone(diskSettings))
     if (patch === SETTINGS_UPDATE_NO_CHANGE) {
+      if (writeResult.unchanged) return writeResult
       return settingsWriteResult({ written: false, unchanged: true })
     }
     applyPatch(patch)
@@ -117,7 +118,8 @@ test('an already-present permission is a successful lock-scoped no-op', () => {
 test('a no-op with a transaction error is not accepted as persisted', () => {
   writeResult = settingsWriteResult({
     error: new Error('settings target changed during release'),
-    written: false,
+    written: true,
+    committed: false,
     unchanged: true,
   })
 

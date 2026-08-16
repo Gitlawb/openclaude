@@ -523,37 +523,44 @@ export function createInProcessCanUseTool(
             return
           }
 
-          const allMessages = await readMailbox(
-            identity.agentName,
-            identity.teamName,
-          )
-          for (let i = 0; i < allMessages.length; i++) {
-            const msg = allMessages[i]
-            if (msg && !msg.read) {
-              const parsed = isPermissionResponse(msg.text)
-              if (parsed && parsed.request_id === request.id) {
-                await markMessageAsReadByIndex(
-                  identity.agentName,
-                  identity.teamName,
-                  i,
-                )
-                if (parsed.subtype === 'success') {
-                  processMailboxPermissionResponse({
-                    requestId: parsed.request_id,
-                    decision: 'approved',
-                    updatedInput: parsed.response?.updated_input,
-                    permissionUpdates: parsed.response?.permission_updates,
-                  })
-                } else {
-                  processMailboxPermissionResponse({
-                    requestId: parsed.request_id,
-                    decision: 'rejected',
-                    feedback: parsed.error,
-                  })
+          try {
+            const allMessages = await readMailbox(
+              identity.agentName,
+              identity.teamName,
+            )
+            for (let i = 0; i < allMessages.length; i++) {
+              const msg = allMessages[i]
+              if (msg && !msg.read) {
+                const parsed = isPermissionResponse(msg.text)
+                if (parsed && parsed.request_id === request.id) {
+                  await markMessageAsReadByIndex(
+                    identity.agentName,
+                    identity.teamName,
+                    i,
+                  )
+                  if (parsed.subtype === 'success') {
+                    processMailboxPermissionResponse({
+                      requestId: parsed.request_id,
+                      decision: 'approved',
+                      updatedInput: parsed.response?.updated_input,
+                      permissionUpdates: parsed.response?.permission_updates,
+                    })
+                  } else {
+                    processMailboxPermissionResponse({
+                      requestId: parsed.request_id,
+                      decision: 'rejected',
+                      feedback: parsed.error,
+                    })
+                  }
+                  return // Callback already resolves the promise
                 }
-                return // Callback already resolves the promise
               }
             }
+          } catch (error) {
+            logForDebugging(
+              `[inProcessRunner] Permission mailbox poll failed for ${request.id}: ${error instanceof Error ? error.message : String(error)}`,
+              { level: 'warn' },
+            )
           }
         },
         PERMISSION_POLL_INTERVAL_MS,

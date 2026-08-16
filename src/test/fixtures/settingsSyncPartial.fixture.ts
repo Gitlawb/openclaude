@@ -36,6 +36,29 @@ async function waitForFile(path: string, description: string): Promise<void> {
   }
 }
 
+const TIMED_OUT = Symbol('timed-out')
+
+async function withDeadline<T>(
+  promise: Promise<T>,
+  description: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise<typeof TIMED_OUT>(resolve => {
+        timeout = setTimeout(() => resolve(TIMED_OUT), 10_000)
+      }),
+    ])
+    if (result === TIMED_OUT) {
+      throw new Error(`Timed out waiting for ${description}`)
+    }
+    return result as T
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 try {
   process.chdir(configDir)
   setClaudeConfigHomeDirForTesting(configDir)
@@ -75,8 +98,14 @@ try {
     const startup = coordinator.download()
     const redownload = coordinator.redownload()
     resolveRedownload!(settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'new'))
-    const redownloadResult = await redownload
-    const startupResult = await startup
+    const redownloadResult = await withDeadline(
+      redownload,
+      'superseding redownload result',
+    )
+    const startupResult = await withDeadline(
+      startup,
+      'superseded startup result',
+    )
     resolveStartup!(settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'stale'))
     await new Promise<void>(resolve => setImmediate(resolve))
 
@@ -137,14 +166,20 @@ try {
     resolveStartupFetch!(
       settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'stale'),
     )
-    await startupApplyStarted
+    await withDeadline(startupApplyStarted, 'startup apply to begin')
     const redownload = coordinator.redownload()
     resolveRedownloadFetch!(settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'new'))
     await new Promise<void>(resolve => setImmediate(resolve))
     const newerStartedBeforeRelease = applyEvents.includes('started:new')
     releaseStartupApply!()
-    const redownloadResult = await redownload
-    const startupResult = await startup
+    const redownloadResult = await withDeadline(
+      redownload,
+      'in-flight superseding redownload result',
+    )
+    const startupResult = await withDeadline(
+      startup,
+      'in-flight superseded startup result',
+    )
 
     process.stdout.write(
       JSON.stringify({
@@ -198,12 +233,18 @@ try {
     resolveStartupFetch!(
       settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'applied-by-startup'),
     )
-    await startupApplyStarted
+    await withDeadline(startupApplyStarted, 'failing startup apply to begin')
     const redownload = coordinator.redownload()
     resolveRedownloadFetch!({ success: false, error: 'offline' })
-    const redownloadResult = await redownload
+    const redownloadResult = await withDeadline(
+      redownload,
+      'failed superseding redownload result',
+    )
     releaseStartupApply!()
-    const startupResult = await startup
+    const startupResult = await withDeadline(
+      startup,
+      'failed superseded startup result',
+    )
 
     process.stdout.write(
       JSON.stringify({
@@ -225,7 +266,11 @@ try {
         throw new Error('apply must not run')
       },
     })
-    process.stdout.write(JSON.stringify(await coordinator.download()))
+    process.stdout.write(
+      JSON.stringify(
+        await withDeadline(coordinator.download(), 'preparation failure result'),
+      ),
+    )
   } else if (scenario === 'settings-partial') {
     const userPath = getSettingsFilePathForSource('userSettings')!
     const localPath = getSettingsFilePathForSource('localSettings')!

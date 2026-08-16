@@ -67,6 +67,7 @@ export function MCPServerMultiselectDialog(t0) {
         onDone();
       } else {
         setSaveError(`Could not save MCP server preferences: ${result_0.error?.message ?? "settings were not written"}`);
+        onDone();
       }
     };
     $[3] = onDone;

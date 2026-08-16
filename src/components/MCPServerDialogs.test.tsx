@@ -168,11 +168,9 @@ test('single-server decline remains dismissible when persistence fails', async (
   }
 })
 
-test.each(['submit'] as const)(
-  'multi-server %s keeps the dialog open when persistence fails',
-  async action => {
+test('multi-server submit keeps the dialog open when persistence fails', async () => {
   const { MCPServerMultiselectDialog } = await import(
-    `./MCPServerMultiselectDialog.js?failed-commit-${action}=${Date.now()}`
+    `./MCPServerMultiselectDialog.js?failed-commit-submit=${Date.now()}`
   )
   const onDone = mock(() => {})
   const { stdout, stdin, getOutput } = createOutput()
@@ -190,11 +188,7 @@ test.each(['submit'] as const)(
 
   try {
     await waitFor(() => multiselectProps !== undefined)
-    if (action === 'submit') {
-      multiselectProps?.onSubmit(['calendar'])
-    } else {
-      multiselectProps?.onCancel()
-    }
+    multiselectProps?.onSubmit(['calendar'])
     await waitFor(() =>
       getOutput().includes('Could not save MCP server preferences'),
     )
@@ -207,10 +201,9 @@ test.each(['submit'] as const)(
     stdin.end()
     stdout.end()
   }
-  },
-)
+})
 
-test('multi-server cancel keeps the dialog open when persistence fails', async () => {
+test('multi-server cancel reports the persistence failure and closes', async () => {
   // The compiled component has a module-local memo cache, so isolate each case.
   const { MCPServerMultiselectDialog } = await import(
     `./MCPServerMultiselectDialog.js?failed-cancel=${Date.now()}`
@@ -236,7 +229,7 @@ test('multi-server cancel keeps the dialog open when persistence fails', async (
       getOutput().includes('Could not save MCP server preferences'),
     )
     expect(updateSettingsSpy).toHaveBeenCalled()
-    expect(onDone).not.toHaveBeenCalled()
+    expect(onDone).toHaveBeenCalledTimes(1)
     expect(getOutput()).toContain('Could not save MCP server preferences')
   } finally {
     instance.unmount()

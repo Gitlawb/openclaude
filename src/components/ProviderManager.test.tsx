@@ -13,6 +13,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { settingsWriteResult } from '../test/settingsWriteResult.js'
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
 type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
@@ -5798,6 +5799,9 @@ test('ProviderManager preserves Codex OAuth credentials when profile deletion fa
     await waitForCondition(() => selectLogout !== undefined)
     selectLogout?.('logout-codex-oauth')
 
+    await waitForCondition(() => deleteProviderProfile.mock.calls.length > 0)
+    await new Promise(resolve => setImmediate(resolve))
+
     expect(deleteProviderProfile).toHaveBeenCalledWith(codexProfile.id)
     expect(clearCodexCredentials).not.toHaveBeenCalled()
   } finally {
@@ -5849,6 +5853,9 @@ test('ProviderManager preserves xAI OAuth credentials when profile deletion fail
   try {
     await waitForCondition(() => selectLogout !== undefined)
     selectLogout?.('logout-xai-oauth')
+
+    await waitForCondition(() => deleteProviderProfile.mock.calls.length > 0)
+    await new Promise(resolve => setImmediate(resolve))
 
     expect(deleteProviderProfile).toHaveBeenCalledWith(xaiProfile.id)
     expect(clearXaiCredentials).not.toHaveBeenCalled()
@@ -6068,6 +6075,7 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
   ]
   const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
   let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+  const deletionEvents: string[] = []
 
   try {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -6097,12 +6105,22 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
       getActiveProviderProfile: () => null,
     }))
     mock.module('../utils/githubModelsCredentials.js', () => ({
-      clearGithubModelsToken: () => ({ success: true }),
+      clearGithubModelsToken: () => {
+        deletionEvents.push('credentials-cleared')
+        return { success: true }
+      },
       clearHydratedGithubModelsTokenFromEnv,
       GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
       hydrateGithubModelsTokenFromSecureStorage: () => {},
       readGithubModelsToken: () => storedToken,
       readGithubModelsTokenAsync: async () => storedToken,
+    }))
+    mock.module('../utils/settings/settings.js', () => ({
+      ...actualSettingsModule,
+      updateSettingsForSourceWithResult: () => {
+        deletionEvents.push('settings-committed')
+        return settingsWriteResult({ written: true })
+      },
     }))
 
     const nonce = `${Date.now()}-${Math.random()}`
@@ -6145,6 +6163,106 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
     // fails the test if the delete path regresses to a partial hand-rolled
     // cleanup that leaves the hydrated Copilot key behind.
     expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+    expect(deletionEvents).toEqual(['settings-committed', 'credentials-cleared'])
+  } finally {
+    if (mounted) {
+      await mounted.dispose()
+    }
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('ProviderManager keeps GitHub credentials when provider settings removal is not committed', async () => {
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GITHUB_COPILOT_KEY',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
+  let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+  const clearGithubModelsToken = mock(() => ({ success: true }))
+
+  try {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+    const githubSyncRead = mock(() => undefined)
+    const githubAsyncRead = mock(async () => undefined)
+    mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    })
+
+    mock.module('../utils/providerProfiles.js', () => ({
+      ...realProviderProfiles,
+      applyActiveProviderProfileFromConfig: () => {},
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    }))
+    mock.module('../utils/githubModelsCredentials.js', () => ({
+      clearGithubModelsToken,
+      clearHydratedGithubModelsTokenFromEnv: () => {},
+      GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+      hydrateGithubModelsTokenFromSecureStorage: () => {},
+      readGithubModelsToken: () => 'ghp_stored_secure_storage_token',
+      readGithubModelsTokenAsync: async () => 'ghp_stored_secure_storage_token',
+    }))
+    mock.module('../utils/settings/settings.js', () => ({
+      ...actualSettingsModule,
+      updateSettingsForSourceWithResult: () => settingsWriteResult({
+        error: new Error('settings file is locked'),
+        written: false,
+      }),
+    }))
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    mounted = await mountProviderManager(ProviderManager)
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') &&
+        frame.includes('Delete provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Delete provider') && frame.includes('GitHub Models'),
+    )
+    await Bun.sleep(40)
+    mounted.stdin.write('\r')
+
+    await Bun.sleep(100)
+    expect(clearGithubModelsToken).not.toHaveBeenCalled()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes(
+        'Could not delete GitHub provider: settings file is locked',
+      ),
+    )
   } finally {
     if (mounted) {
       await mounted.dispose()

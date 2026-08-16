@@ -42,6 +42,7 @@ test('the release-failure fixture emits parseable diagnostics when its on-disk r
   const [exitCode, stdout] = await Promise.all([
     processResult.exited,
     new Response(processResult.stdout).text(),
+    new Response(processResult.stderr).text(),
   ])
 
   expect(exitCode).not.toBe(0)

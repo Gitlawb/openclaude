@@ -1785,11 +1785,6 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function deleteGithubProvider(): string | null {
     const storedTokenBeforeClear = readGithubModelsToken()?.trim()
-    const cleared = clearGithubModelsToken()
-    if (!cleared.success) {
-      return cleared.warning ?? 'Could not clear GitHub credentials.'
-    }
-
     const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,
@@ -1806,6 +1801,11 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         `GitHub provider settings removal committed with a cleanup warning: ${result.error.message}`,
         { level: 'warn' },
       )
+    }
+
+    const cleared = clearGithubModelsToken()
+    if (!cleared.success) {
+      return cleared.warning ?? 'Could not clear GitHub credentials.'
     }
 
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -4008,6 +4008,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           Active profile controls base URL, model, and API key used by this session.
         </Text>
         {statusMessage && <Text>{statusMessage}</Text>}
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
         <Box flexDirection="column">
           {profiles.length === 0 && !githubProviderAvailable ? (
             isGithubCredentialSourceResolved ? (
@@ -4088,6 +4089,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                     cleared.warning ??
                       'Could not clear Codex OAuth credentials.',
                   )
+                  refreshProfiles()
                   break
                 }
 
@@ -4136,6 +4138,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                     cleared.warning ??
                       'Could not clear xAI OAuth credentials.',
                   )
+                  refreshProfiles()
                   break
                 }
 

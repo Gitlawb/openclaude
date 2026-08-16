@@ -188,7 +188,6 @@ test('failed known-marketplace save keeps its exact config entry for retry', asy
   const pluginsDir = join(tempRoot, 'plugins')
   const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
   const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
-  const originalFs = getFsImplementation()
   process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
   setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
   clearInstalledPluginsCache()
@@ -221,12 +220,10 @@ test('failed known-marketplace save keeps its exact config entry for retry', asy
     expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
     expect((await loadKnownMarketplacesConfig()).retryable).toBeDefined()
 
-    setFsImplementation(originalFs)
     await removeMarketplaceSource('retryable')
     clearInstalledPluginsCache()
     expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
   } finally {
-    setFsImplementation(originalFs)
     clearInstalledPluginsCache()
     resetSettingsCache()
     setClaudeConfigHomeDirForTesting(originalConfigOverride)
@@ -314,6 +311,11 @@ test('marketplace removal rejects a no-progress registry snapshot', async () => 
     { pluginIds: ['demo@retryable'], orphanedPaths: [] },
     { pluginIds: ['peer@retryable'], orphanedPaths: [] },
   ]
+  let lastSnapshot = snapshots[0]!
+  const nextSnapshot = () => {
+    lastSnapshot = snapshots.shift() ?? lastSnapshot
+    return lastSnapshot
+  }
 
   try {
     await saveKnownMarketplacesConfig({
@@ -326,10 +328,10 @@ test('marketplace removal rejects a no-progress registry snapshot', async () => 
 
     await expect(
       removeMarketplaceSource('retryable', {
-        getCleanupSnapshot: () => snapshots.shift() ?? snapshots.at(-1)!,
+        getCleanupSnapshot: nextSnapshot,
         finalizeRemoval: () => ({
           finalized: false,
-          snapshot: snapshots.shift() ?? snapshots.at(-1)!,
+          snapshot: nextSnapshot(),
         }),
         deleteOptions: () => ({ success: true }),
         orphanVersion: async () => undefined,
