@@ -56,6 +56,7 @@ import {
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isFireworksBaseUrl,
   isLlmtrBaseUrl,
   isLongcatBaseUrl,
@@ -153,6 +154,20 @@ function resolveProfileCompatibility(provider: string): {
 function isClinePassProfile(profile: ProviderProfile): boolean {
   const { route } = resolveProfileCompatibility(profile.provider)
   return route.routeId === 'clinepass' || isClinePassBaseUrl(profile.baseUrl)
+}
+
+function isLlmtrProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  if (route.gatewayId !== 'llmtr' && !isLlmtrBaseUrl(profile.baseUrl)) {
+    return false
+  }
+  const baseUrl = profile.baseUrl?.trim()
+  // LLMTR is dedicatedCredentialsOnly. Missing base URL resolves to the LLMTR
+  // default, which is canonical; otherwise only the canonical origin may carry
+  // the key, so a profile retargeted to `http://llmtr.com`, to a non-default
+  // port, or to an unrelated host is treated as retargeted and falls through to
+  // the generic OpenAI path.
+  return !baseUrl || isCanonicalLlmtrInferenceBaseUrl(baseUrl)
 }
 
 function isApismartProfile(profile: ProviderProfile): boolean {
@@ -812,7 +827,7 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.ATLAS_CLOUD_API_KEY, profile.apiKey)
       : true) &&
-    (isLlmtrBaseUrl(profile.baseUrl)
+    (isLlmtrProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.LLMTR_API_KEY, profile.apiKey)
       : true) &&
@@ -1041,7 +1056,7 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'atlas-cloud' || normalizedProfileBaseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
       }
-      if (route.gatewayId === 'llmtr' || isLlmtrBaseUrl(profile.baseUrl)) {
+      if (isLlmtrProfile(profile)) {
         openAIProfileEnv.LLMTR_API_KEY = profile.apiKey
       }
       if (isApismartProfile(profile)) {
@@ -1422,7 +1437,7 @@ function buildOpenAICompatibleStartupEnv(
       if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
         strictEnv.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
       }
-      if (isLlmtrBaseUrl(activeProfile.baseUrl)) {
+      if (isLlmtrProfile(activeProfile)) {
         strictEnv.LLMTR_API_KEY = activeProfile.apiKey
       }
       if (isApismartProfile(activeProfile)) {
@@ -1503,7 +1518,7 @@ function buildOpenAICompatibleStartupEnv(
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey
     }
-    if (isLlmtrBaseUrl(activeProfile.baseUrl)) {
+    if (isLlmtrProfile(activeProfile)) {
       env.LLMTR_API_KEY = activeProfile.apiKey
     }
     if (isApismartProfile(activeProfile)) {
@@ -1698,7 +1713,10 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
-      if (route.gatewayId === 'llmtr') {
+      // Gate the branch, not just the builder: a retargeted LLMTR profile must
+      // fall through to the generic OpenAI startup env below rather than end up
+      // with no startup env at all (same shape as the apismart branch).
+      if (route.gatewayId === 'llmtr' && isLlmtrProfile(activeProfile)) {
         const env =
           buildLlmtrProfileEnv({
             model: getPrimaryModel(activeProfile.model),

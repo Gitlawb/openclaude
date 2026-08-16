@@ -404,6 +404,42 @@ export function isLlmtrBaseUrl(value: string | undefined): boolean {
   }
 }
 
+const LLMTR_CANONICAL_ORIGIN = 'https://llmtr.com'
+
+/**
+ * Credential-forwarding gate for LLMTR — the counterpart to the host-scoped
+ * {@link isLlmtrBaseUrl}, mirroring the split xAI, AIMLAPI and ApiSmart already
+ * use between route identity and handing over a dedicated key.
+ *
+ * LLMTR is `dedicatedCredentialsOnly`, so LLMTR_API_KEY must only reach the
+ * real endpoint. The host-only predicate also accepts `http://llmtr.com`, which
+ * would put the key on the wire in plaintext, and `https://llmtr.com:8443`,
+ * which is a different service that merely shares the hostname — so route
+ * identity cannot be reused as the forwarding check.
+ *
+ * The comparison is on the parsed origin rather than on strings: that makes
+ * `https://llmtr.com`, `https://llmtr.com:443` and `https://llmtr.com/v1` the
+ * same endpoint, since URL parsing normalises the default port away. Rejecting
+ * an explicit `:443` would be a false positive. The path is deliberately not
+ * constrained — unlike ApiSmart's single documented `/v1` URL, LLMTR is reached
+ * both at the host root and under `/v1`, and any path on this origin still
+ * terminates at LLMTR.
+ */
+export function isCanonicalLlmtrInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    return new URL(trimmed).origin === LLMTR_CANONICAL_ORIGIN
+  } catch {
+    return false
+  }
+}
+
 export function isLongcatBaseUrl(value: string | undefined): boolean {
   const trimmed = value?.trim()
   if (!trimmed) {

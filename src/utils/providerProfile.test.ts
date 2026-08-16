@@ -511,6 +511,40 @@ test('openai launch prefers a live LLMTR key over the persisted one', async () =
   assert.equal(env.LLMTR_API_KEY, 'llmtr-rotated-key')
 })
 
+test('openai launch carries LLMTR_API_KEY only when the route resolves to LLMTR', async () => {
+  // Ambient/persisted LLMTR_API_KEY must not leak into an unrelated
+  // OpenAI-compatible session — LLMTR is dedicatedCredentialsOnly.
+  const offRoute = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'sk-openai',
+      LLMTR_API_KEY: 'llmtr-persisted',
+    }),
+    goal: 'coding',
+    processEnv: { LLMTR_API_KEY: 'llmtr-ambient' },
+  })
+
+  assert.equal(offRoute.LLMTR_API_KEY, undefined)
+
+  // Plaintext and non-default-port targets are not the LLMTR endpoint either,
+  // so the dedicated key must not be carried to them.
+  for (const baseUrl of ['http://llmtr.com/v1', 'https://llmtr.com:8443/v1']) {
+    const retargeted = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        OPENAI_BASE_URL: baseUrl,
+        OPENAI_MODEL: 'llmtr/gemma-4',
+        LLMTR_API_KEY: 'llmtr-persisted',
+      }),
+      goal: 'coding',
+      processEnv: { LLMTR_API_KEY: 'llmtr-ambient' },
+    })
+
+    assert.equal(retargeted.LLMTR_API_KEY, undefined)
+  }
+})
+
 test('openai launch carries AIMLAPI_API_KEY only when the route resolves to aimlapi', async () => {
   // Ambient/persisted AIMLAPI_API_KEY must not leak into an unrelated OpenAI
   // route — AI/ML API authenticates via OPENAI_API_KEY there.

@@ -839,6 +839,47 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
   })
 
+  test('retargeted LLMTR profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // Plaintext: mirroring here would put the key on an unencrypted wire.
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'http://llmtr.com/v1' }),
+    )
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+
+    // Non-default port: a different service that merely shares the hostname.
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://llmtr.com:8443/v1' }),
+    )
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+
+    // Pointed at an unrelated proxy entirely.
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('LLMTR profile on the canonical endpoint still mirrors LLMTR_API_KEY', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // An explicit :443 is the same endpoint as the bare host, so the canonical
+    // gate must not treat it as a retarget.
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://llmtr.com:443/v1' }),
+    )
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
+
+    // The host root is also canonical.
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://llmtr.com' }),
+    )
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
+  })
+
   test('generic openai profile on an llmtr.com lookalike host does NOT mirror LLMTR_API_KEY', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

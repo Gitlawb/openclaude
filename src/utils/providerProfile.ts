@@ -26,6 +26,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -659,12 +660,21 @@ export function buildLlmtrProfileEnv(options: {
     OPENAI_API_KEY: key,
     LLMTR_API_KEY: key,
   }
+  const configuredBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
+  // LLMTR is dedicatedCredentialsOnly, so the key may only be handed to the
+  // real endpoint. A host-only match would also accept `http://llmtr.com`
+  // (plaintext) and `https://llmtr.com:8443` (a different service on the same
+  // host), so gate on the canonical origin and let anything else fall through
+  // to the generic OpenAI path without a dedicated credential — the same
+  // canonical gate ApiSmart uses.
+  if (configuredBaseUrl && !isCanonicalLlmtrInferenceBaseUrl(configuredBaseUrl)) {
+    return null
+  }
 
   return {
-    OPENAI_BASE_URL:
-      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource) ||
-      defaultBaseUrl,
+    OPENAI_BASE_URL: configuredBaseUrl || defaultBaseUrl,
     OPENAI_MODEL:
       normalizeProfileModel(
         sanitizeProviderConfigValue(options.model, secretSource),
@@ -2182,6 +2192,19 @@ export async function buildLaunchEnv(options: {
     if (
       dedicatedKey === 'LONGCAT_API_KEY' &&
       (effectiveOpenAIRouteId !== 'longcat' || !isLongcatBaseUrl(env.OPENAI_BASE_URL))
+    ) {
+      continue
+    }
+    // LLMTR is dedicatedCredentialsOnly: without this the key would be carried
+    // into any OpenAI-compatible relaunch. Require the launch to actually
+    // target LLMTR, and — since the key is only accepted by the real endpoint —
+    // require a canonical base URL when one is set. An unset base URL resolves
+    // to the LLMTR default, which is canonical.
+    if (
+      dedicatedKey === 'LLMTR_API_KEY' &&
+      (effectiveOpenAIRouteId !== 'llmtr' ||
+        (!!env.OPENAI_BASE_URL?.trim() &&
+          !isCanonicalLlmtrInferenceBaseUrl(env.OPENAI_BASE_URL)))
     ) {
       continue
     }

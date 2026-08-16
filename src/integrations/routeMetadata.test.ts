@@ -8,6 +8,7 @@ import {
   getRouteProviderTypeLabel,
   isApismartBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLlmtrBaseUrl,
   isLongcatBaseUrl,
@@ -111,6 +112,26 @@ test('isLlmtrBaseUrl matches the exact llmtr.com host, not substring or subdomai
   expect(isLlmtrBaseUrl('https://api.openai.com/v1')).toBe(false)
   expect(isLlmtrBaseUrl(undefined)).toBe(false)
   expect(isLlmtrBaseUrl('not a url')).toBe(false)
+})
+
+test('isCanonicalLlmtrInferenceBaseUrl gates the dedicated key on the real endpoint', () => {
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com')).toBe(true)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1')).toBe(true)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/')).toBe(true)
+  // An explicit default port is the same endpoint, so rejecting it would be a
+  // false positive — origin comparison normalises it away.
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com:443/v1')).toBe(true)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://LLMTR.COM/v1')).toBe(true)
+
+  // Plaintext would put LLMTR_API_KEY on the wire unencrypted.
+  expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
+  // A non-default port is a different service that only shares the hostname.
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com:8443/v1')).toBe(false)
+  // Everything the host-scoped predicate already rejects stays rejected.
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://not-llmtr.com/v1')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://api.llmtr.com/v1')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl(undefined)).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('not a url')).toBe(false)
 })
 
 test('llmtr seed catalog covers passthrough routes and drops retired model ids', () => {
