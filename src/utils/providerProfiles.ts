@@ -1140,12 +1140,13 @@ export function applyProviderProfileToProcessEnv(
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
     }
     if (withholdXaiKey) {
-      // Same restore as buildLaunchEnv: clearManagedProfileEnv would drop a
-      // distinct proxy OPENAI_API_KEY that is not in XAI_API_KEY.
+      // Same restore as buildLaunchEnv, plus profile.apiKey: that dedicated
+      // secret is withheld above and may no longer be in XAI_API_KEY.
       assignDistinctXaiProxyGenericCredential(
         openAIProfileEnv,
         process.env,
         {},
+        [profile.apiKey],
       )
     }
     // Keep ApiSmart route identity even when the profile is retargeted to a

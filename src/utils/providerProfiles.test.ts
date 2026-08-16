@@ -1537,6 +1537,49 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.XAI_API_KEY).toBeUndefined()
   })
 
+  test('retargeted xAI profiles do not restore a matching profile.apiKey as a proxy credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    process.env.OPENAI_API_KEY = 'xai-secret-only'
+    delete process.env.XAI_API_KEY
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'xai',
+        name: 'xAI proxy',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'grok-4.6',
+        apiKey: 'xai-secret-only',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+  })
+
+  test('retargeted xAI profiles filter a rotated profile.apiKey from OPENAI_API_KEY', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    process.env.OPENAI_API_KEY = 'old-xai-key'
+    process.env.XAI_API_KEY = 'new-xai-key'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'xai',
+        name: 'xAI proxy',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'grok-4.6',
+        apiKey: 'old-xai-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+  })
+
   test('does not re-apply a retargeted xAI profile when a distinct proxy key is aligned', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

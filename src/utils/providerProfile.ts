@@ -1507,14 +1507,18 @@ export function assignDistinctXaiProxyGenericCredential(
   env: ProfileEnv,
   processEnv: SecretValueSource,
   persistedEnv: SecretValueSource,
+  additionalXaiSecrets: Array<string | undefined> = [],
 ): void {
   delete env.OPENAI_API_KEY
   delete env.OPENAI_API_KEYS
   // Drop mirrored xAI secrets, but keep a distinct generic key — that is
-  // the proxy credential `--provider xai` also preserves.
+  // the proxy credential `--provider xai` also preserves. Callers that
+  // already know the withheld dedicated key (profile.apiKey) must pass it
+  // here: it may not be in XAI_API_KEY after rotation or a keyless env.
   const xaiSecrets = collectXaiCredentialValues(
     processEnv.XAI_API_KEY,
     persistedEnv.XAI_API_KEY,
+    ...additionalXaiSecrets,
   )
   const restoreGeneric = (
     selection: OpenAICredentialEnvSelection | undefined,
