@@ -15,6 +15,7 @@ import {
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
+import gatewayLlmtr from './gateways/llmtr.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import { _clearRegistryForTesting, registerGateway } from './registry.js'
 import {
@@ -110,6 +111,28 @@ test('isLlmtrBaseUrl matches the exact llmtr.com host, not substring or subdomai
   expect(isLlmtrBaseUrl('https://api.openai.com/v1')).toBe(false)
   expect(isLlmtrBaseUrl(undefined)).toBe(false)
   expect(isLlmtrBaseUrl('not a url')).toBe(false)
+})
+
+test('llmtr seed catalog covers passthrough routes and drops retired model ids', () => {
+  const apiNames = (gatewayLlmtr.catalog?.models ?? []).map(
+    model => model.apiName ?? model.id,
+  )
+
+  // LLMTR is a multi-vendor gateway: the seed catalog must not look
+  // Turkey-only, or the picker misrepresents what the key actually buys.
+  const turkeyHosted = apiNames.filter(name => name.startsWith('llmtr/'))
+  const passthrough = apiNames.filter(name => !name.startsWith('llmtr/'))
+  expect(turkeyHosted.length).toBeGreaterThan(0)
+  expect(passthrough.length).toBeGreaterThan(turkeyHosted.length)
+
+  // Retired/aliased ids: llmtr/sincap was withdrawn and llmtr/trendyol-7b is
+  // only a migration alias, so neither may be advertised.
+  expect(apiNames).not.toContain('llmtr/sincap')
+  expect(apiNames).not.toContain('llmtr/trendyol-7b')
+
+  // The default must be a route the catalog actually offers.
+  expect(gatewayLlmtr.defaultModel).toBeDefined()
+  expect(apiNames).toContain(String(gatewayLlmtr.defaultModel))
 })
 
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {

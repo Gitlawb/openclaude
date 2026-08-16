@@ -54,7 +54,7 @@ export const providers: Provider[] = [
     name: 'LLMTR',
     setup: '/provider or OpenAI-compatible env vars',
     envVars: ['LLMTR_API_KEY'],
-    notes: 'Turkey-hosted OpenAI-compatible gateway at https://llmtr.com/v1; ships Turkey-hosted models (Gemma 4, Trendyol 7B, Sincap, Magibu) alongside OpenAI, Anthropic, Google, xAI, and Mistral.',
+    notes: 'OpenAI-compatible multi-vendor gateway at https://llmtr.com/v1, hosted in Turkey. Proxies OpenAI, Anthropic, Google, Qwen, DeepSeek, Z.ai, MiniMax, Moonshot, and Mistral, and also serves its own Turkey-hosted llmtr/* models.',
   },
   {
     id: 'anthropic',
