@@ -1503,6 +1503,37 @@ function withoutXaiCredentialValues(
   return parseCredentialList(value).filter(item => !xaiSecrets.has(item))
 }
 
+function assignDistinctXaiProxyGenericCredential(
+  env: ProfileEnv,
+  processEnv: SecretValueSource,
+  persistedEnv: SecretValueSource,
+): void {
+  delete env.OPENAI_API_KEY
+  delete env.OPENAI_API_KEYS
+  // Drop mirrored xAI secrets, but keep a distinct generic key — that is
+  // the proxy credential `--provider xai` also preserves.
+  const xaiSecrets = collectXaiCredentialValues(
+    processEnv.XAI_API_KEY,
+    persistedEnv.XAI_API_KEY,
+  )
+  const restoreGeneric = (
+    selection: OpenAICredentialEnvSelection | undefined,
+  ) => {
+    if (!selection || selection.kind !== 'usable') {
+      return false
+    }
+    const filtered = withoutXaiCredentialValues(selection.value, xaiSecrets)
+    if (filtered.length === 0) {
+      return false
+    }
+    env[selection.envVar] = filtered.join(',')
+    return true
+  }
+  if (!restoreGeneric(resolveOpenAICredentialEnvSelection(processEnv))) {
+    restoreGeneric(resolveOpenAICredentialEnvSelection(persistedEnv))
+  }
+}
+
 export async function buildLaunchEnv(options: {
   profile: ProviderProfile
   persisted: ProfileFile | null
@@ -1829,10 +1860,8 @@ export async function buildLaunchEnv(options: {
       apiKey: xaiKey,
       // Scrub OPENAI_API_KEY before buildXaiProfileEnv reads processEnv
       // so it can't be re-introduced via the internal fallback inside
-      // that helper. The shell key still survives in the wider
-      // processEnv copy returned by buildCompatibilityProcessEnv, but
-      // it won't be promoted into XAI_API_KEY / OPENAI_API_KEY for
-      // this profile's env.
+      // that helper. Distinct proxy keys are restored onto `env` below
+      // after withholding; they are not left to survive clearManagedProfileEnv.
       processEnv: isOAuthProfile
         ? {
             ...processEnv,
@@ -1868,26 +1897,29 @@ export async function buildLaunchEnv(options: {
     if (!env.XAI_API_KEY && isOAuthProfile) {
       env.XAI_CREDENTIAL_SOURCE = 'oauth'
     }
+    if (!isCanonicalXaiLaunch) {
+      assignDistinctXaiProxyGenericCredential(env, processEnv, persistedEnv)
+    }
 
-    // For OAuth profiles, also clear any ambient OpenAI credentials from
-    // the returned compatibility env. openaiShim's resolver checks
-    // process.env.OPENAI_API_KEYS / OPENAI_API_KEY before falling back
-    // to the stored OAuth token; leaving shell credentials there would
-    // short-circuit OAuth and send the wrong bearer to api.x.ai/v1.
-    const compatibilityProcessEnv =
-      isOAuthProfile && !env.XAI_API_KEY
-        ? {
-            ...processEnv,
-            OPENAI_API_KEYS: undefined,
-            OPENAI_API_KEY: undefined,
-          }
-        : processEnv
+    // On canonical api.x.ai, openaiShim checks OPENAI_API_KEYS /
+    // OPENAI_API_KEY before the stored OAuth token. Wipe those so OAuth
+    // is not short-circuited. On a proxy URL the distinct generic key is
+    // proxy auth and must survive clearManagedProfileEnv via profileEnv.
+    const shouldClearAmbientOpenAIForOAuth =
+      isCanonicalXaiLaunch && isOAuthProfile && !env.XAI_API_KEY
+    const compatibilityProcessEnv = shouldClearAmbientOpenAIForOAuth
+      ? {
+          ...processEnv,
+          OPENAI_API_KEYS: undefined,
+          OPENAI_API_KEY: undefined,
+        }
+      : processEnv
     const result = buildCompatibilityProcessEnv({
       processEnv: compatibilityProcessEnv,
       compatibilityMode: 'openai',
       profileEnv: env,
     })
-    if (isOAuthProfile && !env.XAI_API_KEY) {
+    if (shouldClearAmbientOpenAIForOAuth) {
       delete result.OPENAI_API_KEYS
       delete result.OPENAI_API_KEY
     }
@@ -2146,33 +2178,7 @@ export async function buildLaunchEnv(options: {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
     if (isNoncanonicalXaiLaunch) {
-      // Drop mirrored xAI secrets, but keep a distinct generic key — that is
-      // the proxy credential `--provider xai` also preserves.
-      const xaiSecrets = collectXaiCredentialValues(
-        processEnv.XAI_API_KEY,
-        persistedEnv.XAI_API_KEY,
-      )
-      const persistedGeneric = resolveOpenAICredentialEnvSelection(persistedEnv)
-      const shellGeneric = resolveOpenAICredentialEnvSelection(processEnv)
-      const restoreGeneric = (
-        selection: OpenAICredentialEnvSelection | undefined,
-      ) => {
-        if (!selection || selection.kind !== 'usable') {
-          return false
-        }
-        const filtered = withoutXaiCredentialValues(
-          selection.value,
-          xaiSecrets,
-        )
-        if (filtered.length === 0) {
-          return false
-        }
-        env[selection.envVar] = filtered.join(',')
-        return true
-      }
-      if (!restoreGeneric(shellGeneric)) {
-        restoreGeneric(persistedGeneric)
-      }
+      assignDistinctXaiProxyGenericCredential(env, processEnv, persistedEnv)
     } else {
       // Aimlapi/apismart may restore a profile-owned proxy credential.
       const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
