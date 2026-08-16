@@ -21,6 +21,7 @@ import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
+  buildLlmtrProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   clearPersistedCodexOAuthProfile,
@@ -543,6 +544,79 @@ test('openai launch carries LLMTR_API_KEY only when the route resolves to LLMTR'
 
     assert.equal(retargeted.LLMTR_API_KEY, undefined)
   }
+})
+
+test('openai launch drops the generic credential on a non-canonical LLMTR relaunch', async () => {
+  // Withholding LLMTR_API_KEY alone just moves the same secret onto the same
+  // wrong endpoint through OPENAI_API_KEY, which the shim sends as the request
+  // credential. A launch that carries LLMTR route identity must re-source the
+  // generic credential from the profile's own persisted env and drop a purely
+  // ambient one, exactly like a non-canonical aimlapi/apismart relaunch.
+  for (const baseUrl of [
+    'http://llmtr.com/v1',
+    'https://llmtr.com:8443/v1',
+    'https://proxy.example/v1',
+  ]) {
+    const retargeted = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        OPENAI_BASE_URL: baseUrl,
+        OPENAI_MODEL: 'llmtr/gemma-4',
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      }),
+      goal: 'coding',
+      processEnv: {
+        LLMTR_API_KEY: 'llmtr-ambient',
+        OPENAI_API_KEY: 'llmtr-ambient',
+      },
+    })
+
+    assert.equal(retargeted.LLMTR_API_KEY, undefined)
+    assert.equal(retargeted.OPENAI_API_KEY, undefined)
+  }
+
+  // The canonical endpoint is unaffected: both credentials still resolve.
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'llmtr/gemma-4',
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+    }),
+    goal: 'coding',
+    processEnv: {
+      LLMTR_API_KEY: 'llmtr-ambient',
+      OPENAI_API_KEY: 'llmtr-ambient',
+    },
+  })
+
+  assert.equal(canonical.LLMTR_API_KEY, 'llmtr-ambient')
+  assert.equal(canonical.OPENAI_API_KEY, 'llmtr-ambient')
+})
+
+test('buildLlmtrProfileEnv stamps the LLMTR route identity', async () => {
+  // buildLaunchEnv keys its dedicated-credential rules off this value, so a
+  // canonical profile must carry it rather than relying on base-URL re-derivation.
+  const env = buildLlmtrProfileEnv({
+    model: 'llmtr/gemma-4',
+    baseUrl: 'https://llmtr.com/v1',
+    apiKey: 'llmtr-secret-key',
+    processEnv: {},
+  })
+
+  assert.equal(env?.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'llmtr')
+  assert.equal(env?.LLMTR_API_KEY, 'llmtr-secret-key')
+
+  // Non-canonical URLs still return null and fall through to the generic path.
+  assert.equal(
+    buildLlmtrProfileEnv({
+      model: 'llmtr/gemma-4',
+      baseUrl: 'http://llmtr.com/v1',
+      apiKey: 'llmtr-secret-key',
+      processEnv: {},
+    }),
+    null,
+  )
 })
 
 test('openai launch carries AIMLAPI_API_KEY only when the route resolves to aimlapi', async () => {

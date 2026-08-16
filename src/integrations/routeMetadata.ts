@@ -1079,6 +1079,20 @@ export function resolveRouteCredentialValue(
     return undefined
   }
 
+  // Same split for LLMTR, which is dedicatedCredentialsOnly: the hostname is
+  // enough to identify the route, but LLMTR_API_KEY may only be handed to the
+  // canonical HTTPS origin. `http://llmtr.com` would put it on the wire in
+  // plaintext and `https://llmtr.com:8443` is a different service that merely
+  // shares the hostname. hydrateOpenAIShimCompatibilityEnv copies whatever this
+  // returns into OPENAI_API_KEY, so an ungated value reaches request execution.
+  if (
+    routeId === 'llmtr' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
+
   return getRouteCredentialValue(routeId, processEnv)
 }
 
@@ -1197,10 +1211,18 @@ export function resolveRouteIdFromBaseUrl(
         // bare hostname match isn't enough for the Workers AI route — require
         // the Workers AI path (/client/v4/accounts/<id>/ai/v1). Otherwise an
         // unrelated Cloudflare API URL would inherit Workers-AI routing.
+        // LLMTR follows the same rule from the other direction: isLlmtrBaseUrl
+        // is deliberately host-only so it agrees with the descriptor's
+        // matchBaseUrlHosts, so the endpoint boundary is applied here instead.
+        // An env-only `http://llmtr.com` or `https://llmtr.com:8443` resolves to
+        // `custom` — a generic OpenAI-compatible session — rather than to a
+        // dedicated-credential route whose key would then be withheld, which
+        // would fail as an unexplained auth error.
         if (
           (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
           (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
-          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl))
+          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl)) ||
+          (route.id === 'llmtr' && !isCanonicalLlmtrInferenceBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1239,6 +1261,15 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'apismart') {
     return isApismartBaseUrl(baseUrl)
+  }
+  // A saved `llmtr` profile retargeted to a proxy host must not keep LLMTR
+  // route identity: resolveRouteCredentialValue would otherwise attach an
+  // ambient LLMTR_API_KEY to that proxy, since the credential gate only sees a
+  // matching route id and a base URL it never rejects for another host. Falling
+  // through to `custom` gives the generic OpenAI-compatible session instead,
+  // the same outcome ApiSmart proxy retargets already produce.
+  if (routeId === 'llmtr') {
+    return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
   return true
 }

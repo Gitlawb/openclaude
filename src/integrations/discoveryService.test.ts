@@ -21,6 +21,7 @@ const originalEnv = {
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
+  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -63,6 +64,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.APISMART_API_KEY
+  delete process.env.LLMTR_API_KEY
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -100,6 +102,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
     restoreEnvValue('APISMART_API_KEY')
+    restoreEnvValue('LLMTR_API_KEY')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -139,6 +142,85 @@ describe('discoverModelsForRoute', () => {
 
     expect(didFetch).toBe(true)
     expect(authorization).not.toBe('Bearer apismart-secret')
+  })
+
+  test('does not send an LLMTR key to a non-canonical discovery URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.LLMTR_API_KEY = 'llmtr-secret'
+    // Plaintext and non-default port share the llmtr.com hostname, so a
+    // host-scoped check would accept both. A proxy host fails the host check
+    // but reaches this path through the saved route id.
+    for (const baseUrl of [
+      'http://llmtr.com/v1',
+      'https://llmtr.com:8443/v1',
+      'https://proxy.example/v1',
+    ]) {
+      let didFetch = false
+      let authorization: string | null | undefined
+      setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+        didFetch = true
+        authorization = new Headers(init?.headers).get('authorization')
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }) as unknown as typeof globalThis.fetch)
+
+      await discoverModelsForRoute('llmtr', { baseUrl, forceRefresh: true })
+
+      expect(didFetch).toBe(true)
+      expect(authorization).not.toBe('Bearer llmtr-secret')
+    }
+  })
+
+  test('does not send a retargeted LLMTR profile key to a non-canonical discovery URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    // The profile's own key is supplied by the caller, ahead of the ambient
+    // lookup. Without a canonical gate in front of it, a retargeted profile
+    // would still authenticate discovery against the endpoint that
+    // applyProviderProfileToProcessEnv already withheld the credential from.
+    let didFetch = false
+    let authorization: string | null | undefined
+    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      didFetch = true
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    await discoverModelsForRoute('llmtr', {
+      baseUrl: 'https://proxy.example/v1',
+      apiKey: 'llmtr-profile-secret',
+      forceRefresh: true,
+    })
+
+    expect(didFetch).toBe(true)
+    expect(authorization).not.toBe('Bearer llmtr-profile-secret')
+  })
+
+  test('still sends the LLMTR key on the canonical endpoint', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.LLMTR_API_KEY = 'llmtr-secret'
+    let authorization: string | null | undefined
+    setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    await discoverModelsForRoute('llmtr', {
+      baseUrl: 'https://llmtr.com/v1',
+      forceRefresh: true,
+    })
+
+    expect(authorization).toBe('Bearer llmtr-secret')
   })
 
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {

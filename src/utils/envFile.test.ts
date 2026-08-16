@@ -20,6 +20,7 @@ const TEST_ENV_KEYS = [
   'CODEX_HOME',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'LLMTR_API_KEY',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_AZURE_STYLE',
@@ -290,6 +291,18 @@ describe('loadEnvFile', () => {
       APISMART_API_KEY: 'apismart-key',
       APISMART_MODEL: 'KIMI_K3',
     })
+  })
+
+  it('loads the documented LLMTR provider setup value', () => {
+    // README documents `openclaude --provider-env-file .env` for provider setup
+    // variables, so the dedicated gateway key has to be allowlisted alongside
+    // APISMART_API_KEY / ATLAS_CLOUD_API_KEY or the loader rejects the file.
+    const filePath = writeTempEnvFile('LLMTR_API_KEY=llmtr-key')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
+    expect(loaded).toEqual({ LLMTR_API_KEY: 'llmtr-key' })
   })
 
   it('loads documented Azure OpenAI API version values', () => {

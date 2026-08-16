@@ -16,6 +16,7 @@ import {
   getRouteDescriptor,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -286,7 +287,16 @@ function getRuntimeValidationTarget(
         (target.descriptor.id === 'longcat' &&
           !isLongcatBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'apismart' &&
-          !isCanonicalApismartInferenceBaseUrl(request.baseUrl)))
+          !isCanonicalApismartInferenceBaseUrl(request.baseUrl)) ||
+        // LLMTR's descriptor matches on hostname alone, which also accepts
+        // `http://llmtr.com` and non-default ports. Those endpoints never
+        // receive LLMTR_API_KEY at runtime, so validating them against the
+        // dedicated-credential contract would report a missing key for a
+        // credential the runtime deliberately withholds. Let them fall through
+        // to generic custom-endpoint validation instead — the same alignment
+        // ApiSmart keeps between this check and the runtime resolver.
+        (target.descriptor.id === 'llmtr' &&
+          !isCanonicalLlmtrInferenceBaseUrl(request.baseUrl)))
     ) {
       return false
     }

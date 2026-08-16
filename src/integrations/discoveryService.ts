@@ -15,6 +15,7 @@ import { resolveRouteIdFromBaseUrl } from './index.js'
 import {
   getRouteDescriptor,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isCanonicalXaiInferenceBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
@@ -186,6 +187,15 @@ function getRouteDiscoveryApiKey(
     routeId === 'apismart' &&
     !isCanonicalApismartInferenceBaseUrl(baseUrl)
   ) {
+    return undefined
+  }
+  // LLMTR is dedicatedCredentialsOnly, so the same boundary applies. This has
+  // to sit ahead of the caller-supplied key as well, not only ahead of the
+  // ambient lookup: a profile retargeted to `http://llmtr.com`, to a non-default
+  // port, or to a proxy still carries its own `apiKey`, and returning it here
+  // would authenticate discovery against the endpoint from which
+  // applyProviderProfileToProcessEnv already withheld the credential.
+  if (routeId === 'llmtr' && !isCanonicalLlmtrInferenceBaseUrl(baseUrl)) {
     return undefined
   }
 

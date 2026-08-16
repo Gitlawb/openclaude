@@ -156,6 +156,19 @@ test('llmtr seed catalog covers passthrough routes and drops retired model ids',
   expect(apiNames).toContain(String(gatewayLlmtr.defaultModel))
 })
 
+test('llmtr seed catalog aliases every descriptor id that differs from the wire name', () => {
+  // profileSupportsModel matches apiName / catalog id / aliases — never
+  // modelDescriptorId. Without the alias a `/model` pick made by descriptor id
+  // fails to match on relaunch and the saved selection is dropped.
+  for (const model of gatewayLlmtr.catalog?.models ?? []) {
+    const descriptorId = model.modelDescriptorId
+    if (!descriptorId || descriptorId === model.apiName) {
+      continue
+    }
+    expect(model.aliases ?? []).toContain(descriptorId)
+  }
+})
+
 test('getRouteProviderTypeLabel uses descriptor transport kinds for provider labels', () => {
   expect(getRouteProviderTypeLabel('anthropic')).toBe('Anthropic native API')
   expect(getRouteProviderTypeLabel('gemini')).toBe('Gemini API')
@@ -393,6 +406,70 @@ test('ApiSmart dedicated credential is limited to the canonical inference base U
       processEnv,
     }),
   ).toBeUndefined()
+})
+
+test('LLMTR dedicated credential is limited to the canonical inference origin', () => {
+  const processEnv = { LLMTR_API_KEY: 'llmtr-secret' }
+
+  // Canonical: the documented origin, with or without the /v1 path, with an
+  // explicit default port, and case-insensitively on the host.
+  for (const baseUrl of [
+    'https://llmtr.com',
+    'https://llmtr.com/v1',
+    'https://llmtr.com:443/v1',
+    'https://LLMTR.COM/v1',
+  ]) {
+    expect(
+      resolveRouteCredentialValue({ routeId: 'llmtr', baseUrl, processEnv }),
+    ).toBe('llmtr-secret')
+  }
+
+  // Non-canonical: plaintext puts the key on the wire unencrypted, a non-default
+  // port is a different service on the same hostname, and a proxy host is not
+  // LLMTR at all.
+  for (const baseUrl of [
+    'http://llmtr.com/v1',
+    'https://llmtr.com:8443/v1',
+    'https://proxy.example/v1',
+  ]) {
+    expect(
+      resolveRouteCredentialValue({ routeId: 'llmtr', baseUrl, processEnv }),
+    ).toBeUndefined()
+  }
+
+  // No base URL at all resolves to the LLMTR default, which is canonical.
+  expect(
+    resolveRouteCredentialValue({ routeId: 'llmtr', processEnv }),
+  ).toBe('llmtr-secret')
+})
+
+test('resolveActiveRouteIdFromEnv does not retain LLMTR identity for a retargeted profile', () => {
+  const baseUrl = 'https://proxy.example/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: baseUrl },
+      { activeProfileProvider: 'llmtr', activeProfileBaseUrl: baseUrl },
+    ),
+  ).toBe('custom')
+})
+
+test('resolveActiveRouteIdFromEnv keeps LLMTR identity on the canonical endpoint', () => {
+  const baseUrl = 'https://llmtr.com/v1'
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: baseUrl },
+      { activeProfileProvider: 'llmtr', activeProfileBaseUrl: baseUrl },
+    ),
+  ).toBe('llmtr')
+})
+
+test('resolveRouteIdFromBaseUrl rejects non-canonical llmtr.com endpoints', () => {
+  // The route stays host-scoped for descriptor agreement, so the endpoint
+  // boundary lives here: an env-only plaintext or off-port URL becomes a
+  // generic custom endpoint rather than a dedicated route with a withheld key.
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
+  expect(resolveRouteIdFromBaseUrl('http://llmtr.com/v1')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com:8443/v1')).toBe(null)
 })
 
 test('Venice route metadata uses official OpenAI-compatible defaults', () => {

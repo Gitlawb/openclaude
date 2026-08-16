@@ -685,6 +685,10 @@ export function buildLlmtrProfileEnv(options: {
       defaultModel,
     OPENAI_API_KEY: key,
     LLMTR_API_KEY: key,
+    // Stamp the route identity like ApiSmart does. buildLaunchEnv keys its
+    // dedicated-credential and non-canonical-launch rules off this value, so
+    // without it a relaunch has to re-derive LLMTR from the base URL alone.
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
   }
 }
 
@@ -2132,8 +2136,18 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'apismart' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(env.OPENAI_BASE_URL)
+  // LLMTR is dedicatedCredentialsOnly, so a relaunch onto a non-canonical URL
+  // must not inherit an ambient generic credential either — the dedicated-key
+  // loop below already refuses LLMTR_API_KEY there, and leaving OPENAI_API_KEY
+  // in place would just move the same secret onto the same wrong endpoint.
+  const isNoncanonicalLlmtrLaunch =
+    effectiveOpenAIRouteId === 'llmtr' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalLlmtrInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
-    isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch
+    isNoncanonicalAimlapiLaunch ||
+    isNoncanonicalApismartLaunch ||
+    isNoncanonicalLlmtrLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
@@ -2351,7 +2365,20 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'apismart' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
-  if (hasConcreteProviderSelection(processEnv) && !persistedApismartProxy) {
+  // A retained LLMTR proxy profile carries the same boundary for the same
+  // reason, now that applyProviderProfileToProcessEnv stamps the route id on
+  // retargets. Skipping it here would drop the identity and let the launch
+  // resolve ambient LLMTR credentials for the proxy endpoint.
+  const persistedLlmtrProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'llmtr' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalLlmtrInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  if (
+    hasConcreteProviderSelection(processEnv) &&
+    !persistedApismartProxy &&
+    !persistedLlmtrProxy
+  ) {
     return processEnv
   }
 

@@ -42,6 +42,7 @@ const ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'LLMTR_API_KEY',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -93,6 +94,7 @@ const RESET_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'LLMTR_API_KEY',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -1106,6 +1108,85 @@ describe('applyProviderFlag - apismart', () => {
     applyProviderFlag('openai', [])
 
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+})
+
+describe('applyProviderFlag - llmtr', () => {
+  test('sets LLMTR OpenAI-compatible defaults and mirrors LLMTR_API_KEY', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+
+    const result = applyProviderFlag('llmtr', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-4.6')
+    // dedicatedCredentialsOnly: the shim transport reads OPENAI_API_KEY, so the
+    // dedicated key has to be mirrored for the selection to authenticate.
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-secret-key')
+  })
+
+  test('does not forward the dedicated key to a preserved non-canonical base URL', () => {
+    // applyOpenAIBaseUrlDefault keeps an existing OPENAI_BASE_URL, so the
+    // selection can land on a proxy or a plaintext URL.
+    for (const baseUrl of [
+      'https://llm-proxy.internal.example/v1',
+      'http://llmtr.com/v1',
+      'https://llmtr.com:8443/v1',
+    ]) {
+      process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+      process.env.OPENAI_BASE_URL = baseUrl
+
+      applyProviderFlag('llmtr', [])
+
+      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    }
+  })
+
+  test('clears a stale OPENAI_API_KEY when no LLMTR key is set', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('llmtr', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+
+    applyProviderFlag('llmtr', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-secret-key')
+  })
+
+  test.each(['SUA_CHAVE', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder LLMTR credential %s',
+    placeholder => {
+      process.env.LLMTR_API_KEY = placeholder
+
+      applyProviderFlag('llmtr', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
+  test('clears a copied LLMTR key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+    process.env.OPENAI_API_KEY = 'llmtr-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('sets OPENAI_MODEL when --model is provided', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+
+    applyProviderFlag('llmtr', ['--model', 'llmtr/gemma-4'])
+
+    expect(process.env.OPENAI_MODEL).toBe('llmtr/gemma-4')
   })
 })
 

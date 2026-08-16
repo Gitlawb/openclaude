@@ -29,7 +29,10 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
+import {
+  isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
+} from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
@@ -354,6 +357,9 @@ export function applyProviderFlag(
                         process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
                       ? 'apismart'
                       : process.env.OPENAI_API_KEY !== undefined &&
+                        process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
+                      ? 'llmtr'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                         process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                       ? 'nearai'
                       : process.env.OPENAI_API_KEY !== undefined &&
@@ -665,6 +671,29 @@ export function applyProviderFlag(
         isCanonicalApismartInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
       ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'llmtr':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl ?? 'https://llmtr.com/v1')
+      if (defaultModel) {
+        process.env.OPENAI_MODEL ??= defaultModel
+      }
+      if (model) process.env.OPENAI_MODEL = model
+      // DedicatedCredentialsOnly: only LLMTR_API_KEY authenticates this route.
+      // Mirror it into OPENAI_API_KEY for the shared shim transport, and only
+      // on the canonical endpoint — applyOpenAIBaseUrlDefault preserves an
+      // existing OPENAI_BASE_URL, so the selection can land on a stale or
+      // plaintext URL. In every other case delete the generic key rather than
+      // leaving a previous provider's credential behind for LLMTR to receive.
+      if (
+        hasUsableOpenAICredential(process.env.LLMTR_API_KEY) &&
+        isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        process.env.OPENAI_API_KEY = process.env.LLMTR_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
       }

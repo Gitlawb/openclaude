@@ -50,13 +50,6 @@ export const providerGroups: { id: ProviderGroup; label: string; blurb: string }
 export const providers: Provider[] = [
   // ── sign-in & subscription plans ─────────────────────────────────────
   {
-    id: 'llmtr',
-    name: 'LLMTR',
-    setup: '/provider or OpenAI-compatible env vars',
-    envVars: ['LLMTR_API_KEY'],
-    notes: 'OpenAI-compatible multi-vendor gateway at https://llmtr.com/v1, hosted in Turkey. Proxies OpenAI, Anthropic, Google, Qwen, DeepSeek, Z.ai, MiniMax, Moonshot, and Mistral, and also serves its own Turkey-hosted llmtr/* models.',
-  },
-  {
     id: 'anthropic',
     name: 'Anthropic / Claude',
     group: 'subscriptions',
@@ -202,6 +195,14 @@ export const providers: Provider[] = [
     setup: '/provider or env vars',
     envVars: ['APISMART_API_KEY', 'APISMART_MODEL'],
     notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1; defaults to DEEPSEEK_V4_FLASH with hybrid /v1/models discovery.',
+  },
+  {
+    id: 'llmtr',
+    name: 'LLMTR',
+    group: 'gateways',
+    setup: '/provider or OpenAI-compatible env vars',
+    envVars: ['LLMTR_API_KEY'],
+    notes: 'OpenAI-compatible multi-vendor gateway at https://llmtr.com/v1, hosted in Turkey. Proxies OpenAI, Anthropic, Google, Qwen, DeepSeek, Z.ai, MiniMax, Moonshot, and Mistral, and also serves its own Turkey-hosted llmtr/* models.',
   },
   {
     id: 'cloudflare',

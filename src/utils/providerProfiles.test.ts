@@ -839,27 +839,73 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
   })
 
-  test('retargeted LLMTR profile withholds its dedicated credential', async () => {
+  test('retargeted LLMTR profile withholds both the dedicated and the generic credential', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
 
-    // Plaintext: mirroring here would put the key on an unencrypted wire.
-    applyProviderProfileToProcessEnv(
-      buildLlmtrProfile({ baseUrl: 'http://llmtr.com/v1' }),
-    )
-    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    // Withholding LLMTR_API_KEY alone is not enough: the profile key would
+    // still be written to OPENAI_API_KEY and persisted into the startup env for
+    // an endpoint the dedicated-credentials contract already refused.
+    for (const baseUrl of [
+      // Plaintext: mirroring here would put the key on an unencrypted wire.
+      'http://llmtr.com/v1',
+      // Non-default port: a different service that merely shares the hostname.
+      'https://llmtr.com:8443/v1',
+      // Pointed at an unrelated proxy entirely.
+      'https://proxy.example/v1',
+    ]) {
+      applyProviderProfileToProcessEnv(buildLlmtrProfile({ baseUrl }))
+      expect(process.env.LLMTR_API_KEY).toBeUndefined()
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+      // The route identity survives the retarget so relaunch can still refuse
+      // ambient dedicated credentials for this endpoint.
+      expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+    }
+  })
 
-    // Non-default port: a different service that merely shares the hostname.
-    applyProviderProfileToProcessEnv(
-      buildLlmtrProfile({ baseUrl: 'https://llmtr.com:8443/v1' }),
-    )
-    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  test('keyless canonical LLMTR profile never promotes a placeholder credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
 
-    // Pointed at an unrelated proxy entirely.
+    delete process.env.LLMTR_API_KEY
     applyProviderProfileToProcessEnv(
-      buildLlmtrProfile({ baseUrl: 'https://proxy.example/v1' }),
+      buildLlmtrProfile({ apiKey: undefined, baseUrl: 'https://llmtr.com/v1' }),
     )
+
+    // Assigning `?? undefined` into the env object would create the key, and
+    // process.env coerces that to the string "undefined" — a truthy value that
+    // then goes out as a bearer token. Both must stay genuinely unset.
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('keyless canonical LLMTR profile resolves an ambient dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    process.env.LLMTR_API_KEY = 'llmtr-ambient-key'
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ apiKey: undefined, baseUrl: 'https://llmtr.com/v1' }),
+    )
+
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-ambient-key')
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-ambient-key')
+  })
+
+  test('retargeted keyless LLMTR profile does not resolve the ambient dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    process.env.LLMTR_API_KEY = 'llmtr-ambient-key'
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({
+        apiKey: undefined,
+        baseUrl: 'https://proxy.example/v1',
+      }),
+    )
+
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   test('LLMTR profile on the canonical endpoint still mirrors LLMTR_API_KEY', async () => {

@@ -1022,7 +1022,20 @@ export function applyProviderProfileToProcessEnv(
 
     const withholdRetargetedApismartCredential =
       route.routeId === 'apismart' && !isApismartProfile(profile)
-    if (profile.apiKey && !withholdRetargetedApismartCredential) {
+    // LLMTR is dedicatedCredentialsOnly too, so a retargeted profile must lose
+    // the generic OPENAI_API_KEY mirror as well, not just LLMTR_API_KEY: the
+    // profile key would otherwise be persisted into the startup env and
+    // process.env for an endpoint the dedicated-credentials contract already
+    // refused. Keyed off the saved route *or* the base URL, so a generic openai
+    // profile pointed at llmtr.com is covered by the same rule.
+    const withholdRetargetedLlmtrCredential =
+      (route.gatewayId === 'llmtr' || isLlmtrBaseUrl(profile.baseUrl)) &&
+      !isLlmtrProfile(profile)
+    if (
+      profile.apiKey &&
+      !withholdRetargetedApismartCredential &&
+      !withholdRetargetedLlmtrCredential
+    ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
@@ -1122,6 +1135,26 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY ?? ambientApismartKey
         openAIProfileEnv.APISMART_API_KEY =
           openAIProfileEnv.APISMART_API_KEY ?? ambientApismartKey
+      }
+    }
+    // Same contract for LLMTR: keep the route identity on retargets so
+    // buildLaunchEnv can recognise the session and refuse ambient dedicated /
+    // mirrored credentials on relaunch, while the ambient key itself is only
+    // resolved for a profile that still points at the canonical endpoint.
+    if (route.gatewayId === 'llmtr') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+      if (isLlmtrProfile(profile)) {
+        const ambientLlmtrKey = sanitizeApiKey(process.env.LLMTR_API_KEY)
+        // Only assign when there is a real value. Writing `?? undefined` onto
+        // the env object creates the key, and process.env coerces that to the
+        // string "undefined" — a truthy value that is then sent as a bearer
+        // token. The ApiSmart block above has exactly that shape, which is why
+        // its "keyless canonical profile" test fails on upstream/main; not
+        // reproducing it here.
+        if (ambientLlmtrKey) {
+          openAIProfileEnv.OPENAI_API_KEY ??= ambientLlmtrKey
+          openAIProfileEnv.LLMTR_API_KEY ??= ambientLlmtrKey
+        }
       }
     }
     if (route.gatewayId === 'nvidia-nim') {
@@ -1405,14 +1438,22 @@ function buildOpenAICompatibleStartupEnv(
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
+  const startupRoute = resolveProfileRoute(activeProfile.provider)
   const withholdRetargetedApismartCredential =
-    resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
-    !isApismartProfile(activeProfile)
+    startupRoute.routeId === 'apismart' && !isApismartProfile(activeProfile)
+  // Mirrors the applyProviderProfileToProcessEnv gate: a retargeted LLMTR
+  // profile persists no credential at all, generic or dedicated.
+  const withholdRetargetedLlmtrCredential =
+    (startupRoute.gatewayId === 'llmtr' ||
+      isLlmtrBaseUrl(activeProfile.baseUrl)) &&
+    !isLlmtrProfile(activeProfile)
+  const withholdRetargetedDedicatedCredential =
+    withholdRetargetedApismartCredential || withholdRetargetedLlmtrCredential
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (activeProfile.apiKey && !withholdRetargetedDedicatedCredential) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1492,10 +1533,16 @@ function buildOpenAICompatibleStartupEnv(
   // Preserve ApiSmart identity on retargeted/proxy startup envs so relaunch
   // withholding can refuse ambient dedicated credentials. Canonical profiles
   // already stamp this via buildApismartProfileEnv.
-  if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
+  if (startupRoute.routeId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  // Same reason for LLMTR: without the stamp a retargeted profile relaunches as
+  // an anonymous OpenAI-compatible session and buildLaunchEnv can no longer tell
+  // that ambient LLMTR_API_KEY must stay out of it.
+  if (startupRoute.gatewayId === 'llmtr') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+  }
+  if (activeProfile.apiKey && !withholdRetargetedDedicatedCredential) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
@@ -1779,6 +1826,12 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
+    return
+  }
+  // A retargeted LLMTR profile must not run startup discovery either: the
+  // refresh carries the profile's own apiKey, so it would reach the very
+  // endpoint the credential contract withheld it from.
+  if (route.gatewayId === 'llmtr' && !isLlmtrProfile(profile)) {
     return
   }
 
