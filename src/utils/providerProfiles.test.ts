@@ -1537,6 +1537,32 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.XAI_API_KEY).toBeUndefined()
   })
 
+  test('does not re-apply a retargeted xAI profile when a distinct proxy key is aligned', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const xaiProxy = buildProfile({
+      id: 'xai_proxy_aligned',
+      provider: 'xai',
+      name: 'xAI proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'grok-4.6',
+      apiKey: 'xai-test-key',
+    })
+    process.env.OPENAI_API_KEY = 'proxy-owned-key'
+    process.env.XAI_API_KEY = 'xai-test-key'
+    applyProviderProfileToProcessEnv(xaiProxy)
+    expect(process.env.OPENAI_API_KEY).toBe('proxy-owned-key')
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [xaiProxy],
+      activeProviderProfileId: 'xai_proxy_aligned',
+    } as any)
+
+    expect(applied?.id).toBe('xai_proxy_aligned')
+    expect(process.env.OPENAI_API_KEY).toBe('proxy-owned-key')
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+  })
+
   test('openai profiles pointed at an insecure xAI URL do not apply dedicated credentials', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

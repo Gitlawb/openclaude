@@ -51,6 +51,7 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
+import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
@@ -168,6 +169,20 @@ function isCanonicalXaiProfile(profile: ProviderProfile): boolean {
   // Missing base URL resolves to api.x.ai, which is canonical. HTTP, non-443,
   // and proxy hosts must not carry the dedicated xAI credential.
   return !baseUrl || isCanonicalXaiInferenceBaseUrl(baseUrl)
+}
+
+function withheldXaiGenericKeysAreAligned(
+  processEnv: NodeJS.ProcessEnv,
+  profile: ProviderProfile,
+): boolean {
+  if (trimOrUndefined(processEnv.XAI_API_KEY)) {
+    return false
+  }
+  const withheld = new Set(parseCredentialList(profile.apiKey))
+  return [
+    ...parseCredentialList(processEnv.OPENAI_API_KEY),
+    ...parseCredentialList(processEnv.OPENAI_API_KEYS),
+  ].every(value => !withheld.has(value))
 }
 
 function withholdRetargetedXaiCredential(profile: ProviderProfile): boolean {
@@ -806,8 +821,7 @@ function isProcessEnvAlignedWithProfile(
     ) &&
     (!includeApiKey ||
       (withholdXaiKey
-        ? !trimOrUndefined(processEnv.OPENAI_API_KEY) &&
-          !trimOrUndefined(processEnv.OPENAI_API_KEYS)
+        ? withheldXaiGenericKeysAreAligned(processEnv, profile)
         : sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
       ? !includeApiKey ||
