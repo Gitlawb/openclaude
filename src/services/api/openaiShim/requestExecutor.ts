@@ -57,7 +57,7 @@ type RequestExecutorContext = {
     baseUrl: string
     processEnv: NodeJS.ProcessEnv
   }) => string | undefined
-  isXaiBaseUrl: (baseUrl: string) => boolean
+  isCanonicalXaiInferenceBaseUrl: (baseUrl: string) => boolean
   isLongcatBaseUrl: (baseUrl: string) => boolean
   parseCredentialList: (value?: string) => string[]
   resolveXaiAccessToken: () => Promise<string | undefined>
@@ -185,7 +185,7 @@ export async function executeOpenAIRequest(
     filterAnthropicHeaders,
     isGeminiMode,
     resolveRouteCredentialValue,
-    isXaiBaseUrl,
+    isCanonicalXaiInferenceBaseUrl,
     isLongcatBaseUrl,
     parseCredentialList,
     resolveXaiAccessToken,
@@ -253,25 +253,46 @@ export async function executeOpenAIRequest(
     baseUrl: request.baseUrl,
     processEnv: requestProcessEnv,
   })
-  // xAI OAuth: when the active route is xAI and no API key is set, fall
-  // back to a stored OAuth access token (auto-refreshed). The token is
-  // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
-  const isXaiRoute =
-    runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+  // xAI OAuth and XAI_API_KEY are valid only for xAI's API host. A retained
+  // xAI route id is not authorization to send those secrets to a proxy.
+  // A distinct OPENAI_API_KEY on that proxy is a proxy credential, not an
+  // xAI secret — drop only values that also appear in XAI_API_KEY.
+  const isXaiRoute = Boolean(request.baseUrl?.trim()) &&
+    isCanonicalXaiInferenceBaseUrl(request.baseUrl)
+  const xaiCredentials = new Set(
+    parseCredentialList(requestProcessEnv.XAI_API_KEY),
+  )
+  const excludeXaiCredentials = xaiCredentials.size > 0 && !isXaiRoute
+  const withoutUntrustedXaiCredential = (values: string[]): string[] =>
+    excludeXaiCredentials
+      ? values.filter(value => !xaiCredentials.has(value))
+      : values
+  const openAIApiKeyValues = withoutUntrustedXaiCredential(
+    parseCredentialList(requestProcessEnv.OPENAI_API_KEY?.trim()),
+  )
+  const openAIApiKeysPoolValues = withoutUntrustedXaiCredential(
+    parseCredentialList(requestProcessEnv.OPENAI_API_KEYS),
+  )
   const openAIApiKeysPoolRaw =
-    routeAcceptsGenericOpenAICredentials &&
-    parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0
-      ? requestProcessEnv.OPENAI_API_KEYS
+    routeAcceptsGenericOpenAICredentials && openAIApiKeysPoolValues.length > 0
+      ? openAIApiKeysPoolValues.join(',')
       : undefined
-  const openAIApiKeyRaw = requestProcessEnv.OPENAI_API_KEY?.trim()
-  const openAIApiKeyValues = parseCredentialList(openAIApiKeyRaw)
   const openAIApiKey = openAIApiKeyValues[0]
   const openAIApiKeyRawUsable =
-    openAIApiKeyValues.length > 0 ? openAIApiKeyRaw : undefined
+    openAIApiKeyValues.length > 0 ? openAIApiKeyValues.join(',') : undefined
+  // The xAI env-only path mirrors XAI_API_KEY into OpenAI-compatible
+  // credential variables. Remove that value from every generic source when
+  // an xAI profile is retargeted away from the canonical HTTPS API endpoint.
+  const requestRouteCredential =
+    excludeXaiCredentials &&
+    routeCredential !== undefined &&
+    xaiCredentials.has(routeCredential)
+    ? undefined
+    : routeCredential
   const xaiOAuthToken =
     isXaiRoute &&
     !providerOverride?.apiKey &&
-    !routeCredential &&
+    !requestRouteCredential &&
     !openAIApiKeysPoolRaw &&
     !openAIApiKey
       ? await resolveXaiAccessToken()
@@ -294,22 +315,22 @@ export async function executeOpenAIRequest(
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
-    routeCredential &&
+    requestRouteCredential &&
     openAIApiKeyRawUsable &&
-    routeCredential === openAIApiKeyRawUsable &&
+    requestRouteCredential === openAIApiKeyRawUsable &&
     openAIApiKeyIsCopiedProviderKey,
   )
   const routeCredentialIsProviderSpecific = Boolean(
-    routeCredential &&
+    requestRouteCredential &&
     (!openAIApiKeyRawUsable ||
-      routeCredential !== openAIApiKeyRawUsable ||
+      requestRouteCredential !== openAIApiKeyRawUsable ||
       routeCredentialIsCopiedProviderKey),
   )
   const routeCredentialIsGenericOpenAIFallback = Boolean(
     !routeCredentialIsProviderSpecific &&
-    routeCredential &&
+    requestRouteCredential &&
     openAIApiKeyRawUsable &&
-    routeCredential === openAIApiKeyRawUsable,
+    requestRouteCredential === openAIApiKeyRawUsable,
   )
   const apiKeyRaw =
     providerOverride?.apiKey ??
@@ -317,9 +338,11 @@ export async function executeOpenAIRequest(
     routeAcceptsGenericOpenAICredentials
       ? openAIApiKeyRawUsable
       : undefined) ??
-    (routeCredentialIsGenericOpenAIFallback ? undefined : routeCredential) ??
+    (routeCredentialIsGenericOpenAIFallback
+      ? undefined
+      : requestRouteCredential) ??
     openAIApiKeysPoolRaw ??
-    routeCredential ??
+    requestRouteCredential ??
     (routeAcceptsGenericOpenAICredentials
       ? openAIApiKeyRawUsable || xaiOAuthToken || ''
       : '')

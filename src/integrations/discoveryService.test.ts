@@ -998,6 +998,160 @@ describe('discoverModelsForRoute', () => {
       { id: 'llama-3.3-70b', apiName: 'llama-3.3-70b', label: 'llama-3.3-70b', contextWindow: 131072 },
     ])
   })
+
+  test('does not send stored xAI OAuth credentials to an overridden discovery URL', async () => {
+    const originalXaiKey = process.env.XAI_API_KEY
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'oauth-token',
+    )
+    try {
+      delete process.env.XAI_API_KEY
+      let authorization: string | null | undefined
+      setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+        authorization = new Headers(init?.headers).get('authorization')
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }) as unknown as typeof globalThis.fetch)
+
+      const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+      await discoverModelsForRoute('xai', {
+        baseUrl: 'https://proxy.example/v1',
+        forceRefresh: true,
+      })
+
+      expect(tokenSpy).not.toHaveBeenCalled()
+      expect(authorization).not.toBe('Bearer oauth-token')
+    } finally {
+      tokenSpy.mockRestore()
+      if (originalXaiKey === undefined) {
+        delete process.env.XAI_API_KEY
+      } else {
+        process.env.XAI_API_KEY = originalXaiKey
+      }
+    }
+  })
+
+  test('uses the canonical xAI URL for an empty discovery override', async () => {
+    const originalXaiKey = process.env.XAI_API_KEY
+    try {
+      process.env.XAI_API_KEY = 'xai-api-key'
+      let url: string | undefined
+      let authorization: string | null | undefined
+      setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
+        url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+        authorization = new Headers(init?.headers).get('authorization')
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }) as unknown as typeof globalThis.fetch)
+
+      const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+      await discoverModelsForRoute('xai', { baseUrl: '', forceRefresh: true })
+
+      expect(url).toBe('https://api.x.ai/v1/models')
+      expect(authorization).toBe('Bearer xai-api-key')
+    } finally {
+      if (originalXaiKey === undefined) {
+        delete process.env.XAI_API_KEY
+      } else {
+        process.env.XAI_API_KEY = originalXaiKey
+      }
+    }
+  })
+
+  test('does not refresh xAI OAuth credentials when nonessential traffic is disabled', async () => {
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'oauth-token',
+    )
+    try {
+      process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+      const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+      const result = await discoverModelsForRoute('xai', { forceRefresh: true })
+
+      expect(tokenSpy).not.toHaveBeenCalled()
+      expect(result?.source).toBe('static')
+    } finally {
+      tokenSpy.mockRestore()
+    }
+  })
+
+  test('uses the stored OAuth token to read a fresh xAI discovery cache before refreshing', async () => {
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const readSpy = spyOn(xaiCredentials, 'readXaiCredentialsAsync').mockResolvedValue(
+      {
+        accessToken: 'cached-oauth-token',
+        refreshToken: 'refresh-token',
+        tokenEndpoint: 'https://auth.x.ai/oauth/token',
+      },
+    )
+    const refreshSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'refreshed-oauth-token',
+    )
+    try {
+      const { discoverModelsForRoute, getDiscoveryCacheKey } =
+        await loadDiscoveryServiceModule()
+      await setCachedModels(
+        getDiscoveryCacheKey('xai', {
+          baseUrl: 'https://api.x.ai/v1',
+          apiKey: 'cached-oauth-token',
+          cacheKey: 'refresh-token',
+        }),
+        { models: [{ id: 'cached-grok', apiName: 'cached-grok', label: 'cached-grok' }] },
+      )
+
+      const result = await discoverModelsForRoute('xai')
+
+      expect(result?.source).toBe('cache')
+      expect(refreshSpy).not.toHaveBeenCalled()
+    } finally {
+      readSpy.mockRestore()
+      refreshSpy.mockRestore()
+    }
+  })
+
+  test('does not send xAI credentials to an insecure xAI URL', async () => {
+    const originalXaiKey = process.env.XAI_API_KEY
+    const xaiCredentials = await import('../utils/xaiCredentials.js')
+    const tokenSpy = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+      'oauth-token',
+    )
+    try {
+      process.env.XAI_API_KEY = 'xai-api-key'
+      let authorization: string | null | undefined
+      setMockFetch(mock((_input: string | URL | Request, init?: RequestInit) => {
+        authorization = new Headers(init?.headers).get('authorization')
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }) as unknown as typeof globalThis.fetch)
+
+      const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+      await discoverModelsForRoute('xai', {
+        baseUrl: 'http://api.x.ai/v1',
+        forceRefresh: true,
+      })
+
+      expect(tokenSpy).not.toHaveBeenCalled()
+      expect(authorization).toBeNull()
+    } finally {
+      tokenSpy.mockRestore()
+      if (originalXaiKey === undefined) {
+        delete process.env.XAI_API_KEY
+      } else {
+        process.env.XAI_API_KEY = originalXaiKey
+      }
+    }
+  })
 })
 
 describe('probeRouteReadiness', () => {

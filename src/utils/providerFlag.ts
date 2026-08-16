@@ -29,8 +29,11 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
-import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
+import {
+  isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
+} from '../integrations/routeMetadata.js'
+import { hasUsableOpenAICredential, parseCredentialList } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
 const PREFERRED_PROVIDER_ORDER = [
@@ -570,7 +573,38 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
       process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.6'
       if (model) process.env.OPENAI_MODEL = model
-      if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
+      // Same stamp as profile apply: a proxy URL cannot host-match api.x.ai,
+      // so retained route identity is what keeps catalog/runtime on xAI
+      // without authorizing dedicated credentials for that host.
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+      // Keep a user proxy URL (`??=` above), but never turn the dedicated
+      // xAI secret into a generic credential for that host. A mirrored copy
+      // that already equals XAI_API_KEY is stripped; a distinct OPENAI_API_KEY
+      // is left for the proxy.
+      if (!isCanonicalXaiInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) {
+        const xaiSecrets = new Set(parseCredentialList(process.env.XAI_API_KEY))
+        const withoutXaiSecrets = (value: string | undefined): string | undefined => {
+          if (!value || xaiSecrets.size === 0) {
+            return value
+          }
+          const filtered = parseCredentialList(value).filter(
+            item => !xaiSecrets.has(item),
+          )
+          return filtered.length > 0 ? filtered.join(',') : undefined
+        }
+        const nextOpenAIApiKey = withoutXaiSecrets(process.env.OPENAI_API_KEY)
+        if (nextOpenAIApiKey) {
+          process.env.OPENAI_API_KEY = nextOpenAIApiKey
+        } else {
+          delete process.env.OPENAI_API_KEY
+        }
+        const nextOpenAIApiKeys = withoutXaiSecrets(process.env.OPENAI_API_KEYS)
+        if (nextOpenAIApiKeys) {
+          process.env.OPENAI_API_KEYS = nextOpenAIApiKeys
+        } else {
+          delete process.env.OPENAI_API_KEYS
+        }
+      } else if (process.env.XAI_API_KEY && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
       }
       break

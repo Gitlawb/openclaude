@@ -276,11 +276,20 @@ export function isXaiBaseUrl(value: string | undefined): boolean {
   }
 }
 
+/**
+ * xAI-specific credentials may only be sent to the documented HTTPS API
+ * origin. Route identity is intentionally more permissive because profiles
+ * can be retargeted, but a retargeted route must not carry a xAI credential.
+ */
 export function isCanonicalXaiInferenceBaseUrl(value: string | undefined): boolean {
   if (!value?.trim()) return true
   try {
-    const parsed = new URL(value)
-    return parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'api.x.ai'
+    const url = new URL(value)
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'api.x.ai' &&
+      (url.port === '' || url.port === '443')
+    )
   } catch {
     return false
   }
@@ -1023,6 +1032,14 @@ export function resolveRouteCredentialValue(
     return undefined
   }
 
+  if (
+    routeId === 'xai' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalXaiInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
+
   return getRouteCredentialValue(routeId, processEnv)
 }
 
@@ -1240,6 +1257,17 @@ export function resolveActiveRouteIdFromEnv(
 
     if (matchedRoute) {
       return matchedRoute
+    }
+
+    const retainedRouteId = processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+    // Only xAI needs this env stamp to survive a proxy URL. ApiSmart's
+    // dedicated key never rides OPENAI_API_KEY after persist/relaunch, and
+    // it has no OAuth injector keyed off route id. xAI still must keep
+    // identity so OAuth stays off the proxy and XAI_API_KEY values can be
+    // filtered from generic pools. Host matching already returned above
+    // when the URL is canonical.
+    if (retainedRouteId === 'xai') {
+      return 'xai'
     }
 
     if (options?.activeProfileProvider) {

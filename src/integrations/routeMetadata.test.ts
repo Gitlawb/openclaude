@@ -91,6 +91,16 @@ test('isLongcatBaseUrl requires the documented HTTPS OpenAI API path', () => {
   expect(isLongcatBaseUrl('https://api.longcat.chat.evil.test/openai/v1')).toBe(false)
 })
 
+test('resolveActiveRouteIdFromEnv retains xAI identity for a retargeted proxy URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'xai',
+    }),
+  ).toBe('xai')
+})
+
 test('resolveActiveRouteIdFromEnv keeps generic OpenAI credentials ahead of env-only LongCat', () => {
   expect(resolveActiveRouteIdFromEnv({
     OPENAI_API_KEY: 'generic-key',

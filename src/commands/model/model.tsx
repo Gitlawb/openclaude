@@ -372,7 +372,6 @@ async function getOpenAIDiscoveryRequestOptions(
   options?: { refreshXaiOAuth?: boolean },
 ): Promise<{
   apiKey?: string
-  cacheKey?: string
   baseUrl?: string
   headers?: Record<string, string>
 }> {
@@ -381,14 +380,15 @@ async function getOpenAIDiscoveryRequestOptions(
     baseUrl: process.env.OPENAI_BASE_URL,
   })
 
+  let apiKey = firstUsableCredential(
+    resolveRouteCredentialValue({
+      routeId,
+      baseUrl: request.baseUrl,
+      processEnv: process.env,
+    }),
+  )
   return resolveDiscoveryRequestOptions(routeId ?? 'custom', {
-    apiKey: firstUsableCredential(
-      resolveRouteCredentialValue({
-        routeId,
-        baseUrl: request.baseUrl,
-        processEnv: process.env,
-      }),
-    ),
+    apiKey,
     baseUrl: request.baseUrl,
     headers: parseCustomHeadersEnv(process.env.ANTHROPIC_CUSTOM_HEADERS),
   }, options)

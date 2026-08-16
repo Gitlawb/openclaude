@@ -1,5 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
-import { afterEach, beforeEach, expect, jest, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
@@ -12,6 +12,7 @@ import {
 import { createOpenAIShimClient, hasMistralApiHost } from '../openaiShim.ts'
 import { formatRetryAfterHint, sleepMs } from './requestExecutor.js'
 import * as realGithubModelsCredentials from '../../../utils/githubModelsCredentials.js'
+import * as xaiCredentials from '../../../utils/xaiCredentials.js'
 
 type FetchType = typeof globalThis.fetch
 
@@ -53,6 +54,8 @@ const originalEnv = {
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
+  XAI_API_KEY: process.env.XAI_API_KEY,
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
   CLAUDE_STREAM_IDLE_TIMEOUT_MS: process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS,
@@ -435,6 +438,154 @@ function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
   return makeSseResponse([`event: response.completed\ndata: ${data}\n\n`])
 }
 
+test('uses stored xAI OAuth credentials only for the canonical HTTPS API endpoint', async () => {
+  const resolveToken = spyOn(xaiCredentials, 'resolveXaiAccessToken').mockResolvedValue(
+    'oauth-token',
+  )
+  const cases = [
+    { baseUrl: 'https://api.x.ai/v1', sendsOAuth: true },
+    { baseUrl: 'http://api.x.ai/v1', sendsOAuth: false },
+    { baseUrl: 'https://proxy.example/v1', sendsOAuth: false },
+    { baseUrl: '', sendsOAuth: false },
+  ]
+
+  try {
+    for (const { baseUrl, sendsOAuth } of cases) {
+      if (baseUrl) {
+        process.env.OPENAI_BASE_URL = baseUrl
+      } else {
+        delete process.env.OPENAI_BASE_URL
+      }
+      delete process.env.OPENAI_API_KEY
+      let headers: Headers | undefined
+      globalThis.fetch = (async (_input, init) => {
+        headers = new Headers(init?.headers)
+        return makeChatCompletionResponse('grok-4.6')
+      }) as unknown as FetchType
+
+      const client = createOpenAIShimClient({}) as OpenAIShimClient
+      await client.beta.messages.create({
+        model: 'grok-4.6',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 32,
+        stream: false,
+      })
+
+      expect(headers?.get('authorization')).toBe(
+        sendsOAuth ? 'Bearer oauth-token' : null,
+      )
+      expect(headers?.has('x-grok-conv-id')).toBe(sendsOAuth)
+    }
+    expect(resolveToken).toHaveBeenCalledTimes(1)
+  } finally {
+    resolveToken.mockRestore()
+  }
+})
+
+test('does not send an xAI key mirrored into OPENAI_API_KEY to an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-api-key'
+  process.env.OPENAI_API_KEY = 'xai-api-key'
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_input, init) => {
+    headers = new Headers(init?.headers)
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(headers?.get('authorization')).toBeNull()
+})
+
+test('filters a mirrored xAI key from generic credential pools on an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-api-key'
+  process.env.OPENAI_API_KEY = 'xai-api-key,other-key'
+  process.env.OPENAI_API_KEYS = 'xai-api-key,pooled-key'
+  const authorizations: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    authorizations.push(new Headers(init?.headers).get('authorization') ?? '')
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(authorizations).toEqual(['Bearer pooled-key'])
+})
+
+test('filters comma-separated xAI keys mirrored into generic credential lists on an untrusted endpoint', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.XAI_API_KEY = 'xai-key-a,xai-key-b'
+  process.env.OPENAI_API_KEY = 'xai-key-a,xai-key-b'
+  process.env.OPENAI_API_KEYS = 'xai-key-a,xai-key-b'
+
+  const captured = await captureChatCompletionRequest('grok-4.6')
+
+  expect(captured.authorization).toBeNull()
+})
+
+test('sends a distinct proxy-owned OPENAI_API_KEY on a retargeted xAI route', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  process.env.OPENAI_API_KEY = 'proxy-owned-key'
+  delete process.env.XAI_API_KEY
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_input, init) => {
+    headers = new Headers(init?.headers)
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(headers?.get('authorization')).toBe('Bearer proxy-owned-key')
+})
+
+test('sends profile-owned custom auth on a retargeted xAI proxy', async () => {
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Auth'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'profile-own-proxy-secret'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.XAI_API_KEY
+  let headers: Headers | undefined
+  globalThis.fetch = (async (_input, init) => {
+    headers = new Headers(init?.headers)
+    return makeChatCompletionResponse('grok-4.6')
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'grok-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  expect(headers?.get('authorization')).toBeNull()
+  expect(headers?.get('x-proxy-auth')).toBe('profile-own-proxy-secret')
+})
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.test.ts')
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
@@ -474,6 +625,8 @@ beforeEach(async () => {
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.OPENCODE_API_KEY
+  delete process.env.XAI_API_KEY
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
   delete process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS
@@ -520,6 +673,8 @@ afterEach(() => {
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
+    restoreEnv('XAI_API_KEY', originalEnv.XAI_API_KEY)
+    restoreEnv('CLAUDE_CODE_PROVIDER_ROUTE_ID', originalEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED)
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
     restoreEnv('CLAUDE_STREAM_IDLE_TIMEOUT_MS', originalEnv.CLAUDE_STREAM_IDLE_TIMEOUT_MS)

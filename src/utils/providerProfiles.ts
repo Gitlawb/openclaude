@@ -14,6 +14,7 @@ import {
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
 import {
+  assignDistinctXaiProxyGenericCredential,
   buildCompatibilityProcessEnv,
   createProfileFile,
   saveProfileFile,
@@ -50,11 +51,13 @@ import {
   type ResolvedProfileRoute,
   type ProviderPreset,
 } from '../integrations/index.js'
+import { parseCredentialList } from '../services/api/credentialPool.js'
 import {
   getRouteDefaultBaseUrl,
   isCloudflareBaseUrl,
   isClinePassBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalXaiInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -159,6 +162,38 @@ function isApismartProfile(profile: ProviderProfile): boolean {
   // Only the documented `/v1` inference URL may carry the dedicated key —
   // host-only or path-suffixed ApiSmart URLs are treated as retargeted.
   return !baseUrl || isCanonicalApismartInferenceBaseUrl(baseUrl)
+}
+
+function isCanonicalXaiProfile(profile: ProviderProfile): boolean {
+  const baseUrl = profile.baseUrl?.trim()
+  // Missing base URL resolves to api.x.ai, which is canonical. HTTP, non-443,
+  // and proxy hosts must not carry the dedicated xAI credential.
+  return !baseUrl || isCanonicalXaiInferenceBaseUrl(baseUrl)
+}
+
+function withheldXaiGenericKeysAreAligned(
+  processEnv: NodeJS.ProcessEnv,
+  profile: ProviderProfile,
+): boolean {
+  if (trimOrUndefined(processEnv.XAI_API_KEY)) {
+    return false
+  }
+  const withheld = new Set(parseCredentialList(profile.apiKey))
+  return [
+    ...parseCredentialList(processEnv.OPENAI_API_KEY),
+    ...parseCredentialList(processEnv.OPENAI_API_KEYS),
+  ].every(value => !withheld.has(value))
+}
+
+function withholdRetargetedXaiCredential(profile: ProviderProfile): boolean {
+  // Identity (provider=xai) and host matching (api.x.ai) both attach the
+  // dedicated secret. Withhold on the same set: an openai-shaped profile
+  // pointed at http://api.x.ai would otherwise still mirror XAI_API_KEY.
+  return (
+    (resolveProfileRoute(profile.provider).routeId === 'xai' ||
+      isXaiBaseUrl(profile.baseUrl)) &&
+    !isCanonicalXaiProfile(profile)
+  )
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -649,6 +684,7 @@ function isProcessEnvAlignedWithProfile(
   const includeApiKey = options?.includeApiKey ?? true
   const primaryModel = options?.primaryModel ?? getPrimaryModel(profile.model)
   const { compatibilityMode } = resolveProfileCompatibility(profile.provider)
+  const withholdXaiKey = withholdRetargetedXaiCredential(profile)
 
   if (processEnv[PROFILE_ENV_APPLIED_FLAG] !== '1') {
     return false
@@ -784,14 +820,23 @@ function isProcessEnvAlignedWithProfile(
       expectedContextWindows,
     ) &&
     (!includeApiKey ||
-      sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey)) &&
+      (withholdXaiKey
+        ? withheldXaiGenericKeysAreAligned(processEnv, profile)
+        : sameOptionalEnvValue(processEnv.OPENAI_API_KEY, profile.apiKey))) &&
     (profile.baseUrl?.toLowerCase().includes('bankr')
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
       : true) &&
-    (isXaiBaseUrl(profile.baseUrl)
+    (resolveProfileRoute(profile.provider).routeId === 'xai'
       ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
+        processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'xai'
+      : true) &&
+    ((isXaiBaseUrl(profile.baseUrl) ||
+      resolveProfileRoute(profile.provider).routeId === 'xai')
+      ? !includeApiKey ||
+        (withholdXaiKey
+          ? !trimOrUndefined(processEnv.XAI_API_KEY)
+          : sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey))
       : true) &&
     (isAimlapiRoute
       ? !includeApiKey ||
@@ -1001,7 +1046,12 @@ export function applyProviderProfileToProcessEnv(
 
     const withholdRetargetedApismartCredential =
       route.routeId === 'apismart' && !isApismartProfile(profile)
-    if (profile.apiKey && !withholdRetargetedApismartCredential) {
+    const withholdXaiKey = withholdRetargetedXaiCredential(profile)
+    if (
+      profile.apiKey &&
+      !withholdRetargetedApismartCredential &&
+      !withholdXaiKey
+    ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
         openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
@@ -1082,6 +1132,22 @@ export function applyProviderProfileToProcessEnv(
         openAIProfileEnv.AIMLAPI_API_KEY =
           openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
       }
+    }
+    if (route.routeId === 'xai') {
+      // Keep xAI identity on retargeted/proxy session env so request-time
+      // withholding can refuse mirrored OPENAI_API_KEY / OAuth even when
+      // dedicated keys were not applied.
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+    }
+    if (withholdXaiKey) {
+      // Same restore as buildLaunchEnv, plus profile.apiKey: that dedicated
+      // secret is withheld above and may no longer be in XAI_API_KEY.
+      assignDistinctXaiProxyGenericCredential(
+        openAIProfileEnv,
+        process.env,
+        {},
+        [profile.apiKey],
+      )
     }
     // Keep ApiSmart route identity even when the profile is retargeted to a
     // proxy. Dedicated credentials stay withheld above; the route id is what
@@ -1384,11 +1450,16 @@ function buildOpenAICompatibleStartupEnv(
   const withholdRetargetedApismartCredential =
     resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
     !isApismartProfile(activeProfile)
+  const withholdXaiKey = withholdRetargetedXaiCredential(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
 
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdXaiKey
+  ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1403,6 +1474,10 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
+        strictEnv.XAI_API_KEY = activeProfile.apiKey
+        strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+      }
       if (isAimlapiProfile) {
         strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
         strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
@@ -1468,12 +1543,22 @@ function buildOpenAICompatibleStartupEnv(
   if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  // Preserve xAI identity on retargeted/proxy startup envs so relaunch
+  // withholding can refuse ambient dedicated credentials. Canonical profiles
+  // already stamp this via the keyed strict-env branch.
+  if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+  }
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdXaiKey
+  ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
-    if (isXaiBaseUrl(activeProfile.baseUrl)) {
+    if (resolveProfileRoute(activeProfile.provider).routeId === 'xai') {
       env.XAI_API_KEY = activeProfile.apiKey
     }
     if (isAimlapiProfile) {
@@ -1733,6 +1818,9 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
+    return
+  }
+  if (withholdRetargetedXaiCredential(profile)) {
     return
   }
 

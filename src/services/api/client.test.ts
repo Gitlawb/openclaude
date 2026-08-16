@@ -53,6 +53,7 @@ const originalEnv = {
   GEMINI_AUTH_MODE: process.env.GEMINI_AUTH_MODE,
   GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
@@ -109,6 +110,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.GEMINI_AUTH_MODE
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
@@ -152,6 +154,7 @@ beforeEach(async () => {
   delete process.env.CLAUDE_CODE_USE_MISTRAL
   delete process.env.GOOGLE_API_KEY
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_API_FORMAT
@@ -199,6 +202,7 @@ afterEach(() => {
     restoreEnv('GEMINI_AUTH_MODE', originalEnv.GEMINI_AUTH_MODE)
     restoreEnv('GOOGLE_API_KEY', originalEnv.GOOGLE_API_KEY)
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
+    restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENAI_BASE_URL', originalEnv.OPENAI_BASE_URL)
     restoreEnv('OPENAI_API_BASE', originalEnv.OPENAI_API_BASE)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
@@ -253,6 +257,7 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   delete process.env.CLAUDE_CODE_USE_GITHUB
   delete process.env.CLAUDE_CODE_USE_MISTRAL
   delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
@@ -996,6 +1001,65 @@ test('env-only xAI fallback preserves xAI OPENAI_API_BASE host overrides', async
 
   expect(capturedUrl).toBe('https://api.x.ai/v1/chat/completions')
   expect(process.env.OPENAI_BASE_URL).toBe('https://api.x.ai/v1')
+})
+
+test('env-only xAI fallback does not copy XAI_API_KEY onto an insecure xAI URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_API_KEY = 'stale-openai-key'
+  process.env.OPENAI_BASE_URL = 'http://api.x.ai/v1'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'grok-4',
+  })
+
+  expect(process.env.OPENAI_BASE_URL).toBe('http://api.x.ai/v1')
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+})
+
+test('env-only xAI fallback filters mirrored keys out of OPENAI_API_KEYS on an insecure xAI URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.XAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_API_KEY = 'xai-test-key'
+  process.env.OPENAI_API_KEYS = 'xai-test-key,pooled-other-key'
+  process.env.OPENAI_BASE_URL = 'http://api.x.ai/v1'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'grok-4',
+  })
+
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.OPENAI_API_KEYS).toBe('pooled-other-key')
+  expect(process.env.XAI_API_KEY).toBe('xai-test-key')
+})
+
+test('env-only xAI fallback copies XAI_API_KEY on the canonical HTTPS URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.XAI_API_KEY = 'xai-test-key'
+  delete process.env.OPENAI_API_KEY
+  process.env.OPENAI_BASE_URL = 'https://api.x.ai/v1'
+
+  await getAnthropicClient({
+    maxRetries: 0,
+    model: 'grok-4',
+  })
+
+  expect({ ...process.env }.OPENAI_API_KEY).toBe('xai-test-key')
 })
 
 test('env-only xAI fallback drops unsupported OpenAI shim options', async () => {

@@ -32,13 +32,13 @@ import {
 } from '../utils/providerDiscovery.js'
 import { firstUsableCredential, hasInvalidCredentialPlaceholder } from '../services/api/credentialPool.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
-import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
-import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 import {
   getXaiDiscoveryCacheIdentity,
   readXaiCredentialsAsync,
   resolveXaiAccessToken,
 } from '../utils/xaiCredentials.js'
+import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
+import { isEssentialTrafficOnly } from '../utils/privacyLevel.js'
 
 export type RouteDiscoveryResult = {
   routeId: string
@@ -124,10 +124,10 @@ const FNV1A_128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58dn
 const FNV1A_128_PRIME = 0x0000000001000000000000000000013bn
 
 function fingerprintDiscoveryCachePartition(value: unknown): string {
-  // Discovery results can be account-specific. This only needs a stable,
-  // opaque local cache namespace; it is not password storage, authentication,
-  // integrity protection, or a security boundary. Keep raw credentials out of
-  // the cache key without retaining them in a process-wide memoization cache.
+  // Cache partitions need a stable opaque namespace, not password hashing or
+  // an authentication boundary. This runs while preparing every request, so
+  // keep it constant-time with respect to credential-stretching work and do
+  // not retain the serialized value in a process-wide memoization cache.
   let fingerprint = FNV1A_128_OFFSET_BASIS
   const serialized = JSON.stringify(value) ?? ''
 
@@ -167,7 +167,11 @@ function getRouteBaseUrl(
   routeId: string,
   options?: { baseUrl?: string },
 ): string | undefined {
-  return options?.baseUrl ?? getRouteDescriptor(routeId)?.defaultBaseUrl
+  const configuredBaseUrl = options?.baseUrl?.trim()
+  if (configuredBaseUrl) {
+    return configuredBaseUrl
+  }
+  return getRouteDescriptor(routeId)?.defaultBaseUrl
 }
 
 function getRouteDiscoveryApiKey(
@@ -186,6 +190,10 @@ function getRouteDiscoveryApiKey(
     routeId === 'apismart' &&
     !isCanonicalApismartInferenceBaseUrl(baseUrl)
   ) {
+    return undefined
+  }
+
+  if (routeId === 'xai' && !isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     return undefined
   }
 
@@ -208,12 +216,7 @@ function getRouteDiscoveryApiKey(
 }
 
 export async function resolveDiscoveryRequestOptions<
-  T extends {
-    apiKey?: string
-    cacheKey?: string
-    baseUrl?: string
-    headers?: Record<string, string>
-  },
+  T extends { apiKey?: string; cacheKey?: string; baseUrl?: string; headers?: Record<string, string> },
 >(
   routeId: string,
   options?: T,
@@ -223,11 +226,17 @@ export async function resolveDiscoveryRequestOptions<
   if (getRouteDiscoveryApiKey(routeId, next) || routeId !== 'xai') {
     return next
   }
-
-  if (!isCanonicalXaiInferenceBaseUrl(getRouteBaseUrl(routeId, next))) {
+  const baseUrl = getRouteBaseUrl(routeId, next)
+  // Route identity selects a catalog, but it must never authorize sending a
+  // stored OAuth credential to an overridden endpoint. The xAI OAuth token is
+  // valid only for xAI's API host.
+  if (!isCanonicalXaiInferenceBaseUrl(baseUrl)) {
     return next
   }
-
+  // Cache lookup uses the currently stored credential identity.
+  // Refresh only when a network discovery request is actually necessary: a
+  // refresh rotates the token and would otherwise turn a fresh cache entry
+  // into an avoidable miss.
   let credentials = await readXaiCredentialsAsync()
   const cacheOnly =
     shouldSkipNonessentialDiscoveryTraffic() ||
@@ -236,14 +245,12 @@ export async function resolveDiscoveryRequestOptions<
     cacheOnly ? credentials?.accessToken : await resolveXaiAccessToken(),
   )
   if (!cacheOnly) {
-    // A refresh can rotate the refresh token. Re-read the persisted blob so
-    // discovery writes under the same stable identity subsequent readers use.
     credentials = (await readXaiCredentialsAsync()) ?? credentials
   }
   if (token) {
     next.apiKey = token
-    // The access token can rotate while the OAuth account does not. Keep the
-    // cache partition tied to a stable account identity, not a bearer token.
+    // Access tokens rotate, while refresh tokens and account IDs identify the
+    // same OAuth account. Keep cache partitions stable across token refreshes.
     next.cacheKey = getXaiDiscoveryCacheIdentity(credentials) ?? token
   }
   return next
@@ -418,9 +425,6 @@ export async function discoverModelsForRoute(
   }
 
   const ttlMs = getDiscoveryCacheTtlMs(routeId)
-  // Cache-only reads must not refresh an OAuth token: discovery can be
-  // disabled by privacy policy, and a refresh can rotate the bearer before a
-  // fresh cached result is checked.
   const cachedOptions = await resolveDiscoveryRequestOptions(routeId, options, {
     refreshXaiOAuth: false,
   })

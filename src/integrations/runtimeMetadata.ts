@@ -27,11 +27,11 @@ import {
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
-import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import {
-  getCachedXaiCredentials,
   getXaiDiscoveryCacheIdentity,
+  readXaiCredentials,
 } from '../utils/xaiCredentials.js'
+import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
 
 function resolveRouteOpenAIShimConfig(
@@ -460,21 +460,41 @@ function findCachedCatalogEntryForApiName(
 
   const baseUrl = runtimeEnv.OPENAI_BASE_URL ?? runtimeEnv.OPENAI_API_BASE
   let apiKey = firstUsableCredential(
-    resolveRouteCredentialValue({ routeId, baseUrl, processEnv: runtimeEnv }),
+    resolveRouteCredentialValue({
+      routeId,
+      baseUrl,
+      processEnv: runtimeEnv,
+    }),
   )
-  let cacheIdentity: string | undefined
-  if (!apiKey && routeId === 'xai' && isCanonicalXaiInferenceBaseUrl(baseUrl)) {
-    // Runtime limit resolution is synchronous request planning. Discovery
-    // populates this memory cache asynchronously; do not launch a credential
-    // store subprocess here merely to recover optional dynamic metadata.
-    const credentials = getCachedXaiCredentials()
+  // Mirror picker/discovery OAuth injection so hybrid cache partitions match
+  // for xAI sessions that have a stored token but no env API key. Use the
+  // synchronous storage reader (not the 30s memory-only getter) so a cold
+  // request-planning path still finds the OAuth-partitioned discovery entry.
+  if (
+    !apiKey &&
+    routeId === 'xai' &&
+    isCanonicalXaiInferenceBaseUrl(baseUrl)
+  ) {
+    const credentials = readXaiCredentials()
     apiKey = firstUsableCredential(credentials?.accessToken)
-    cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
+    const cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
+    const cacheKey = getDiscoveryCacheKey(routeId, {
+      baseUrl,
+      apiKey,
+      cacheKey: cacheIdentity,
+      headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
+    })
+    const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))
+
+    return (
+      cached?.models.find(entry =>
+        matchesCatalogEntryModel(routeId, entry, normalizedModel),
+      ) ?? null
+    )
   }
   const cacheKey = getDiscoveryCacheKey(routeId, {
     baseUrl,
     apiKey,
-    cacheKey: cacheIdentity,
     headers: parseCustomHeadersEnv(runtimeEnv.ANTHROPIC_CUSTOM_HEADERS),
   })
   const cached = getCachedModelsSync(cacheKey, getDiscoveryCacheTtlMs(routeId))

@@ -126,7 +126,7 @@ describe('resolveModelRuntimeLimits', () => {
   it('uses the stable xAI OAuth cache identity for discovered runtime limits', async () => {
     await withTempConfigDir(async () => {
       const xaiCredentials = await import('../utils/xaiCredentials.js')
-      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockReturnValue({
+      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
         accessToken: 'rotating-access-token',
         refreshToken: 'stable-account-identity',
         tokenEndpoint: 'https://auth.x.ai/oauth/token',
@@ -289,6 +289,67 @@ describe('resolveModelRuntimeLimits', () => {
           },
         }).contextWindow,
       ).toBe(2_000_000)
+    })
+  })
+
+  it('uses stored xAI OAuth credentials when reading discovered runtime limits', async () => {
+    await withTempConfigDir(async () => {
+      const originalXaiKey = process.env.XAI_API_KEY
+      const originalOpenAIKey = process.env.OPENAI_API_KEY
+      const xaiCredentials = await import('../utils/xaiCredentials.js')
+      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockImplementation(
+        () =>
+          ({
+            accessToken: 'oauth-token',
+            refreshToken: 'refresh-token',
+            tokenEndpoint: 'https://auth.x.ai/oauth/token',
+          }) as ReturnType<typeof xaiCredentials.readXaiCredentials>,
+      )
+      try {
+        delete process.env.XAI_API_KEY
+        delete process.env.OPENAI_API_KEY
+        const baseUrl = 'https://api.x.ai/v1'
+        await setCachedModels(
+          getDiscoveryCacheKey('xai', {
+            baseUrl,
+            apiKey: 'oauth-token',
+            cacheKey: 'refresh-token',
+          }),
+          {
+            models: [
+              {
+                id: 'grok-4.7',
+                apiName: 'grok-4.7',
+                label: 'grok-4.7',
+                contextWindow: 500_000,
+              },
+            ],
+          },
+        )
+
+        expect(
+          resolveModelRuntimeLimits({
+            model: 'grok-4.7',
+            baseUrl,
+            processEnv: {
+              CLAUDE_CODE_USE_OPENAI: '1',
+              OPENAI_BASE_URL: baseUrl,
+            },
+          }).contextWindow,
+        ).toBe(500_000)
+      } finally {
+        readSpy.mockRestore()
+        if (originalXaiKey === undefined) {
+          delete process.env.XAI_API_KEY
+        } else {
+          process.env.XAI_API_KEY = originalXaiKey
+        }
+        if (originalOpenAIKey === undefined) {
+          delete process.env.OPENAI_API_KEY
+        } else {
+          process.env.OPENAI_API_KEY = originalOpenAIKey
+        }
+      }
     })
   })
 })
