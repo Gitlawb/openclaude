@@ -5,13 +5,22 @@ export function settingsWriteResult({
   error = null,
   written,
   committed = written,
+  cacheInvalidated = written,
+  sessionNotified = false,
   unchanged,
 }: {
   error?: Error | null
   written: boolean
   committed?: boolean
+  cacheInvalidated?: boolean
+  sessionNotified?: boolean
   unchanged?: boolean
 }): SettingsWriteResult {
+  if (committed && !written) {
+    throw new Error(
+      'A settings write cannot be committed without written bytes',
+    )
+  }
   return {
     status: committed
       ? 'committed'
@@ -22,8 +31,8 @@ export function settingsWriteResult({
           : 'not-requested',
     bytesOnDisk: written,
     committed,
-    cacheInvalidated: written,
-    sessionNotified: false,
+    cacheInvalidated,
+    sessionNotified,
     error,
     written,
     ...(unchanged === undefined ? {} : { unchanged }),

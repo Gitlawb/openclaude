@@ -132,9 +132,15 @@ export function migrateToSinglePluginFile(): void {
       mainFilePath,
       ({ targetPath, assertOwned }) => {
         // Case 1: Try renaming v2→main directly; ENOENT = v2 doesn't exist
+        let renamed = false
         try {
           assertOwned()
           fs.renameSync(v2FilePath, targetPath)
+          renamed = true
+        } catch (e) {
+          if (!isENOENT(e)) throw e
+        }
+        if (renamed) {
           assertOwned()
           logForDebugging(
             `Renamed installed_plugins_v2.json to installed_plugins.json`,
@@ -144,8 +150,6 @@ export function migrateToSinglePluginFile(): void {
           )
           migratedSnapshot = migrated
           return
-        } catch (e) {
-          if (!isENOENT(e)) throw e
         }
 
         // Case 2: v2 absent — try reading main; ENOENT = neither exists.
@@ -408,6 +412,9 @@ function saveInstalledPluginsV2(
 }
 
 function updateInstalledPluginsWithLock<T>(
+  // The callback executes while installed_plugins.json is locked. It must not
+  // invoke another installed-registry operation, because this lock is not
+  // reentrant and the nested operation will fail with ELOCKED.
   update: (data: InstalledPluginsFileV2) => { changed: boolean; value: T },
 ): T {
   let publishedSnapshot: InstalledPluginsFileV2 | null = null
@@ -506,7 +513,10 @@ export function removePluginInstallation(
   pluginId: string,
   scope: PersistableScope,
   projectPath?: string,
-  options?: { beforeLastRemoval?: () => void },
+  options?: {
+    /** Must not invoke installed-registry operations; the registry lock is held. */
+    beforeLastRemoval?: () => void
+  },
 ): { removed: boolean; removedLastScope: boolean; installPath?: string } {
   return updateInstalledPluginsWithLock<{
     removed: boolean
@@ -867,6 +877,7 @@ export function removeAllPluginsForMarketplace(
   marketplaceName: string,
   options?: {
     pluginIds?: readonly string[]
+    /** Must not invoke installed-registry operations; the registry lock is held. */
     beforeRemove?: (pluginIds: string[]) => void
   },
 ): {

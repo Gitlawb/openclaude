@@ -74,6 +74,30 @@ test('failed last-scope cleanup keeps the installation registered for retry', ()
   expect(loadInstalledPluginsV2().plugins[pluginId]).toBeUndefined()
 })
 
+test('lock-held cleanup callbacks cannot re-enter the installed registry', () => {
+  const pluginId = 'non-reentrant@community'
+  addPluginInstallation(pluginId, 'user', join(tempRoot!, 'v1'), {
+    version: '1.0.0',
+  })
+
+  expect(() =>
+    removePluginInstallation(pluginId, 'user', undefined, {
+      beforeLastRemoval() {
+        addPluginInstallation(
+          'nested@community',
+          'user',
+          join(tempRoot!, 'v2'),
+          {},
+        )
+      },
+    }),
+  ).toThrow()
+
+  clearInstalledPluginsCache()
+  expect(loadInstalledPluginsV2().plugins[pluginId]).toHaveLength(1)
+  expect(loadInstalledPluginsV2().plugins['nested@community']).toBeUndefined()
+})
+
 test('failed marketplace cleanup keeps every installation registered for retry', () => {
   addPluginInstallation('one@community', 'user', join(tempRoot!, 'one'), {
     version: '1.0.0',
@@ -252,4 +276,44 @@ test('plugin initialization never snapshots after persistent lock contention', a
     }),
   ).rejects.toThrow('registry is locked')
   expect(snapshotCalls).toBe(0)
+})
+
+test('plugin initialization never snapshots after Step 2 lock contention', async () => {
+  let snapshotCalls = 0
+  const lockError = Object.assign(new Error('enabled registry is locked'), {
+    code: 'ELOCKED',
+  })
+
+  await expect(
+    initializeVersionedPlugins({
+      migrateSingle: () => undefined,
+      migrateEnabled: () => {
+        throw lockError
+      },
+      getInMemory: () => {
+        snapshotCalls++
+        return { version: 2, plugins: {} }
+      },
+      retryDelaysMs: [0],
+      sleep: async () => undefined,
+    }),
+  ).rejects.toThrow('enabled registry is locked')
+  expect(snapshotCalls).toBe(0)
+})
+
+test('plugin initialization tolerates a non-lock Step 2 migration error', async () => {
+  let snapshotCalls = 0
+
+  await initializeVersionedPlugins({
+    migrateSingle: () => undefined,
+    migrateEnabled: () => {
+      throw new Error('legacy settings unavailable')
+    },
+    getInMemory: () => {
+      snapshotCalls++
+      return { version: 2, plugins: {} }
+    },
+  })
+
+  expect(snapshotCalls).toBe(1)
 })

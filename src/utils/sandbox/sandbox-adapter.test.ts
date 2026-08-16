@@ -248,6 +248,17 @@ describe('convertToSandboxRuntimeConfig', () => {
     ).not.toContain('session-only.example')
   })
 
+  test.each(['*', '*.com', 'https://example.com', 'example.com/path'])(
+    'session network approvals reject unsafe domain pattern %s',
+    async domain => {
+      expect(SandboxManager.applyNetworkApproval(domain, false)).toBe(false)
+      expect(
+        convertToSandboxRuntimeConfig({} as SettingsJson).network
+          .allowedDomains,
+      ).not.toContain(domain)
+    },
+  )
+
   test('managed-only policy rejects a failed durable approval session fallback', async () => {
     const managedDir = join(tempRoot, 'managed')
     mkdirSync(managedDir)

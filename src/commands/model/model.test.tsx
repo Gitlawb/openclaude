@@ -87,9 +87,14 @@ let actualSettingsModule: SettingsModule | undefined
 let settingsForTest: SettingsJson & {
   providerProfileModelPickerMode?: ProviderProfileModelPickerModeForTest
 } = {}
-let modelWriteResult: { error: Error | null; written: boolean } = {
+let modelWriteResult: {
+  error: Error | null
+  written: boolean
+  committed: boolean
+} = {
   error: null,
   written: true,
+  committed: true,
 }
 let modelSettingsWrites: SettingsJson[] = []
 let modelSettingsMockActive = false
@@ -153,7 +158,7 @@ async function mockSettingsForTest(): Promise<void> {
       }
       const patch = createPatch(structuredClone(settingsForTest))
       modelSettingsWrites.push(patch)
-      if (modelWriteResult.written) {
+      if (modelWriteResult.committed) {
         settingsForTest = { ...settingsForTest, ...patch }
       }
       return modelWriteResult
@@ -262,7 +267,7 @@ beforeEach(async () => {
   await acquireSharedMutationLock('commands/model/model.test.tsx')
   mock.restore()
   settingsForTest = {}
-  modelWriteResult = { error: null, written: true }
+  modelWriteResult = { error: null, written: true, committed: true }
   modelSettingsWrites = []
   freshSettingsUpdateForTest = undefined
   await mockSettingsForTest()
@@ -3205,7 +3210,7 @@ test('cross-profile /model switch does not activate the target profile when the 
       return null
     },
   }))
-  modelWriteResult = { error: null, written: false }
+  modelWriteResult = { error: null, written: false, committed: false }
 
   const doneMessages: string[] = []
   const onDone = mock((message?: string) => {
@@ -3269,7 +3274,7 @@ test('cross-profile /model switch preserves a newer peer model when provider act
     commitModelSettingsTransition: (model: string) => {
       modelSettingsWrites.push({ model })
       return {
-        result: { error: null, written: true },
+        result: { error: null, written: true, committed: true },
         transition,
       }
     },

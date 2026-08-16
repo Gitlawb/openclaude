@@ -479,6 +479,13 @@ export function persistOrgDisabledFastModePreferenceIfNeeded(
   }
 }
 
+export function persistPendingOrgDisabledFastModePreference(
+  persist: typeof updateSettingsForSourceWithResult = updateSettingsForSourceWithResult,
+): void {
+  if (!orgDisablePreferenceCleanupPending) return
+  persistOrgDisabledFastModePreferenceIfNeeded(false, false, persist)
+}
+
 // Listeners notified when org-level fast mode status changes
 const orgFastModeChange = createSignal<[orgEnabled: boolean]>()
 export const onOrgFastModeChanged = orgFastModeChange.subscribe
@@ -519,6 +526,7 @@ export function resolveFastModeStatusFromCache(): void {
   }
 
   persistOverageDisabledFastModePreferenceIfNeeded()
+  persistPendingOrgDisabledFastModePreference()
   if (orgStatus.status !== 'pending') {
     return
   }
@@ -535,6 +543,7 @@ export async function prefetchFastModeStatus(): Promise<void> {
   }
 
   persistOverageDisabledFastModePreferenceIfNeeded()
+  persistPendingOrgDisabledFastModePreference()
 
   // Skip network requests if nonessential traffic is disabled
   if (isEssentialTrafficOnly()) {

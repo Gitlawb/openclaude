@@ -46,6 +46,7 @@ const ccrAutoConnect = feature('CCR_AUTO_CONNECT')
 import type { ImageDimensions } from './imageResizer.js'
 import type { ModelOption } from './model/modelOptions.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import { stableStringify } from './stableStringify.js'
 
 // Re-entrancy guard: prevents getConfig → logEvent → getGlobalConfig → getConfig
 // infinite recursion when the config file is corrupted. logEvent's sampling check
@@ -964,16 +965,16 @@ function wouldLoseAuthState(fresh: {
 
 export function saveGlobalConfig(
   updater: (currentConfig: GlobalConfig) => GlobalConfig,
-): void {
+): boolean {
   if (process.env.NODE_ENV === 'test') {
     const current = getTestGlobalConfigForTesting()
     const config = updater(current)
     // Skip if no changes (same reference returned)
     if (config === current) {
-      return
+      return false
     }
     Object.assign(current, config)
-    return
+    return true
   }
 
   // Apply any queued deferred writes first. A direct save re-reads the on-disk
@@ -1008,7 +1009,9 @@ export function saveGlobalConfig(
     // the cache is still valid -- touching it would corrupt the guard.
     if (didWrite && written) {
       writeThroughGlobalConfigCache(written)
+      return true
     }
+    return false
   } catch (error) {
     const code = getErrnoCode(error)
     if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
@@ -1016,7 +1019,7 @@ export function saveGlobalConfig(
         `Skipping global config write due to permission error: ${error}`,
         { level: 'error' },
       )
-      return
+      return false
     }
     logForDebugging(`Failed to save config with lock: ${error}`, {
       level: 'error',
@@ -1029,18 +1032,28 @@ export function saveGlobalConfig(
       getGlobalClaudeFile(),
       createDefaultGlobalConfig,
     )
+    // The file is already durable when lock release throws. Confirm that exact
+    // snapshot before retrying the updater so non-idempotent updates are not
+    // applied twice and the public cache cannot remain stale.
+    if (
+      written &&
+      stableStringify(currentConfig) === stableStringify(written)
+    ) {
+      writeThroughGlobalConfigCache(currentConfig)
+      return true
+    }
     if (wouldLoseAuthState(currentConfig)) {
       logForDebugging(
         'saveGlobalConfig fallback: re-read config is missing auth that cache has; refusing to write. See GH #3117.',
         { level: 'error' },
       )
       logEvent('tengu_config_auth_loss_prevented', {})
-      return
+      return false
     }
     const config = updater(currentConfig)
     // Skip if no changes (same reference returned)
     if (config === currentConfig) {
-      return
+      return false
     }
     written = {
       ...config,
@@ -1048,6 +1061,7 @@ export function saveGlobalConfig(
     }
     saveConfig(getGlobalClaudeFile(), written, DEFAULT_GLOBAL_CONFIG)
     writeThroughGlobalConfigCache(written)
+    return true
   }
 }
 

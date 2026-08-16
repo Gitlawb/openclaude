@@ -72,7 +72,7 @@ test('a current rejecting runner rejects its waiter', async () => {
     throw new Error('runner failed')
   })
 
-  expect(coordinator.download()).rejects.toThrow('runner failed')
+  await expect(coordinator.download()).rejects.toThrow('runner failed')
 })
 
 test('reset detaches an in-flight waiter and makes the next download fresh', async () => {

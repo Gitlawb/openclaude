@@ -19,6 +19,22 @@ const configDir = realpathSync(
   mkdtempSync(join(tmpdir(), 'openclaude-settings-sync-partial-')),
 )
 const scenario = process.argv[2] ?? 'settings-partial'
+const lockHolderFixture = join(import.meta.dir, 'settingsLockHolder.fixture.ts')
+
+async function waitForFile(path: string, description: string): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (true) {
+    try {
+      readFileSync(path)
+      return
+    } catch {
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for ${description}`)
+      }
+      await Bun.sleep(10)
+    }
+  }
+}
 
 try {
   process.chdir(configDir)
@@ -32,9 +48,6 @@ try {
     getSettingsFilePathForSource,
     getSettingsForSource,
   } = await import('../../utils/settings/settings.js')
-  const { withSettingsFileLockSync } = await import(
-    '../../utils/settings/settingsFileLock.js'
-  )
   const { resetSettingsCache } = await import(
     '../../utils/settings/settingsCache.js'
   )
@@ -56,6 +69,9 @@ try {
       applyRemoteEntriesToLocal: __test.applyRemoteEntriesToLocal,
     })
 
+    // fetchUserSettings runs synchronously up to its first await. The startup
+    // waiter is then superseded and follows the redownload result without
+    // waiting for the stale fetch to settle.
     const startup = coordinator.download()
     const redownload = coordinator.redownload()
     resolveRedownload!(settingsFetchResult(SYNC_KEYS.USER_SETTINGS, 'new'))
@@ -220,11 +236,21 @@ try {
     resetSettingsCache()
     getSettingsForSource('userSettings')
 
-    let applyPromise:
-      | ReturnType<typeof __test.applyRemoteEntriesToLocal>
-      | undefined
-    withSettingsFileLockSync(localPath, () => {
-      applyPromise = __test.applyRemoteEntriesToLocal(
+    const readyMarker = join(configDir, 'local-lock-ready')
+    const releaseMarker = join(configDir, 'local-lock-release')
+    const lockHolder = Bun.spawn(
+      [
+        process.execPath,
+        lockHolderFixture,
+        localPath,
+        readyMarker,
+        releaseMarker,
+      ],
+      { cwd: process.cwd(), stdout: 'pipe', stderr: 'pipe' },
+    )
+    try {
+      await waitForFile(readyMarker, 'local settings lock holder')
+      const result = await __test.applyRemoteEntriesToLocal(
         {
           [SYNC_KEYS.USER_SETTINGS]: '{"env":{"REMOTE":"yes"}}\n',
           [SYNC_KEYS.projectSettings('project')]:
@@ -232,18 +258,32 @@ try {
         },
         'project',
       )
-    })
-    if (!applyPromise) throw new Error('Settings sync did not start')
-    const result = await applyPromise
+      writeFileSync(releaseMarker, 'release', 'utf8')
+      const [holderStdout, holderStderr, holderExitCode] = await Promise.all([
+        new Response(lockHolder.stdout).text(),
+        new Response(lockHolder.stderr).text(),
+        lockHolder.exited,
+      ])
+      if (holderExitCode !== 0) {
+        throw new Error(
+          `Settings lock holder failed (${holderExitCode}): ${holderStderr || holderStdout}`,
+        )
+      }
 
-    process.stdout.write(
-      JSON.stringify({
-        result,
-        userLanded: readFileSync(userPath, 'utf8').includes('REMOTE'),
-        localUnchanged: readFileSync(localPath, 'utf8') === originalLocal,
-        cachedUser: getSettingsForSource('userSettings')?.env?.REMOTE,
-      }),
-    )
+      process.stdout.write(
+        JSON.stringify({
+          result,
+          userLanded: readFileSync(userPath, 'utf8').includes('REMOTE'),
+          localUnchanged: readFileSync(localPath, 'utf8') === originalLocal,
+          cachedUser: getSettingsForSource('userSettings')?.env?.REMOTE,
+        }),
+      )
+    } finally {
+      if (!lockHolder.killed && lockHolder.exitCode === null) {
+        writeFileSync(releaseMarker, 'release', 'utf8')
+        await lockHolder.exited
+      }
+    }
   } else {
     const isUserMemory = scenario.startsWith('user-')
     const isProjectMemory = scenario.startsWith('project-')

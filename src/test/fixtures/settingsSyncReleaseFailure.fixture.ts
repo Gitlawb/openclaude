@@ -7,6 +7,7 @@ import {
   setClaudeConfigHomeDirForTesting,
 } from '../../utils/envUtils.js'
 import * as settingsFileLock from '../../utils/settings/settingsFileLock.js'
+import { settingsWriteResult } from '../settingsWriteResult.js'
 
 const configDir = realpathSync(
   mkdtempSync(join(tmpdir(), 'openclaude-settings-sync-release-failure-')),
@@ -15,16 +16,14 @@ const configDir = realpathSync(
 mock.module('../../utils/settings/settingsFileLock.js', () => ({
   ...settingsFileLock,
   replaceSettingsFileSync() {
-    return {
-      status: 'committed' as const,
-      bytesOnDisk: true,
-      committed: true,
-      cacheInvalidated: true,
-      sessionNotified: false,
+    return settingsWriteResult({
       error: Object.assign(new Error('injected release failure'), {
         code: 'EIO',
       }),
-    }
+      written: true,
+      cacheInvalidated: true,
+      sessionNotified: false,
+    })
   },
 }))
 

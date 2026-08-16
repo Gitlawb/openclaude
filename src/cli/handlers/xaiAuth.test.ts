@@ -188,3 +188,31 @@ test('xaiLogout leaves unrelated startup profiles intact', async () => {
   const parsed = JSON.parse(readFileSync(path, 'utf8'))
   expect(parsed.profile).toBe('openai')
 })
+
+test('xaiLogout reports a provider-profile persistence failure without throwing', async () => {
+  const { handlers, xaiLogoutDeps } = await freshHandlerModules()
+  const previousExitCode = process.exitCode
+
+  try {
+    await expect(
+      handlers.xaiLogout({
+        ...xaiLogoutDeps,
+        getProviderProfiles: () => [
+          {
+            id: 'xai_oauth',
+            provider: 'xai',
+            name: 'xAI OAuth',
+            baseUrl: 'https://api.x.ai/v1',
+            model: 'grok-4.3',
+          },
+        ],
+        deleteProviderProfile: () => {
+          throw new Error('global config is read-only')
+        },
+      }),
+    ).resolves.toBeUndefined()
+    expect(process.exitCode).toBe(1)
+  } finally {
+    process.exitCode = previousExitCode ?? 0
+  }
+})

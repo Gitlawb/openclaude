@@ -104,6 +104,11 @@ try {
     new Response(child.stderr).text(),
     child.exited,
   ])
+  if (exitCode !== 0) {
+    throw new Error(
+      `Peer writer exited with ${exitCode}\nstdout: ${stdout}\nstderr: ${stderr}`,
+    )
+  }
   await waitForNotification(
     () =>
       notified.includes('userSettings') &&
@@ -152,6 +157,11 @@ try {
     new Response(retargetChild.stderr).text(),
     retargetChild.exited,
   ])
+  if (retargetExitCode !== 0) {
+    throw new Error(
+      `Retargeted peer writer exited with ${retargetExitCode}\nstdout: ${retargetStdout}\nstderr: ${retargetStderr}`,
+    )
+  }
   await waitForNotification(
     () =>
       notified.includes('userSettings') &&

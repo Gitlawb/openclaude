@@ -240,7 +240,16 @@ export async function xaiLogout(deps?: XaiLogoutDeps): Promise<void> {
   )
   let activeProfileWasCleared = false
   if (xaiOAuthProfile) {
-    const result = _deleteProviderProfile(xaiOAuthProfile.id)
+    let result: ReturnType<typeof deleteProviderProfile>
+    try {
+      result = _deleteProviderProfile(xaiOAuthProfile.id)
+    } catch (error) {
+      process.stderr.write(
+        `xAI credentials were cleared, but the xAI OAuth provider profile could not be removed: ${error instanceof Error ? error.message : String(error)}\n`,
+      )
+      process.exitCode = 1
+      return
+    }
     if (!result.removed) {
       process.stderr.write(
         'xAI credentials were cleared, but the xAI OAuth provider profile could not be removed.\n',

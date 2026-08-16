@@ -141,13 +141,6 @@ function persistAndApplyPermissionUpdates(
   toolUseContext: ToolUseContext,
 ): string | null {
   const persistence = persistPermissionUpdates(updates)
-  if (persistence.failedUpdates.length > 0) {
-    const message = permissionPersistenceFailureMessage(
-      persistence.failedUpdates,
-    )
-    logForDebugging(`[inProcessRunner] ${message}`, { level: 'warn' })
-    return message
-  }
   if (persistence.appliedUpdates.length > 0) {
     const setToolPermissionContext = getLeaderSetToolPermissionContext()
     if (setToolPermissionContext) {
@@ -158,6 +151,13 @@ function persistAndApplyPermissionUpdates(
       )
       setToolPermissionContext(updatedContext, { preserveMode: true })
     }
+  }
+  if (persistence.failedUpdates.length > 0) {
+    const message = permissionPersistenceFailureMessage(
+      persistence.failedUpdates,
+    )
+    logForDebugging(`[inProcessRunner] ${message}`, { level: 'warn' })
+    return message
   }
   return null
 }

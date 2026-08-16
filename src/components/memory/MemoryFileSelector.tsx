@@ -213,7 +213,7 @@ export function MemoryFileSelector(t0) {
         autoMemoryEnabled: newValue
       });
       if (!wasSettingsUpdateCommitted(result)) {
-        setSaveError(result.error?.message ?? "Could not save auto-memory preference. Try again.");
+        setSaveError(`Could not save auto-memory preference: ${result.error?.message ?? "settings were not written"}`);
         return;
       }
       setAutoMemoryOn(newValue);
@@ -236,7 +236,7 @@ export function MemoryFileSelector(t0) {
         autoDreamEnabled: newValue_0
       });
       if (!wasSettingsUpdateCommitted(result_0)) {
-        setSaveError(result_0.error?.message ?? "Could not save auto-dream preference. Try again.");
+        setSaveError(`Could not save auto-dream preference: ${result_0.error?.message ?? "settings were not written"}`);
         return;
       }
       setAutoDreamOn(newValue_0);

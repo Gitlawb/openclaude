@@ -121,16 +121,20 @@ export function clearStartupProviderOverrides(options?: {
 
   let globalConfigError: string | null = null
   let previousGlobalOverrides: Record<string, string> = {}
+  let capturedPreviousGlobalOverrides = false
   try {
     let updaterRan = false
     const saveResult = saveConfig((current: GlobalConfigWithEnv) => {
       updaterRan = true
       const currentEnv = current.env ?? {}
-      previousGlobalOverrides = Object.fromEntries(
-        STARTUP_PROVIDER_OVERRIDE_ENV_KEYS.flatMap(key =>
-          key in currentEnv ? [[key, currentEnv[key]!] as const] : [],
-        ),
-      )
+      if (!capturedPreviousGlobalOverrides) {
+        previousGlobalOverrides = Object.fromEntries(
+          STARTUP_PROVIDER_OVERRIDE_ENV_KEYS.flatMap(key =>
+            key in currentEnv ? [[key, currentEnv[key]!] as const] : [],
+          ),
+        )
+        capturedPreviousGlobalOverrides = true
+      }
       let changed = false
       const nextEnv = { ...currentEnv }
       for (const key of STARTUP_PROVIDER_OVERRIDE_ENV_KEYS) {

@@ -202,4 +202,47 @@ describe('clearStartupProviderOverrides', () => {
       KEEP_ME: '1',
     })
   })
+
+  test('preserves the first override snapshot when the save updater runs repeatedly', async () => {
+    const { clearStartupProviderOverrides } =
+      await importStartupOverridesForTest()
+    let config: GlobalConfigWithEnv = {
+      env: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.example.test/v1',
+        KEEP_ME: '1',
+      },
+    }
+    let rollbackGlobalConfig: (() => string | null) | undefined
+    const saveConfig = mock(
+      (updater: (current: GlobalConfigWithEnv) => GlobalConfigWithEnv) => {
+        config = updater(config)
+        config = updater(config)
+        return config
+      },
+    )
+
+    expect(
+      clearStartupProviderOverrides({
+        commitTransition: mock(() => ({
+          result: { error: null, written: true, committed: true },
+          transition: {
+            attempted: { model: 'claude-sonnet-4-6' },
+            previous: { model: 'gpt-5-mini' },
+          },
+        })),
+        saveConfig,
+        onCommittedTransition(_transition, rollback) {
+          rollbackGlobalConfig = rollback
+        },
+      }),
+    ).toBeNull()
+
+    expect(rollbackGlobalConfig?.()).toBeNull()
+    expect(config.env).toEqual({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.example.test/v1',
+      KEEP_ME: '1',
+    })
+  })
 })

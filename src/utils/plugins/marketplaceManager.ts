@@ -89,6 +89,9 @@ import {
 import { parsePluginIdentifier } from './pluginIdentifier.js'
 import { deletePluginOptions } from './pluginOptionsStorage.js'
 import {
+  clearCaseInsensitiveFsCacheForTesting,
+  isCaseInsensitiveFsAt,
+  pathsEqualForFs,
   resolvePathWithinBase,
   validatePathWithinBase,
 } from './pathConfinement.js'
@@ -110,70 +113,6 @@ import {
 type LoadedPluginMarketplace = {
   marketplace: PluginMarketplace
   cachePath: string
-}
-
-/** Memoized per-directory case-sensitivity probe results. */
-const caseInsensitiveFsCache = new Map<string, boolean>()
-
-/**
- * Flip the case of the last alphabetic character in a path, yielding a variant
- * that differs only in case (so it targets the same entry on a case-insensitive
- * volume). Returns the input unchanged when there is no alphabetic character.
- */
-function flipLastAlphaCase(p: string): string {
-  for (let i = p.length - 1; i >= 0; i--) {
-    const c = p[i]!
-    const lower = c.toLowerCase()
-    const upper = c.toUpperCase()
-    if (lower !== upper) {
-      return p.slice(0, i) + (c === upper ? lower : upper) + p.slice(i + 1)
-    }
-  }
-  return p
-}
-
-/**
- * Probe whether the filesystem backing `dir` treats paths case-insensitively,
- * rather than assuming it from process.platform. Windows volumes are always
- * case-insensitive (and inode numbers there are unreliable), so trust the
- * platform. Everywhere else — including macOS, which can mount case-sensitive
- * APFS/HFS+ volumes — stat `dir` under a case-flipped name and treat the volume
- * as case-insensitive only when both names resolve to the same inode. Memoized
- * per directory; falls back to case-sensitive on any probe error.
- */
-function isCaseInsensitiveFsAt(dir: string): boolean {
-  if (process.platform === 'win32') return true
-  const key = resolve(dir)
-  const cached = caseInsensitiveFsCache.get(key)
-  if (cached !== undefined) return cached
-  let result = false
-  try {
-    const flipped = flipLastAlphaCase(key)
-    if (flipped !== key) {
-      const fs = getFsImplementation()
-      const original = fs.statSync(key)
-      const alt = fs.statSync(flipped)
-      result = original.ino === alt.ino && original.dev === alt.dev
-    }
-  } catch {
-    // The case-flipped path does not exist → the volume is case-sensitive.
-    result = false
-  }
-  caseInsensitiveFsCache.set(key, result)
-  return result
-}
-
-/**
- * Compare two filesystem paths honoring the case sensitivity of the volume
- * backing `probeDir` (the directory both paths live under). On a
- * case-insensitive volume a case-only difference means the same directory; on
- * case-sensitive volumes such paths are genuinely distinct, so an unconditional
- * lowercase comparison would wrongly collapse them.
- */
-function pathsEqualForFs(a: string, b: string, probeDir: string): boolean {
-  return isCaseInsensitiveFsAt(probeDir)
-    ? a.toLowerCase() === b.toLowerCase()
-    : a === b
 }
 
 /**
@@ -2123,12 +2062,23 @@ export async function removeMarketplaceSource(
   let cachePath: string | null = null
   if (!entry || !isLocalMarketplaceSource(entry.source)) {
     const configuredPath = entry?.installLocation ?? name.toLowerCase()
-    const resolvedPath = resolvePathWithinBase(cacheDir, configuredPath, {
-      allowBase: false,
-    })
-    cachePath = existsSync(resolvedPath)
-      ? validatePathWithinBase(cacheDir, configuredPath, { allowBase: false })
-      : resolvedPath
+    try {
+      const resolvedPath = resolvePathWithinBase(cacheDir, configuredPath, {
+        allowBase: false,
+      })
+      cachePath = existsSync(resolvedPath)
+        ? validatePathWithinBase(cacheDir, configuredPath, { allowBase: false })
+        : resolvedPath
+    } catch (error) {
+      if (pathsEqualForFs(resolve(configuredPath), resolve(cacheDir), cacheDir)) {
+        throw error
+      }
+      logForDebugging(
+        `Skipping cache cleanup for marketplace '${name}': ${errorMessage(error)}`,
+        { level: 'warn' },
+      )
+      cachePath = null
+    }
   }
 
   // Seed-registered marketplaces are admin-baked into the container — removing
@@ -2240,6 +2190,14 @@ export async function removeMarketplaceSource(
       }
     })
     if (finalization.finalized) break
+    if (
+      currentSnapshot.pluginIds.length === 0 &&
+      finalization.snapshot.pluginIds.length === 0
+    ) {
+      throw new Error(
+        'Marketplace removal could not be finalized with no plugin registrations remaining; retry removal after concurrent plugin changes settle',
+      )
+    }
     if (currentSnapshot.pluginIds.length > 0) {
       assertMarketplaceCleanupProgress(currentSnapshot, finalization.snapshot)
     }
@@ -2883,5 +2841,5 @@ export const _test = {
   isCaseInsensitiveFsAt,
   pathsEqualForFs,
   buildMarketplaceAutoUpdatePatch,
-  _clearCaseInsensitiveFsCache: () => caseInsensitiveFsCache.clear(),
+  _clearCaseInsensitiveFsCache: clearCaseInsensitiveFsCacheForTesting,
 }

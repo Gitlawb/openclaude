@@ -27,7 +27,6 @@ export type ModelPickerDiscoveryState = {
 export type ModelPickerPersistence = {
   settingsPatch: SettingsJson;
   effortValue: EffortLevel | undefined;
-  previousEffortLevel: SettingsJson['effortLevel'];
   wroteEffort: boolean;
 };
 export type Props = {
@@ -329,7 +328,6 @@ export function ModelPicker(t0) {
             effortLevel: persistable
           } : {},
           effortValue: effortLevel,
-          previousEffortLevel,
           wroteEffort: persistable !== undefined
         };
       }

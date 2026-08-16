@@ -497,6 +497,21 @@ async function runPermissionRequestHooksForHeadlessAgent(
         )
         if (permissionUpdates.length) {
           const persistence = persistPermissionUpdates(permissionUpdates)
+          const appliedUpdates = persistence.appliedUpdates
+          if (appliedUpdates.length > 0) {
+            let updatedContext = context.getAppState().toolPermissionContext
+            context.setAppState(prev => {
+              updatedContext = applyPermissionUpdatesToLiveContext(
+                prev.toolPermissionContext,
+                appliedUpdates,
+              )
+              if (prev.toolPermissionContext === updatedContext) return prev
+              return {
+                ...prev,
+                toolPermissionContext: updatedContext,
+              }
+            })
+          }
           if (persistence.failedUpdates.length > 0) {
             const message = permissionPersistenceFailureMessage(
               persistence.failedUpdates,
@@ -511,7 +526,6 @@ async function runPermissionRequestHooksForHeadlessAgent(
               },
             }
           }
-          const appliedUpdates = persistence.appliedUpdates
           if (appliedUpdates.length === 0) {
             return {
               behavior: 'allow',
@@ -522,20 +536,6 @@ async function runPermissionRequestHooksForHeadlessAgent(
               },
             }
           }
-          // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = appliedUpdates
-          let updatedContext = context.getAppState().toolPermissionContext
-          context.setAppState(prev => {
-            updatedContext = applyPermissionUpdatesToLiveContext(
-              prev.toolPermissionContext,
-              updatedPermissions,
-            )
-            if (prev.toolPermissionContext === updatedContext) return prev
-            return {
-              ...prev,
-              toolPermissionContext: updatedContext,
-            }
-          })
         }
         return {
           behavior: 'allow',

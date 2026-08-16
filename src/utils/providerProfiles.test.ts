@@ -149,7 +149,7 @@ afterEach(() => {
 async function importFreshProviderProfileModules(options?: {
   saveGlobalConfig?: (
     updater: (current: MockConfigState) => MockConfigState,
-  ) => void
+  ) => boolean | void
 }) {
   mock.restore()
   const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
@@ -169,9 +169,10 @@ async function importFreshProviderProfileModules(options?: {
       updater: (current: MockConfigState) => MockConfigState,
     ) => {
       if (options?.saveGlobalConfig) {
-        options.saveGlobalConfig(updater)
+        return options.saveGlobalConfig(updater)
       } else {
         mockConfigState = updater(mockConfigState)
+        return true
       }
     },
   }))
@@ -1804,6 +1805,14 @@ describe('Anthropic sentinel survives profile management (#1426)', () => {
       ...current,
       providerProfiles: [originalProfile],
       activeProviderProfileId: originalProfile.id,
+      openaiAdditionalModelOptionsCache: [
+        { value: 'saved-model', label: 'Saved model' },
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        [originalProfile.id]: [
+          { value: 'profile-model', label: 'Profile model' },
+        ],
+      },
     }))
 
     expect(() =>
@@ -1815,6 +1824,97 @@ describe('Anthropic sentinel survives profile management (#1426)', () => {
 
     expect(mockConfigState.providerProfiles).toEqual([originalProfile])
     expect(mockConfigState.activeProviderProfileId).toBe(originalProfile.id)
+    expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+      { value: 'saved-model', label: 'Saved model' },
+    ])
+    expect(mockConfigState.openaiAdditionalModelOptionsCacheByProfile).toEqual({
+      [originalProfile.id]: [
+        { value: 'profile-model', label: 'Profile model' },
+      ],
+    })
+  })
+
+  test('addProviderProfile throws when the profile is not persisted', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: () => undefined,
+    })
+
+    expect(() =>
+      addProviderProfile({
+        provider: 'openai',
+        name: 'Not Persisted',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    ).toThrow('was not saved to the global config')
+  })
+
+  test('updateProviderProfile rejects a write dropped after running its updater', async () => {
+    const originalProfile = buildProfile({ id: 'saved_one', name: 'Saved One' })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [originalProfile],
+      activeProviderProfileId: originalProfile.id,
+    }))
+    const { updateProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: updater => {
+        updater(mockConfigState)
+        return false
+      },
+    })
+
+    expect(() =>
+      updateProviderProfile(originalProfile.id, {
+        ...originalProfile,
+        name: 'Dropped Update',
+      }),
+    ).toThrow('was not saved to the global config')
+    expect(mockConfigState.providerProfiles).toEqual([originalProfile])
+  })
+
+  test('updateProviderProfile keeps the original rollback snapshot across updater retries', async () => {
+    const originalProfile = buildProfile({ id: 'saved_one', name: 'Saved One' })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [originalProfile],
+      activeProviderProfileId: originalProfile.id,
+      openaiAdditionalModelOptionsCache: [
+        { value: 'saved-model', label: 'Saved model' },
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        [originalProfile.id]: [
+          { value: 'profile-model', label: 'Profile model' },
+        ],
+      },
+    }))
+    const { updateProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: updater => {
+        const first = updater(mockConfigState)
+        mockConfigState = updater(first)
+        return true
+      },
+    })
+    const blockedConfigDir = join(testConfigDir!, 'retry-not-a-directory')
+    writeFileSync(blockedConfigDir, 'blocked', 'utf8')
+    process.env.CLAUDE_CONFIG_DIR = blockedConfigDir
+    process.env.OPENCLAUDE_CONFIG_DIR = blockedConfigDir
+
+    expect(() =>
+      updateProviderProfile(originalProfile.id, {
+        ...originalProfile,
+        name: 'Cannot Activate',
+      }),
+    ).toThrow()
+    expect(mockConfigState.providerProfiles).toEqual([originalProfile])
+    expect(mockConfigState.activeProviderProfileId).toBe(originalProfile.id)
+    expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+      { value: 'saved-model', label: 'Saved model' },
+    ])
+    expect(mockConfigState.openaiAdditionalModelOptionsCacheByProfile).toEqual({
+      [originalProfile.id]: [
+        { value: 'profile-model', label: 'Profile model' },
+      ],
+    })
   })
 
   test('addProviderProfile with makeActive:false keeps the Anthropic sentinel active', async () => {

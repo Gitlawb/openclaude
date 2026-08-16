@@ -118,7 +118,15 @@ export function onChangeAppState({
     const modelUpdate =
       precommittedModel !== NO_PRECOMMITTED_MODEL &&
       precommittedModel === newState.mainLoopModel
-        ? { error: null, written: true }
+        ? ({
+            status: 'committed',
+            bytesOnDisk: true,
+            committed: true,
+            cacheInvalidated: true,
+            sessionNotified: false,
+            error: null,
+            written: true,
+          } satisfies ReturnType<typeof updateSettingsForSourceWithResult>)
         : updateUserSettings('userSettings', {
             model: newState.mainLoopModel ?? undefined,
           })

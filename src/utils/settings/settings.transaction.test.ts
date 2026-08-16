@@ -6,6 +6,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -106,6 +107,25 @@ test('transaction wrapper forwards the publication callback exactly once', () =>
     })
     expect(published).toBe(1)
   } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('a newly created settings file is private regardless of process umask', () => {
+  if (process.platform === 'win32') return
+  const tempDir = realpathSync(
+    mkdtempSync(join(tmpdir(), 'openclaude-settings-new-mode-')),
+  )
+  const settingsPath = join(tempDir, 'settings.json')
+  const previousUmask = process.umask(0)
+
+  try {
+    runSettingsWriteTransactionSync(settingsPath, ({ writeFile }) => {
+      writeFile('{"private":true}\n')
+    })
+    expect(statSync(settingsPath).mode & 0o777).toBe(0o600)
+  } finally {
+    process.umask(previousUmask)
     rmSync(tempDir, { recursive: true, force: true })
   }
 })

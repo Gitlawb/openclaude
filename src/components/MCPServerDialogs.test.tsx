@@ -92,7 +92,7 @@ afterEach(() => {
   }
 })
 
-test.each(['yes', 'yes_all', 'no'] as const)(
+test.each(['yes', 'yes_all'] as const)(
   'single-server %s keeps the dialog open when persistence fails',
   async response => {
   const { MCPServerApprovalDialog } = await import(
@@ -127,7 +127,35 @@ test.each(['yes', 'yes_all', 'no'] as const)(
   },
 )
 
-test.each(['submit', 'cancel'] as const)(
+test('single-server decline remains dismissible when persistence fails', async () => {
+  // The compiled component has a module-local memo cache, so isolate each case.
+  const { MCPServerApprovalDialog } = await import(
+    `./MCPServerApprovalDialog.js?failed-decline=${Date.now()}`
+  )
+  const onDone = mock(() => {})
+  const { stdout, stdin } = createOutput()
+  const instance = await render(
+    <MCPServerApprovalDialog serverName="calendar" onDone={onDone} />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await waitFor(() => approvalSelectProps !== undefined)
+    approvalSelectProps?.onChange('no')
+    await waitFor(() => onDone.mock.calls.length === 1)
+    expect(updateSettingsSpy).toHaveBeenCalled()
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test.each(['submit'] as const)(
   'multi-server %s keeps the dialog open when persistence fails',
   async action => {
   const { MCPServerMultiselectDialog } = await import(
@@ -168,3 +196,109 @@ test.each(['submit', 'cancel'] as const)(
   }
   },
 )
+
+test('multi-server cancel remains dismissible when persistence fails', async () => {
+  // The compiled component has a module-local memo cache, so isolate each case.
+  const { MCPServerMultiselectDialog } = await import(
+    `./MCPServerMultiselectDialog.js?failed-cancel=${Date.now()}`
+  )
+  const onDone = mock(() => {})
+  const { stdout, stdin } = createOutput()
+  const instance = await render(
+    <MCPServerMultiselectDialog
+      serverNames={['calendar', 'filesystem']}
+      onDone={onDone}
+    />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await waitFor(() => multiselectProps !== undefined)
+    multiselectProps?.onCancel()
+    await waitFor(() => onDone.mock.calls.length === 1)
+    expect(updateSettingsSpy).toHaveBeenCalled()
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('mixed multi-server approval removes normalized disabled-list overlaps', async () => {
+  const { MCPServerMultiselectDialog } = await import(
+    `./MCPServerMultiselectDialog.js?mixed-selection=${Date.now()}`
+  )
+  const { stdout, stdin } = createOutput()
+  const instance = await render(
+    <MCPServerMultiselectDialog
+      serverNames={['foo.bar', 'filesystem']}
+      onDone={() => {}}
+    />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await waitFor(() => multiselectProps !== undefined)
+    multiselectProps?.onSubmit(['foo.bar'])
+
+    const updater = updateSettingsSpy.mock.calls[0]?.[1]
+    expect(updater).toBeDefined()
+    expect(
+      updater?.({
+        enabledMcpjsonServers: ['existing'],
+        disabledMcpjsonServers: ['foo_bar'],
+      }),
+    ).toEqual({
+      enabledMcpjsonServers: ['existing', 'foo.bar'],
+      disabledMcpjsonServers: ['filesystem'],
+    })
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('single-server approval removes a normalized disabled-list overlap', async () => {
+  const { MCPServerApprovalDialog } = await import(
+    `./MCPServerApprovalDialog.js?normalized-approval=${Date.now()}`
+  )
+  const { stdout, stdin } = createOutput()
+  const instance = await render(
+    <MCPServerApprovalDialog serverName="foo.bar" onDone={() => {}} />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await waitFor(() => approvalSelectProps !== undefined)
+    approvalSelectProps?.onChange('yes')
+
+    const updater = updateSettingsSpy.mock.calls[0]?.[1]
+    expect(updater).toBeDefined()
+    expect(
+      updater?.({
+        enabledMcpjsonServers: [],
+        disabledMcpjsonServers: ['foo_bar', 'filesystem'],
+      }),
+    ).toEqual({
+      enabledMcpjsonServers: ['foo.bar'],
+      disabledMcpjsonServers: ['filesystem'],
+    })
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})

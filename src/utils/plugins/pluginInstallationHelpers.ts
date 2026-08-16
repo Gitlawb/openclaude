@@ -31,6 +31,7 @@ import {
 } from './dependencyResolver.js'
 import {
   addInstalledPlugin,
+  compareAndSwapPluginInstallation,
   getGitCommitSha,
   type PluginInstallationMutation,
 } from './installedPluginsManager.js'
@@ -88,6 +89,19 @@ export function getCurrentTimestamp(): string {
  */
 export { validatePathWithinBase } from './pathConfinement.js'
 
+/** Return the directory local plugin sources are relative to. */
+export function getMarketplaceSourceBasePath(
+  marketplaceInstallLocation: string,
+): string {
+  try {
+    return getFsImplementation().statSync(marketplaceInstallLocation).isFile()
+      ? dirname(marketplaceInstallLocation)
+      : marketplaceInstallLocation
+  } catch {
+    return marketplaceInstallLocation
+  }
+}
+
 /**
  * Cache a plugin (local or external) and add it to installed_plugins.json
  *
@@ -124,10 +138,8 @@ export async function cacheAndRegisterPlugin(
     if (!localSourceBasePath) {
       throw new Error(`Missing marketplace root for local plugin ${pluginId}`)
     }
-    validatedLocalSourcePath = validatePathWithinBase(
-      localSourceBasePath,
-      entry.source,
-    )
+    const marketplaceBase = getMarketplaceSourceBasePath(localSourceBasePath)
+    validatedLocalSourcePath = validatePathWithinBase(marketplaceBase, entry.source)
     if (
       localSourcePath !== undefined &&
       resolve(localSourcePath) !== validatedLocalSourcePath
@@ -429,7 +441,78 @@ export async function installResolvedPlugin({
     }
   }
 
-  // ── ACTION: write entire closure to settings in one call ──
+  // Resolve and validate every local source before committing enabledPlugins.
+  // A bad dependency path must not leave settings enabled for an installation
+  // that can never be materialized.
+  const materializationPlan: Array<{
+    id: string
+    info: {
+      entry: PluginMarketplaceEntry
+      marketplaceInstallLocation?: string
+    }
+    localSourcePath?: string
+  }> = []
+  for (const id of resolution.closure) {
+    let info:
+      | {
+          entry: PluginMarketplaceEntry
+          marketplaceInstallLocation?: string
+        }
+      | undefined = depInfo.get(id)
+    if (!info && id === pluginId) {
+      const located = await getPluginById(id)
+      info = located
+        ? {
+            entry,
+            marketplaceInstallLocation: located.marketplaceInstallLocation,
+          }
+        : { entry }
+    }
+    if (!info) continue
+
+    let localSourcePath: string | undefined
+    if (isLocalPluginSource(info.entry.source)) {
+      if (!info.marketplaceInstallLocation) {
+        return {
+          ok: false,
+          reason: 'local-source-no-location',
+          pluginName: info.entry.name,
+        }
+      }
+      localSourcePath = validatePathWithinBase(
+        getMarketplaceSourceBasePath(info.marketplaceInstallLocation),
+        info.entry.source,
+      )
+    }
+    materializationPlan.push({ id, info, localSourcePath })
+  }
+
+  // ── Materialize before publishing enabled state ──
+  // A source can disappear or change after prevalidation. Do not claim the
+  // closure is enabled until every member has a registered installation.
+  const projectPath = scope !== 'user' ? getCwd() : undefined
+  const registrations: Array<{
+    id: string
+    mutation: PluginInstallationMutation
+  }> = []
+  try {
+    for (const { id, info, localSourcePath } of materializationPlan) {
+      const { registration } = await cacheAndRegisterPlugin(
+        id,
+        info.entry,
+        scope,
+        projectPath,
+        localSourcePath,
+        info.marketplaceInstallLocation,
+      )
+      registrations.push({ id, mutation: registration })
+    }
+  } catch (error) {
+    rollbackPluginRegistrations(registrations, scope, projectPath)
+    throw error
+  }
+
+  // ── ACTION: publish the entire closure to settings in one call ──
   const closureEnabled: Record<string, true> = {}
   for (const id of resolution.closure) closureEnabled[id] = true
   const result = updateSettingsForSourceWithFreshSettings(
@@ -442,41 +525,12 @@ export async function installResolvedPlugin({
     }),
   )
   if (!wasSettingsUpdateCommitted(result)) {
+    rollbackPluginRegistrations(registrations, scope, projectPath)
     return {
       ok: false,
       reason: 'settings-write-failed',
       message: result.error?.message ?? 'Settings update was not written',
     }
-  }
-
-  // ── Materialize: cache each closure member ──
-  const projectPath = scope !== 'user' ? getCwd() : undefined
-  for (const id of resolution.closure) {
-    let info = depInfo.get(id)
-    // Root wasn't pre-seeded (caller didn't pass marketplaceInstallLocation
-    // for a non-local source). Fetch now; it's needed for the cache write.
-    if (!info && id === pluginId) {
-      const mktLocation = (await getPluginById(id))?.marketplaceInstallLocation
-      if (mktLocation) info = { entry, marketplaceInstallLocation: mktLocation }
-    }
-    if (!info) continue
-
-    let localSourcePath: string | undefined
-    const { source } = info.entry
-    if (isLocalPluginSource(source)) {
-      localSourcePath = validatePathWithinBase(
-        info.marketplaceInstallLocation,
-        source,
-      )
-    }
-    await cacheAndRegisterPlugin(
-      id,
-      info.entry,
-      scope,
-      projectPath,
-      localSourcePath,
-      info.marketplaceInstallLocation,
-    )
   }
 
   clearAllCaches()
@@ -485,6 +539,25 @@ export async function installResolvedPlugin({
     resolution.closure.filter(id => id !== pluginId),
   )
   return { ok: true, closure: resolution.closure, depNote }
+}
+
+function rollbackPluginRegistrations(
+  registrations: Array<{
+    id: string
+    mutation: PluginInstallationMutation
+  }>,
+  scope: PluginScope,
+  projectPath?: string,
+): void {
+  for (const { id, mutation } of registrations.reverse()) {
+    compareAndSwapPluginInstallation(
+      id,
+      scope,
+      projectPath,
+      mutation.current,
+      mutation.previous,
+    )
+  }
 }
 
 /**

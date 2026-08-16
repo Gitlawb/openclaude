@@ -4,6 +4,9 @@ import { handleReloadSettingsDownloadResult } from '../../services/settingsSync/
 const notified: string[] = []
 let refreshed = 0
 const scenario = process.argv[2] ?? 'partial'
+if (!['partial', 'fetch-failed', 'prepare-failed'].includes(scenario)) {
+  throw new Error(`Unknown reload notification scenario: ${scenario}`)
+}
 
 mock.module('bun:bundle', () => ({
   feature: (name: string) => name === 'DOWNLOAD_USER_SETTINGS',

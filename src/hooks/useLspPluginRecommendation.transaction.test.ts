@@ -13,6 +13,7 @@ import * as pluginInstallationHelpers from '../utils/plugins/pluginInstallationH
 import * as settingsModule from '../utils/settings/settings.js'
 
 let defaultMarketplaceRoot: string | undefined
+const symlinkTest = process.platform === 'win32' ? test.skip : test
 
 beforeEach(async () => {
   await acquireSharedMutationLock(
@@ -58,7 +59,7 @@ test('rejects a local recommendation source outside its marketplace root', async
   expect(cacheAndRegister).not.toHaveBeenCalled()
 })
 
-test('rejects a local recommendation source symlinked outside its marketplace root', async () => {
+symlinkTest('rejects a local recommendation source symlinked outside its marketplace root', async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), 'lsp-plugin-source-'))
   const marketplaceRoot = join(tempRoot, 'marketplace')
   const outsideRoot = join(tempRoot, 'outside')

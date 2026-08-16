@@ -51,6 +51,7 @@ test('plugin option cleanup reports secure-storage deletion failure', () => {
 
 test('plugin option cleanup invalidates plaintext cache before secure cleanup fails', () => {
   loadPluginOptions.cache?.set?.('demo@market', { stale: 'value' })
+  expect(loadPluginOptions.cache?.has?.('demo@market')).toBe(true)
 
   const result = deletePluginOptions('demo@market', {
     updateUserSettings: mock((_source, updater) => {

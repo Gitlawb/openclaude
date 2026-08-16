@@ -24,6 +24,7 @@ import {
   updateSettingsForSourceWithFreshSettings,
   wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
+import type { SettingsJson } from '../../utils/settings/types.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 const FORCE_RELOGIN_ARGS = new Set([
@@ -109,14 +110,13 @@ export function hasExistingGithubModelsLoginToken(
 export function buildGithubOnboardingSettingsEnv(
   model: string,
   gheUrl?: string,
-): Record<string, string> {
-  const deleted = undefined as unknown as string
+): Record<string, string | undefined> {
   const env = Object.fromEntries(
-    [...PROVIDER_SPECIFIC_KEYS].map(key => [key, deleted]),
-  ) as Record<string, string>
+    [...PROVIDER_SPECIFIC_KEYS].map(key => [key, undefined]),
+  ) as Record<string, string | undefined>
   env.CLAUDE_CODE_USE_GITHUB = '1'
   env.OPENAI_MODEL = model
-  env.GITHUB_ENTERPRISE_URL = gheUrl ?? deleted
+  env.GITHUB_ENTERPRISE_URL = gheUrl
   return env
 }
 
@@ -147,7 +147,7 @@ function mergeUserSettingsEnv(
         env: {
           ...(freshSettings.env ?? {}),
           ...buildGithubOnboardingSettingsEnv(model, gheUrl),
-        },
+        } as SettingsJson['env'],
       }
     },
   )

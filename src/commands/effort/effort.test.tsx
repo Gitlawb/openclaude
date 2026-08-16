@@ -9,6 +9,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { settingsWriteResult } from '../../test/settingsWriteResult.js'
 import * as actualAuth from '../../utils/auth.js'
 import * as actualModelSupportOverrides from '../../utils/model/modelSupportOverrides.js'
 import * as actualProviders from '../../utils/model/providers.js'
@@ -17,10 +18,12 @@ import * as actualThinking from '../../utils/thinking.js'
 import * as actualGrowthbook from '../../services/analytics/growthbook.js'
 
 const originalEffortEnv = process.env.CLAUDE_CODE_EFFORT_LEVEL
+const originalOpenAIProviderEnv = process.env.CLAUDE_CODE_USE_OPENAI
 
 beforeEach(async () => {
   await acquireSharedMutationLock('commands/effort/effort.test.tsx')
   delete process.env.CLAUDE_CODE_EFFORT_LEVEL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
 })
 
 afterEach(() => {
@@ -31,16 +34,22 @@ afterEach(() => {
     } else {
       process.env.CLAUDE_CODE_EFFORT_LEVEL = originalEffortEnv
     }
+    if (originalOpenAIProviderEnv === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = originalOpenAIProviderEnv
+    }
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 async function importFreshEffortCommandModule(
-  writeResult = { error: null as Error | null, written: true },
+  writeResult: Parameters<typeof settingsWriteResult>[0] = { written: true },
 ): Promise<
   typeof import('./effort.js')
 > {
+  const completeWriteResult = settingsWriteResult(writeResult)
   mock.module('../../utils/model/providers.js', () => ({
     ...actualProviders,
     getAPIProvider: () => 'firstParty',
@@ -51,8 +60,8 @@ async function importFreshEffortCommandModule(
   }))
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettings,
-    updateSettingsForSource: () => writeResult,
-    updateSettingsForSourceWithResult: () => writeResult,
+    updateSettingsForSource: () => completeWriteResult,
+    updateSettingsForSourceWithResult: () => completeWriteResult,
   }))
   mock.module('../../utils/auth.js', () => ({
     ...actualAuth,

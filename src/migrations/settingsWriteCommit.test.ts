@@ -86,7 +86,7 @@ test('bypass-permission migration keeps the legacy flag after a rejected write',
   const saveGlobalConfig = spyOn(
     configModule,
     'saveGlobalConfig',
-  ).mockReturnValue(undefined)
+  ).mockReturnValue(false)
   spyOn(
     settingsModule,
     'hasSkipDangerousModePermissionPrompt',

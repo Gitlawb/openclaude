@@ -23,6 +23,7 @@ import { lazySchema } from './lazySchema.js'
 import * as lockfile from './lockfile.js'
 import { logError } from './log.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import { normalizeSandboxDomainPattern } from './sandbox/domainValidation.js'
 import type { BackendType } from './swarm/backends/types.js'
 import { TEAM_LEAD_NAME } from './swarm/constants.js'
 import { sanitizePathComponent } from './tasks.js'
@@ -616,13 +617,17 @@ export function createSandboxPermissionRequestMessage(params: {
   workerColor?: string
   host: string
 }): SandboxPermissionRequestMessage {
+  const host = normalizeSandboxDomainPattern(params.host)
+  if (!host) {
+    throw new Error(`Invalid sandbox domain pattern: ${params.host}`)
+  }
   return {
     type: 'sandbox_permission_request',
     requestId: params.requestId,
     workerId: params.workerId,
     workerName: params.workerName,
     workerColor: params.workerColor,
-    hostPattern: { host: params.host },
+    hostPattern: { host },
     createdAt: Date.now(),
   }
 }
@@ -635,10 +640,14 @@ export function createSandboxPermissionResponseMessage(params: {
   host: string
   allow: boolean
 }): SandboxPermissionResponseMessage {
+  const host = normalizeSandboxDomainPattern(params.host)
+  if (!host) {
+    throw new Error(`Invalid sandbox domain pattern: ${params.host}`)
+  }
   return {
     type: 'sandbox_permission_response',
     requestId: params.requestId,
-    host: params.host,
+    host,
     allow: params.allow,
     timestamp: new Date().toISOString(),
   }
@@ -652,7 +661,12 @@ export function isSandboxPermissionRequest(
 ): SandboxPermissionRequestMessage | null {
   try {
     const parsed = jsonParse(messageText)
-    if (parsed && parsed.type === 'sandbox_permission_request') {
+    if (
+      parsed &&
+      parsed.type === 'sandbox_permission_request' &&
+      typeof parsed.hostPattern?.host === 'string' &&
+      normalizeSandboxDomainPattern(parsed.hostPattern.host)
+    ) {
       return parsed as SandboxPermissionRequestMessage
     }
   } catch {
@@ -669,7 +683,12 @@ export function isSandboxPermissionResponse(
 ): SandboxPermissionResponseMessage | null {
   try {
     const parsed = jsonParse(messageText)
-    if (parsed && parsed.type === 'sandbox_permission_response') {
+    if (
+      parsed &&
+      parsed.type === 'sandbox_permission_response' &&
+      typeof parsed.host === 'string' &&
+      normalizeSandboxDomainPattern(parsed.host)
+    ) {
       return parsed as SandboxPermissionResponseMessage
     }
   } catch {

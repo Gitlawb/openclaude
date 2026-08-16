@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import React from 'react'
 
 import { render } from '../../../ink.js'
+import { getDefaultAppState } from '../../../state/AppState.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -18,8 +19,19 @@ type SelectProps = {
 
 let selectProps: SelectProps | undefined
 let persistPermissionUpdateSpy: ReturnType<typeof spyOn>
+let applyPermissionUpdateSpy: ReturnType<typeof spyOn>
 
 const waitFor = createWaitForCondition('permission rule test condition')
+
+function initialPermissionContext() {
+  return {
+    ...getDefaultAppState().toolPermissionContext,
+    additionalWorkingDirectories: new Map(),
+    alwaysAllowRules: {},
+    alwaysDenyRules: {},
+    alwaysAskRules: {},
+  } as never
+}
 
 beforeEach(async () => {
   await acquireSharedMutationLock(
@@ -32,7 +44,10 @@ beforeEach(async () => {
       return null
     }) as never,
   )
-  spyOn(permissionUpdateModule, 'applyPermissionUpdate').mockReturnValue(
+  applyPermissionUpdateSpy = spyOn(
+    permissionUpdateModule,
+    'applyPermissionUpdate',
+  ).mockReturnValue(
     {} as never,
   )
   persistPermissionUpdateSpy = spyOn(
@@ -77,7 +92,7 @@ test('failed permission persistence remains visible without advancing runtime st
       onCancel={() => {}}
       ruleValues={[{ toolName: 'Bash', ruleContent: 'echo *' }]}
       ruleBehavior="allow"
-      initialContext={{} as never}
+      initialContext={initialPermissionContext()}
       setToolPermissionContext={setToolPermissionContext}
     />,
     {
@@ -96,6 +111,60 @@ test('failed permission persistence remains visible without advancing runtime st
     expect(output).toContain('Could not save permission rules')
     expect(onAddRules).not.toHaveBeenCalled()
     expect(setToolPermissionContext).not.toHaveBeenCalled()
+  } finally {
+    instance.unmount()
+    stdin.end()
+    stdout.end()
+  }
+})
+
+test('committed permission persistence advances runtime state', async () => {
+  persistPermissionUpdateSpy.mockReturnValue(true)
+  applyPermissionUpdateSpy.mockReturnValue(initialPermissionContext())
+  const { AddPermissionRules } = await import(
+    `./AddPermissionRules.js?committed=${Date.now()}`
+  )
+  const onAddRules = mock(() => {})
+  const setToolPermissionContext = mock(() => {})
+  let output = ''
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode(mode: boolean): void
+    ref(): void
+    unref(): void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+  ;(stdout as unknown as { columns: number }).columns = 120
+  stdout.on('data', chunk => {
+    output += chunk.toString()
+  })
+  const instance = await render(
+    <AddPermissionRules
+      onAddRules={onAddRules}
+      onCancel={() => {}}
+      ruleValues={[{ toolName: 'Bash', ruleContent: 'echo *' }]}
+      ruleBehavior="allow"
+      initialContext={initialPermissionContext()}
+      setToolPermissionContext={setToolPermissionContext}
+    />,
+    {
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await waitFor(() => selectProps !== undefined)
+    selectProps?.onChange('userSettings')
+    await waitFor(() => onAddRules.mock.calls.length === 1)
+
+    expect(setToolPermissionContext).toHaveBeenCalled()
+    expect(output).not.toContain('Could not save permission rules')
   } finally {
     instance.unmount()
     stdin.end()

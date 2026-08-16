@@ -831,7 +831,9 @@ function writeSettingsTargetAtomically(
       encoding: 'utf8',
       flag: 'wx',
       flush: true,
-      ...(targetMetadata ? { mode: 0o600 } : {}),
+      // First creation must not inherit a permissive process umask. Existing
+      // targets restore their captured mode below.
+      mode: 0o600,
     })
     if (targetMetadata) {
       if (process.platform !== 'win32') {

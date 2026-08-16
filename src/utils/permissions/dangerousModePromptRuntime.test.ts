@@ -9,6 +9,7 @@ describe('dangerousModePromptRuntime', () => {
     let hasBypassAcceptance = false
     let hasFullAccessAcceptance = false
     let writeCommitted = true
+    let committedOverride: boolean | undefined
     const updates: Array<{
       source: string
       settings: Record<string, unknown>
@@ -22,14 +23,22 @@ describe('dangerousModePromptRuntime', () => {
         settings: Record<string, unknown>,
       ) => {
         updates.push({ source, settings })
-        return { error: null, written: writeCommitted }
+        return {
+          error: null,
+          written: writeCommitted,
+          committed: committedOverride ?? writeCommitted,
+        }
       },
       updateSettingsForSourceWithResult: (
         source: string,
         settings: Record<string, unknown>,
       ) => {
         updates.push({ source, settings })
-        return { error: null, written: writeCommitted }
+        return {
+          error: null,
+          written: writeCommitted,
+          committed: committedOverride ?? writeCommitted,
+        }
       },
       wasSettingsUpdateCommitted: (result: {
         written: boolean
@@ -81,6 +90,12 @@ describe('dangerousModePromptRuntime', () => {
     ])
 
     writeCommitted = false
+    expect(persistDangerousModeAcceptance('fullAccess')).toBe(
+      'Could not save dangerous mode acceptance',
+    )
+
+    writeCommitted = true
+    committedOverride = false
     expect(persistDangerousModeAcceptance('fullAccess')).toBe(
       'Could not save dangerous mode acceptance',
     )

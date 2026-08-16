@@ -137,10 +137,12 @@ describe('/smartroute command', () => {
   })
 
   test('setting a role reports persistence errors without mutating app state', async () => {
-    writeSpy.mockImplementation(() => ({
-      error: new Error('settings are read-only'),
-      written: false,
-    }))
+    writeSpy.mockImplementation(() =>
+      settingsWriteResult({
+        error: new Error('settings are read-only'),
+        written: false,
+      }),
+    )
     const ctx = makeContext()
     const res = expectText(await call('simple mini', ctx))
     expect(res.value).toContain('Failed to update smart routing settings: settings are read-only')

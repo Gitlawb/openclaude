@@ -99,7 +99,7 @@ export function RemoteEnvironmentDialog(t0) {
         }
       });
       if (!wasSettingsUpdateCommitted(result)) {
-        onDone("Error: Failed to save the default remote environment");
+        onDone(`Error: Failed to save the default remote environment: ${result.error?.message ?? "settings were not written"}`);
         return;
       }
       onDone(`Set default remote environment to ${chalk.bold(selectedEnv.name)} (${selectedEnv.environment_id})`);

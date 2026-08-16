@@ -119,6 +119,12 @@ type AddPermissionRulesDependencies = {
     typeof updateSettingsForSourceWithFreshSettingsOrNoop
 }
 
+type DeletePermissionRuleDependencies = {
+  getSettings?: typeof getSettingsForSource
+  updateFreshSettingsOrNoop?:
+    typeof updateSettingsForSourceWithFreshSettingsOrNoop
+}
+
 // Editable sources that can be modified (excludes policySettings and flagSettings)
 const EDITABLE_SOURCES: EditableSettingSource[] = [
   'userSettings',
@@ -133,6 +139,7 @@ const EDITABLE_SOURCES: EditableSettingSource[] = [
  */
 export function deletePermissionRuleFromSettings(
   rule: PermissionRuleFromEditableSettings,
+  dependencies?: DeletePermissionRuleDependencies,
 ): boolean {
   // Runtime check to ensure source is actually editable
   if (!EDITABLE_SOURCES.includes(rule.source as EditableSettingSource)) {
@@ -140,7 +147,9 @@ export function deletePermissionRuleFromSettings(
   }
 
   const ruleString = permissionRuleValueToString(rule.ruleValue)
-  const settingsData = getSettingsForSource(rule.source)
+  const settingsData = (dependencies?.getSettings ?? getSettingsForSource)(
+    rule.source,
+  )
 
   // If there's no settings data or permissions, nothing to do
   if (!settingsData || !settingsData.permissions) {
@@ -163,22 +172,22 @@ export function deletePermissionRuleFromSettings(
 
   try {
     let removed = false
-    const result = updateSettingsForSourceWithFreshSettingsOrNoop(
-      rule.source,
-      freshSettings => {
-        const freshRules = freshSettings.permissions?.[rule.ruleBehavior] ?? []
-        const filteredRules = freshRules.filter(
-          raw => normalizeEntry(raw) !== ruleString,
-        )
-        removed = filteredRules.length !== freshRules.length
-        if (!removed) return SETTINGS_UPDATE_NO_CHANGE
-        return {
-          permissions: {
-            [rule.ruleBehavior]: filteredRules,
-          },
-        }
-      },
-    )
+    const result = (
+      dependencies?.updateFreshSettingsOrNoop ??
+      updateSettingsForSourceWithFreshSettingsOrNoop
+    )(rule.source, freshSettings => {
+      const freshRules = freshSettings.permissions?.[rule.ruleBehavior] ?? []
+      const filteredRules = freshRules.filter(
+        raw => normalizeEntry(raw) !== ruleString,
+      )
+      removed = filteredRules.length !== freshRules.length
+      if (!removed) return SETTINGS_UPDATE_NO_CHANGE
+      return {
+        permissions: {
+          [rule.ruleBehavior]: filteredRules,
+        },
+      }
+    })
     if (!wasSettingsUpdateApplied(result)) {
       // Error already logged inside updateSettingsForSource
       return false

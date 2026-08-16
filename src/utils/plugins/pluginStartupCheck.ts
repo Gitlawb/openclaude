@@ -23,6 +23,7 @@ import {
 } from './pluginIdentifier.js'
 import {
   cacheAndRegisterPlugin,
+  getMarketplaceSourceBasePath,
   registerPluginInstallation,
   validatePathWithinBase,
 } from './pluginInstallationHelpers.js'
@@ -353,7 +354,7 @@ export async function installSelectedPlugins(
           {
             pluginId,
             installPath: dependencies.validatePathWithinBase(
-              marketplaceInstallLocation,
+              getMarketplaceSourceBasePath(marketplaceInstallLocation),
               entry.source,
             ),
             version: entry.version,
@@ -394,13 +395,23 @@ export async function installSelectedPlugins(
           }
           // Compare and restore under the installed-plugins file lock. A peer
           // replacement that lands after our registration is preserved.
-          dependencies.compareAndSwapPluginInstallation(
+          const restored = dependencies.compareAndSwapPluginInstallation(
             pluginId,
             scope,
             projectPath,
             snapshot.registered,
             snapshot.before,
           )
+          if (!restored) {
+            const rollbackError = new Error(
+              `Plugin registration rollback for '${pluginId}' was skipped because the installation changed concurrently`,
+            )
+            const failure = failed.find(entry => entry.name === pluginId)
+            if (failure) {
+              failure.error += `; ${rollbackError.message}`
+            }
+            logError(rollbackError)
+          }
         } catch (error) {
           const rollbackMessage =
             error instanceof Error ? error.message : String(error)

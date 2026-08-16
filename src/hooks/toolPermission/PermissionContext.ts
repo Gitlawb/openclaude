@@ -200,6 +200,13 @@ function createPermissionContext(
         return { acceptedPermanentUpdates: false }
       }
       const persistence = persistPermissionUpdates(updatesToApply)
+      if (persistence.appliedUpdates.length > 0) {
+        const updatedContext = applyPermissionUpdatesToLiveContext(
+          latestAppState.toolPermissionContext,
+          persistence.appliedUpdates,
+        )
+        setToolPermissionContext(updatedContext)
+      }
       if (persistence.failedUpdates.length > 0) {
         return {
           acceptedPermanentUpdates: false,
@@ -211,11 +218,6 @@ function createPermissionContext(
       if (persistence.appliedUpdates.length === 0) {
         return { acceptedPermanentUpdates: false }
       }
-      const updatedContext = applyPermissionUpdatesToLiveContext(
-        latestAppState.toolPermissionContext,
-        persistence.appliedUpdates,
-      )
-      setToolPermissionContext(updatedContext)
       return {
         acceptedPermanentUpdates: persistence.appliedUpdates.some(update =>
           supportsPersistence(update.destination),
@@ -465,13 +467,17 @@ function createPermissionContext(
       const persistence =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
       if (persistence.failureMessage) {
-        return this.buildDeny(
-          persistence.failureMessage,
-          decisionReason ?? {
-            type: 'other',
-            reason: persistence.failureMessage,
+        this.logDecision(
+          {
+            decision: 'reject',
+            source: { type: 'user_reject', hasFeedback: false },
           },
+          { input: updatedInput, permissionPromptStartTimeMs },
         )
+        return this.buildDeny(persistence.failureMessage, {
+          type: 'other',
+          reason: persistence.failureMessage,
+        })
       }
       const finalRevalidation =
         await revalidatePlanModePermissionAllowWithRaceGuard(

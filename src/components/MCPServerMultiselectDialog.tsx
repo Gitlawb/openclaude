@@ -2,6 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import partition from 'lodash-es/partition.js';
 import React, { useCallback } from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
+import { normalizeNameForMCP } from '../services/mcp/normalization.js';
 import { Box, Text } from '../ink.js';
 import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -29,14 +30,19 @@ export function MCPServerMultiselectDialog(t0) {
         approved: approvedServers.length,
         rejected: rejectedServers.length
       });
-      const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
-        ...(approvedServers.length > 0 ? {
-          enabledMcpjsonServers: [...new Set([...(freshSettings.enabledMcpjsonServers ?? []), ...approvedServers])]
-        } : {}),
-        ...(rejectedServers.length > 0 ? {
-          disabledMcpjsonServers: [...new Set([...(freshSettings.disabledMcpjsonServers ?? []), ...rejectedServers])]
-        } : {})
-      }));
+      const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => {
+        const approvedNames = new Set(approvedServers.map(normalizeNameForMCP));
+        const enabledMcpjsonServers = deduplicateServerNames([...(freshSettings.enabledMcpjsonServers ?? []), ...approvedServers]);
+        const disabledMcpjsonServers = deduplicateServerNames([...(freshSettings.disabledMcpjsonServers ?? []).filter(server => !approvedNames.has(normalizeNameForMCP(server))), ...rejectedServers.filter(server => !approvedNames.has(normalizeNameForMCP(server)))]);
+        return {
+          ...(approvedServers.length > 0 ? {
+            enabledMcpjsonServers
+          } : {}),
+          ...(approvedServers.length > 0 || rejectedServers.length > 0 ? {
+            disabledMcpjsonServers
+          } : {})
+        };
+      });
       if (wasSettingsUpdateCommitted(result)) {
         onDone();
       } else {
@@ -60,6 +66,7 @@ export function MCPServerMultiselectDialog(t0) {
         onDone();
       } else {
         setSaveError(`Could not save MCP server preferences: ${result_0.error?.message ?? "settings were not written"}`);
+        onDone();
       }
     };
     $[3] = onDone;
@@ -123,6 +130,15 @@ export function MCPServerMultiselectDialog(t0) {
     t9 = $[21];
   }
   return t9;
+}
+function deduplicateServerNames(serverNames: string[]) {
+  const seen = new Set<string>();
+  return serverNames.filter(serverName => {
+    const normalizedName = normalizeNameForMCP(serverName);
+    if (seen.has(normalizedName)) return false;
+    seen.add(normalizedName);
+    return true;
+  });
 }
 function _temp(server_0) {
   return {

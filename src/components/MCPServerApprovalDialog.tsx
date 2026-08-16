@@ -1,6 +1,7 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
+import { normalizeNameForMCP } from '../services/mcp/normalization.js';
 import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
 import { Text } from '../ink.js';
@@ -28,7 +29,8 @@ export function MCPServerApprovalDialog(t0) {
         case "yes_all":
           {
             const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
-              enabledMcpjsonServers: [...new Set([...(freshSettings.enabledMcpjsonServers ?? []), serverName])],
+              enabledMcpjsonServers: deduplicateServerNames([...(freshSettings.enabledMcpjsonServers ?? []), serverName]),
+              disabledMcpjsonServers: (freshSettings.disabledMcpjsonServers ?? []).filter(disabledServer => normalizeNameForMCP(disabledServer) !== normalizeNameForMCP(serverName)),
               ...(value === "yes_all" ? {
                 enableAllProjectMcpServers: true
               } : {})
@@ -49,6 +51,7 @@ export function MCPServerApprovalDialog(t0) {
               onDone();
             } else {
               setSaveError(`Could not save MCP server preference: ${result_0.error?.message ?? "settings were not written"}`);
+              onDone();
             }
           }
       }
@@ -112,4 +115,13 @@ export function MCPServerApprovalDialog(t0) {
     t7 = $[13];
   }
   return t7;
+}
+function deduplicateServerNames(serverNames: string[]) {
+  const seen = new Set<string>();
+  return serverNames.filter(serverName => {
+    const normalizedName = normalizeNameForMCP(serverName);
+    if (seen.has(normalizedName)) return false;
+    seen.add(normalizedName);
+    return true;
+  });
 }

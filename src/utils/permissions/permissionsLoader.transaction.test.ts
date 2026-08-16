@@ -10,7 +10,10 @@ import {
   type SettingsWriteResult,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
-import { addPermissionRulesToSettings } from './permissionsLoader.js'
+import {
+  addPermissionRulesToSettings,
+  deletePermissionRuleFromSettings,
+} from './permissionsLoader.js'
 
 await acquireSharedMutationLock(
   'utils/permissions/permissionsLoader.transaction.test.ts',
@@ -132,4 +135,45 @@ test('a no-op with a transaction error is not accepted as persisted', () => {
   } finally {
     writeResult = settingsWriteResult({ written: true })
   }
+})
+
+test('a concurrent permission deletion is a lock-scoped no-op', () => {
+  expect(
+    deletePermissionRuleFromSettings(
+      {
+        source: 'userSettings',
+        ruleBehavior: 'allow',
+        ruleValue: { toolName: 'Read', ruleContent: 'base' },
+      },
+      {
+        getSettings: () => ({ permissions: { allow: ['Read(base)'] } }),
+        updateFreshSettingsOrNoop: (_source, createPatch) => {
+          const patch = createPatch({ permissions: { allow: [] } })
+          expect(patch).toBe(SETTINGS_UPDATE_NO_CHANGE)
+          return settingsWriteResult({ written: false, unchanged: true })
+        },
+      },
+    ),
+  ).toBe(false)
+})
+
+test('managed-rules-only policy rejects additions before writing', () => {
+  let writeCalled = false
+  expect(
+    addPermissionRulesToSettings(
+      {
+        ruleValues: [{ toolName: 'Read', ruleContent: 'managed' }],
+        ruleBehavior: 'allow',
+      },
+      'userSettings',
+      {
+        shouldAllowManagedRulesOnly: () => true,
+        updateFreshSettingsOrNoop: () => {
+          writeCalled = true
+          return settingsWriteResult({ written: true })
+        },
+      },
+    ),
+  ).toBe(false)
+  expect(writeCalled).toBe(false)
 })

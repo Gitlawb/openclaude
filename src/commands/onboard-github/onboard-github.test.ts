@@ -141,21 +141,24 @@ describe('onboarding auth precedence cleanup', () => {
     const settingsEnv = buildGithubOnboardingSettingsEnv('github:copilot')
     expect(settingsEnv.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(settingsEnv.OPENAI_MODEL).toBe('github:copilot')
-    expect(settingsEnv.OPENAI_API_KEYS).toBeUndefined()
-    expect(settingsEnv.OPENAI_API_KEY).toBeUndefined()
-    expect(settingsEnv.OPENAI_ORG).toBeUndefined()
-    expect(settingsEnv.OPENAI_PROJECT).toBeUndefined()
-    expect(settingsEnv.OPENAI_ORGANIZATION).toBeUndefined()
-    expect(settingsEnv.GITHUB_ENTERPRISE_URL).toBeUndefined()
-    expect(settingsEnv.GEMINI_API_KEY).toBeUndefined()
-    expect(settingsEnv.CLAUDE_CODE_USE_MISTRAL).toBeUndefined()
-    expect(settingsEnv.MISTRAL_BASE_URL).toBeUndefined()
-    expect(settingsEnv.MISTRAL_MODEL).toBeUndefined()
-    expect(settingsEnv.MISTRAL_API_KEY).toBeUndefined()
-    expect(settingsEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
-    expect(
-      settingsEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
-    ).toBeUndefined()
+    for (const key of [
+      'OPENAI_API_KEYS',
+      'OPENAI_API_KEY',
+      'OPENAI_ORG',
+      'OPENAI_PROJECT',
+      'OPENAI_ORGANIZATION',
+      'GITHUB_ENTERPRISE_URL',
+      'GEMINI_API_KEY',
+      'CLAUDE_CODE_USE_MISTRAL',
+      'MISTRAL_BASE_URL',
+      'MISTRAL_MODEL',
+      'MISTRAL_API_KEY',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+    ]) {
+      expect(Object.hasOwn(settingsEnv, key)).toBe(true)
+      expect(settingsEnv[key]).toBeUndefined()
+    }
   })
 
   test('persists Enterprise URL when switching to GitHub Enterprise', () => {

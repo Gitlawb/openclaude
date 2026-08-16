@@ -1285,6 +1285,11 @@ describe('headless plan-mode PermissionRequest hooks', () => {
         const updates: PermissionUpdate[] = [
           {
             type: 'addDirectories',
+            destination: 'session',
+            directories: ['/session-workspace'],
+          },
+          {
+            type: 'addDirectories',
             destination: 'userSettings',
             directories: ['/durable-workspace'],
           },
@@ -1341,6 +1346,11 @@ describe('headless plan-mode PermissionRequest hooks', () => {
           behavior: 'deny',
           message: expect.stringContaining('userSettings'),
         })
+        expect(
+          state
+            .getPermissionContext()
+            .additionalWorkingDirectories.has('/session-workspace'),
+        ).toBe(true)
         expect(
           state
             .getPermissionContext()

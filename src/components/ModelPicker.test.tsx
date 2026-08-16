@@ -515,7 +515,6 @@ test('keeps the picker open when the parent rejects the atomic model and effort 
       expect.objectContaining({
         settingsPatch: { effortLevel: 'high' },
         effortValue: 'high',
-        previousEffortLevel: 'low',
         wroteEffort: true,
       }),
     )
@@ -589,7 +588,6 @@ test('passes effort persistence to the parent for one coordinated transaction', 
       expect.objectContaining({
         settingsPatch: { effortLevel: 'high' },
         effortValue: 'high',
-        previousEffortLevel: 'low',
         wroteEffort: true,
       }),
     )

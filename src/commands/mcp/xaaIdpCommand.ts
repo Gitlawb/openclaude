@@ -258,7 +258,10 @@ export function registerMcpXaaIdpCommand(mcp: Command): void {
       })
       if (!wasSettingsUpdateCommitted(result)) {
         return cliError(
-          `Error writing settings: ${result.error?.message ?? 'settings were not written'}`,
+          `Error writing settings: ${result.error?.message ?? 'settings were not written'}.` +
+            (idp
+              ? ` Keychain entries for ${idp.issuer} were left in place; re-run 'openclaude mcp xaa clear' after the settings write succeeds.`
+              : ''),
         )
       }
       // Clear keychain only after settings write succeeded — otherwise a

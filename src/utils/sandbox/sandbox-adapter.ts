@@ -63,6 +63,7 @@ import { errorMessage } from '../errors.js'
 import { getClaudeTempDir } from '../permissions/filesystem.js'
 import type { PermissionRuleValue } from '../permissions/PermissionRule.js'
 import { ripgrepCommand } from '../ripgrep.js'
+import { normalizeSandboxDomainPattern } from './domainValidation.js'
 
 // Local copies to avoid circular dependency
 // (permissions.ts imports SandboxManager, bashPermissions.ts imports permissions.ts)
@@ -843,7 +844,7 @@ function refreshConfig(): void {
 
 /** Keep an approved domain in the sandbox runtime for this process only. */
 function addSessionAllowedDomain(domain: string): boolean {
-  const normalizedDomain = domain.trim()
+  const normalizedDomain = normalizeSandboxDomainPattern(domain)
   if (!normalizedDomain || shouldAllowManagedSandboxDomainsOnly()) return false
   sessionAllowedDomains.add(normalizedDomain)
   refreshConfig()

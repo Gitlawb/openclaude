@@ -301,6 +301,21 @@ describe('fastMode ant-only fallback cleanup', () => {
     expect(persist).toHaveBeenCalledTimes(2)
   })
 
+  test('the unconditional pending-org drain retries an API rejection cleanup', async () => {
+    const {
+      handleFastModeRejectedByAPI,
+      persistPendingOrgDisabledFastModePreference,
+    } = await importFreshFastModeModule()
+    const persist = mock()
+      .mockReturnValueOnce({ error: new Error('lock busy'), written: false })
+      .mockReturnValueOnce({ error: null, written: true })
+
+    handleFastModeRejectedByAPI(persist)
+    persistPendingOrgDisabledFastModePreference(persist)
+
+    expect(persist).toHaveBeenCalledTimes(2)
+  })
+
   test('organization-disable preference cleanup retries after a rejected write', async () => {
     const { persistOrgDisabledFastModePreferenceIfNeeded } =
       await importFreshFastModeModule()

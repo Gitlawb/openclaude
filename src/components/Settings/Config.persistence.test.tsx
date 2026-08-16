@@ -35,7 +35,6 @@ let completeModelSelection:
   | ((model: string | null, effort: undefined, marker?: string, persistence?: {
       settingsPatch: SettingsJson
       effortValue: 'high'
-      previousEffortLevel: 'low'
       wroteEffort: true
     }) => string | undefined)
   | undefined
@@ -429,7 +428,6 @@ test('failed model persistence keeps the model submenu open and retryable', asyn
     const persistence = {
       settingsPatch: { effortLevel: 'high' as const },
       effortValue: 'high' as const,
-      previousEffortLevel: 'low' as const,
       wroteEffort: true as const,
     }
     const modelError = completeModelSelection?.(
@@ -438,7 +436,7 @@ test('failed model persistence keeps the model submenu open and retryable', asyn
       undefined,
       persistence,
     )
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 1)
     expect(modelError).toContain(
       'Could not save model and effort preference: settings were not written',
     )
@@ -578,7 +576,7 @@ test('fast mode round trip restores the persisted and live model', async () => {
     )
 
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 2)
     await waitForCondition(
       () =>
         latestState.mainLoopModel === previousModel &&
@@ -654,7 +652,7 @@ test('fast mode disable preserves a supported model selected while fast mode is 
     await waitForCondition(() => !getFrame().includes('Type to filter'))
 
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 1)
     await waitForCondition(
       () =>
         latestState.mainLoopModel === fastModeModel &&
@@ -670,7 +668,7 @@ test('fast mode disable preserves a supported model selected while fast mode is 
     stdin.write(' ')
     await waitForCondition(() => completeModelSelection !== undefined)
     completeModelSelection?.(selectedModel, undefined)
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 2)
     await waitForCondition(() => latestState.mainLoopModel === selectedModel)
 
     stdin.write('F')
@@ -680,7 +678,7 @@ test('fast mode disable preserves a supported model selected while fast mode is 
     stdin.write('\r')
     await waitForCondition(() => !getFrame().includes('Type to filter'))
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 3)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 3)
     await waitForCondition(() => latestState.fastMode === false)
 
     expect(updateSettingsForTest.mock.calls).toEqual([
@@ -749,7 +747,7 @@ test('failed fast mode disable keeps the fast model and latch active', async () 
     await waitForCondition(() => !getFrame().includes('Type to filter'))
 
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 1)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 1)
     await waitForCondition(
       () =>
         latestState.mainLoopModel === fastModeModel &&
@@ -759,7 +757,7 @@ test('failed fast mode disable keeps the fast model and latch active', async () 
     persistError = new Error('settings file is locked')
     persistWritten = false
     stdin.write(' ')
-    await waitForCondition(() => updateSettingsForTest.mock.calls.length === 2)
+    await waitForCondition(() => updateSettingsForTest.mock.calls.length >= 2)
 
     expect(updateSettingsForTest.mock.calls[1]).toEqual([
       'userSettings',

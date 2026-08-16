@@ -93,7 +93,7 @@ export function ThemePicker({
         syntaxHighlightingDisabled: newValue
       });
       if (!wasSettingsUpdateCommitted(result)) {
-        setSaveError(result.error?.message ?? 'Could not save syntax highlighting preference. Try again.')
+        setSaveError(`Could not save syntax highlighting preference: ${result.error?.message ?? 'settings were not written'}`)
         return;
       }
       setAppState(prev => ({

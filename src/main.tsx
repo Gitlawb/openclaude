@@ -230,7 +230,6 @@ function logManagedSettings(): void {
     logForDebugging(`[main] logManagedSettings failed: ${errorMessage(error)}`, { level: 'debug' })
   }
 }
-
 // Check if running in debug/inspection mode
 function isBeingDebugged() {
   const isBun = isRunningWithBun();
@@ -2517,7 +2516,7 @@ async function run(): Promise<CommanderCommand> {
       try {
         await initializeVersionedPlugins();
         profileCheckpoint('action_after_plugins_init');
-        void cleanupOrphanedPluginVersionsInBackground().then(() => getGlobExclusionsForPluginCache());
+        void cleanupOrphanedPluginVersionsInBackground().then(() => getGlobExclusionsForPluginCache()).catch(error => logError(error));
       } catch (error) {
         logError(error);
       }

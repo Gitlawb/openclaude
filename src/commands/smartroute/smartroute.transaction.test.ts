@@ -72,4 +72,9 @@ test('on revalidates roles from the fresh lock-scoped settings', async () => {
   expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({
     smartRouting: { enabled: false, simpleModel: 'mini' },
   })
+  expect(state.settings.smartRouting).toEqual({
+    enabled: false,
+    simpleModel: 'mini',
+    strongModel: 'main',
+  })
 })

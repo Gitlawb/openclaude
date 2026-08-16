@@ -126,19 +126,6 @@ export async function permissionPromptToolResultToPermissionDecision(
     )
     if (updatedPermissions.length > 0) {
       const persistence = persistPermissionUpdates(updatedPermissions)
-      if (persistence.failedUpdates.length > 0) {
-        const message = permissionPersistenceFailureMessage(
-          persistence.failedUpdates,
-        )
-        return {
-          behavior: 'deny',
-          message,
-          decisionReason: {
-            type: 'other',
-            reason: message,
-          },
-        }
-      }
       const appliedUpdates = persistence.appliedUpdates
       let updatedContext = toolUseContext.getAppState().toolPermissionContext
       if (appliedUpdates.length > 0) {
@@ -153,6 +140,19 @@ export async function permissionPromptToolResultToPermissionDecision(
             toolPermissionContext: updatedContext,
           }
         })
+      }
+      if (persistence.failedUpdates.length > 0) {
+        const message = permissionPersistenceFailureMessage(
+          persistence.failedUpdates,
+        )
+        return {
+          behavior: 'deny',
+          message,
+          decisionReason: {
+            type: 'other',
+            reason: message,
+          },
+        }
       }
     }
     const postUpdatePlanModeDecision =
