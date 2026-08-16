@@ -573,6 +573,10 @@ export function applyProviderFlag(
       process.env.OPENAI_BASE_URL ??= 'https://api.x.ai/v1'
       process.env.OPENAI_MODEL ??= defaultModel ?? 'grok-4.6'
       if (model) process.env.OPENAI_MODEL = model
+      // Same stamp as profile apply: a proxy URL cannot host-match api.x.ai,
+      // so retained route identity is what keeps catalog/runtime on xAI
+      // without authorizing dedicated credentials for that host.
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
       // Keep a user proxy URL (`??=` above), but never turn the dedicated
       // xAI secret into a generic credential for that host. A mirrored copy
       // that already equals XAI_API_KEY is stripped; a distinct OPENAI_API_KEY

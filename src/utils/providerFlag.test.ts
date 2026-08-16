@@ -26,6 +26,7 @@ const ENV_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_API_KEYS',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
   'OPENAI_AZURE_STYLE',
@@ -78,6 +79,7 @@ const RESET_KEYS = [
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
   'OPENAI_API_KEYS',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'OPENAI_MODEL',
   'OPENAI_API_FORMAT',
   'OPENAI_AZURE_STYLE',
@@ -1154,8 +1156,17 @@ describe('applyProviderFlag - xai', () => {
     applyProviderFlag('xai', [])
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.XAI_API_KEY).toBe('xai-secret-key')
+  })
+
+  test('stamps xAI route identity on a retargeted proxy URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+
+    applyProviderFlag('xai', [])
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
   })
 
   test('strips a mirrored XAI_API_KEY from OPENAI_API_KEY on a retargeted proxy URL', () => {

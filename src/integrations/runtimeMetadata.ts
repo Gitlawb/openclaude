@@ -28,8 +28,8 @@ import {
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
 import { firstUsableCredential } from '../services/api/credentialPool.js'
 import {
-  getCachedXaiCredentials,
   getXaiDiscoveryCacheIdentity,
+  readXaiCredentials,
 } from '../utils/xaiCredentials.js'
 import { ZAI_GLM_OPENAI_SHIM } from './transport/zaiGlmShim.js'
 import { resolveAimlapiAttributionHeaders } from './aimlapi/config.js'
@@ -467,13 +467,15 @@ function findCachedCatalogEntryForApiName(
     }),
   )
   // Mirror picker/discovery OAuth injection so hybrid cache partitions match
-  // for xAI sessions that have a stored token but no env API key.
+  // for xAI sessions that have a stored token but no env API key. Use the
+  // synchronous storage reader (not the 30s memory-only getter) so a cold
+  // request-planning path still finds the OAuth-partitioned discovery entry.
   if (
     !apiKey &&
     routeId === 'xai' &&
     isCanonicalXaiInferenceBaseUrl(baseUrl)
   ) {
-    const credentials = getCachedXaiCredentials()
+    const credentials = readXaiCredentials()
     apiKey = firstUsableCredential(credentials?.accessToken)
     const cacheIdentity = getXaiDiscoveryCacheIdentity(credentials) ?? apiKey
     const cacheKey = getDiscoveryCacheKey(routeId, {

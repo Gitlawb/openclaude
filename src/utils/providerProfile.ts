@@ -1533,8 +1533,15 @@ export function assignDistinctXaiProxyGenericCredential(
     env[selection.envVar] = filtered.join(',')
     return true
   }
+  // Live shell keys can be a distinct proxy credential even when XAI_API_KEY
+  // is already gone. Persisted OPENAI_API_KEY is not: older xAI proxy files
+  // stored the dedicated secret there, and with an empty xaiSecrets set every
+  // persisted value looks "distinct". Only restore persisted generics when we
+  // can subtract known xAI secrets.
   if (!restoreGeneric(resolveOpenAICredentialEnvSelection(processEnv))) {
-    restoreGeneric(resolveOpenAICredentialEnvSelection(persistedEnv))
+    if (xaiSecrets.size > 0) {
+      restoreGeneric(resolveOpenAICredentialEnvSelection(persistedEnv))
+    }
   }
 }
 

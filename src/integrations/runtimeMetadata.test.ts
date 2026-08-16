@@ -126,7 +126,7 @@ describe('resolveModelRuntimeLimits', () => {
   it('uses the stable xAI OAuth cache identity for discovered runtime limits', async () => {
     await withTempConfigDir(async () => {
       const xaiCredentials = await import('../utils/xaiCredentials.js')
-      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockReturnValue({
+      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockReturnValue({
         accessToken: 'rotating-access-token',
         refreshToken: 'stable-account-identity',
         tokenEndpoint: 'https://auth.x.ai/oauth/token',
@@ -297,13 +297,13 @@ describe('resolveModelRuntimeLimits', () => {
       const originalXaiKey = process.env.XAI_API_KEY
       const originalOpenAIKey = process.env.OPENAI_API_KEY
       const xaiCredentials = await import('../utils/xaiCredentials.js')
-      const readSpy = spyOn(xaiCredentials, 'getCachedXaiCredentials').mockImplementation(
+      const readSpy = spyOn(xaiCredentials, 'readXaiCredentials').mockImplementation(
         () =>
           ({
             accessToken: 'oauth-token',
             refreshToken: 'refresh-token',
             tokenEndpoint: 'https://auth.x.ai/oauth/token',
-          }) as ReturnType<typeof xaiCredentials.getCachedXaiCredentials>,
+          }) as ReturnType<typeof xaiCredentials.readXaiCredentials>,
       )
       try {
         delete process.env.XAI_API_KEY

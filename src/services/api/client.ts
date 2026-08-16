@@ -57,7 +57,7 @@ import {
   shouldUseFirstPartyAnthropicAuthForProvider,
   type ProviderOverride,
 } from './authRouting.js'
-import { hasUsableOpenAICredential } from './credentialPool.js'
+import { hasUsableOpenAICredential, parseCredentialList } from './credentialPool.js'
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
 
@@ -261,6 +261,15 @@ function applyXaiEnvOnlyDefaults(): void {
     process.env.OPENAI_API_KEY = process.env.XAI_API_KEY
   } else {
     delete process.env.OPENAI_API_KEY
+    const xaiSecrets = new Set(parseCredentialList(process.env.XAI_API_KEY))
+    const pooled = parseCredentialList(process.env.OPENAI_API_KEYS).filter(
+      value => !xaiSecrets.has(value),
+    )
+    if (pooled.length > 0) {
+      process.env.OPENAI_API_KEYS = pooled.join(',')
+    } else {
+      delete process.env.OPENAI_API_KEYS
+    }
   }
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
