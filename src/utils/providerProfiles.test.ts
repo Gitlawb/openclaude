@@ -1539,7 +1539,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     } as any)
 
     expect(applied?.id).toBe('xai_proxy')
-    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
+    expect({ ...process.env }.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('xai')
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_API_KEYS).toBeUndefined()
     expect(process.env.XAI_API_KEY).toBeUndefined()
