@@ -52,6 +52,16 @@ const REQUIRED_VALUE_OPTIONS = new Set([
   '--prefill',
   '--permission-prompt-tool',
   '--input-format',
+  '--agent-id',
+  '--agent-name',
+  '--agent-type',
+  '--agent-color',
+  '--team-name',
+  '--parent-session-id',
+  '--teammate-mode',
+  '--advisor',
+  '--messaging-socket-path',
+  '--sdk-url',
 ])
 
 // Variadic options consume their first value unconditionally, then keep
@@ -69,12 +79,14 @@ const VARIADIC_OPTIONS = new Set([
   '--betas',
   '--plugin-dir',
   '--provider-env-file',
+  '--channels',
+  '--dangerously-load-development-channels',
 ])
 
 // Options that take an optional value. They consume the next token only when
 // it does not start with `-` and is not `--`, so a following flag remains
 // available for its own parsing.
-const OPTIONAL_VALUE_OPTIONS = new Set(['--debug', '-d', '--resume', '-r', '--from-pr'])
+const OPTIONAL_VALUE_OPTIONS = new Set(['--debug', '-d', '--resume', '-r', '--from-pr', '--worktree', '-w', '--teleport', '--remote', '--remote-control', '--rc'])
 
 function optionName(arg: string): string {
   const eq = arg.indexOf('=')

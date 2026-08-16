@@ -194,7 +194,23 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
       buildContext({ permissionMode: 'fullAccess' }),
     )
     expect(notice).toContain('All tool consent checks are bypassed')
-    expect(notice).toContain('safety-check guardrails')
+    expect(notice).toContain('including safety-check guardrails')
+    expect(notice).not.toContain('Most tool consent checks are bypassed')
+  })
+
+  test('treats the SDK full-access spelling as the stronger fullAccess bypass', async () => {
+    const ctx = buildContext({
+      permissionMode: 'full-access' as unknown as StatusNoticeContext['permissionMode'],
+    })
+    expect(activeIds(ctx)).toContain('dangerously-skip-permissions-no-sandbox')
+
+    const notice = await renderNoticePlainText(
+      'dangerously-skip-permissions-no-sandbox',
+      ctx,
+    )
+    expect(notice).toContain('full-access')
+    expect(notice).toContain('All tool consent checks are bypassed')
+    expect(notice).toContain('including safety-check guardrails')
     expect(notice).not.toContain('Most tool consent checks are bypassed')
   })
 

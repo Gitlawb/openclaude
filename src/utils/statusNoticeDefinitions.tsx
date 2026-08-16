@@ -293,6 +293,11 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 //   .claude/, shell configs).
 // - fullAccess skips those safety-check prompts too and is the stronger bypass.
 //
+// The SDK also accepts the kebab-case `full-access` alias and normalizes it to
+// the internal camelCase mode, but a context may carry the external spelling
+// directly. Treat both spellings as the stronger bypass so the warning does not
+// accidentally downgrade to the weaker message.
+//
 // On first-party builds an employee-only sandbox check (Docker/Bubblewrap + no
 // internet) gates these modes; external users skip the check entirely
 // (setup.ts), so they are effectively "run any command with no review". Warn
@@ -302,13 +307,19 @@ const thirdPartyPermissiveModeNotice: StatusNoticeDefinition = {
 // `ctx.permissionMode` rather than re-scanning raw argv. That keeps it
 // authoritative and avoids re-implementing commander's option arity / `--`
 // semantics. See issue #244 finding 2.
+function isDangerousMode(mode: PermissionMode | undefined): boolean {
+  return isDangerousPermissionMode(mode) || (mode as string) === 'full-access'
+}
+function isFullAccessMode(mode: PermissionMode | undefined): boolean {
+  return mode === 'fullAccess' || (mode as string) === 'full-access'
+}
 const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
   id: 'dangerously-skip-permissions-no-sandbox',
   type: 'warning',
-  isActive: ctx => isDangerousPermissionMode(ctx.permissionMode),
+  isActive: ctx => isDangerousMode(ctx.permissionMode),
   render: ctx => {
     const mode = ctx.permissionMode;
-    const isFullAccess = mode === 'fullAccess';
+    const isFullAccess = isFullAccessMode(mode);
     return <WarningNoticeRow>
         <Text color="warning">
           <Text bold>{mode}</Text> mode is active.

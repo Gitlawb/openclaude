@@ -55,5 +55,39 @@ describe('hasPrintFlag', () => {
 
     // Optional options do not consume `--`.
     expect(hasPrintFlag(['--resume', '--', '--print'])).toBe(false)
+
+    // Hidden optional-value root options likewise leave following flags alone.
+    expect(hasPrintFlag(['--worktree', '--print'])).toBe(true)
+    expect(hasPrintFlag(['--teleport', '-p'])).toBe(true)
+    expect(hasPrintFlag(['--remote', 'print'])).toBe(false)
+    expect(hasPrintFlag(['--remote-control', 'rc'])).toBe(false)
+  })
+
+  test('does not classify a value of hidden required root options as the print flag', () => {
+    expect(hasPrintFlag(['--agent-id', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--sdk-url', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--agent-name', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--team-name', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--parent-session-id', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--teammate-mode', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--agent-type', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--advisor', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--messaging-socket-path', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--agent-color', '-p'])).toBe(false)
+  })
+
+  test('does not classify a value of hidden variadic root options as the print flag', () => {
+    expect(hasPrintFlag(['--channels', '--print'])).toBe(false)
+    expect(hasPrintFlag(['--channels', '-p'])).toBe(false)
+    expect(hasPrintFlag(['--dangerously-load-development-channels', '--print'])).toBe(false)
+
+    // After the first value, variadic options keep consuming consecutive
+    // non-flag values, so a later positional-looking value is still hidden.
+    expect(hasPrintFlag(['--channels', 'server1', 'server2', 'print'])).toBe(false)
+
+    // Once the next token is a flag, variadic consumption stops and --print
+    // is detected normally.
+    expect(hasPrintFlag(['--channels', 'server1', '--print'])).toBe(true)
+    expect(hasPrintFlag(['--channels', 'server1', 'server2', '--print'])).toBe(true)
   })
 })
