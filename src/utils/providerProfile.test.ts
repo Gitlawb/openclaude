@@ -1720,6 +1720,27 @@ test('legacy xai launch withholds dedicated credentials from a retargeted proxy 
   assert.equal(env.OPENAI_API_KEY, undefined)
 })
 
+test('startup env withholds ambient xAI keys from a persisted xai OAuth proxy profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('xai', {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+      XAI_CREDENTIAL_SOURCE: 'oauth',
+    }),
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'grok-4.6',
+      XAI_API_KEY: 'ambient-xai-key',
+      OPENAI_API_KEY: 'ambient-xai-key',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example.com/v1')
+  assert.equal(env.XAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
 test('openai launch keeps a distinct proxy OPENAI_API_KEY on a retargeted xAI profile', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
@@ -1757,7 +1778,7 @@ test('openai launch infers retargeted xAI identity from a legacy persisted dedic
     },
   })
 
-  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'xai')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, undefined)
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.XAI_API_KEY, undefined)
 })

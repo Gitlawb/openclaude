@@ -170,8 +170,12 @@ function isCanonicalXaiProfile(profile: ProviderProfile): boolean {
 }
 
 function withholdRetargetedXaiCredential(profile: ProviderProfile): boolean {
+  // Identity (provider=xai) and host matching (api.x.ai) both attach the
+  // dedicated secret. Withhold on the same set: an openai-shaped profile
+  // pointed at http://api.x.ai would otherwise still mirror XAI_API_KEY.
   return (
-    resolveProfileRoute(profile.provider).routeId === 'xai' &&
+    (resolveProfileRoute(profile.provider).routeId === 'xai' ||
+      isXaiBaseUrl(profile.baseUrl)) &&
     !isCanonicalXaiProfile(profile)
   )
 }

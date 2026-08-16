@@ -1515,6 +1515,25 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
   })
 
+  test('openai profiles pointed at an insecure xAI URL do not apply dedicated credentials', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        name: 'HTTP xAI',
+        baseUrl: 'http://api.x.ai/v1',
+        model: 'grok-4.6',
+        apiKey: 'xai-test-key',
+      }),
+    )
+
+    expect(process.env.XAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('http://api.x.ai/v1')
+  })
+
   test('re-applies a retargeted xAI profile when withheld credentials drift back into env', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

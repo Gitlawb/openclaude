@@ -2108,16 +2108,16 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'apismart' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(env.OPENAI_BASE_URL)
-  // Older xAI proxy files persisted XAI_API_KEY without a route id. Infer
-  // identity from that dedicated key so relaunch can withhold it instead of
-  // treating the file as a generic OpenAI proxy.
+  // Older xAI proxy files persisted XAI_API_KEY without a route id. OAuth
+  // startup files use profile: 'xai' with no dedicated key. Infer withholding
+  // from those signals so relaunch drops xAI secrets instead of treating the
+  // file as a generic OpenAI proxy. Do not stamp route identity from a leftover
+  // key — that would attach xAI catalog/metadata to an unrelated proxy.
   const inferredRetargetedXaiIdentity =
-    Boolean(sanitizeApiKey(persistedEnv.XAI_API_KEY)) &&
     !!env.OPENAI_BASE_URL?.trim() &&
-    !isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL)
-  if (inferredRetargetedXaiIdentity && !env.CLAUDE_CODE_PROVIDER_ROUTE_ID) {
-    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
-  }
+    !isCanonicalXaiInferenceBaseUrl(env.OPENAI_BASE_URL) &&
+    (Boolean(sanitizeApiKey(persistedEnv.XAI_API_KEY)) ||
+      options.persisted?.profile === 'xai')
   const isNoncanonicalXaiLaunch =
     (effectiveOpenAIRouteId === 'xai' || inferredRetargetedXaiIdentity) &&
     !!env.OPENAI_BASE_URL?.trim() &&
@@ -2372,10 +2372,11 @@ export async function buildStartupEnvFromProfile(options?: {
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
   const persistedXaiProxy =
-    persisted?.profile === 'openai' &&
+    (persisted?.profile === 'openai' || persisted?.profile === 'xai') &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalXaiInferenceBaseUrl(persisted.env.OPENAI_BASE_URL) &&
-    (persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'xai' ||
+    (persisted.profile === 'xai' ||
+      persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'xai' ||
       Boolean(sanitizeApiKey(persisted.env.XAI_API_KEY)))
   if (
     hasConcreteProviderSelection(processEnv) &&

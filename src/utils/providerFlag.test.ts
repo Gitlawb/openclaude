@@ -1175,6 +1175,18 @@ describe('applyProviderFlag - xai', () => {
 
     expect(process.env.OPENAI_API_KEY).toBe('proxy-owned-key')
   })
+
+  test('does not mirror XAI_API_KEY onto an insecure or non-443 xAI URL', () => {
+    for (const baseUrl of ['http://api.x.ai/v1', 'https://api.x.ai:8443/v1']) {
+      process.env.OPENAI_BASE_URL = baseUrl
+      process.env.XAI_API_KEY = 'xai-secret-key'
+      delete process.env.OPENAI_API_KEY
+
+      applyProviderFlag('xai', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    }
+  })
 })
 
 describe('applyProviderFlag - invalid provider', () => {
