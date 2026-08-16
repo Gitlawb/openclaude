@@ -388,6 +388,19 @@ test('does not retry unrelated filesystem errors', async () => {
   }
 })
 
+test('reports transaction failures with operation-neutral context', async () => {
+  await withIsolatedUserSettings((_root, settingsPath) => {
+    mkdirSync(settingsPath)
+    const result = updateSettingsForSource('userSettings', {
+      env: { NEVER_WRITTEN: 'yes' },
+    })
+    expect(result.error?.message).toContain(
+      `Failed to update settings at ${settingsPath}:`,
+    )
+    expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+  })
+})
+
 test(
   'waits for a short holder and succeeds before the contention deadline',
   async () => {

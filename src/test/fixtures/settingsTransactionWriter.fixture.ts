@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   getFsImplementation,
   setFsImplementation,
@@ -7,7 +7,7 @@ import {
 
 const [
   role,
-  configDir,
+  target,
   key,
   value,
   enteredMarker,
@@ -16,9 +16,19 @@ const [
   releaseMarker,
 ] = process.argv.slice(2)
 
+const supportedRoles: ReadonlySet<string> = new Set([
+  'normal',
+  'hold-lock',
+  'hold-path-for',
+  'pause-after-read',
+])
+
+if (!role || !supportedRoles.has(role)) {
+  throw new Error(`Invalid settings transaction fixture role: ${role}`)
+}
+
 if (
-  !role ||
-  !configDir ||
+  !target ||
   !key ||
   !value ||
   !enteredMarker ||
@@ -27,14 +37,19 @@ if (
   throw new Error('Missing settings transaction fixture arguments')
 }
 
-process.env.OPENCLAUDE_CONFIG_DIR = configDir
+if (role !== 'hold-path-for') {
+  process.env.OPENCLAUDE_CONFIG_DIR = target
+}
 const settingsPath =
   role === 'hold-path-for'
-    ? resolve(configDir)
-    : resolve(configDir, 'settings.json')
+    ? resolve(target)
+    : resolve(target, 'settings.json')
+const settingsParentPath = dirname(settingsPath)
 const settingsReadPath = existsSync(settingsPath)
   ? realpathSync(settingsPath)
-  : settingsPath
+  : existsSync(settingsParentPath)
+    ? join(realpathSync(settingsParentPath), basename(settingsPath))
+    : settingsPath
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4))
 
 function waitForMarker(marker: string): void {

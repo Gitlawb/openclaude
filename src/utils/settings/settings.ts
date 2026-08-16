@@ -515,9 +515,7 @@ export function updateSettingsForSource(
       )
     }
   } catch (e) {
-    const error = new Error(
-      `Failed to read raw settings from ${filePath}: ${e}`,
-    )
+    const error = new Error(`Failed to update settings at ${filePath}: ${e}`)
     logError(error)
     return { error }
   }

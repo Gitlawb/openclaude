@@ -589,6 +589,8 @@ async function applyRemoteEntriesToLocal(
 
   logForDiagnosticsNoPII('info', 'settings_sync_applied', {
     appliedCount,
+    settingsFilesWritten,
+    memoryFilesWritten,
   })
   return { appliedCount, settingsFilesWritten, memoryFilesWritten }
 }

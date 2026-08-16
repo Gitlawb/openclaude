@@ -11,6 +11,7 @@ import { markInternalWrite } from './internalWrites.js'
 import { resetSettingsCache } from './settingsCache.js'
 
 const SETTINGS_LOCK_RETRY_MS = 25
+const SETTINGS_LOCK_CONTENTION_LOG_MS = 100
 const SETTINGS_LOCK_WAIT_MS = 2_000
 const SETTINGS_LOCK_STALE_MS = 30_000
 const SETTINGS_LOCK_UPDATE_MS = 5_000
@@ -30,7 +31,9 @@ function resolveSettingsMutationTarget(requestedPath: string): string {
 }
 
 function acquireSettingsLock(targetPath: string): () => void {
-  const deadline = performance.now() + SETTINGS_LOCK_WAIT_MS
+  const startedAt = performance.now()
+  const deadline = startedAt + SETTINGS_LOCK_WAIT_MS
+  let reportedContention = false
   while (true) {
     try {
       return lockfile.lockSync(targetPath, {
@@ -39,6 +42,10 @@ function acquireSettingsLock(targetPath: string): () => void {
         stale: SETTINGS_LOCK_STALE_MS,
         update: SETTINGS_LOCK_UPDATE_MS,
         onCompromised: error => {
+          // The compromise callback runs from an asynchronous heartbeat and
+          // cannot interrupt this helper's synchronous operation. Throwing here
+          // would become an unhandled exception, so log deliberately; a local
+          // filesystem operation exceeding the stale window is out of contract.
           logForDebugging(`Settings file lock compromised: ${error}`, {
             level: 'error',
           })
@@ -46,7 +53,19 @@ function acquireSettingsLock(targetPath: string): () => void {
       })
     } catch (error) {
       if (getErrnoCode(error) !== 'ELOCKED') throw error
-      const remaining = deadline - performance.now()
+      const now = performance.now()
+      const elapsed = now - startedAt
+      if (
+        !reportedContention &&
+        elapsed >= SETTINGS_LOCK_CONTENTION_LOG_MS
+      ) {
+        reportedContention = true
+        logForDebugging(
+          `Settings file lock contention has lasted ${Math.round(elapsed)}ms`,
+          { level: 'warn' },
+        )
+      }
+      const remaining = deadline - now
       if (remaining <= 0) {
         throw Object.assign(
           new Error(
@@ -65,7 +84,11 @@ function acquireSettingsLock(targetPath: string): () => void {
   }
 }
 
-/** Run one synchronous settings-file operation under its physical-target lock. */
+/**
+ * Run one synchronous settings-file operation under its physical-target lock.
+ * Calls for the same target must not be nested; contention remains bounded by
+ * the normal acquisition deadline.
+ */
 export function withSettingsFileTransactionSync<T>(
   requestedPath: string,
   operation: (targetPath: string) => T,

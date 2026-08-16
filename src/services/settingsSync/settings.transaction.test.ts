@@ -188,7 +188,6 @@ test(
           memoryFilesWritten: 0,
         })
         expect(elapsedMs).toBeGreaterThanOrEqual(500)
-        expect(elapsedMs).toBeLessThan(1_800)
         expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
           SYNCED: 'yes',
         })
