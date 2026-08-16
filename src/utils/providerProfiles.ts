@@ -14,6 +14,7 @@ import {
 import type { ModelOption } from './model/modelOptions.js'
 import { getPrimaryModel, parseModelList } from './providerModels.js'
 import {
+  assignDistinctXaiProxyGenericCredential,
   buildCompatibilityProcessEnv,
   createProfileFile,
   saveProfileFile,
@@ -1123,6 +1124,15 @@ export function applyProviderProfileToProcessEnv(
       // withholding can refuse mirrored OPENAI_API_KEY / OAuth even when
       // dedicated keys were not applied.
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'xai'
+    }
+    if (withholdXaiKey) {
+      // Same restore as buildLaunchEnv: clearManagedProfileEnv would drop a
+      // distinct proxy OPENAI_API_KEY that is not in XAI_API_KEY.
+      assignDistinctXaiProxyGenericCredential(
+        openAIProfileEnv,
+        process.env,
+        {},
+      )
     }
     // Keep ApiSmart route identity even when the profile is retargeted to a
     // proxy. Dedicated credentials stay withheld above; the route id is what

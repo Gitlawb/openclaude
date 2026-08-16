@@ -1503,7 +1503,7 @@ function withoutXaiCredentialValues(
   return parseCredentialList(value).filter(item => !xaiSecrets.has(item))
 }
 
-function assignDistinctXaiProxyGenericCredential(
+export function assignDistinctXaiProxyGenericCredential(
   env: ProfileEnv,
   processEnv: SecretValueSource,
   persistedEnv: SecretValueSource,
