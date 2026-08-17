@@ -1465,6 +1465,11 @@ function hasConcreteProviderSelection(
   // before the env-only resolver has a chance to see it.
   return (
     sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined ||
+    // Without this, a process carrying only LLMTR_API_KEY is not read as a
+    // deliberate provider choice, so startup injects the default Opengateway
+    // profile over it: the key is ignored and the session silently routes to a
+    // different vendor's gateway (measured, not assumed).
+    sanitizeApiKey(processEnv.LLMTR_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined

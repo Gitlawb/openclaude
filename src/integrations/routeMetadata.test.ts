@@ -453,6 +453,45 @@ test('resolveActiveRouteIdFromEnv does not retain LLMTR identity for a retargete
   ).toBe('custom')
 })
 
+test('resolveActiveRouteIdFromEnv recognises env-only LLMTR from the dedicated key', () => {
+  // Without this, exporting LLMTR_API_KEY and running the CLI resolved to the
+  // default gateway rather than LLMTR: the key was set but never used.
+  expect(resolveActiveRouteIdFromEnv({ LLMTR_API_KEY: 'llmtr-key' })).toBe('llmtr')
+})
+
+test('env-only LLMTR yields to an explicitly configured OpenAI-compatible endpoint', () => {
+  // A dedicated key must not claim the route when the operator has already
+  // pointed OPENAI_BASE_URL somewhere else — the key would follow that URL.
+  expect(
+    resolveActiveRouteIdFromEnv({
+      LLMTR_API_KEY: 'llmtr-key',
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+    }),
+  ).toBe('custom')
+})
+
+test('env-only LLMTR still resolves when OPENAI_BASE_URL targets llmtr.com', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      LLMTR_API_KEY: 'llmtr-key',
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+    }),
+  ).toBe('llmtr')
+})
+
+test('an explicit non-OpenAI provider outranks an ambient LLMTR key', () => {
+  // ApiSmart parity: a Gemini/Bedrock/Vertex selection is an explicit choice and
+  // must not be overridden by a leftover dedicated key.
+  expect(
+    resolveActiveRouteIdFromEnv({
+      LLMTR_API_KEY: 'llmtr-key',
+      CLAUDE_CODE_USE_GEMINI: '1',
+    }),
+  ).toBe('gemini')
+})
+
 test('resolveActiveRouteIdFromEnv keeps LLMTR identity on the canonical endpoint', () => {
   const baseUrl = 'https://llmtr.com/v1'
   expect(

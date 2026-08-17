@@ -942,6 +942,24 @@ export function hasApismartEnvOnlyProviderIntent(
   )
 }
 
+export function hasLlmtrEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // Same shape as ApiSmart: LLMTR is an OpenAI-compatible dedicated-key route,
+  // so a leftover CLAUDE_CODE_USE_OPENAI=1 from a previous session must not
+  // suppress env-only LLMTR identity. Only genuinely non-OpenAI providers
+  // (Gemini/GitHub/Bedrock/...) block it.
+  //
+  // The base-URL guard matters more here than elsewhere: without it, exporting
+  // LLMTR_API_KEY alongside an unrelated OPENAI_BASE_URL would claim the route
+  // and then hand the dedicated key to that URL.
+  return (
+    hasUsableOpenAICredential(processEnv.LLMTR_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLlmtrBaseUrl) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -955,6 +973,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'longcat'
   | 'clinepass'
   | 'apismart'
+  | 'llmtr'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -1001,6 +1020,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasApismartEnvOnlyProviderIntent(processEnv)) {
     return 'apismart'
+  }
+
+  if (hasLlmtrEnvOnlyProviderIntent(processEnv)) {
+    return 'llmtr'
   }
 
   return null

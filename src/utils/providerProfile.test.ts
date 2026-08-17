@@ -1134,6 +1134,22 @@ test('buildStartupEnvFromProfile defaults fresh installs to Gitlawb Opengateway'
   assert.equal(isDefaultStartupProviderEnv(env), true)
 })
 
+test('buildStartupEnvFromProfile does not overwrite an env-only LLMTR setup with the default gateway', async () => {
+  // Measured before the fix: `export LLMTR_API_KEY=... && openclaude` with no
+  // saved profile produced OPENAI_BASE_URL=https://opengateway.gitlawb.com/v1
+  // and model mimo-v2.5-pro. The user's key was ignored and their traffic went
+  // to a different vendor's gateway. LLMTR must be recognised as a deliberate
+  // provider selection, the same way APISMART_API_KEY already is.
+  const env = await buildStartupEnvFromProfile({
+    persisted: null,
+    processEnv: { LLMTR_API_KEY: 'llmtr-key' },
+  })
+
+  assert.notEqual(env.OPENAI_BASE_URL, 'https://opengateway.gitlawb.com/v1')
+  assert.equal(isDefaultStartupProviderEnv(env), false)
+  assert.equal(env.LLMTR_API_KEY, 'llmtr-key')
+})
+
 test('buildStartupEnvFromProfile fresh-install OpenGateway env is invalid without an API key (issue #1651)', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,

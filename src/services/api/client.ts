@@ -44,6 +44,7 @@ import {
   getMiniMaxBaseUrlOverride,
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -411,6 +412,41 @@ function applyApismartEnvOnlyDefaults(): void {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
+function applyLlmtrEnvOnlyDefaults(): void {
+  const baseUrlOverride =
+    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
+    undefined
+  const modelOverride =
+    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) || undefined
+  const apiKey = process.env.LLMTR_API_KEY
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = baseUrlOverride ?? getRouteDefaultBaseUrl('llmtr')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('llmtr')
+  // Mirror only a usable dedicated key, and only on the canonical origin.
+  // LLMTR is dedicatedCredentialsOnly, and an operator can export
+  // LLMTR_API_KEY next to an OPENAI_BASE_URL left over from another provider —
+  // forwarding the key there is the same leak the profile paths already refuse
+  // (isCanonicalLlmtrInferenceBaseUrl). Anything else clears the generic key so
+  // validation reports the missing credential instead of silently using a
+  // stranger's.
+  if (
+    hasUsableOpenAICredential(apiKey) &&
+    isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)
+  ) {
+    process.env.OPENAI_API_KEY = apiKey
+  } else {
+    delete process.env.OPENAI_API_KEY
+  }
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+}
+
 function usableProviderConfigEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -561,6 +597,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
   const useApismartEnvOnlyProvider =
     envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
+  const useLlmtrEnvOnlyProvider =
+    envOnlyProviderRouteId === 'llmtr' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -584,6 +622,9 @@ export async function getAnthropicClient({
   }
   if (useApismartEnvOnlyProvider) {
     applyApismartEnvOnlyDefaults()
+  }
+  if (useLlmtrEnvOnlyProvider) {
+    applyLlmtrEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
