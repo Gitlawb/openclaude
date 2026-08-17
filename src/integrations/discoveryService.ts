@@ -260,15 +260,23 @@ export function getRouteDiscoveryHeaders(
     ...(transportConfig?.headers ?? {}),
     ...(transportConfig?.openaiShim?.headers ?? {}),
   }
-  const headers = {
-    ...(routeId === 'aimlapi'
+  const callerHeaders = options?.headers ?? {}
+  // Caller headers first, then managed AIMLAPI attribution, so ANTHROPIC_CUSTOM_HEADERS
+  // cannot replace partner/source/integration identity. resolveAimlapiAttributionHeaders
+  // also strips those names on a non-canonical proxy, including caller-supplied copies.
+  const headers =
+    routeId === 'aimlapi'
       ? resolveAimlapiAttributionHeaders(
-          descriptorHeaders,
+          {
+            ...callerHeaders,
+            ...descriptorHeaders,
+          },
           getRouteBaseUrl(routeId, options),
         )
-      : descriptorHeaders),
-    ...(options?.headers ?? {}),
-  }
+      : {
+          ...descriptorHeaders,
+          ...callerHeaders,
+        }
 
   return Object.keys(headers).length > 0 ? headers : undefined
 }

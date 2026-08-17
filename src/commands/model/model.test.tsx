@@ -1651,6 +1651,16 @@ test('/model OpenGateway interactive refresh preserves availability filter and h
       { id: 'inclusionai/ling-3.0-tiny:free', apiName: 'inclusionai/ling-3.0-tiny:free', label: 'Ling 3.0 Tiny Live' },
       { id: 'moonshotai/kimi-k3', apiName: 'moonshotai/kimi-k3', label: 'Kimi K3' },
     ],
+    discoveredModels: [
+      { id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
+      { id: 'inclusionai/ling-3.0-tiny:free', apiName: 'inclusionai/ling-3.0-tiny:free', label: 'Ling 3.0 Tiny Live' },
+      { id: 'moonshotai/kimi-k3', apiName: 'moonshotai/kimi-k3', label: 'Kimi K3' },
+      {
+        id: 'refresh-only/live-model',
+        apiName: 'refresh-only/live-model',
+        label: 'Refresh Only Live Model',
+      },
+    ],
     routeId: 'gitlawb-opengateway',
   })
 
@@ -1663,21 +1673,23 @@ test('/model OpenGateway interactive refresh preserves availability filter and h
     ).map(option => option.value)
     expect(initialValues).not.toContain('inclusionai/ling-3.0-tiny:free')
     expect(initialValues).toContain('moonshotai/kimi-k3')
+    expect(initialValues).not.toContain('refresh-only/live-model')
 
-    rendered.getCapturedProps().onRefresh?.()
-    await waitForCondition(() => {
-      const message = rendered.getCapturedProps().discoveryState?.message
-      return (
-        message !== undefined &&
-        message !== 'Refreshing Gitlawb Opengateway models…'
-      )
-    })
+    const onRefresh = rendered.getCapturedProps().onRefresh
+    expect(onRefresh).toEqual(expect.any(Function))
+    onRefresh!()
+    await waitForCondition(() =>
+      (
+        rendered.getCapturedProps().optionsOverride as ModelOption[]
+      ).some(option => option.value === 'refresh-only/live-model'),
+    )
 
     const refreshedValues = (
       rendered.getCapturedProps().optionsOverride as ModelOption[]
     ).map(option => option.value)
     expect(refreshedValues).not.toContain('inclusionai/ling-3.0-tiny:free')
     expect(refreshedValues).toContain('moonshotai/kimi-k3')
+    expect(refreshedValues).toContain('refresh-only/live-model')
   } finally {
     rendered.instance.unmount()
     rendered.stdout.end()
