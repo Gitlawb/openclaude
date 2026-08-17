@@ -103,7 +103,14 @@ describe('parseSshFlags', () => {
       '--resume=abc=def',
     ])
     expect(r.permissionMode).toBe('fullAccess')
-    expect(r.extraCliArgs).toEqual(['--model', 'provider=model', '--resume', 'abc=def'])
+    // Required-value options are forwarded as separate tokens; the optional
+    // `--resume` keeps its inline value attached to preserve optional-value
+    // semantics for flag-like resume names.
+    expect(r.extraCliArgs).toEqual([
+      '--model',
+      'provider=model',
+      '--resume=abc=def',
+    ])
     expect(r.remaining).toEqual(['ssh', 'host'])
   })
 
@@ -141,14 +148,38 @@ describe('parseSshFlags', () => {
     expect(beforeFlag.remaining).toEqual(['ssh', 'host'])
   })
 
-  it('detects headless mode when a print token is forwarded in extraCliArgs', () => {
-    // --resume=--print parks the print token in extraCliArgs, not in the tail.
-    expect(headlessFrom(['ssh', '--resume=--print', 'host'])).toBe(true)
-    expect(headlessFrom(['ssh', 'host', '--resume=--print'])).toBe(true)
+function headlessBeforeHost(raw: string[]): boolean {
+  const parsed = parseSshFlags(raw)
+  // Mirror main.tsx pre-host-extraction check: scan the whole remaining argv
+  // (excluding the `ssh` subcommand token) plus forwarded extraCliArgs.
+  return sshArgvImpliesHeadless(parsed, parsed.remaining.slice(1))
+}
 
-    // A genuine standalone print flag in the tail is still caught.
+  it('detects headless mode for standalone print tokens', () => {
+    // A genuine standalone print flag in the tail is caught.
     expect(headlessFrom(['ssh', 'host', '-p'])).toBe(true)
     expect(headlessFrom(['ssh', 'host', '--print'])).toBe(true)
+
+    // A bare `--resume` followed by `--print` is also print mode (optional value
+    // does not consume a flag-like token).
+    expect(headlessFrom(['ssh', 'host', '--resume', '--print'])).toBe(true)
+  })
+
+  it('does not treat an inline --resume value as headless mode', () => {
+    // `--resume=--print` explicitly names a conversation "--print"; the value
+    // is preserved and must not be blocked.
+    expect(headlessFrom(['ssh', '--resume=--print', 'host'])).toBe(false)
+    expect(headlessFrom(['ssh', 'host', '--resume=--print'])).toBe(false)
+    expect(headlessBeforeHost(['ssh', '--resume=--print', 'host'])).toBe(false)
+  })
+
+  it('detects headless print flags before the host', () => {
+    expect(headlessBeforeHost(['ssh', '--print', 'host'])).toBe(true)
+    expect(headlessBeforeHost(['ssh', '-p', 'host'])).toBe(true)
+    // A boolean print flag followed by an unrelated positional is still print mode.
+    expect(headlessBeforeHost(['ssh', '--print', 'prompt', 'host'])).toBe(true)
+    // An invalid `--print=prompt` token is not the boolean print flag.
+    expect(headlessBeforeHost(['ssh', '--print=prompt', 'host'])).toBe(false)
   })
 
   it('does not treat a value-consumed print token as headless mode', () => {

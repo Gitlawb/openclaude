@@ -128,8 +128,11 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
       continue
     }
     if (arg.startsWith('--resume=')) {
-      // Equals form explicitly provides a value, including flag-like values.
-      extraCliArgs.push('--resume', arg.slice('--resume='.length))
+      // Equals form explicitly provides a value; keep it attached so the
+      // optional-value semantics are preserved on the remote CLI. For example,
+      // `--resume=--print` resumes a conversation named "--print"; it must not
+      // be misinterpreted as enabling print mode.
+      extraCliArgs.push(arg)
       i++
       continue
     }

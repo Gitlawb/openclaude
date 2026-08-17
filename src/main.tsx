@@ -681,7 +681,6 @@ export async function main() {
     // given, so `claude ssh --permission-mode auto host` and `claude ssh host
     // --permission-mode auto` are equivalent. The host check below only needs
     // to guard against `-h`/`--help` (which commander should handle).
-    // Parsed SSH flags need to survive until the host-extraction block below.
     let parsed: ReturnType<typeof parseSshFlags> | undefined;
     if (rawCliArgs[0] === 'ssh') {
       // Flag pre-parse (arity-aware; see parseSshFlags) lives in a pure helper
@@ -693,6 +692,17 @@ export async function main() {
       }
       _pendingSSH.dangerouslySkipPermissions = parsed.dangerouslySkipPermissions;
       _pendingSSH.extraCliArgs.push(...parsed.extraCliArgs);
+
+      // Headless (-p) mode is not supported with SSH in v1 — reject early
+      // before host/cwd extraction so print flags before the host are caught.
+      // The check covers both the remaining argv and flags forwarded to the
+      // remote spawn.
+      if (sshArgvImpliesHeadless(parsed, parsed.remaining.slice(1))) {
+        process.stderr.write('Error: headless (-p/--print) mode is not supported with openclaude ssh\n');
+        gracefulShutdownSync(1);
+        return;
+      }
+
       rawCliArgs.splice(0, rawCliArgs.length, ...parsed.remaining);
     }
     // After pre-extraction, any remaining dash-arg at [1] is either -h/--help
@@ -707,15 +717,6 @@ export async function main() {
         consumed = 3;
       }
       const rest = rawCliArgs.slice(consumed);
-
-      // Headless (-p) mode is not supported with SSH in v1 — reject early
-      // so the flag doesn't silently cause local execution. The check covers
-      // both tail argv after host/cwd and flags forwarded to the remote spawn.
-      if (sshArgvImpliesHeadless(parsed!, rest)) {
-        process.stderr.write('Error: headless (-p/--print) mode is not supported with openclaude ssh\n');
-        gracefulShutdownSync(1);
-        return;
-      }
 
       // Rewrite argv so the main command sees remaining flags but not `ssh`.
       process.argv = [process.argv[0]!, process.argv[1]!, ...rest];
