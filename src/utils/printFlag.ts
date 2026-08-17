@@ -77,8 +77,6 @@ const VARIADIC_OPTIONS = new Set([
   '--disallowed-tools',
   '--disallowedTools',
   '--betas',
-  '--plugin-dir',
-  '--provider-env-file',
   '--channels',
   '--dangerously-load-development-channels',
 ])
