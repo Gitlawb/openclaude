@@ -736,14 +736,24 @@ describe('cli.tsx — --yolo alias (PR #1939)', () => {
     }
   }, { timeout: 20000 })
 
-  it('uses the shared hasPrintFlag predicate for all startup print-mode checks', async () => {
-    const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-    // The cc:// rewrite, the SSH headless rejection, the main print-mode gate,
-    // and the SIGINT handler must all use the same arity-aware predicate so
-    // forms like `--print=prompt` and `-pprompt` are handled consistently.
-    expect(src).toContain('if (hasPrintFlag(rawCliArgs))')
-    expect(src).toContain('if (hasPrintFlag(rest))')
-    expect(src).toContain('const isPrintMode = hasPrintFlag(process.argv)')
-    expect(src).toContain('if (hasPrintFlag(process.argv))')
+  it('has no production startup gates using naive includes print checks', async () => {
+    // All pre-Commander print-mode decisions must go through the shared
+    // arity-aware predicate. A naive .includes('-p') / .includes('--print')
+    // disagrees with Commander on value-consumed tokens such as
+    // `--system-prompt --print` or `--model -p`.
+    const files = [
+      'src/utils/interactivity.ts',
+      'src/utils/earlyInput.ts',
+      'src/utils/gracefulShutdown.ts',
+      'src/utils/providerValidation.ts',
+      'src/services/api/logging.ts',
+      'src/cli/bg.ts',
+      'src/main.tsx',
+    ]
+    for (const file of files) {
+      const src = await Bun.file(`${import.meta.dir}/../../${file}`).text()
+      expect(src).not.toMatch(/\.includes\(['"]-p['"]\)/)
+      expect(src).not.toMatch(/\.includes\(['"]--print['"]\)/)
+    }
   })
 })

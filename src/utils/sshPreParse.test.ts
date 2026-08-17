@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'bun:test'
-import { parseSshFlags } from './sshPreParse.js'
+import { parseSshFlags, sshArgvImpliesHeadless } from './sshPreParse.js'
 
+function headlessFrom(raw: string[]): boolean {
+  const parsed = parseSshFlags(raw)
+  // Mirror main.tsx host/cwd extraction: after pre-parse, host is the first
+  // non-dash token at [1]; cwd is the next non-dash token; the rest is tail.
+  const args = parsed.remaining
+  if (args[0] !== 'ssh' || !args[1] || args[1].startsWith('-')) {
+    return sshArgvImpliesHeadless(parsed, [])
+  }
+  let consumed = 2
+  if (args[consumed] && !args[consumed]!.startsWith('-')) {
+    consumed = 3
+  }
+  return sshArgvImpliesHeadless(parsed, args.slice(consumed))
+}
 describe('parseSshFlags', () => {
   it('extracts host-adjacent flags without enabling bypass', () => {
     const r = parseSshFlags(['ssh', 'host', '--permission-mode', 'auto'])
@@ -125,5 +139,24 @@ describe('parseSshFlags', () => {
     expect(beforeFlag.extraCliArgs).toEqual(['--resume'])
     expect(beforeFlag.dangerouslySkipPermissions).toBe(true)
     expect(beforeFlag.remaining).toEqual(['ssh', 'host'])
+  })
+
+  it('detects headless mode when a print token is forwarded in extraCliArgs', () => {
+    // --resume=--print parks the print token in extraCliArgs, not in the tail.
+    expect(headlessFrom(['ssh', '--resume=--print', 'host'])).toBe(true)
+    expect(headlessFrom(['ssh', 'host', '--resume=--print'])).toBe(true)
+
+    // A genuine standalone print flag in the tail is still caught.
+    expect(headlessFrom(['ssh', 'host', '-p'])).toBe(true)
+    expect(headlessFrom(['ssh', 'host', '--print'])).toBe(true)
+  })
+
+  it('does not treat a value-consumed print token as headless mode', () => {
+    // `--model -p` forwards -p as the model value; it must not be blocked.
+    expect(headlessFrom(['ssh', 'host', '--model', '-p'])).toBe(false)
+    expect(headlessFrom(['ssh', '--model', '-p', 'host'])).toBe(false)
+
+    // Same for other required-value SSH options.
+    expect(headlessFrom(['ssh', 'host', '--fallback-model', '--print'])).toBe(false)
   })
 })

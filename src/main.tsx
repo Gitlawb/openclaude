@@ -27,7 +27,7 @@ import pickBy from 'lodash-es/pickBy.js';
 import uniqBy from 'lodash-es/uniqBy.js';
 import React from 'react';
 import { getOauthConfig } from './constants/oauth.js';
-import { parseSshFlags } from './utils/sshPreParse.js';
+import { parseSshFlags, sshArgvImpliesHeadless } from './utils/sshPreParse.js';
 import { hasPrintFlag } from './utils/printFlag.js';
 import { getRemoteSessionUrl } from './constants/product.js';
 import { getSystemContext, getUserContext } from './context.js';
@@ -681,10 +681,12 @@ export async function main() {
     // given, so `claude ssh --permission-mode auto host` and `claude ssh host
     // --permission-mode auto` are equivalent. The host check below only needs
     // to guard against `-h`/`--help` (which commander should handle).
+    // Parsed SSH flags need to survive until the host-extraction block below.
+    let parsed: ReturnType<typeof parseSshFlags> | undefined;
     if (rawCliArgs[0] === 'ssh') {
       // Flag pre-parse (arity-aware; see parseSshFlags) lives in a pure helper
       // so the security-sensitive handling is unit-tested.
-      const parsed = parseSshFlags(rawCliArgs);
+      parsed = parseSshFlags(rawCliArgs);
       _pendingSSH.local = parsed.local;
       if (parsed.permissionMode !== undefined) {
         _pendingSSH.permissionMode = parsed.permissionMode;
@@ -707,8 +709,9 @@ export async function main() {
       const rest = rawCliArgs.slice(consumed);
 
       // Headless (-p) mode is not supported with SSH in v1 — reject early
-      // so the flag doesn't silently cause local execution.
-      if (hasPrintFlag(rest)) {
+      // so the flag doesn't silently cause local execution. The check covers
+      // both tail argv after host/cwd and flags forwarded to the remote spawn.
+      if (sshArgvImpliesHeadless(parsed!, rest)) {
         process.stderr.write('Error: headless (-p/--print) mode is not supported with openclaude ssh\n');
         gracefulShutdownSync(1);
         return;

@@ -1,4 +1,5 @@
 import { hasDangerousSkipFlag, stripDangerousSkipFlags } from './dangerousSkipFlags.js'
+import { hasPrintFlag } from './printFlag.js'
 
 /**
  * Result of pre-parsing the flags of a `claude ssh …` invocation, before the
@@ -154,4 +155,17 @@ export function parseSshFlags(rawCliArgs: readonly string[]): SshFlagParse {
     extraCliArgs,
     remaining: [...remaining, ...trailing],
   }
+}
+
+/**
+ * After `parseSshFlags()` extracts host-independent flags into `extraCliArgs`, a
+ * headless/print token can hide there as well as in the tail argv after host/cwd.
+ * Centralize the SSH headless check so both scopes are covered with the same
+ * arity-aware predicate.
+ */
+export function sshArgvImpliesHeadless(
+  parsed: SshFlagParse,
+  rest: string[],
+): boolean {
+  return hasPrintFlag(rest) || hasPrintFlag(parsed.extraCliArgs)
 }

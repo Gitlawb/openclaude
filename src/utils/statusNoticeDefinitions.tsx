@@ -326,7 +326,7 @@ const dangerouslySkipPermissionsNotice: StatusNoticeDefinition = {
         </Text>
         <Text dimColor>
           {isFullAccess
-            ? 'All tool consent checks are bypassed, including safety-check guardrails. Only use inside a sandbox with no internet access. Restart without the bypass flag/mode to re-enable prompts.'
+            ? 'Most tool consent checks are bypassed, including safety-check prompts. Hard deny rules and user-interaction prompts still apply. Only use inside a sandbox with no internet access. Restart without the bypass flag/mode to re-enable prompts.'
             : 'Most tool consent checks are bypassed. Deny rules, user-interaction prompts, content-specific ask rules, and safety-check guardrails still apply. Only use inside a sandbox with no internet access.'}
         </Text>
       </WarningNoticeRow>

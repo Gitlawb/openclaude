@@ -188,14 +188,16 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
     expect(notice).not.toContain('All tool consent checks are bypassed')
   })
 
-  test('fullAccess notice describes the stronger bypass', async () => {
+  test('fullAccess notice describes the stronger bypass without overstating it', async () => {
     const notice = await renderNoticePlainText(
       'dangerously-skip-permissions-no-sandbox',
       buildContext({ permissionMode: 'fullAccess' }),
     )
-    expect(notice).toContain('All tool consent checks are bypassed')
-    expect(notice).toContain('including safety-check guardrails')
-    expect(notice).not.toContain('Most tool consent checks are bypassed')
+    const normalized = notice.replace(/\s+/g, ' ')
+    expect(normalized).toContain('Most tool consent checks are bypassed')
+    expect(normalized).toContain('including safety-check prompts')
+    expect(normalized).toContain('Hard deny rules and user-interaction prompts still apply')
+    expect(normalized).not.toContain('All tool consent checks are bypassed')
   })
 
   test('treats the SDK full-access spelling as the stronger fullAccess bypass', async () => {
@@ -208,10 +210,12 @@ describe('dangerously-skip-permissions sandbox notice (#244 finding 2)', () => {
       'dangerously-skip-permissions-no-sandbox',
       ctx,
     )
-    expect(notice).toContain('full-access')
-    expect(notice).toContain('All tool consent checks are bypassed')
-    expect(notice).toContain('including safety-check guardrails')
-    expect(notice).not.toContain('Most tool consent checks are bypassed')
+    const normalized = notice.replace(/\s+/g, ' ')
+    expect(normalized).toContain('full-access')
+    expect(normalized).toContain('Most tool consent checks are bypassed')
+    expect(normalized).toContain('including safety-check prompts')
+    expect(normalized).toContain('Hard deny rules and user-interaction prompts still apply')
+    expect(normalized).not.toContain('All tool consent checks are bypassed')
   })
 
   test('does not fire in default mode without the flag', () => {

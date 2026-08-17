@@ -38,6 +38,7 @@ import type { AppState } from '../state/AppState.js'
 import { noteBackgroundSessionTerminationSignal } from './backgroundSessionTermination.js'
 import { runCleanupFunctions } from './cleanupRegistry.js'
 import { createCombinedAbortSignal } from './combinedAbortSignal.js'
+import { hasPrintFlag } from './printFlag.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import {
@@ -269,7 +270,7 @@ export const setupGracefulShutdown = memoize(() => {
     // avoid racing with it. Only check print mode — other non-interactive
     // sessions (--sdk-url, --init-only, non-TTY) don't register their own
     // SIGINT handler and need gracefulShutdown to run.
-    if (process.argv.includes('-p') || process.argv.includes('--print')) {
+    if (hasPrintFlag(process.argv)) {
       return
     }
     noteBackgroundSessionTerminationSignal('SIGINT')
