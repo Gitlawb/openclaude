@@ -1,12 +1,10 @@
 import type { CodeSession } from 'src/utils/teleport/api.js'
 import { stringWidth } from '../ink/stringWidth.js'
+import { truncateToWidth } from '../utils/truncate.js'
 
 export type ResumeTaskSessionMetadata = CodeSession & {
   timeString: string
 }
-
-const TRUNCATION_SUFFIX = '…'
-const TRUNCATION_SUFFIX_WIDTH = 1
 
 export function buildResumeTaskOptionLabel(
   timeString: string,
@@ -19,6 +17,7 @@ export function buildResumeTaskOptionLabel(
   const baseLabel = `${paddedTime}  ${title}`
 
   if (!repo) {
+    if (terminalColumns === undefined) return baseLabel
     return truncateToWidth(baseLabel, terminalColumns)
   }
 
@@ -37,49 +36,19 @@ export function buildResumeTaskOptionLabel(
 
   // Try to fit base label + truncated repo
   const availableRepoWidth = terminalColumns - baseLabelWidth
-  if (availableRepoWidth > TRUNCATION_SUFFIX_WIDTH) {
+  if (availableRepoWidth > 1) {
     const truncatedRepo = truncateToWidth(repoLabel, availableRepoWidth)
     return `${baseLabel}${truncatedRepo}`
   }
 
   // Base label too wide, truncate it (preserve time portion)
   const availableBaseWidth = terminalColumns - repoLabelWidth
-  if (availableBaseWidth > TRUNCATION_SUFFIX_WIDTH) {
+  if (availableBaseWidth > 1) {
     return `${truncateToWidth(baseLabel, availableBaseWidth)}${repoLabel}`
   }
 
   // Fallback: truncate base label to terminal width (no repo)
   return truncateToWidth(baseLabel, terminalColumns)
-}
-
-function truncateToWidth(str: string, maxWidth?: number): string {
-  if (maxWidth === undefined || maxWidth <= 0) {
-    return str
-  }
-  const strWidth = stringWidth(str)
-  if (strWidth <= maxWidth) {
-    return str
-  }
-
-  // Binary search for the truncation point
-  let low = 0
-  let high = str.length
-  let result = ''
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2)
-    const candidate = str.slice(0, mid) + TRUNCATION_SUFFIX
-    const candidateWidth = stringWidth(candidate)
-
-    if (candidateWidth <= maxWidth) {
-      result = candidate
-      low = mid + 1
-    } else {
-      high = mid - 1
-    }
-  }
-
-  return result || TRUNCATION_SUFFIX
 }
 
 export function getResumeTaskOptionLabelColumns(

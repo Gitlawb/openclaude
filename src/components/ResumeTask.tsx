@@ -176,7 +176,8 @@ export function ResumeTask({
     ...session_0,
     timeString: formatRelativeTime(new Date(session_0.updated_at)),
   }))
-  const options = buildResumeTaskOptionsFromMetadata(sessionMetadata, columns)
+  const contentColumns = Math.max(0, columns - 2)
+  const options = buildResumeTaskOptionsFromMetadata(sessionMetadata, contentColumns)
   const maxTimeStringLength = Math.max(
     UPDATED_STRING.length,
     ...sessionMetadata.map(meta => meta.timeString.length),
