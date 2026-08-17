@@ -69,6 +69,7 @@ const originalEnv = {
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
+  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -123,6 +124,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
+  delete process.env.LLMTR_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
   process.env.ANTHROPIC_API_KEY = 'must-not-forward'
@@ -165,6 +167,7 @@ beforeEach(async () => {
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
+  delete process.env.LLMTR_API_KEY
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -215,6 +218,7 @@ afterEach(() => {
     restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
+    restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
@@ -769,6 +773,44 @@ test('env-only ApiSmart setup withholds its key from a noncanonical same-host UR
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
   expect(process.env.OPENAI_BASE_URL).toBe('https://gw.apismart.ai/v1/models')
   expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
+test('env-only LLMTR setup applies its defaults and mirrors the dedicated key', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.LLMTR_API_KEY = 'llmtr-test-key'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'anthropic/claude-sonnet-4.6' })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+  // dedicatedCredentialsOnly: the shim transport reads OPENAI_API_KEY, so the
+  // dedicated key has to be mirrored for an env-only setup to authenticate.
+  expect(process.env.OPENAI_API_KEY).toBe('llmtr-test-key')
+})
+
+test('env-only LLMTR setup withholds its key from a noncanonical same-host URL', async () => {
+  // Plaintext puts the key on the wire unencrypted and a non-default port is a
+  // different service sharing the hostname. Neither may receive the key, and
+  // neither may claim the dedicated route in the first place.
+  for (const baseUrl of ['http://llmtr.com/v1', 'https://llmtr.com:8443/v1']) {
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.GEMINI_API_KEY
+    delete process.env.GEMINI_MODEL
+    delete process.env.GEMINI_BASE_URL
+    delete process.env.GEMINI_AUTH_MODE
+    delete process.env.OPENAI_API_KEY
+    process.env.LLMTR_API_KEY = 'llmtr-test-key'
+    process.env.OPENAI_BASE_URL = baseUrl
+
+    await getAnthropicClient({ maxRetries: 0, model: 'anthropic/claude-sonnet-4.6' })
+
+    expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  }
 })
 
 test('routes env-only AI/ML API requests through the OpenAI-compatible shim despite an ambient OpenAI key', async () => {

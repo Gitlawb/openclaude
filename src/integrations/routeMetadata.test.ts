@@ -481,6 +481,23 @@ test('env-only LLMTR still resolves when OPENAI_BASE_URL targets llmtr.com', () 
   ).toBe('llmtr')
 })
 
+test('env-only LLMTR does not claim non-canonical URLs on its own host', () => {
+  // Plaintext and off-port llmtr.com URLs must not select the dedicated route.
+  // If they did, applyLlmtrEnvOnlyDefaults would then withhold the key for being
+  // non-canonical and strand the session on the LLMTR route with no credential.
+  // This also keeps the env-only path in step with resolveRouteIdFromBaseUrl,
+  // which already sends these URLs to `custom`.
+  for (const baseUrl of ['http://llmtr.com/v1', 'https://llmtr.com:8443/v1']) {
+    expect(
+      resolveActiveRouteIdFromEnv({
+        LLMTR_API_KEY: 'llmtr-key',
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: baseUrl,
+      }),
+    ).toBe('custom')
+  }
+})
+
 test('an explicit non-OpenAI provider outranks an ambient LLMTR key', () => {
   // ApiSmart parity: a Gemini/Bedrock/Vertex selection is an explicit choice and
   // must not be overridden by a leftover dedicated key.

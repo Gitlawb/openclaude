@@ -953,9 +953,20 @@ export function hasLlmtrEnvOnlyProviderIntent(
   // The base-URL guard matters more here than elsewhere: without it, exporting
   // LLMTR_API_KEY alongside an unrelated OPENAI_BASE_URL would claim the route
   // and then hand the dedicated key to that URL.
+  //
+  // That guard uses the CANONICAL predicate, not the host-scoped one. With the
+  // host check, `http://llmtr.com` and `https://llmtr.com:8443` read as
+  // non-conflicting and claimed the dedicated route — and then
+  // applyLlmtrEnvOnlyDefaults dropped OPENAI_API_KEY for being non-canonical,
+  // stranding the session on the LLMTR route with no credential and no
+  // explanation. It also disagreed with resolveRouteIdFromBaseUrl, which already
+  // sends those URLs to `custom` for the same reason. Both paths now agree.
   return (
     hasUsableOpenAICredential(processEnv.LLMTR_API_KEY) &&
-    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isLlmtrBaseUrl) &&
+    !hasConflictingOpenAIBaseUrlForRoute(
+      processEnv,
+      isCanonicalLlmtrInferenceBaseUrl,
+    ) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
