@@ -37,6 +37,11 @@ export async function initializeSentry(): Promise<void> {
       dsn: process.env.SENTRY_DSN,
       environment: process.env.NODE_ENV ?? 'production',
       tracesSampleRate: 0,
+      // Disable Sentry's automatic uncaughtException/unhandledRejection
+      // integrations. Those hooks report raw error content, bypassing the
+      // TelemetrySafeError sanitization in reportErrorToSentry(). Only
+      // explicit reportErrorToSentry() calls should ever send data.
+      defaultIntegrations: false,
     })
   } catch {
     // Never let Sentry setup crash the CLI.
