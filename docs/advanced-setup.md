@@ -592,6 +592,28 @@ reject accidental absurd values. An invalid pricing map is ignored without
 discarding unrelated settings from the same file. `/config` does not currently
 edit record-valued settings, so edit the JSON file directly.
 
+## Optional Error Reporting (Sentry)
+
+OpenClaude can optionally report sanitized error events to Sentry. This is
+disabled by default and opt-in only.
+
+```bash
+export SENTRY_DSN=https://your-key@your-org.ingest.sentry.io/your-project
+openclaude
+```
+
+Notes:
+
+- Reporting only activates when `SENTRY_DSN` is set. Unset, this is a no-op.
+- Reporting is skipped even when `SENTRY_DSN` is set if `DISABLE_TELEMETRY` or
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, matching the same privacy
+  levels used for existing telemetry (see [Runtime Hardening](#runtime-hardening)).
+- Only sanitized, telemetry-safe error messages are sent — never raw error
+  messages, which may contain file paths or other identifying information.
+- `@sentry/node` is an optional dev dependency, loaded on demand via dynamic
+  import only when this feature is enabled. It is not part of the default
+  install.
+
 ## Safety strictness
 
 OpenClaude runs several "safety" checks: a model-level refusal directive, bash
