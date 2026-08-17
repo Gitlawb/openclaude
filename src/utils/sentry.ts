@@ -19,19 +19,20 @@ export function isSentryEnabled(): boolean {
 
 /**
  * Lazily initializes Sentry. No-op if SENTRY_DSN is unset or telemetry is disabled.
- * Safe to call multiple times; only initializes once.
+ * Safe to call multiple times; only initializes once. Async because @sentry/node
+ * is loaded via dynamic import — this bundle is ESM and does not define require().
  */
-export function initializeSentry(): void {
+export async function initializeSentry(): Promise<void> {
   if (sentryInitialized || !isSentryEnabled()) {
     return
   }
   sentryInitialized = true
 
   try {
-    // Lazy require so @sentry/node is never loaded (or its startup cost paid)
-    // when the feature is off.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    sentryModule = require('@sentry/node') as typeof import('@sentry/node')
+    // Dynamic import so @sentry/node is never loaded (or its startup cost
+    // paid) when the feature is off, and so it works under ESM where
+    // require() is not defined.
+    sentryModule = await import('@sentry/node')
     sentryModule.init({
       dsn: process.env.SENTRY_DSN,
       environment: process.env.NODE_ENV ?? 'production',
@@ -45,8 +46,9 @@ export function initializeSentry(): void {
 
 /**
  * Reports an error to Sentry if enabled. Only sends the sanitized
- * telemetryMessage for TelemetrySafeError instances; other errors are
- * reported by name/type only, never their raw message.
+ * telemetryMessage for TelemetrySafeError instances. Errors that are not
+ * TelemetrySafeError are NOT reported, since their raw message may contain
+ * file paths or other PII — never send an implicit raw error message.
  */
 export function reportErrorToSentry(error: unknown): void {
   if (!sentryModule || !isSentryEnabled()) {
@@ -56,9 +58,9 @@ export function reportErrorToSentry(error: unknown): void {
   try {
     if (error instanceof TelemetrySafeError) {
       sentryModule.captureMessage(error.telemetryMessage, 'error')
-    } else if (error instanceof Error) {
-      sentryModule.captureMessage(`Unclassified error: ${error.name}`, 'error')
     }
+    // Non-TelemetrySafeError errors are intentionally not reported — their
+    // message has not been vetted as safe to send.
   } catch {
     // Reporting must never throw.
   }

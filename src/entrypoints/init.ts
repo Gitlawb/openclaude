@@ -222,5 +222,5 @@ export const init = memoize(async (): Promise<void> => {
  * telemetry is not disabled.
  */
 export function initializeTelemetryAfterTrust(): void {
-  initializeSentry()
+  void initializeSentry()
 }
