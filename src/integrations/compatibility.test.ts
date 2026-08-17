@@ -33,6 +33,7 @@ const EXPECTED_PRESETS = [
   'hicap',
   'azure-openai',
   'openrouter',
+  'orcarouter',
   'lmstudio',
   'dashscope-cn',
   'dashscope-intl',
