@@ -793,6 +793,7 @@ test('routes env-only Concentrate requests through the OpenAI-compatible shim', 
   process.env.CONCENTRATE_API_KEY = 'concentrate-test-key'
   process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
   process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: ambient-proxy-secret'
 
   globalThis.fetch = (async (input, init) => {
     capturedUrl =
@@ -846,6 +847,7 @@ test('routes env-only Concentrate requests through the OpenAI-compatible shim', 
 
   expect(capturedUrl).toBe('https://api.concentrate.ai/v1/chat/completions')
   expect(capturedHeaders?.get('authorization')).toBe('Bearer concentrate-test-key')
+  expect(capturedHeaders?.get('x-proxy-auth')).toBeNull()
   expect(capturedBody?.model).toBe('claude-sonnet-5')
   expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
   expect(process.env.OPENAI_API_KEY).toBe('concentrate-test-key')

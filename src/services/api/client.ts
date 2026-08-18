@@ -552,6 +552,41 @@ export async function getAnthropicClient({
             ? 'max'
           : standardEffortToOpenAI(appliedEffortLevel))
       : undefined
+  // Normalize env-only routes before snapshotting custom headers. Dedicated
+  // routes such as Concentrate deliberately clear inherited proxy headers;
+  // doing that after getCustomHeaders() would leave a copied secret in the
+  // request defaults.
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
+    model,
+    envOnlyProviderRouteId,
+  )
+  const useXiaomiMimoEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
+  const useXaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
+  const useNearaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
+  const useFireworksEnvOnlyProvider =
+    envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
+  const useLongcatEnvOnlyProvider =
+    envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
+  const useAimlapiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
+  const useApismartEnvOnlyProvider =
+    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
+  const useConcentrateEnvOnlyProvider =
+    envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
+  if (useMiniMaxEnvOnlyProvider) applyMiniMaxEnvOnlyDefaults(model)
+  if (useXiaomiMimoEnvOnlyProvider) applyXiaomiMimoEnvOnlyDefaults()
+  if (useXaiEnvOnlyProvider) applyXaiEnvOnlyDefaults()
+  if (useNearaiEnvOnlyProvider) applyNearaiEnvOnlyDefaults()
+  if (useFireworksEnvOnlyProvider) applyFireworksEnvOnlyDefaults()
+  if (useLongcatEnvOnlyProvider) applyLongcatEnvOnlyDefaults()
+  if (useAimlapiEnvOnlyProvider) applyAimlapiEnvOnlyDefaults()
+  if (useApismartEnvOnlyProvider) applyApismartEnvOnlyDefaults()
+  if (useConcentrateEnvOnlyProvider) applyConcentrateEnvOnlyDefaults()
+
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
@@ -580,55 +615,6 @@ export async function getAnthropicClient({
   )
   if (additionalProtectionEnabled) {
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
-  }
-
-  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
-  const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
-    model,
-    envOnlyProviderRouteId,
-  )
-  const useXiaomiMimoEnvOnlyProvider =
-    envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
-  const useXaiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
-  const useNearaiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
-  const useFireworksEnvOnlyProvider =
-    envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
-  const useLongcatEnvOnlyProvider =
-    envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
-  const useAimlapiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
-  const useApismartEnvOnlyProvider =
-    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
-  const useConcentrateEnvOnlyProvider =
-    envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
-  if (useMiniMaxEnvOnlyProvider) {
-    applyMiniMaxEnvOnlyDefaults(model)
-  }
-  if (useXiaomiMimoEnvOnlyProvider) {
-    applyXiaomiMimoEnvOnlyDefaults()
-  }
-  if (useXaiEnvOnlyProvider) {
-    applyXaiEnvOnlyDefaults()
-  }
-  if (useNearaiEnvOnlyProvider) {
-    applyNearaiEnvOnlyDefaults()
-  }
-  if (useFireworksEnvOnlyProvider) {
-    applyFireworksEnvOnlyDefaults()
-  }
-  if (useLongcatEnvOnlyProvider) {
-    applyLongcatEnvOnlyDefaults()
-  }
-  if (useAimlapiEnvOnlyProvider) {
-    applyAimlapiEnvOnlyDefaults()
-  }
-  if (useApismartEnvOnlyProvider) {
-    applyApismartEnvOnlyDefaults()
-  }
-  if (useConcentrateEnvOnlyProvider) {
-    applyConcentrateEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
