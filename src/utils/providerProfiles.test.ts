@@ -3502,6 +3502,59 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('retargeted Concentrate profiles keep route identity but persist without their dedicated credential', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const concentrateProfile = buildConcentrateProfile({
+        id: 'concentrate_proxy',
+        baseUrl: 'https://api.concentrate.ai/staging/v1',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [concentrateProfile],
+      }))
+
+      const result = setActiveProviderProfile('concentrate_proxy', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('concentrate_proxy')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+        OPENAI_BASE_URL: 'https://api.concentrate.ai/staging/v1',
+        OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          CONCENTRATE_API_KEY: 'ambient-concentrate-key',
+          OPENAI_API_KEY: 'ambient-concentrate-key',
+        },
+      })
+
+      expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+      expect(startupEnv.CONCENTRATE_API_KEY).toBeUndefined()
+      expect(startupEnv.OPENAI_API_KEY).toBeUndefined()
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))

@@ -26,7 +26,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
-  isConcentrateBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -721,6 +721,16 @@ export function buildConcentrateProfileEnv(options: {
     sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
     sanitizeProviderConfigValue(processEnv.CONCENTRATE_BASE_URL, secretSource) ||
     sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
+  // The dedicated credential belongs only to Concentrate's documented
+  // inference endpoint. Returning null lets the caller use its generic
+  // profile path without serializing this secret for a proxy or alternate
+  // same-host path.
+  if (
+    configuredBaseUrl &&
+    !isCanonicalConcentrateInferenceBaseUrl(configuredBaseUrl)
+  ) {
+    return null
+  }
 
   return {
     OPENAI_BASE_URL: configuredBaseUrl || defaultBaseUrl,
@@ -2139,7 +2149,7 @@ export async function buildLaunchEnv(options: {
   const isNoncanonicalConcentrateLaunch =
     effectiveOpenAIRouteId === 'concentrate' &&
     !!env.OPENAI_BASE_URL?.trim() &&
-    !isConcentrateBaseUrl(env.OPENAI_BASE_URL)
+    !isCanonicalConcentrateInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
     isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch || isNoncanonicalConcentrateLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
@@ -2223,7 +2233,7 @@ export async function buildLaunchEnv(options: {
     const withholdAmbientConcentrateKey =
       dedicatedKey === 'CONCENTRATE_API_KEY' &&
       !!dedicatedBaseUrl &&
-      !isConcentrateBaseUrl(dedicatedBaseUrl)
+      !isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
       withholdAmbientAimlapiKey || withholdAmbientApismartKey || withholdAmbientConcentrateKey
     // AIMLAPI accepts generic OpenAI credentials, but ApiSmart is
@@ -2251,7 +2261,7 @@ export async function buildLaunchEnv(options: {
       dedicatedKey === 'CONCENTRATE_API_KEY' &&
       effectiveOpenAIRouteId === 'concentrate' &&
       !!dedicatedBaseUrl &&
-      isConcentrateBaseUrl(dedicatedBaseUrl) &&
+      isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl) &&
       persistedOpenAICredential?.kind === 'usable'
         ? sanitizeApiKey(persistedOpenAICredential.value)
         : undefined
@@ -2353,16 +2363,25 @@ export async function buildStartupEnvFromProfile(options?: {
   // If startup already has a concrete provider selection, keep trusting it.
   // This prevents legacy profiles or the fresh-install default from becoming
   // a silent third precedence layer over explicit env/flags.
-  // A retained ApiSmart proxy profile carries route identity specifically to
-  // withhold ambient dedicated credentials from its noncanonical endpoint.
-  // Do not let an env-only key skip that guard; the persisted profile must be
-  // applied first so buildLaunchEnv can preserve the proxy boundary.
+  // Retained dedicated-provider proxy profiles carry route identity specifically
+  // to withhold ambient credentials from their noncanonical endpoint. Do not
+  // let an env-only key skip that guard; the persisted profile must be applied
+  // first so buildLaunchEnv can preserve the credential boundary.
   const persistedApismartProxy =
     persisted?.profile === 'openai' &&
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'apismart' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
-  if (hasConcreteProviderSelection(processEnv) && !persistedApismartProxy) {
+  const persistedConcentrateProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'concentrate' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalConcentrateInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  if (
+    hasConcreteProviderSelection(processEnv) &&
+    !persistedApismartProxy &&
+    !persistedConcentrateProxy
+  ) {
     return processEnv
   }
 

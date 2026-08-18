@@ -1340,6 +1340,16 @@ describe('applyProviderFlag - concentrate', () => {
     expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-5')
   })
 
+  test('does not mirror the dedicated key to a noncanonical Concentrate URL', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/staging/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
   test('explicit --model overrides CONCENTRATE_MODEL and OPENAI_MODEL', () => {
     process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
     process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'

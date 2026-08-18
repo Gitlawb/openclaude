@@ -3169,3 +3169,14 @@ test('buildConcentrateProfileEnv reads CONCENTRATE_BASE_URL override', () => {
   assert.ok(env)
   assert.equal(env?.OPENAI_BASE_URL, 'https://api.concentrate.ai/v1')
 })
+
+test('buildConcentrateProfileEnv refuses to serialize its credential for a noncanonical URL', () => {
+  const env = buildConcentrateProfileEnv({
+    apiKey: 'concentrate-secret-key',
+    processEnv: {
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/staging/v1',
+    },
+  })
+
+  assert.equal(env, null)
+})

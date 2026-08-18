@@ -1425,15 +1425,23 @@ function buildOpenAICompatibleStartupEnv(
   if (isCodexBaseUrl(activeProfile.baseUrl)) {
     return null
   }
+  const activeProfileRouteId = resolveProfileRoute(activeProfile.provider).routeId
   const withholdRetargetedApismartCredential =
-    resolveProfileRoute(activeProfile.provider).routeId === 'apismart' &&
+    activeProfileRouteId === 'apismart' &&
     !isApismartProfile(activeProfile)
+  const withholdRetargetedConcentrateCredential =
+    activeProfileRouteId === 'concentrate' &&
+    !isConcentrateProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
   const isConcentrateProfileFlag = isConcentrateProfile(activeProfile)
 
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdRetargetedConcentrateCredential
+  ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
       model: activeProfile.model,
@@ -1513,13 +1521,19 @@ function buildOpenAICompatibleStartupEnv(
   // Preserve ApiSmart identity on retargeted/proxy startup envs so relaunch
   // withholding can refuse ambient dedicated credentials. Canonical profiles
   // already stamp this via buildApismartProfileEnv.
-  if (resolveProfileRoute(activeProfile.provider).routeId === 'apismart') {
+  if (activeProfileRouteId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
-  if (isConcentrateProfileFlag) {
+  // Preserve Concentrate identity for retargeted profiles too, so a later
+  // launch can apply the same dedicated-credential boundary.
+  if (activeProfileRouteId === 'concentrate') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'concentrate'
   }
-  if (activeProfile.apiKey && !withholdRetargetedApismartCredential) {
+  if (
+    activeProfile.apiKey &&
+    !withholdRetargetedApismartCredential &&
+    !withholdRetargetedConcentrateCredential
+  ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey

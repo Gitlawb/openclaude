@@ -29,7 +29,10 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
-import { isCanonicalApismartInferenceBaseUrl } from '../integrations/routeMetadata.js'
+import {
+  isCanonicalApismartInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
+} from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 
@@ -711,8 +714,13 @@ export function applyProviderFlag(
       // DedicatedCredentialsOnly: only CONCENTRATE_API_KEY authenticates this
       // route. Mirror it into OPENAI_API_KEY for the shared shim transport and
       // clear any stale generic key so ambient OpenAI credentials are never
-      // forwarded to Concentrate.
-      if (hasUsableOpenAICredential(process.env.CONCENTRATE_API_KEY)) {
+      // forwarded to Concentrate. A Concentrate key is only valid for its
+      // documented inference endpoint; do not mirror it to a same-host proxy
+      // or alternate path supplied through CONCENTRATE_BASE_URL.
+      if (
+        hasUsableOpenAICredential(process.env.CONCENTRATE_API_KEY) &&
+        isCanonicalConcentrateInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
         process.env.OPENAI_API_KEY = process.env.CONCENTRATE_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
