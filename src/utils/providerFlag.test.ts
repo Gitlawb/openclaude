@@ -277,6 +277,21 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 
+  test('does not leave Concentrate env-only selection active', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_BASE_URL).toBeUndefined()
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
+  })
+
   test('accepts native x-api-key authentication', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_API_KEY = 'stale-first-party-key'

@@ -140,6 +140,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     // settings.model, so switching from (say) Moonshot to Codex kept firing
     // `kimi-k2.6` at the Codex endpoint and getting 400s.
     const provider = getAPIProvider()
+    const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
     const isOpenAIShimProvider =
       provider === 'openai' ||
       provider === 'codex' ||
@@ -149,6 +150,11 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       provider === 'xiaomi-mimo' ||
       provider === 'xai'
     specifiedModel =
+      // Concentrate is an env-only OpenAI-compatible route. Model selection
+      // happens before the client applies its OpenAI-compatible defaults, so
+      // consume its dedicated setting here rather than falling through to a
+      // saved model from an unrelated provider.
+      (activeRouteId === 'concentrate' ? process.env.CONCENTRATE_MODEL : undefined) ||
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
       (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
