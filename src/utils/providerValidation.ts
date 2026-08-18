@@ -16,6 +16,7 @@ import {
   getRouteDescriptor,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -387,6 +388,18 @@ async function getDescriptorValidationError(
   const validation = target.descriptor.validation
   if (!validation) {
     return null
+  }
+
+  // Concentrate's dedicated credential is valid only at its documented /v1
+  // inference endpoint. Runtime correctly withholds it elsewhere; reject the
+  // configuration here as well so a noncanonical override cannot pass startup
+  // validation and then fail unauthenticated.
+  if (
+    target.descriptor.id === 'concentrate' &&
+    options.request?.baseUrl &&
+    !isCanonicalConcentrateInferenceBaseUrl(options.request.baseUrl)
+  ) {
+    return 'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.'
   }
 
   switch (validation.kind) {

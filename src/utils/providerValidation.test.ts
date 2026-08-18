@@ -211,6 +211,18 @@ test('noncanonical ApiSmart paths do not validate a dedicated credential', async
   )
 })
 
+test('noncanonical Concentrate paths are rejected before runtime withholds the dedicated key', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.',
+  )
+})
+
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'ApiSmart validation rejects placeholder APISMART_API_KEY %s',
   async placeholder => {

@@ -3221,3 +3221,16 @@ test('buildConcentrateProfileEnv refuses to serialize its credential for a nonca
 
   assert.equal(env, null)
 })
+
+test('buildOpenAIProfileEnv does not stamp a generic key as Concentrate credentials on a noncanonical URL', () => {
+  const env = buildOpenAIProfileEnv({
+    goal: 'coding',
+    baseUrl: 'https://api.concentrate.ai/staging/v1',
+    apiKey: 'generic-proxy-key',
+    processEnv: {},
+  })
+
+  assert.ok(env)
+  assert.equal(env?.OPENAI_API_KEY, 'generic-proxy-key')
+  assert.equal(env?.CONCENTRATE_API_KEY, undefined)
+})

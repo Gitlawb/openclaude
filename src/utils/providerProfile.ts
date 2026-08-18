@@ -994,7 +994,7 @@ export function buildOpenAIProfileEnv(options: {
     ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'aimlapi' && key
       ? { AIMLAPI_API_KEY: key }
       : {}),
-    ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'concentrate' && key
+    ...(isCanonicalConcentrateInferenceBaseUrl(resolvedBaseUrl) && key
       ? { CONCENTRATE_API_KEY: key }
       : {}),
     OPENAI_BASE_URL: resolvedBaseUrl,
