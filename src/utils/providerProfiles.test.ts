@@ -985,6 +985,27 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).toBe('openai')
   })
 
+  test('generic OpenAI profile at the canonical Concentrate endpoint keeps its credential generic', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const { getProviderValidationError } = await import(
+      `./providerValidation.js?ts=${Date.now()}-${Math.random()}`
+    )
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.concentrate.ai/v1',
+        model: 'deepseek-v4-flash-0731',
+        apiKey: 'generic-concentrate-key',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('generic-concentrate-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(await getProviderValidationError(process.env)).toBeNull()
+  })
+
   test('concentrate profile clears a stale route-specific model before applying its saved model', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

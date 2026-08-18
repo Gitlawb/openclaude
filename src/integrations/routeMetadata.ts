@@ -954,14 +954,12 @@ export function hasApismartEnvOnlyProviderIntent(
 export function hasConcentrateEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  // Concentrate is a dedicated-credentials-only OpenAI-compatible gateway.
-  // The documented CONCENTRATE_* env vars select the route even when a generic
-  // OPENAI_API_KEY is present in the shell, so the dedicated credential is the
-  // only key forwarded to api.concentrate.ai.
+  // The dedicated credential explicitly selects Concentrate. Base/model
+  // overrides alone are configuration details, not route identity: treating
+  // them as identity would let a stale optional setting override a valid
+  // generic OpenAI configuration.
   return (
-    (hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) ||
-      hasNonEmptyEnvValue(processEnv.CONCENTRATE_BASE_URL) ||
-      hasNonEmptyEnvValue(processEnv.CONCENTRATE_MODEL)) &&
+    hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&
     !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
       !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&

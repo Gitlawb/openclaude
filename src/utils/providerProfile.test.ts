@@ -3034,7 +3034,7 @@ test('openai launch preserves persisted Concentrate dedicated credentials across
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
 })
 
-test('openai launch backfills CONCENTRATE_API_KEY from a legacy OpenAI-shaped Concentrate profile', async () => {
+test('legacy generic OpenAI Concentrate profiles keep their credential generic', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
     persisted: profile('openai', {
@@ -3048,7 +3048,7 @@ test('openai launch backfills CONCENTRATE_API_KEY from a legacy OpenAI-shaped Co
 
   assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
   assert.equal(env.OPENAI_API_KEY, 'concentrate-secret-key')
-  assert.equal(env.CONCENTRATE_API_KEY, 'concentrate-secret-key')
+  assert.equal(env.CONCENTRATE_API_KEY, undefined)
   assert.equal(
     resolveRouteCredentialValue({
       routeId: 'concentrate',
@@ -3059,7 +3059,7 @@ test('openai launch backfills CONCENTRATE_API_KEY from a legacy OpenAI-shaped Co
   )
 })
 
-test('openai launch never promotes an ambient generic key to a Concentrate credential', async () => {
+test('openai launch keeps a generic Concentrate credential generic', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',
     persisted: profile('openai', {
@@ -3080,7 +3080,33 @@ test('openai launch never promotes an ambient generic key to a Concentrate crede
       processEnv: env,
       baseUrl: env.OPENAI_BASE_URL,
     }),
-    undefined,
+    'generic-openai-key',
+  )
+})
+
+test('generic Concentrate profile lets a rotated OpenAI key override its saved key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      OPENAI_API_KEY: 'saved-generic-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_API_KEY: 'rotated-generic-key',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_KEY, 'rotated-generic-key')
+  assert.equal(env.CONCENTRATE_API_KEY, undefined)
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'concentrate',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    'rotated-generic-key',
   )
 })
 

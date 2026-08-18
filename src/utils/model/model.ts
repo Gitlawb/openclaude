@@ -401,7 +401,7 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
     return (
       getAllowedConcentrateConfigModel() ||
       getRouteDefaultModel('concentrate') ||
-      'deepseek-v4-flash-0731'
+      'deepseek-v4-flash'
     )
   }
   // Custom Anthropic-compatible endpoints intentionally retain the legacy

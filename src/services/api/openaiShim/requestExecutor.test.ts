@@ -50,6 +50,9 @@ const originalEnv = {
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+  CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
+  CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENGATEWAY_BASE_URL: process.env.OPENGATEWAY_BASE_URL,
   OPENCODE_API_KEY: process.env.OPENCODE_API_KEY,
@@ -471,6 +474,9 @@ beforeEach(async () => {
   delete process.env.OPENROUTER_API_KEY
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
+  delete process.env.CONCENTRATE_API_KEY
+  delete process.env.CONCENTRATE_BASE_URL
+  delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENGATEWAY_API_KEY
   delete process.env.OPENGATEWAY_BASE_URL
   delete process.env.OPENCODE_API_KEY
@@ -517,6 +523,9 @@ afterEach(() => {
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
+    restoreEnv('CONCENTRATE_API_KEY', originalEnv.CONCENTRATE_API_KEY)
+    restoreEnv('CONCENTRATE_BASE_URL', originalEnv.CONCENTRATE_BASE_URL)
+    restoreEnv('CONCENTRATE_MODEL', originalEnv.CONCENTRATE_MODEL)
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
     restoreEnv('OPENGATEWAY_BASE_URL', originalEnv.OPENGATEWAY_BASE_URL)
     restoreEnv('OPENCODE_API_KEY', originalEnv.OPENCODE_API_KEY)
@@ -545,6 +554,20 @@ test('gitlawb opengateway provider flag prefers OPENGATEWAY_API_KEY over generic
 
   expect(captured.url).toBe('http://localhost:8181/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer fake-ogw-key')
+})
+
+test('Concentrate selection prefers its dedicated key over a generic OPENAI_API_KEYS pool', async () => {
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+  delete process.env.OPENAI_API_KEY
+
+  const result = applyProviderFlag('concentrate', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://api.concentrate.ai/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer concentrate-key')
 })
 
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {

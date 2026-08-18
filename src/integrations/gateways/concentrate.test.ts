@@ -10,13 +10,13 @@ describe('concentrate gateway', () => {
     expect(concentrate.label).toBe('Concentrate')
     expect(concentrate.category).toBe('aggregating')
     expect(concentrate.defaultBaseUrl).toBe('https://api.concentrate.ai/v1')
-    expect(concentrate.defaultModel).toBe('deepseek-v4-flash-0731')
+    expect(concentrate.defaultModel).toBe('deepseek-v4-flash')
     expect(concentrate.supportsModelRouting).toBe(true)
 
     expect(concentrate.setup.requiresAuth).toBe(true)
     expect(concentrate.setup.authMode).toBe('api-key')
     expect(concentrate.setup.credentialEnvVars).toEqual(['CONCENTRATE_API_KEY'])
-    expect(concentrate.setup.dedicatedCredentialsOnly).toBe(true)
+    expect(concentrate.setup.dedicatedCredentialsOnly).toBeUndefined()
 
     expect(concentrate.catalog?.source).toBe('dynamic')
     expect(concentrate.catalog?.discovery?.kind).toBe('openai-compatible')
@@ -25,7 +25,11 @@ describe('concentrate gateway', () => {
     expect(concentrate.validation?.kind).toBe('credential-env')
     expect(
       (concentrate.validation as { credentialEnvVars: string[] }).credentialEnvVars,
-    ).toEqual(['CONCENTRATE_API_KEY'])
+    ).toEqual([
+      'CONCENTRATE_API_KEY',
+      'OPENAI_API_KEYS',
+      'OPENAI_API_KEY',
+    ])
 
     expect(mapModel).toBeDefined()
   })
@@ -35,16 +39,16 @@ describe('concentrate gateway', () => {
 
     expect(
       mapModel({
-        id: 'deepseek-v4-flash-0731',
-        display_name: 'DeepSeek V4 Flash 0731',
+        id: 'deepseek-v4-flash',
+        display_name: 'DeepSeek V4 Flash',
         owned_by: 'deepseek',
         max_input_tokens: 1_048_576,
         max_tokens: 393_216,
       }),
     ).toEqual({
-      id: 'deepseek-v4-flash-0731',
-      apiName: 'deepseek-v4-flash-0731',
-      label: 'DeepSeek V4 Flash 0731',
+      id: 'deepseek-v4-flash',
+      apiName: 'deepseek-v4-flash',
+      label: 'DeepSeek V4 Flash',
       contextWindow: 1_048_576,
       maxOutputTokens: 393_216,
     })

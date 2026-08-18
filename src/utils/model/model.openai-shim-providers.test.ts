@@ -405,15 +405,15 @@ test('Concentrate falls back to its route default when configured models are rej
     getUserSpecifiedModelSetting,
   } = await importFreshModelModule()
   expect(getUserSpecifiedModelSetting()).toBeUndefined()
-  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
-  expect(getMainLoopModel()).toBe('deepseek-v4-flash-0731')
+  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
+  expect(getMainLoopModel()).toBe('deepseek-v4-flash')
 })
 
 test('Concentrate uses its descriptor default before client normalization', async () => {
   process.env.CONCENTRATE_API_KEY = 'concentrate-test'
 
   const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
-  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
+  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
 })
 
 test.each(['null', 'undefined', '   '])(
@@ -429,8 +429,8 @@ test.each(['null', 'undefined', '   '])(
       getUserSpecifiedModelSetting,
     } = await importFreshModelModule()
     expect(getUserSpecifiedModelSetting()).toBeUndefined()
-    expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
-    expect(getMainLoopModel()).toBe('deepseek-v4-flash-0731')
+    expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
+    expect(getMainLoopModel()).toBe('deepseek-v4-flash')
   },
 )
 

@@ -994,9 +994,6 @@ export function buildOpenAIProfileEnv(options: {
     ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'aimlapi' && key
       ? { AIMLAPI_API_KEY: key }
       : {}),
-    ...(isCanonicalConcentrateInferenceBaseUrl(resolvedBaseUrl) && key
-      ? { CONCENTRATE_API_KEY: key }
-      : {}),
     OPENAI_BASE_URL: resolvedBaseUrl,
     OPENAI_MODEL: normalizedModel,
     ...(options.apiFormat ? { OPENAI_API_FORMAT: options.apiFormat } : {}),
@@ -2275,6 +2272,7 @@ export async function buildLaunchEnv(options: {
     const backfillLegacyConcentrateProfileKey =
       dedicatedKey === 'CONCENTRATE_API_KEY' &&
       effectiveOpenAIRouteId === 'concentrate' &&
+      persistedOpenAIRouteId === 'concentrate' &&
       !!dedicatedBaseUrl &&
       isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl) &&
       persistedOpenAICredential?.kind === 'usable'

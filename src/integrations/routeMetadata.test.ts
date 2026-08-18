@@ -1028,7 +1028,7 @@ test('resolveActiveRouteIdFromEnv treats Concentrate credential-only env as Conc
   ).toBe('concentrate')
 })
 
-test('resolveActiveRouteIdFromEnv treats CONCENTRATE_BASE_URL as Concentrate intent', () => {
+test('resolveActiveRouteIdFromEnv uses CONCENTRATE_BASE_URL with a dedicated credential', () => {
   expect(
     resolveActiveRouteIdFromEnv({
       CONCENTRATE_API_KEY: 'concentrate-key',
@@ -1037,7 +1037,7 @@ test('resolveActiveRouteIdFromEnv treats CONCENTRATE_BASE_URL as Concentrate int
   ).toBe('concentrate')
 })
 
-test('resolveActiveRouteIdFromEnv treats CONCENTRATE_MODEL as Concentrate intent', () => {
+test('resolveActiveRouteIdFromEnv uses CONCENTRATE_MODEL with a dedicated credential', () => {
   expect(
     resolveActiveRouteIdFromEnv({
       CONCENTRATE_API_KEY: 'concentrate-key',
@@ -1114,17 +1114,32 @@ test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by Concentrate 
   ).toBe('concentrate')
 })
 
-test('getRouteCredentialEnvVars omits generic OpenAI fallback for Concentrate dedicated route', () => {
-  expect(getRouteCredentialEnvVars('concentrate')).toEqual(['CONCENTRATE_API_KEY'])
+test('getRouteCredentialEnvVars supports documented generic OpenAI Concentrate setup', () => {
+  expect(getRouteCredentialEnvVars('concentrate')).toEqual([
+    'CONCENTRATE_API_KEY',
+    'OPENAI_API_KEYS',
+    'OPENAI_API_KEY',
+  ])
   expect(
     getRouteCredentialValue('concentrate', {
       OPENAI_API_KEY: 'generic-openai-key',
     }),
-  ).toBeUndefined()
+  ).toBe('generic-openai-key')
   expect(
     getRouteCredentialValue('concentrate', {
       OPENAI_API_KEY: 'generic-openai-key',
       CONCENTRATE_API_KEY: 'concentrate-key',
     }),
   ).toBe('concentrate-key')
+})
+
+test('resolveActiveRouteIdFromEnv does not let a stale Concentrate model override generic OpenAI', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_API_KEY: 'generic-openai-key',
+      CONCENTRATE_MODEL: 'deepseek-v4-flash-0731',
+    }),
+  ).toBe('openai')
 })

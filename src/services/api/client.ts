@@ -428,13 +428,11 @@ function applyConcentrateEnvOnlyDefaults(): void {
   process.env.OPENAI_BASE_URL =
     baseUrlOverride ?? getRouteDefaultBaseUrl('concentrate')
   process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('concentrate')
-  // Concentrate is dedicatedCredentialsOnly: only CONCENTRATE_API_KEY may
-  // authenticate this route. Mirror it into OPENAI_API_KEY for the shared
-  // OpenAI-compatible transport after the route identity is established, and
-  // clear any stale generic key so ambient OpenAI credentials are not
-  // forwarded to Concentrate. The dedicated key belongs only to Concentrate's
-  // documented /v1 inference endpoint, so a noncanonical same-host URL withholds
-  // the credential the same way ApiSmart does.
+  // A dedicated key explicitly selects Concentrate. Mirror it into
+  // OPENAI_API_KEY for the shared transport and avoid forwarding a stale
+  // generic credential. Generic OpenAI credentials remain supported when the
+  // user explicitly configures the canonical Concentrate base URL without the
+  // dedicated selection key.
   if (
     hasUsableOpenAICredential(apiKey) &&
     isCanonicalConcentrateInferenceBaseUrl(process.env.OPENAI_BASE_URL)

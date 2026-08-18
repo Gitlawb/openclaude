@@ -1127,8 +1127,8 @@ export function applyProviderProfileToProcessEnv(
         }
       }
     }
-    // Concentrate is dedicatedCredentialsOnly: stamp the route identity and mirror
-    // the dedicated credential so the saved profile relaunches authenticated.
+    // Stamp dedicated Concentrate profile identity and mirror its credential so
+    // the saved profile relaunches authenticated.
     if (route.routeId === 'concentrate') {
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'concentrate'
       // Keyless canonical Concentrate profiles may resolve the ambient dedicated

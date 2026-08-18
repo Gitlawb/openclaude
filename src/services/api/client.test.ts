@@ -875,22 +875,22 @@ test('env-only Concentrate setup withholds its key from a noncanonical same-host
   expect(process.env.OPENAI_API_KEY).toBeUndefined()
 })
 
-test('env-only Concentrate does not forward an ambient generic OpenAI key', async () => {
+test('generic OpenAI configuration for the canonical Concentrate endpoint retains its key', async () => {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_AUTH_MODE
   process.env.OPENAI_API_KEY = 'generic-openai-key'
-  process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
-  process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+  process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/v1'
+  process.env.OPENAI_MODEL = 'claude-sonnet-5'
 
   await getAnthropicClient({ maxRetries: 0, model: 'claude-sonnet-5' })
 
-  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
   expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
   expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-5')
-  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  expect(process.env.OPENAI_API_KEY).toBe('generic-openai-key')
 })
 
 test('routes env-only AI/ML API requests through the OpenAI-compatible shim despite an ambient OpenAI key', async () => {

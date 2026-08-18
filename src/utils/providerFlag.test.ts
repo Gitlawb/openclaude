@@ -13,6 +13,7 @@ import {
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
+import { resolveActiveRouteIdFromEnv } from '../integrations/routeMetadata.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -1360,7 +1361,7 @@ describe('applyProviderFlag - concentrate', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
-    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash-0731')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash')
     expect(process.env.OPENAI_API_KEY).toBe('concentrate-secret-key')
   })
 
@@ -1392,6 +1393,7 @@ describe('applyProviderFlag - concentrate', () => {
     applyProviderFlag('concentrate', ['--model', 'deepseek-v4-pro-0731'])
 
     expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro-0731')
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
   })
 
   test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
@@ -1430,6 +1432,31 @@ describe('applyProviderFlag - concentrate', () => {
     applyProviderFlag('openai', [])
 
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('switching from Concentrate to Ollama replaces the route identity and credentials', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('concentrate', [])
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_BASE_URL).toBeUndefined()
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ollama')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('ollama')
+  })
+
+  test('switching from Concentrate to OpenAI replaces the known gateway endpoint', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('concentrate', [])
+    applyProviderFlag('openai', [])
+
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('openai')
   })
 
   test('clears unsupported OpenAI shim settings from a previous route', () => {
