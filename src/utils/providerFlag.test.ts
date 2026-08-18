@@ -207,6 +207,16 @@ describe('applyProviderFlag - anthropic', () => {
     expect(process.env.APISMART_API_KEY).toBeUndefined()
     expect(process.env.APISMART_MODEL).toBeUndefined()
   })
+
+  test('does not leave Concentrate env-only selection active', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+    applyProviderFlag('anthropic', [])
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_BASE_URL).toBeUndefined()
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
+  })
 })
 
 describe('applyProviderFlag - custom Anthropic-compatible', () => {
@@ -314,6 +324,16 @@ describe('applyProviderFlag - openai', () => {
 
     expect(process.env.APISMART_API_KEY).toBeUndefined()
     expect(process.env.APISMART_MODEL).toBeUndefined()
+  })
+
+  test('does not leave Concentrate env-only selection active', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+    applyProviderFlag('openai', [])
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_BASE_URL).toBeUndefined()
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
   })
 })
 

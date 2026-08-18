@@ -35,7 +35,7 @@ import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
 import { DEFAULT_GEMINI_MODEL } from '../providerProfile.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
-import { getRouteDefaultModel } from '../../integrations/routeMetadata.js'
+import { getRouteDefaultModel, resolveActiveRouteIdFromEnv } from '../../integrations/routeMetadata.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -373,6 +373,14 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  if (resolveActiveRouteIdFromEnv(process.env) === 'concentrate') {
+    return (
+      process.env.CONCENTRATE_MODEL ||
+      process.env.OPENAI_MODEL ||
+      getRouteDefaultModel('concentrate') ||
+      'deepseek-v4-flash-0731'
+    )
+  }
   // Custom Anthropic-compatible endpoints intentionally retain the legacy
   // firstParty provider category, so prefer their explicitly configured model
   // before the subscription and PAYG defaults below.

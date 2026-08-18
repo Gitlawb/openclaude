@@ -963,6 +963,8 @@ export function hasConcentrateEnvOnlyProviderIntent(
       hasNonEmptyEnvValue(processEnv.CONCENTRATE_BASE_URL) ||
       hasNonEmptyEnvValue(processEnv.CONCENTRATE_MODEL)) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&
+    !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }

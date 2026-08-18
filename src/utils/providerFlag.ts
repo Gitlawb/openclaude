@@ -418,6 +418,9 @@ export function applyProviderFlag(
       // OpenAI-compatible env-only route override it later in startup.
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
+      delete process.env.CONCENTRATE_API_KEY
+      delete process.env.CONCENTRATE_BASE_URL
+      delete process.env.CONCENTRATE_MODEL
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
@@ -454,6 +457,9 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
+      delete process.env.CONCENTRATE_API_KEY
+      delete process.env.CONCENTRATE_BASE_URL
+      delete process.env.CONCENTRATE_MODEL
       process.env.ANTHROPIC_MODEL ??= defaultModel
       if (model) process.env.ANTHROPIC_MODEL = model
       break
@@ -464,6 +470,9 @@ export function applyProviderFlag(
       // dedicated env-only gateway during client startup.
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
+      delete process.env.CONCENTRATE_API_KEY
+      delete process.env.CONCENTRATE_BASE_URL
+      delete process.env.CONCENTRATE_MODEL
       if (model) process.env.OPENAI_MODEL = model
       break
 

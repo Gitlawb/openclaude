@@ -1101,6 +1101,10 @@ test('resolveActiveRouteIdFromEnv keeps an explicit non-OpenAI provider over Con
   ).toBe('gemini')
 })
 
+test('resolveActiveRouteIdFromEnv honors an explicit OpenAI opt-out over Concentrate', () => {
+  expect(resolveActiveRouteIdFromEnv({ CLAUDE_CODE_USE_OPENAI: '0', CONCENTRATE_API_KEY: 'concentrate-key' })).not.toBe('concentrate')
+})
+
 test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by Concentrate base URL', () => {
   expect(
     resolveActiveRouteIdFromEnv({
