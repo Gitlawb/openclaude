@@ -78,7 +78,7 @@ export default defineGateway({
     id: 'concentrate',
     description: 'Concentrate AI — 150+ models via OpenAI-compatible API',
     vendorId: 'openai',
-    apiKeyEnvVars: ['CONCENTRATE_API_KEY', 'OPENAI_API_KEY'],
+    apiKeyEnvVars: ['CONCENTRATE_API_KEY'],
     baseUrlEnvVars: ['CONCENTRATE_BASE_URL'],
     modelEnvVars: ['CONCENTRATE_MODEL', 'OPENAI_MODEL'],
   },

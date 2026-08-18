@@ -184,8 +184,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "gatewayId": "concentrate",
     "description": "Concentrate AI — 150+ models via OpenAI-compatible API",
     "apiKeyEnvVars": [
-      "CONCENTRATE_API_KEY",
-      "OPENAI_API_KEY"
+      "CONCENTRATE_API_KEY"
     ],
     "baseUrlEnvVars": [
       "CONCENTRATE_BASE_URL"
