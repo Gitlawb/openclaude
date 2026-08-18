@@ -1413,7 +1413,7 @@ describe('appendEntry remote egress gate', () => {
         timestamp: '2026-08-11T00:05:00.000Z',
         message: { role: 'user', content: 'seed before suppressed mid' },
       } as unknown as Message
-      await recordTranscript([seed], undefined, null)
+      await recordTranscript([seed])
       await flushSessionStorage()
       expect(remotePayloads.find(p => p.uuid === seedUuid)).toBeDefined()
 
