@@ -51,6 +51,13 @@ function normalizeModelSetting(value: unknown): ModelName | ModelAlias | undefin
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function getUsableProviderConfigModel(value: string | undefined): string | undefined {
+  const normalized = normalizeModelSetting(value)
+  if (!normalized) return undefined
+  const lowercase = normalized.toLowerCase()
+  return lowercase === 'undefined' || lowercase === 'null' ? undefined : normalized
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   if (isCustomAnthropicProvider()) {
@@ -149,21 +156,20 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       provider === 'minimax' ||
       provider === 'xiaomi-mimo' ||
       provider === 'xai'
-    specifiedModel =
+    specifiedModel = activeRouteId === 'concentrate'
       // Concentrate is an env-only OpenAI-compatible route. Model selection
       // happens before the client applies its OpenAI-compatible defaults, so
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
-      (activeRouteId === 'concentrate'
-        ? process.env.CONCENTRATE_MODEL || process.env.OPENAI_MODEL
-        : undefined) ||
-      (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
-      (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
-      (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
-      (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
-      (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
-      setting ||
-      undefined
+      ? getUsableProviderConfigModel(process.env.CONCENTRATE_MODEL) ||
+        getUsableProviderConfigModel(process.env.OPENAI_MODEL)
+      : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
+        (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
+        (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
+        (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
+        (provider === 'firstParty' ? process.env.ANTHROPIC_MODEL : undefined) ||
+        setting ||
+        undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -383,8 +389,8 @@ export function getRuntimeMainLoopModel(params: {
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (resolveActiveRouteIdFromEnv(process.env) === 'concentrate') {
     return (
-      process.env.CONCENTRATE_MODEL ||
-      process.env.OPENAI_MODEL ||
+      getUsableProviderConfigModel(process.env.CONCENTRATE_MODEL) ||
+      getUsableProviderConfigModel(process.env.OPENAI_MODEL) ||
       getRouteDefaultModel('concentrate') ||
       'deepseek-v4-flash-0731'
     )

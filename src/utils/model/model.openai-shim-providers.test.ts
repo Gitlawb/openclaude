@@ -381,6 +381,24 @@ test('Concentrate uses its descriptor default before client normalization', asyn
   expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
 })
 
+test.each(['null', 'undefined', '   '])(
+  'Concentrate ignores unusable dedicated model value %p before client normalization',
+  async value => {
+    saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+    process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+    process.env.CONCENTRATE_MODEL = value
+
+    const {
+      getDefaultMainLoopModelSetting,
+      getMainLoopModel,
+      getUserSpecifiedModelSetting,
+    } = await importFreshModelModule()
+    expect(getUserSpecifiedModelSetting()).toBeUndefined()
+    expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
+    expect(getMainLoopModel()).toBe('deepseek-v4-flash-0731')
+  },
+)
+
 test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {
   process.env.NVIDIA_NIM = '1'
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
