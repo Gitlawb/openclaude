@@ -14,6 +14,8 @@ import {
   clearPluginSettingsBase,
   resetSettingsCache,
 } from '../settings/settingsCache.js'
+let allowedModels: Set<string> | undefined
+
 async function importFreshModelModule() {
   mock.restore()
   const getAPIProvider = () => {
@@ -44,7 +46,7 @@ async function importFreshModelModule() {
       getAPIProvider() === 'firstParty' && !!process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
-    isModelAllowed: () => true,
+    isModelAllowed: (model: string) => allowedModels?.has(model) ?? true,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./model.js?ts=${nonce}`)
@@ -125,6 +127,7 @@ beforeEach(async () => {
   resetStateForTests()
   resetSettingsCache()
   clearPluginSettingsBase()
+  allowedModels = undefined
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -372,6 +375,38 @@ test('Concentrate honors its legacy OpenAI model fallback before client normaliz
     await importFreshModelModule()
   expect(getUserSpecifiedModelSetting()).toBe('legacy-concentrate-model')
   expect(getMainLoopModel()).toBe('legacy-concentrate-model')
+})
+
+test('Concentrate skips a discovered-model rejection to its OpenAI fallback', async () => {
+  allowedModels = new Set(['legacy-concentrate-model'])
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.CONCENTRATE_MODEL = 'rejected-concentrate-model'
+  process.env.OPENAI_MODEL = 'legacy-concentrate-model'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('legacy-concentrate-model')
+  expect(getDefaultMainLoopModelSetting()).toBe('legacy-concentrate-model')
+  expect(getMainLoopModel()).toBe('legacy-concentrate-model')
+})
+
+test('Concentrate falls back to its route default when configured models are rejected', async () => {
+  allowedModels = new Set()
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.CONCENTRATE_MODEL = 'rejected-concentrate-model'
+  process.env.OPENAI_MODEL = 'also-rejected-model'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBeUndefined()
+  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash-0731')
+  expect(getMainLoopModel()).toBe('deepseek-v4-flash-0731')
 })
 
 test('Concentrate uses its descriptor default before client normalization', async () => {

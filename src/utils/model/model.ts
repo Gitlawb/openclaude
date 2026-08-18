@@ -58,6 +58,17 @@ function getUsableProviderConfigModel(value: string | undefined): string | undef
   return lowercase === 'undefined' || lowercase === 'null' ? undefined : normalized
 }
 
+function getAllowedConcentrateConfigModel(): string | undefined {
+  for (const value of [
+    process.env.CONCENTRATE_MODEL,
+    process.env.OPENAI_MODEL,
+  ]) {
+    const model = getUsableProviderConfigModel(value)
+    if (model && isModelAllowed(model)) return model
+  }
+  return undefined
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   if (isCustomAnthropicProvider()) {
@@ -161,8 +172,7 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       // happens before the client applies its OpenAI-compatible defaults, so
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
-      ? getUsableProviderConfigModel(process.env.CONCENTRATE_MODEL) ||
-        getUsableProviderConfigModel(process.env.OPENAI_MODEL)
+      ? getAllowedConcentrateConfigModel()
       : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
         (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
         (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
@@ -389,8 +399,7 @@ export function getRuntimeMainLoopModel(params: {
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
   if (resolveActiveRouteIdFromEnv(process.env) === 'concentrate') {
     return (
-      getUsableProviderConfigModel(process.env.CONCENTRATE_MODEL) ||
-      getUsableProviderConfigModel(process.env.OPENAI_MODEL) ||
+      getAllowedConcentrateConfigModel() ||
       getRouteDefaultModel('concentrate') ||
       'deepseek-v4-flash-0731'
     )

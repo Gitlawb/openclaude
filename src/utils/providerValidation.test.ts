@@ -248,6 +248,17 @@ test('noncanonical CONCENTRATE_BASE_URL is rejected instead of silently withhold
   )
 })
 
+test('key-only noncanonical Concentrate setup validates before OpenAI mode is enabled', async () => {
+  process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.',
+  )
+})
+
 test('Concentrate key-only setup validates before client defaults are applied', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.CONCENTRATE_API_KEY = 'concentrate-key'

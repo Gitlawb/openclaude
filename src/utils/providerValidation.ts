@@ -263,16 +263,16 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
-  if (!useOpenAI) {
-    return undefined
-  }
-
   // The documented CONCENTRATE_API_KEY-only setup is routed before the client
   // applies its default base URL. Select its descriptor directly so startup
-  // validates the dedicated credential instead of falling through to generic
-  // OpenAI validation.
+  // validates the dedicated credential, including a noncanonical dedicated
+  // base URL, instead of returning early for an unset OpenAI mode.
   if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
     return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  }
+
+  if (!useOpenAI) {
+    return undefined
   }
 
   const request = resolveProviderRequest({
