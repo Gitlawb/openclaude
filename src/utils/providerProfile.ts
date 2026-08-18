@@ -2155,9 +2155,16 @@ export async function buildLaunchEnv(options: {
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
-    const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
-    if (persistedCredential) {
-      env[persistedCredential.envVar] = persistedCredential.value
+    // AIMLAPI and ApiSmart may retain a user-configured proxy credential in
+    // their persisted generic OpenAI field. Concentrate is different: its
+    // dedicated credential is never valid off the canonical endpoint, and
+    // older profiles could have stored that same secret under either generic
+    // alias. Do not resurrect it for a noncanonical Concentrate launch.
+    if (!isNoncanonicalConcentrateLaunch) {
+      const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
+      if (persistedCredential) {
+        env[persistedCredential.envVar] = persistedCredential.value
+      }
     }
     // Custom authentication is a second credential channel, not just transport
     // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request

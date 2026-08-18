@@ -3140,6 +3140,29 @@ test('openai launch removes a legacy persisted Concentrate key from a noncanonic
   assert.equal(env.CONCENTRATE_API_KEY, undefined)
 })
 
+test('openai launch removes legacy generic credentials from a noncanonical Concentrate URL', async () => {
+  for (const [credentialEnvVar, credential] of [
+    ['OPENAI_API_KEY', 'legacy-concentrate-key'],
+    ['OPENAI_API_KEYS', 'legacy-concentrate-key-1,legacy-concentrate-key-2'],
+  ] as const) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+        OPENAI_BASE_URL: 'https://api.concentrate.ai/staging/v1',
+        OPENAI_MODEL: 'deepseek-v4-flash-0731',
+        [credentialEnvVar]: credential,
+      }),
+      goal: 'coding',
+      processEnv: {},
+    })
+
+    assert.equal(env.OPENAI_API_KEY, undefined)
+    assert.equal(env.OPENAI_API_KEYS, undefined)
+    assert.equal(env.CONCENTRATE_API_KEY, undefined)
+  }
+})
+
 test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
