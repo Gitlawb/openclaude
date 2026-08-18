@@ -363,6 +363,17 @@ test('Concentrate selects its dedicated model before client normalization', asyn
   expect(getMainLoopModel()).toBe('claude-sonnet-5')
 })
 
+test('Concentrate honors its legacy OpenAI model fallback before client normalization', async () => {
+  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.OPENAI_MODEL = 'legacy-concentrate-model'
+
+  const { getMainLoopModel, getUserSpecifiedModelSetting } =
+    await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('legacy-concentrate-model')
+  expect(getMainLoopModel()).toBe('legacy-concentrate-model')
+})
+
 test('Concentrate uses its descriptor default before client normalization', async () => {
   process.env.CONCENTRATE_API_KEY = 'concentrate-test'
 

@@ -154,7 +154,9 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       // happens before the client applies its OpenAI-compatible defaults, so
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
-      (activeRouteId === 'concentrate' ? process.env.CONCENTRATE_MODEL : undefined) ||
+      (activeRouteId === 'concentrate'
+        ? process.env.CONCENTRATE_MODEL || process.env.OPENAI_MODEL
+        : undefined) ||
       (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
       (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
       (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
