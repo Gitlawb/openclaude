@@ -471,12 +471,12 @@ export function getConcentrateBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
-  if (isCanonicalConcentrateInferenceBaseUrl(openAIBaseUrl)) {
+  if (isConcentrateBaseUrl(openAIBaseUrl)) {
     return openAIBaseUrl
   }
 
   const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
-  if (isCanonicalConcentrateInferenceBaseUrl(openAIApiBase)) {
+  if (isConcentrateBaseUrl(openAIApiBase)) {
     return openAIApiBase
   }
 
@@ -960,7 +960,6 @@ export function hasConcentrateEnvOnlyProviderIntent(
   // only key forwarded to api.concentrate.ai.
   return (
     (hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) ||
-      getConcentrateBaseUrlOverride(processEnv) !== undefined ||
       hasNonEmptyEnvValue(processEnv.CONCENTRATE_BASE_URL) ||
       hasNonEmptyEnvValue(processEnv.CONCENTRATE_MODEL)) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&

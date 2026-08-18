@@ -1083,6 +1083,15 @@ test('resolveActiveRouteIdFromEnv does not infer Concentrate with a conflicting 
   ).toBe('anthropic')
 })
 
+test('resolveActiveRouteIdFromEnv does not infer Concentrate from a same-host noncanonical base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/staging/v1',
+    }),
+  ).toBe('custom')
+})
+
 test('resolveActiveRouteIdFromEnv keeps an explicit non-OpenAI provider over Concentrate key-only setup', () => {
   expect(
     resolveActiveRouteIdFromEnv({

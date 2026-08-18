@@ -223,6 +223,18 @@ test('noncanonical Concentrate host paths fall back to generic OpenAI validation
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('noncanonical same-host base rejects a selected CONCENTRATE_API_KEY route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.',
+  )
+})
+
 test('noncanonical CONCENTRATE_BASE_URL is rejected instead of silently withholding its key', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/staging/v1'

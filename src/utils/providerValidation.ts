@@ -401,10 +401,13 @@ async function getDescriptorValidationError(
     return null
   }
 
-  // An explicit Concentrate override carries the dedicated credential contract.
-  // Same-host proxy endpoints instead use the generic OpenAI configuration and
-  // credentials, so they are not selected as the Concentrate route above.
-  const concentrateBaseUrl = env.CONCENTRATE_BASE_URL?.trim()
+  // An explicit Concentrate credential carries the dedicated contract. A
+  // same-host proxy with only generic OpenAI variables is not selected as this
+  // route, but once Concentrate is selected its base must be canonical.
+  const concentrateBaseUrl =
+    env.CONCENTRATE_BASE_URL?.trim() ||
+    env.OPENAI_BASE_URL?.trim() ||
+    env.OPENAI_API_BASE?.trim()
   if (
     target.descriptor.id === 'concentrate' &&
     concentrateBaseUrl &&
