@@ -2236,6 +2236,14 @@ export async function buildLaunchEnv(options: {
       !isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
       withholdAmbientAimlapiKey || withholdAmbientApismartKey || withholdAmbientConcentrateKey
+    // Unlike the generic proxy-compatible routes above, Concentrate's
+    // dedicated key is never valid outside its canonical inference endpoint.
+    // Do not preserve a legacy persisted key for a retargeted Concentrate
+    // profile: older versions could have serialized one before this boundary
+    // was enforced.
+    if (withholdAmbientConcentrateKey) {
+      continue
+    }
     // AIMLAPI accepts generic OpenAI credentials, but ApiSmart is
     // dedicatedCredentialsOnly. Never promote a shell OPENAI_API_KEY into the
     // dedicated credential on relaunch.

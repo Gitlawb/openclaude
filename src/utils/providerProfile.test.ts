@@ -3122,6 +3122,24 @@ test('openai launch withholds ambient Concentrate credentials from a keyless pro
   assert.equal(canonical.CONCENTRATE_API_KEY, 'ambient-concentrate-key')
 })
 
+test('openai launch removes a legacy persisted Concentrate key from a noncanonical URL', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/staging/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      CONCENTRATE_API_KEY: 'legacy-concentrate-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.CONCENTRATE_API_KEY, undefined)
+})
+
 test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
