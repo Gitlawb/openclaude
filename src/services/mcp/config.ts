@@ -1142,6 +1142,18 @@ export function getMcpConfigByName(name: string): ScopedMcpServerConfig | null {
   // constructor on as a server config. Gate every lookup on own-property.
   const { servers: enterpriseServers } = getMcpConfigsByScope('enterprise')
 
+  // A present managed-mcp.json takes exclusive, fail-closed control of MCP
+  // (even when malformed — its mere presence engages the policy). Named lookups
+  // must honor the same boundary getClaudeCodeMcpConfigs() enforces, or a
+  // user/local server could still be resolved by name (mcp get <server>, an
+  // agent's named-server reference) and connected, bypassing the policy. Return
+  // only an enterprise-owned entry (or null).
+  if (doesEnterpriseMcpConfigExist()) {
+    return Object.hasOwn(enterpriseServers, name)
+      ? enterpriseServers[name]!
+      : null
+  }
+
   // When MCP is locked to plugin-only, only enterprise servers are reachable
   // by name. User/project/local servers are blocked — same as getClaudeCodeMcpConfigs().
   if (isRestrictedToPluginOnly('mcp')) {
