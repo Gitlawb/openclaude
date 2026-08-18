@@ -72,6 +72,9 @@ const RESTORED_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'CLINE_API_KEY',
   'HICAP_API_KEY',
   'CLOUDFLARE_API_TOKEN',
@@ -278,6 +281,17 @@ function buildApismartProfile(overrides: Partial<ProviderProfile> = {}): Provide
   })
 }
 
+function buildConcentrateProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'concentrate',
+    name: 'Concentrate',
+    baseUrl: 'https://api.concentrate.ai/v1',
+    model: 'deepseek-v4-flash-0731',
+    apiKey: 'concentrate-test-key',
+    ...overrides,
+  })
+}
+
 function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'clinepass',
@@ -317,7 +331,7 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
 
     expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
-  })
+  }, 20_000)
 
   test('openai profile clears competing gemini/github flags', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -951,6 +965,140 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.APISMART_API_KEY).toBeUndefined()
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('apismart')
   })
+
+  test('concentrate profile applies OpenAI-compatible env with CONCENTRATE_API_KEY mirror', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CLAUDE_CODE_USE_GEMINI = '1'
+
+    applyProviderProfileToProcessEnv(buildConcentrateProfile())
+    const { getAPIProvider: getFreshAPIProvider } =
+      await importFreshProvidersModule()
+
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(String(process.env.CLAUDE_CODE_USE_OPENAI)).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash-0731')
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-test-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-test-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+    expect(getFreshAPIProvider()).toBe('openai')
+  })
+
+  test('concentrate profile clears a stale route-specific model before applying its saved model', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderProfileToProcessEnv(buildConcentrateProfile())
+
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash-0731')
+  })
+
+  test('concentrate profile without a base URL retains its dedicated credential for the default route', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildConcentrateProfile({ baseUrl: undefined }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-test-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-test-key')
+  })
+
+  test('retargeted Concentrate profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildConcentrateProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+  })
+
+  test('keyless Concentrate profile resolves CONCENTRATE_API_KEY without persisting it', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CONCENTRATE_API_KEY = 'ambient-concentrate-key'
+
+    applyProviderProfileToProcessEnv(
+      buildConcentrateProfile({
+        apiKey: undefined,
+        baseUrl: 'https://api.concentrate.ai/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-concentrate-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBe('ambient-concentrate-key')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+  }, 20_000)
+
+  test('keyless canonical Concentrate profile never promotes a generic OpenAI key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+    applyProviderProfileToProcessEnv(
+      buildConcentrateProfile({
+        apiKey: undefined,
+        baseUrl: 'https://api.concentrate.ai/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+  }, 20_000)
+
+  test('non-canonical Concentrate host path withholds the dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildConcentrateProfile({
+        baseUrl: 'https://api.concentrate.ai/staging/v1',
+      }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.concentrate.ai/staging/v1',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
+  })
+
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'addProviderProfile drops placeholder Concentrate credential %s',
+    async placeholder => {
+      const { addProviderProfile, getProviderProfiles } =
+        await importFreshProviderProfileModules()
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [],
+        activeProviderProfileId: undefined,
+      }))
+
+      const saved = addProviderProfile({
+        provider: 'concentrate',
+        name: 'Concentrate',
+        baseUrl: 'https://api.concentrate.ai/v1',
+        model: 'deepseek-v4-flash-0731',
+        apiKey: placeholder,
+      })
+
+      expect(saved?.apiKey).toBeUndefined()
+      expect(getProviderProfiles()[0]?.apiKey).toBeUndefined()
+    },
+  )
 
   test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
     'addProviderProfile drops placeholder ApiSmart credential %s',

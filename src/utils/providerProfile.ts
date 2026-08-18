@@ -26,6 +26,7 @@ import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
+  isConcentrateBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -117,6 +118,9 @@ const PROFILE_ENV_KEYS = [
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
   'LONGCAT_API_KEY',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'CLINE_API_KEY',
   'OPENCODE_API_KEY',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
@@ -204,6 +208,9 @@ export type ProfileEnv = {
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
   LONGCAT_API_KEY?: string
+  CONCENTRATE_API_KEY?: string
+  CONCENTRATE_BASE_URL?: string
+  CONCENTRATE_MODEL?: string
   OPENCODE_API_KEY?: string
   CLOUDFLARE_API_TOKEN?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
@@ -689,6 +696,51 @@ export function buildApismartProfileEnv(options: {
   }
 }
 
+export function buildConcentrateProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.CONCENTRATE_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('concentrate')
+  const defaultModel = getRouteDefaultModel('concentrate')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Concentrate route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    CONCENTRATE_API_KEY: key,
+  }
+  const configuredBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.CONCENTRATE_BASE_URL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
+
+  return {
+    OPENAI_BASE_URL: configuredBaseUrl || defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.CONCENTRATE_MODEL, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    CONCENTRATE_API_KEY: key,
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+  }
+}
+
 export function buildGeminiProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
@@ -931,6 +983,9 @@ export function buildOpenAIProfileEnv(options: {
   return {
     ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'aimlapi' && key
       ? { AIMLAPI_API_KEY: key }
+      : {}),
+    ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'concentrate' && key
+      ? { CONCENTRATE_API_KEY: key }
       : {}),
     OPENAI_BASE_URL: resolvedBaseUrl,
     OPENAI_MODEL: normalizedModel,
@@ -1411,7 +1466,8 @@ function hasConcreteProviderSelection(
     sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.CONCENTRATE_API_KEY) !== undefined
   )
 }
 
@@ -2080,8 +2136,12 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'apismart' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApismartInferenceBaseUrl(env.OPENAI_BASE_URL)
+  const isNoncanonicalConcentrateLaunch =
+    effectiveOpenAIRouteId === 'concentrate' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isConcentrateBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
-    isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch
+    isNoncanonicalAimlapiLaunch || isNoncanonicalApismartLaunch || isNoncanonicalConcentrateLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
@@ -2115,6 +2175,7 @@ export async function buildLaunchEnv(options: {
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
     'APISMART_API_KEY',
+    'CONCENTRATE_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
@@ -2131,6 +2192,9 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'APISMART_API_KEY' && effectiveOpenAIRouteId !== 'apismart') {
+      continue
+    }
+    if (dedicatedKey === 'CONCENTRATE_API_KEY' && effectiveOpenAIRouteId !== 'concentrate') {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
@@ -2156,8 +2220,12 @@ export async function buildLaunchEnv(options: {
       dedicatedKey === 'APISMART_API_KEY' &&
       !!dedicatedBaseUrl &&
       !isCanonicalApismartInferenceBaseUrl(dedicatedBaseUrl)
+    const withholdAmbientConcentrateKey =
+      dedicatedKey === 'CONCENTRATE_API_KEY' &&
+      !!dedicatedBaseUrl &&
+      !isConcentrateBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
-      withholdAmbientAimlapiKey || withholdAmbientApismartKey
+      withholdAmbientAimlapiKey || withholdAmbientApismartKey || withholdAmbientConcentrateKey
     // AIMLAPI accepts generic OpenAI credentials, but ApiSmart is
     // dedicatedCredentialsOnly. Never promote a shell OPENAI_API_KEY into the
     // dedicated credential on relaunch.
@@ -2179,12 +2247,21 @@ export async function buildLaunchEnv(options: {
       persistedOpenAICredential?.kind === 'usable'
         ? sanitizeApiKey(persistedOpenAICredential.value)
         : undefined
+    const backfillLegacyConcentrateProfileKey =
+      dedicatedKey === 'CONCENTRATE_API_KEY' &&
+      effectiveOpenAIRouteId === 'concentrate' &&
+      !!dedicatedBaseUrl &&
+      isConcentrateBaseUrl(dedicatedBaseUrl) &&
+      persistedOpenAICredential?.kind === 'usable'
+        ? sanitizeApiKey(persistedOpenAICredential.value)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
-        backfillLegacyApismartProfileKey
+        backfillLegacyApismartProfileKey ||
+        backfillLegacyConcentrateProfileKey
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }

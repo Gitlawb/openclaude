@@ -44,6 +44,7 @@ import {
   getMiniMaxBaseUrlOverride,
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -411,6 +412,45 @@ function applyApismartEnvOnlyDefaults(): void {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
+function applyConcentrateEnvOnlyDefaults(): void {
+  const baseUrlOverride =
+    usableProviderConfigEnvValue(process.env.CONCENTRATE_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
+    undefined
+  const modelOverride =
+    usableProviderConfigEnvValue(process.env.CONCENTRATE_MODEL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) ||
+    undefined
+  const apiKey = process.env.CONCENTRATE_API_KEY
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('concentrate')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('concentrate')
+  // Concentrate is dedicatedCredentialsOnly: only CONCENTRATE_API_KEY may
+  // authenticate this route. Mirror it into OPENAI_API_KEY for the shared
+  // OpenAI-compatible transport after the route identity is established, and
+  // clear any stale generic key so ambient OpenAI credentials are not
+  // forwarded to Concentrate. The dedicated key belongs only to Concentrate's
+  // documented /v1 inference endpoint, so a noncanonical same-host URL withholds
+  // the credential the same way ApiSmart does.
+  if (
+    hasUsableOpenAICredential(apiKey) &&
+    isCanonicalConcentrateInferenceBaseUrl(process.env.OPENAI_BASE_URL)
+  ) {
+    process.env.OPENAI_API_KEY = apiKey
+  } else {
+    delete process.env.OPENAI_API_KEY
+  }
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+}
+
 function usableProviderConfigEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -561,6 +601,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
   const useApismartEnvOnlyProvider =
     envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
+  const useConcentrateEnvOnlyProvider =
+    envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) {
     applyMiniMaxEnvOnlyDefaults(model)
   }
@@ -584,6 +626,9 @@ export async function getAnthropicClient({
   }
   if (useApismartEnvOnlyProvider) {
     applyApismartEnvOnlyDefaults()
+  }
+  if (useConcentrateEnvOnlyProvider) {
+    applyConcentrateEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
@@ -690,6 +735,7 @@ export async function getAnthropicClient({
     useFireworksEnvOnlyProvider ||
     useAimlapiEnvOnlyProvider ||
     useApismartEnvOnlyProvider ||
+    useConcentrateEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

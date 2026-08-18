@@ -9,6 +9,7 @@ import {
   isApismartBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
   isCloudflareBaseUrl,
+  isConcentrateBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
@@ -1008,4 +1009,109 @@ test('getRouteDefaultModel skips hidden and expired catalog entries in the fallb
       releaseSharedMutationLock()
     }
   }
+})
+
+test('isConcentrateBaseUrl matches the Concentrate API host', () => {
+  expect(isConcentrateBaseUrl('https://api.concentrate.ai/v1')).toBe(true)
+  expect(isConcentrateBaseUrl('https://api.concentrate.ai/v1/chat/completions')).toBe(true)
+  expect(isConcentrateBaseUrl('http://api.concentrate.ai/v1')).toBe(false)
+  expect(isConcentrateBaseUrl('https://api.concentrate.ai:8443/v1')).toBe(false)
+  expect(isConcentrateBaseUrl('https://api.concentrate.ai.evil.test/v1')).toBe(false)
+  expect(isConcentrateBaseUrl(undefined)).toBe(false)
+})
+
+test('resolveActiveRouteIdFromEnv treats Concentrate credential-only env as Concentrate', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+    }),
+  ).toBe('concentrate')
+})
+
+test('resolveActiveRouteIdFromEnv treats CONCENTRATE_BASE_URL as Concentrate intent', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
+    }),
+  ).toBe('concentrate')
+})
+
+test('resolveActiveRouteIdFromEnv treats CONCENTRATE_MODEL as Concentrate intent', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      CONCENTRATE_MODEL: 'claude-sonnet-5',
+    }),
+  ).toBe('concentrate')
+})
+
+test('resolveActiveRouteIdFromEnv ignores placeholder Concentrate credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'SUA_CHAVE',
+    }),
+  ).not.toBe('concentrate')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'null',
+    }),
+  ).not.toBe('concentrate')
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'undefined',
+    }),
+  ).not.toBe('concentrate')
+})
+
+test('resolveActiveRouteIdFromEnv prefers Concentrate dedicated key over ambient OpenAI credentials', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      OPENAI_API_KEY: 'ambient-openai-key',
+      OPENAI_API_KEYS: 'ambient-openai-key-a,ambient-openai-key-b',
+    }),
+  ).toBe('concentrate')
+})
+
+test('resolveActiveRouteIdFromEnv does not infer Concentrate with a conflicting OpenAI base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    }),
+  ).toBe('anthropic')
+})
+
+test('resolveActiveRouteIdFromEnv keeps an explicit non-OpenAI provider over Concentrate key-only setup', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      CLAUDE_CODE_USE_GEMINI: '1',
+    }),
+  ).toBe('gemini')
+})
+
+test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by Concentrate base URL', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+    }),
+  ).toBe('concentrate')
+})
+
+test('getRouteCredentialEnvVars omits generic OpenAI fallback for Concentrate dedicated route', () => {
+  expect(getRouteCredentialEnvVars('concentrate')).toEqual(['CONCENTRATE_API_KEY'])
+  expect(
+    getRouteCredentialValue('concentrate', {
+      OPENAI_API_KEY: 'generic-openai-key',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('concentrate', {
+      OPENAI_API_KEY: 'generic-openai-key',
+      CONCENTRATE_API_KEY: 'concentrate-key',
+    }),
+  ).toBe('concentrate-key')
 })

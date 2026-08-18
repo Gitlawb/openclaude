@@ -62,6 +62,7 @@ export default defineGateway({
     requiresAuth: true,
     authMode: 'api-key',
     credentialEnvVars: ['CONCENTRATE_API_KEY'],
+    dedicatedCredentialsOnly: true,
   },
   startup: {
     probeReadiness: 'openai-compatible-models',
@@ -88,9 +89,9 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['api.concentrate.ai'],
     },
-    credentialEnvVars: ['CONCENTRATE_API_KEY', 'OPENAI_API_KEY'],
+    credentialEnvVars: ['CONCENTRATE_API_KEY'],
     missingCredentialMessage:
-      'Concentrate auth is required. Set CONCENTRATE_API_KEY or OPENAI_API_KEY.',
+      'Concentrate auth is required. Set CONCENTRATE_API_KEY.',
   },
   catalog: {
     source: 'dynamic',

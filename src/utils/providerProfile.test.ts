@@ -18,6 +18,7 @@ import {
   buildAtomicChatProfileEnv,
   buildApismartProfileEnv,
   buildCompatibilityProcessEnv,
+  buildConcentrateProfileEnv,
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
@@ -3011,4 +3012,160 @@ test('atomic-chat launch ignores mismatched persisted openai env', async () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
+})
+
+test('openai launch preserves persisted Concentrate dedicated credentials across restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      OPENAI_API_KEY: 'concentrate-secret-key',
+      CONCENTRATE_API_KEY: 'concentrate-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.concentrate.ai/v1')
+  assert.equal(env.OPENAI_MODEL, 'deepseek-v4-flash-0731')
+  assert.equal(env.OPENAI_API_KEY, 'concentrate-secret-key')
+  assert.equal(env.CONCENTRATE_API_KEY, 'concentrate-secret-key')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
+})
+
+test('openai launch backfills CONCENTRATE_API_KEY from a legacy OpenAI-shaped Concentrate profile', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      OPENAI_API_KEY: 'concentrate-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
+  assert.equal(env.OPENAI_API_KEY, 'concentrate-secret-key')
+  assert.equal(env.CONCENTRATE_API_KEY, 'concentrate-secret-key')
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'concentrate',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    'concentrate-secret-key',
+  )
+})
+
+test('openai launch never promotes an ambient generic key to a Concentrate credential', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_API_KEY: 'generic-openai-key',
+    },
+  })
+
+  assert.equal(env.CONCENTRATE_API_KEY, undefined)
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'concentrate',
+      processEnv: env,
+      baseUrl: env.OPENAI_BASE_URL,
+    }),
+    undefined,
+  )
+})
+
+test('openai launch withholds ambient Concentrate credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-concentrate-key',
+      CONCENTRATE_API_KEY: 'ambient-concentrate-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.CONCENTRATE_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-v4-flash-0731',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.concentrate.ai/v1',
+      OPENAI_API_KEY: 'ambient-concentrate-key',
+      CONCENTRATE_API_KEY: 'ambient-concentrate-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-concentrate-key')
+  assert.equal(canonical.CONCENTRATE_API_KEY, 'ambient-concentrate-key')
+})
+
+test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      CONCENTRATE_API_KEY: 'concentrate-env-only-key',
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
+      CONCENTRATE_MODEL: 'claude-sonnet-5',
+    },
+  })
+
+  assert.equal(env.CONCENTRATE_API_KEY, 'concentrate-env-only-key')
+  assert.equal(env.CONCENTRATE_BASE_URL, 'https://api.concentrate.ai/v1')
+  assert.equal(env.CONCENTRATE_MODEL, 'claude-sonnet-5')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'concentrate')
+})
+
+test('buildConcentrateProfileEnv prefers CONCENTRATE_MODEL over OPENAI_MODEL', () => {
+  const env = buildConcentrateProfileEnv({
+    apiKey: 'concentrate-secret-key',
+    processEnv: {
+      CONCENTRATE_MODEL: 'claude-sonnet-5',
+      OPENAI_MODEL: 'gpt-4o',
+    },
+  })
+
+  assert.ok(env)
+  assert.equal(env?.OPENAI_MODEL, 'claude-sonnet-5')
+  assert.equal(env?.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'concentrate')
+})
+
+test('buildConcentrateProfileEnv reads CONCENTRATE_BASE_URL override', () => {
+  const env = buildConcentrateProfileEnv({
+    apiKey: 'concentrate-secret-key',
+    processEnv: {
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
+    },
+  })
+
+  assert.ok(env)
+  assert.equal(env?.OPENAI_BASE_URL, 'https://api.concentrate.ai/v1')
 })

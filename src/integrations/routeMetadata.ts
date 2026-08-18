@@ -230,7 +230,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar === 'APISMART_API_KEY' ||
+    envVar === 'CONCENTRATE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -416,6 +417,70 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+export function isConcentrateBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const url = new URL(trimmed)
+    return (
+      url.protocol === 'https:' &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      url.hostname.toLowerCase() === 'api.concentrate.ai'
+    )
+  } catch {
+    return false
+  }
+}
+
+const CONCENTRATE_CANONICAL_INFERENCE_BASE_URL = 'https://api.concentrate.ai/v1'
+
+export function isCanonicalConcentrateInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(CONCENTRATE_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getConcentrateBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isConcentrateBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isConcentrateBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
 }
 
 /**
@@ -886,6 +951,23 @@ export function hasApismartEnvOnlyProviderIntent(
   )
 }
 
+export function hasConcentrateEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // Concentrate is a dedicated-credentials-only OpenAI-compatible gateway.
+  // The documented CONCENTRATE_* env vars select the route even when a generic
+  // OPENAI_API_KEY is present in the shell, so the dedicated credential is the
+  // only key forwarded to api.concentrate.ai.
+  return (
+    (hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) ||
+      getConcentrateBaseUrlOverride(processEnv) !== undefined ||
+      hasNonEmptyEnvValue(processEnv.CONCENTRATE_BASE_URL) ||
+      hasNonEmptyEnvValue(processEnv.CONCENTRATE_MODEL)) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -899,6 +981,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'longcat'
   | 'clinepass'
   | 'apismart'
+  | 'concentrate'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -945,6 +1028,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasApismartEnvOnlyProviderIntent(processEnv)) {
     return 'apismart'
+  }
+
+  if (hasConcentrateEnvOnlyProviderIntent(processEnv)) {
+    return 'concentrate'
   }
 
   return null
@@ -1019,6 +1106,15 @@ export function resolveRouteCredentialValue(
     routeId === 'apismart' &&
     options?.baseUrl !== undefined &&
     !isCanonicalApismartInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
+  // Concentrate is the same: route identity is host-scoped, but the dedicated
+  // credential is only valid for the documented /v1 inference endpoint.
+  if (
+    routeId === 'concentrate' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalConcentrateInferenceBaseUrl(options.baseUrl)
   ) {
     return undefined
   }

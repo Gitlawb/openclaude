@@ -16,7 +16,7 @@ describe('concentrate gateway', () => {
     expect(concentrate.setup.requiresAuth).toBe(true)
     expect(concentrate.setup.authMode).toBe('api-key')
     expect(concentrate.setup.credentialEnvVars).toEqual(['CONCENTRATE_API_KEY'])
-    expect(concentrate.setup.dedicatedCredentialsOnly).toBeUndefined()
+    expect(concentrate.setup.dedicatedCredentialsOnly).toBe(true)
 
     expect(concentrate.catalog?.source).toBe('dynamic')
     expect(concentrate.catalog?.discovery?.kind).toBe('openai-compatible')
@@ -25,7 +25,7 @@ describe('concentrate gateway', () => {
     expect(concentrate.validation?.kind).toBe('credential-env')
     expect(
       (concentrate.validation as { credentialEnvVars: string[] }).credentialEnvVars,
-    ).toEqual(['CONCENTRATE_API_KEY', 'OPENAI_API_KEY'])
+    ).toEqual(['CONCENTRATE_API_KEY'])
 
     expect(mapModel).toBeDefined()
   })

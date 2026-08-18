@@ -42,6 +42,9 @@ const ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -93,6 +96,9 @@ const RESET_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -1307,5 +1313,94 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--model', 'qwen2.5-coder:14b'])
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5-coder:14b')
+  })
+})
+
+describe('applyProviderFlag - concentrate', () => {
+  test('sets Concentrate OpenAI-compatible defaults and mirrors CONCENTRATE_API_KEY', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    const result = applyProviderFlag('concentrate', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash-0731')
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-secret-key')
+  })
+
+  test('uses CONCENTRATE_BASE_URL and CONCENTRATE_MODEL from env', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-5')
+  })
+
+  test('explicit --model overrides CONCENTRATE_MODEL and OPENAI_MODEL', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderFlag('concentrate', ['--model', 'deepseek-v4-pro-0731'])
+
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro-0731')
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-secret-key')
+  })
+
+  test('clears a stale OPENAI_API_KEY when no Concentrate key is set', () => {
+    delete process.env.CONCENTRATE_API_KEY
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder Concentrate credential %s',
+    placeholder => {
+      process.env.CONCENTRATE_API_KEY = placeholder
+
+      applyProviderFlag('concentrate', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
+  test('clears a copied Concentrate key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.OPENAI_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('clears unsupported OpenAI shim settings from a previous route', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-value'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: proxy-secret'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 })

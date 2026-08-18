@@ -350,18 +350,21 @@ export function applyProviderFlag(
                   : process.env.OPENAI_API_KEY !== undefined &&
                       process.env.OPENAI_API_KEY === process.env.ATLAS_CLOUD_API_KEY
                     ? 'atlas-cloud'
-                    : process.env.OPENAI_API_KEY !== undefined &&
-                        process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
-                      ? 'apismart'
                       : process.env.OPENAI_API_KEY !== undefined &&
-                        process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
-                      ? 'nearai'
-                      : process.env.OPENAI_API_KEY !== undefined &&
-                        process.env.OPENAI_API_KEY === process.env.FIREWORKS_API_KEY
-                      ? 'fireworks'
-                      : process.env.OPENAI_API_KEY !== undefined &&
-                        process.env.OPENAI_API_KEY === process.env.LONGCAT_API_KEY
-                      ? 'longcat'
+                          process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
+                        ? 'apismart'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.CONCENTRATE_API_KEY
+                        ? 'concentrate'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
+                        ? 'nearai'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.FIREWORKS_API_KEY
+                        ? 'fireworks'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.LONGCAT_API_KEY
+                        ? 'longcat'
                       : process.env.OPENAI_API_KEY !== undefined &&
                       opengatewayApiKey !== undefined &&
                       opengatewayApiKey.length > 0 &&
@@ -665,6 +668,52 @@ export function applyProviderFlag(
         isCanonicalApismartInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
       ) {
         process.env.OPENAI_API_KEY = process.env.APISMART_API_KEY
+      } else {
+        delete process.env.OPENAI_API_KEY
+      }
+      break
+
+    case 'concentrate':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // Concentrate uses the standard OpenAI-compatible wire contract with no
+      // alternate API formats or custom auth headers.
+      clearUnsupportedOpenAIShimSettings('concentrate')
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      {
+        const baseUrlOverride = usableProviderModelEnvValue(
+          process.env.CONCENTRATE_BASE_URL,
+        )
+        if (baseUrlOverride) {
+          process.env.OPENAI_BASE_URL = baseUrlOverride
+        } else {
+          applyOpenAIBaseUrlDefault(
+            provider,
+            defaultBaseUrl ?? 'https://api.concentrate.ai/v1',
+          )
+        }
+      }
+      {
+        const concentrateModel = usableProviderModelEnvValue(
+          process.env.CONCENTRATE_MODEL,
+        )
+        if (concentrateModel) {
+          process.env.OPENAI_MODEL = concentrateModel
+        } else {
+          process.env.OPENAI_MODEL ??=
+            usableProviderModelEnvValue(process.env.OPENAI_MODEL) ||
+            defaultModel ||
+            'deepseek-v4-flash-0731'
+        }
+      }
+      if (model) {
+        process.env.OPENAI_MODEL = model
+      }
+      // DedicatedCredentialsOnly: only CONCENTRATE_API_KEY authenticates this
+      // route. Mirror it into OPENAI_API_KEY for the shared shim transport and
+      // clear any stale generic key so ambient OpenAI credentials are never
+      // forwarded to Concentrate.
+      if (hasUsableOpenAICredential(process.env.CONCENTRATE_API_KEY)) {
+        process.env.OPENAI_API_KEY = process.env.CONCENTRATE_API_KEY
       } else {
         delete process.env.OPENAI_API_KEY
       }
