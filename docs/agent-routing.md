@@ -90,9 +90,9 @@ no credential duplication:
 ```
 
 **Built-in agents are routable by their type name.** Useful keys:
-`verification` (the read-only auditor that runs before completion), `Explore`
+`verification` (the read-only auditor that runs before completion; **feature-gated**: requires `VERIFICATION_AGENT` and `tengu_hive_evidence` flag), `Explore`
 and `Plan` (if feature-gated on), and `code-reviewer` (requires diff inline). For example, `"agentRouting": { "verification": "mini" }` runs the
-verifier on `gpt-5-mini` while your main session stays on its model. Absent
+verifier on `gpt-5-mini` while your main session stays on its model, but only when the verification gate is active. Absent
 any entry, the verifier inherits the main-loop model.
 
 ## GitHub Copilot sub-agent optimization
