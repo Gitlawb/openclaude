@@ -471,12 +471,12 @@ export function getConcentrateBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
   const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
-  if (isConcentrateBaseUrl(openAIBaseUrl)) {
+  if (isCanonicalConcentrateInferenceBaseUrl(openAIBaseUrl)) {
     return openAIBaseUrl
   }
 
   const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
-  if (isConcentrateBaseUrl(openAIApiBase)) {
+  if (isCanonicalConcentrateInferenceBaseUrl(openAIApiBase)) {
     return openAIApiBase
   }
 
@@ -1240,7 +1240,9 @@ export function resolveRouteIdFromBaseUrl(
         if (
           (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
           (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
-          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl))
+          (route.id === 'apismart' && !isApismartBaseUrl(baseUrl)) ||
+          (route.id === 'concentrate' &&
+            !isCanonicalConcentrateInferenceBaseUrl(baseUrl))
         ) {
           continue
         }

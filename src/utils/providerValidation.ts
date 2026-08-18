@@ -140,7 +140,8 @@ function hasUsableCredentialEnvValue(
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar === 'APISMART_API_KEY' ||
+    envVar === 'CONCENTRATE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -266,6 +267,14 @@ function getRuntimeValidationTarget(
     return undefined
   }
 
+  // The documented CONCENTRATE_API_KEY-only setup is routed before the client
+  // applies its default base URL. Select its descriptor directly so startup
+  // validates the dedicated credential instead of falling through to generic
+  // OpenAI validation.
+  if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
+    return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  }
+
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
     baseUrl: env.OPENAI_BASE_URL,
@@ -287,7 +296,9 @@ function getRuntimeValidationTarget(
         (target.descriptor.id === 'longcat' &&
           !isLongcatBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'apismart' &&
-          !isCanonicalApismartInferenceBaseUrl(request.baseUrl)))
+          !isCanonicalApismartInferenceBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'concentrate' &&
+          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)))
     ) {
       return false
     }
@@ -390,14 +401,14 @@ async function getDescriptorValidationError(
     return null
   }
 
-  // Concentrate's dedicated credential is valid only at its documented /v1
-  // inference endpoint. Runtime correctly withholds it elsewhere; reject the
-  // configuration here as well so a noncanonical override cannot pass startup
-  // validation and then fail unauthenticated.
+  // An explicit Concentrate override carries the dedicated credential contract.
+  // Same-host proxy endpoints instead use the generic OpenAI configuration and
+  // credentials, so they are not selected as the Concentrate route above.
+  const concentrateBaseUrl = env.CONCENTRATE_BASE_URL?.trim()
   if (
     target.descriptor.id === 'concentrate' &&
-    options.request?.baseUrl &&
-    !isCanonicalConcentrateInferenceBaseUrl(options.request.baseUrl)
+    concentrateBaseUrl &&
+    !isCanonicalConcentrateInferenceBaseUrl(concentrateBaseUrl)
   ) {
     return 'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.'
   }

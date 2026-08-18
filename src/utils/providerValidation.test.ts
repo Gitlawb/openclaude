@@ -33,6 +33,8 @@ const ENV_KEYS = [
   'MINIMAX_API_KEY',
   'LONGCAT_API_KEY',
   'APISMART_API_KEY',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
   'BNKR_API_KEY',
@@ -211,9 +213,19 @@ test('noncanonical ApiSmart paths do not validate a dedicated credential', async
   )
 })
 
-test('noncanonical Concentrate paths are rejected before runtime withholds the dedicated key', async () => {
+test('noncanonical Concentrate host paths fall back to generic OpenAI validation', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+  process.env.OPENAI_API_KEY = 'generic-proxy-key'
+  delete process.env.CONCENTRATE_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('noncanonical CONCENTRATE_BASE_URL is rejected instead of silently withholding its key', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/staging/v1'
   process.env.CONCENTRATE_API_KEY = 'concentrate-key'
   delete process.env.OPENAI_API_KEY
   delete process.env.OPENAI_API_KEYS
@@ -222,6 +234,26 @@ test('noncanonical Concentrate paths are rejected before runtime withholds the d
     'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.',
   )
 })
+
+test('Concentrate key-only setup validates before client defaults are applied', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+  'Concentrate validation rejects placeholder CONCENTRATE_API_KEY %s',
+  async placeholder => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_API_KEY = placeholder
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'Concentrate auth is required. Set CONCENTRATE_API_KEY.',
+    )
+  },
+)
 
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'ApiSmart validation rejects placeholder APISMART_API_KEY %s',
