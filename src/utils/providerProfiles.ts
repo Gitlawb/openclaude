@@ -253,15 +253,19 @@ function resolveProfileCapabilityRouteId(
     return routeIdFromBaseUrl
   }
 
-  // Cloudflare and LongCat profiles retargeted away from their dedicated
-  // endpoints run generically at runtime. Mirror that boundary here so
-  // capability-driven surfaces are not stripped based on stale route ids.
+  // Dedicated-route profiles retargeted away from their documented endpoints
+  // run generically at runtime. Mirror that boundary here so capability-driven
+  // surfaces are not stripped based on stale route ids.
   if (
-    (providerRouteId === 'cloudflare' || providerRouteId === 'longcat') &&
+    (providerRouteId === 'cloudflare' ||
+      providerRouteId === 'longcat' ||
+      providerRouteId === 'concentrate') &&
     baseUrl &&
     !(providerRouteId === 'cloudflare'
       ? isCloudflareBaseUrl(baseUrl)
-      : isLongcatBaseUrl(baseUrl))
+      : providerRouteId === 'longcat'
+        ? isLongcatBaseUrl(baseUrl)
+        : isCanonicalConcentrateInferenceBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
