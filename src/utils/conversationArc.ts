@@ -14,14 +14,12 @@ import type { Message } from '../types/message.js'
 import { getAutoMemPath, isAutoMemoryEnabled } from '../memdir/paths.js'
 import { extractFactsIntoMemdir } from '../memdir/autoExtractFacts.js'
 import {
-  searchMemdirIndex,
-  initMemdirIndex,
   rebuildIndex,
   clearIndex,
 } from '../memdir/vectorIndex.js'
 import { extractKeywords } from './knowledgeGraph.js'
 import { isMemoryWriteApprovalRequired } from './governancePolicy.js'
-import { redactLikelySecrets } from './redaction.js'
+import { sanitizeMemoryIdentifier, sanitizeMemoryText } from '../memdir/memorySecurity.js'
 
 export interface Goal {
   id: string
@@ -79,12 +77,109 @@ function getArcPath(memoryDir: string): string {
   return join(memoryDir, ARC_FILENAME)
 }
 
+const ARC_PHASES = new Set<ConversationArc['currentPhase']>([
+  'init',
+  'exploring',
+  'implementing',
+  'reviewing',
+  'completed',
+])
+const GOAL_STATUSES = new Set<Goal['status']>([
+  'pending',
+  'active',
+  'completed',
+  'abandoned',
+])
+
+function safeArcText(value: unknown): string {
+  const sanitized = sanitizeMemoryText(value)
+  return sanitized.text.trim() || '[REDACTED]'
+}
+
+function normalizeArc(value: unknown): ConversationArc | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  if (
+    typeof raw.id !== 'string' ||
+    !Array.isArray(raw.goals) ||
+    !Array.isArray(raw.decisions) ||
+    !Array.isArray(raw.milestones) ||
+    !ARC_PHASES.has(raw.currentPhase as ConversationArc['currentPhase'])
+  ) {
+    return null
+  }
+
+  const now = Date.now()
+  const goals = raw.goals.flatMap((candidate): Goal[] => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const goal = candidate as Record<string, unknown>
+    if (typeof goal.description !== 'string' || !GOAL_STATUSES.has(goal.status as Goal['status'])) return []
+    const createdAt = typeof goal.createdAt === 'number' && Number.isFinite(goal.createdAt)
+      ? goal.createdAt
+      : now
+    const normalized: Goal = {
+      id: sanitizeMemoryIdentifier(goal.id) ?? `goal_${randomUUID()}`,
+      description: safeArcText(goal.description),
+      status: goal.status as Goal['status'],
+      createdAt,
+    }
+    if (typeof goal.completedAt === 'number' && Number.isFinite(goal.completedAt)) {
+      normalized.completedAt = goal.completedAt
+    }
+    return [normalized]
+  }).slice(-50)
+
+  const decisions = raw.decisions.flatMap((candidate): Decision[] => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const decision = candidate as Record<string, unknown>
+    if (typeof decision.description !== 'string') return []
+    const normalized: Decision = {
+      id: sanitizeMemoryIdentifier(decision.id) ?? `decision_${randomUUID()}`,
+      description: safeArcText(decision.description),
+      timestamp: typeof decision.timestamp === 'number' && Number.isFinite(decision.timestamp)
+        ? decision.timestamp
+        : now,
+    }
+    if (typeof decision.rationale === 'string') {
+      normalized.rationale = safeArcText(decision.rationale)
+    }
+    return [normalized]
+  }).slice(-50)
+
+  const milestones = raw.milestones.flatMap((candidate): Milestone[] => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const milestone = candidate as Record<string, unknown>
+    if (typeof milestone.description !== 'string') return []
+    return [{
+      id: sanitizeMemoryIdentifier(milestone.id) ?? `milestone_${randomUUID()}`,
+      description: safeArcText(milestone.description),
+      achievedAt: typeof milestone.achievedAt === 'number' && Number.isFinite(milestone.achievedAt)
+        ? milestone.achievedAt
+        : now,
+    }]
+  }).slice(-50)
+
+  return {
+    id: sanitizeMemoryIdentifier(raw.id) ?? `arc_${now}`,
+    goals,
+    decisions,
+    milestones,
+    currentPhase: raw.currentPhase as ConversationArc['currentPhase'],
+    startTime: typeof raw.startTime === 'number' && Number.isFinite(raw.startTime)
+      ? raw.startTime
+      : now,
+    lastUpdateTime: typeof raw.lastUpdateTime === 'number' && Number.isFinite(raw.lastUpdateTime)
+      ? raw.lastUpdateTime
+      : now,
+  }
+}
+
 function loadArcFromDisk(memoryDir: string): ConversationArc | null {
   const path = getArcPath(memoryDir)
   if (!existsSync(path)) return null
   try {
     const data = readFileSync(path, 'utf-8')
-    return JSON.parse(data) as ConversationArc
+    return normalizeArc(JSON.parse(data))
   } catch {
     return null
   }
@@ -101,7 +196,9 @@ function saveArcToDisk(memoryDir: string, arc: ConversationArc): void {
       mkdirSync(memoryDir, { recursive: true })
     }
     arc.lastUpdateTime = Date.now()
-    writeFileSync(getArcPath(memoryDir), JSON.stringify(arc, null, 2), 'utf-8')
+    const safeArc = normalizeArc(arc)
+    if (!safeArc) return
+    writeFileSync(getArcPath(memoryDir), JSON.stringify(safeArc, null, 2), 'utf-8')
   } catch {
     // Memory write failures are non-fatal — continue without persistence.
   }
@@ -204,7 +301,6 @@ async function extractFactsAutomatically(content: string): Promise<boolean> {
 }
 
 export async function updateArcPhase(messages: Message[]): Promise<void> {
-  if (!isAutoMemoryEnabled()) return
   const arc = getArc()
   if (!arc) return
 
@@ -220,6 +316,7 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
     // report progress. This replaces the previous approach where only explicit
     // addGoal() calls (which production never issues) created goals.
     if (msg.type === 'user') {
+      const memorySafeContent = sanitizeMemoryText(content).text
       const detected = detectPhase(content)
       if (detected && detected !== arc.currentPhase) {
         const phaseOrder = ['init', 'exploring', 'implementing', 'reviewing', 'completed']
@@ -233,8 +330,8 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       }
       const goalPattern = /\b(?:implement|add|create|build|write|fix|make)\s+(?:a\s+|an\s+)?(.{3,80}?)(?:\.|$)/gi
       let gmatch: RegExpExecArray | null
-      while ((gmatch = goalPattern.exec(content)) !== null) {
-        const desc = redactLikelySecrets(gmatch[1].trim())
+      while ((gmatch = goalPattern.exec(memorySafeContent)) !== null) {
+        const desc = safeArcText(gmatch[1].trim())
         const normDesc = desc.toLowerCase().replace(/\s+/g, ' ')
         if (desc.length > 3 && !arc.goals.some(g => g.description.toLowerCase().replace(/\s+/g, ' ') === normDesc)) {
           arc.goals.push({
@@ -255,8 +352,8 @@ export async function updateArcPhase(messages: Message[]): Promise<void> {
       // decision (P1).
       const decisionPattern = /\b(?:decided\s+to|decided\s+on|we\s+decided|we\s+chose|switching\s+to)\s+(.{10,120}?)(?:\.|$)/gi
       let dmatch: RegExpExecArray | null
-      while ((dmatch = decisionPattern.exec(content)) !== null) {
-        const desc = redactLikelySecrets(dmatch[1].trim())
+      while ((dmatch = decisionPattern.exec(memorySafeContent)) !== null) {
+        const desc = safeArcText(dmatch[1].trim())
         const normDesc = desc.toLowerCase().replace(/\s+/g, ' ')
         if (desc.length > 5 && !arc.decisions.some(d => d.description.toLowerCase().replace(/\s+/g, ' ') === normDesc)) {
           arc.decisions.push({
@@ -295,9 +392,11 @@ function yamlQuote(val: string): string {
 }
 
 export async function finalizeArcTurn(): Promise<void> {
-  const arc = getArc()
-  if (!arc || !isAutoMemoryEnabled()) return
+  const currentArc = getArc()
+  if (!currentArc || !isAutoMemoryEnabled()) return
   if (isMemoryWriteApprovalRequired()) return
+  const arc = normalizeArc(currentArc)
+  if (!arc) return
 
   const completedGoals = arc.goals.filter(g => g.status === 'completed')
   const dir = arcMemoryDir
@@ -369,7 +468,7 @@ export function addGoal(description: string): Goal {
 
   const goal: Goal = {
     id: `goal_${randomUUID()}`,
-    description,
+    description: safeArcText(description),
     status: 'pending',
     createdAt: Date.now(),
   }
@@ -416,8 +515,8 @@ export function addDecision(description: string, rationale?: string): Decision {
 
   const decision: Decision = {
     id: `decision_${randomUUID()}`,
-    description,
-    rationale,
+    description: safeArcText(description),
+    rationale: rationale === undefined ? undefined : safeArcText(rationale),
     timestamp: Date.now(),
   }
 
@@ -440,7 +539,7 @@ export function addMilestone(description: string): Milestone {
 
   const milestone: Milestone = {
     id: `milestone_${randomUUID()}`,
-    description,
+    description: safeArcText(description),
     achievedAt: Date.now(),
   }
 
@@ -457,10 +556,7 @@ export function addMilestone(description: string): Milestone {
   return milestone
 }
 
-export async function getArcSummary(
-  query?: string,
-  prefetchedResults?: Array<{ title: string; description: string; content: string }>,
-): Promise<string> {
+export async function getArcSummary(_query?: string): Promise<string> {
   const arc = getArc()
   if (!arc) return 'No conversation arc'
 
@@ -471,36 +567,7 @@ export async function getArcSummary(
   summary += `Goals: ${completedGoals.length}/${arc.goals.length} completed\n`
 
   if (activeGoals.length > 0) {
-    summary += `Active: ${activeGoals[0].description.slice(0, 50)}...\n`
-  }
-
-  // Search the memdir vector index. Reuse pre-fetched results when provided so
-  // the system prompt path does not search the index twice (P2).
-  const dir = arcMemoryDir || getAutoMemPath()
-  if (dir && query) {
-    try {
-      let results = prefetchedResults?.length ? prefetchedResults : undefined
-      if (!results) {
-        await initMemdirIndex(dir)
-        results = await searchMemdirIndex(query, dir, 8)
-      }
-      if (results.length > 0) {
-        summary += '\nRelevant Knowledge:\n'
-        for (const r of results.slice(0, 5)) {
-          summary += `- ${r.title}${r.description ? `: ${r.description}` : ''}`
-          // Include body content excerpt for decisions/config stored only in
-          // the fact body (P1). Bound to 500 bytes, redacted for secrets.
-          if (r.content) {
-            const body = r.content.trim().slice(0, 500)
-            const redacted = redactLikelySecrets(body)
-            summary += `\n  ${redacted.replace(/\n/g, '\n  ')}`
-          }
-          summary += '\n'
-        }
-      }
-    } catch {
-      // vector search is optional
-    }
+    summary += `Active: ${safeArcText(activeGoals[0].description).slice(0, 50)}...\n`
   }
 
   return summary
@@ -571,21 +638,12 @@ export async function appendArcToSystemPrompt(
         if (userQueryText) break
       }
     }
-    // Fetch retrieval results once and reuse them for both the arc summary and
-    // the orchestrated-memory block so the index is not searched twice (P2).
-    let sharedResults: Array<{ title: string; description: string; content: string }> = []
-    const memDir = arcMemoryDir || getAutoMemPath()
-    if (memDir && userQueryText) {
-      try {
-        await initMemdirIndex(memDir)
-        sharedResults = await searchMemdirIndex(userQueryText, memDir, 10)
-      } catch {
-        // vector search is optional
-      }
-    }
-    const arcSummary = await getArcSummary(userQueryText, sharedResults)
+    // Arc metadata and vector retrieval are rendered by separate helpers. Only
+    // getOrchestratedMemory performs RAG, so results appear once in the prompt
+    // and the index is searched once per model request.
+    const arcSummary = await getArcSummary()
     const { getOrchestratedMemory } = await import('./knowledgeGraph.js')
-    const orchMem = await getOrchestratedMemory(userQueryText, sharedResults)
+    const orchMem = await getOrchestratedMemory(userQueryText)
 
     let multiTurnContent = ''
     if (feature('MULTI_TURN_CONTEXT') || (typeof process !== 'undefined' && process.env.MULTI_TURN_CONTEXT === 'true')) {
@@ -603,7 +661,7 @@ export async function appendArcToSystemPrompt(
         for (const turn of recent) {
           const toolCallsStr = turn.toolCalls.map(tc => {
             const input = JSON.stringify(tc.input)
-            const redacted = redactLikelySecrets(input)
+            const redacted = sanitizeMemoryText(input).text
             const truncated = Buffer.byteLength(redacted, 'utf8') > MAX_TOOL_INPUT_BYTES
               ? Buffer.from(redacted, 'utf8').subarray(0, MAX_TOOL_INPUT_BYTES).toString('utf8').replace(/\uFFFD/g, '') + '...[truncated]'
               : redacted

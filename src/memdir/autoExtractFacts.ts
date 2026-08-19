@@ -11,7 +11,12 @@ import { join, dirname } from 'path'
 import { getAutoMemPath } from './paths.js'
 import { isAutoMemoryEnabled } from './paths.js'
 import { isMemoryWriteApprovalRequired } from '../utils/governancePolicy.js'
-import { redactSecretSubstringsForDisplay, looksLikeSecretValue } from '../utils/providerSecrets.js'
+import {
+  containsMemoryRedaction,
+  looksLikeMemorySecretValue,
+  sanitizeMemoryIdentifier,
+  sanitizeMemoryText,
+} from './memorySecurity.js'
 
 const FACTS_SUBDIR = '.facts'
 
@@ -65,8 +70,7 @@ function isSensitivePath(path: string): boolean {
 function looksLikeSecret(segment: string): boolean {
   const s = segment.trim()
   if (s.length === 0) return true
-  // Reuse the shared provider-secret detector (prefix patterns + opaque tokens).
-  if (looksLikeSecretValue(s)) return true
+  if (looksLikeMemorySecretValue(s)) return true
   // Extra low-entropy cases the shared detector intentionally skips: pure
   // lowercase hex blobs and separator-joined lowercase tokens (e.g.
   // "super-secret-access-token") that are still opaque secrets.
@@ -109,27 +113,47 @@ function writeFactMemory(
   description: string,
   attributes: Record<string, string> = {},
 ): boolean {
+  // Treat this as the final security boundary, not merely a formatter. Every
+  // extractor above operates on untrusted conversation text, and future
+  // extractors must not be able to persist a credential by omitting a local
+  // heuristic.
+  const safeName = sanitizeMemoryIdentifier(name)
+  if (!safeName) return false
+
+  const safeDescriptionResult = sanitizeMemoryText(description)
+  if (safeDescriptionResult.wholeSecret) return false
+  const safeDescription = safeDescriptionResult.text
+
+  const safeAttributes: Record<string, string> = {}
+  for (const [key, value] of Object.entries(attributes)) {
+    const safeKey = sanitizeMemoryIdentifier(key)
+    if (!safeKey) continue
+    const sanitizedValue = sanitizeMemoryText(value)
+    if (sanitizedValue.wholeSecret) continue
+    safeAttributes[safeKey] = sanitizedValue.text
+  }
+
   const factsDir = ensureFactsDir(memoryDir)
   if (!factsDir) return false
-  const slug = `${slugify(name)}-${getShortHash(name)}`
+  const slug = `${slugify(safeName)}-${getShortHash(safeName)}`
   const filename = `fact-${factType}-${slug}.md`
   const filePath = join(factsDir, filename)
 
   const now = new Date().toISOString()
   const content = `---
 type: reference
-title: ${yamlQuote(name)}
-description: ${yamlQuote(description)}
+title: ${yamlQuote(safeName)}
+description: ${yamlQuote(safeDescription)}
 factType: ${yamlQuote(factType)}
 detectedAt: ${now}
-${Object.keys(attributes).length > 0 ? `attributes:\n${Object.entries(attributes).map(([k, v]) => `  ${k}: ${yamlQuote(v)}`).join('\n')}` : ''}
+${Object.keys(safeAttributes).length > 0 ? `attributes:\n${Object.entries(safeAttributes).map(([k, v]) => `  ${k}: ${yamlQuote(v)}`).join('\n')}` : ''}
 ---
 
-Auto-detected fact: **${name}**
+Auto-detected fact: **${safeName}**
 
-${description}
+${safeDescription}
 
-${Object.keys(attributes).length > 0 ? `**Details:**\n${Object.entries(attributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
+${Object.keys(safeAttributes).length > 0 ? `**Details:**\n${Object.entries(safeAttributes).map(([k, v]) => `- ${k}: ${v}`).join('\n')}` : ''}
 `
 
   try {
@@ -199,15 +223,11 @@ export async function extractFactsIntoMemdir(
   // contain secrets, paths, or code) are not re-extracted as concept facts.
   // Apply the repository's full secret redaction (known prefixes, JWTs, opaque
   // tokens, provider-specific values) so no credential reaches any extractor.
-  const scrubbedContent = (
-    redactSecretSubstringsForDisplay(
-      content.replace(
-        new RegExp(`(?:export\\s+)?[A-Za-z_][A-Za-z_0-9]{2,}=${envValuePattern}`, 'g'),
-        match => `${match.split('=')[0]}=[REDACTED]`,
-      ),
-      process.env,
-    ) ?? content
+  const contentWithoutEnvValues = content.replace(
+    new RegExp(`(?:export\\s+)?[A-Za-z_][A-Za-z_0-9]{2,}=${envValuePattern}`, 'g'),
+    match => `${match.split('=')[0]}=[REDACTED]`,
   )
+  const scrubbedContent = sanitizeMemoryText(contentWithoutEnvValues).text
 
   // 1. Detect Environment Variables (KEY=VALUE) — operates on raw content so
   //    the actual value is available for redaction metadata.
@@ -297,8 +317,7 @@ export async function extractFactsIntoMemdir(
   for (const match of backtickMatches) {
     const symbol = match[1]
     if (symbol.length > 2 && symbol.length < 60) {
-      if (redactSecretSubstringsForDisplay(symbol, process.env) !== symbol) continue
-      if (/\[REDACTED/i.test(symbol)) continue
+      if (!sanitizeMemoryIdentifier(symbol)) continue
       if (looksLikeSecret(symbol)) continue
       cappedWrite(dir, 'concept', symbol, `Technical concept: ${symbol}`, { source: 'backticks' })
     }
@@ -347,8 +366,8 @@ export async function extractFactsIntoMemdir(
     for (const match of scrubbedContent.matchAll(pattern)) {
       const rule = match[0].trim().replace(/\s+/g, ' ')
       if (rule.length > 4 && rule.length < 200) {
-        if (redactSecretSubstringsForDisplay(rule, process.env) !== rule) continue
-        
+        if (containsMemoryRedaction(rule) || !sanitizeMemoryIdentifier(rule)) continue
+
         // Tokenize rule bodies and run looksLikeSecret per token; reject rules containing token-shaped substrings
         const tokens = rule.split(/[\s,.;:!?()\[\]{}'"`]+/).filter(Boolean)
         let hasSecret = false

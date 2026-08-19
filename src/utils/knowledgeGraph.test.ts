@@ -3,11 +3,14 @@ import { writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, readdirSync
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getGlobalGraph, resetGlobalGraph } from './knowledgeGraph.js'
-import { getProjectsDir } from './envUtils.js'
+import { getProjectsDir, setClaudeConfigHomeDirForTesting } from './envUtils.js'
 import { sanitizePath } from './sessionStoragePortable.js'
 import { getAutoMemPath } from '../memdir/paths.js'
 import { getFsImplementation, setFsImplementation, setOriginalFsImplementation } from './fsOperations.js'
 import { setGovernancePolicySettingsForSourceForTesting } from './governancePolicy.js'
+import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
+import { findCanonicalGitRoot } from './git.js'
+import { getProjectRoot } from '../bootstrap/state.js'
 
 // The legacy graph, SQLite store, and migrated memdir all resolve under
 // getProjectsDir()/sanitizePath(cwd). We inject a distinct per-test cwd via
@@ -15,9 +18,30 @@ import { setGovernancePolicySettingsForSourceForTesting } from './governancePoli
 // files). Each test gets its own project key, so the process-lifetime
 // migration guard does not collide across tests.
 let projectCwd: string
+let configDir: string
+let memoryDir: string
+
+const originalEnv = {
+  openClaudeConfigDir: process.env.OPENCLAUDE_CONFIG_DIR,
+  claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
+  memoryPathOverride: process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE,
+  disableAutoMemory: process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY,
+  simple: process.env.CLAUDE_CODE_SIMPLE,
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name]
+  else process.env[name] = value
+}
 
 function projectRoot(): string {
   return join(getProjectsDir(), sanitizePath(projectCwd))
+}
+
+function canonicalProjectRoot(): string {
+  const gitRoot = findCanonicalGitRoot(getProjectRoot())
+  if (!gitRoot) throw new Error('Expected test repository to have a canonical git root')
+  return join(getProjectsDir(), sanitizePath(gitRoot))
 }
 
 function legacyJsonPath(): string {
@@ -37,6 +61,45 @@ function writeLegacyJson(body: object): void {
   writeFileSync(legacyJsonPath(), JSON.stringify(body), 'utf-8')
 }
 
+async function setUpKnowledgeGraphTest(): Promise<void> {
+  await acquireSharedMutationLock('utils/knowledgeGraph.test.ts')
+  projectCwd = mkdtempSync(join(tmpdir(), 'kg-test-'))
+  configDir = mkdtempSync(join(tmpdir(), 'kg-config-'))
+  memoryDir = mkdtempSync(join(tmpdir(), 'kg-mem-'))
+  process.env.OPENCLAUDE_CONFIG_DIR = configDir
+  process.env.CLAUDE_CONFIG_DIR = configDir
+  process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = memoryDir
+  setClaudeConfigHomeDirForTesting(configDir)
+  setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
+  delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
+  delete process.env.CLAUDE_CODE_SIMPLE
+  getAutoMemPath.cache?.clear?.()
+  setGovernancePolicySettingsForSourceForTesting(() => ({
+    memory: { requireApprovalBeforeWrite: false },
+  }))
+  removeProjectArtifacts()
+}
+
+function tearDownKnowledgeGraphTest(): void {
+  try {
+    removeProjectArtifacts()
+    setOriginalFsImplementation()
+    setClaudeConfigHomeDirForTesting(undefined)
+    restoreEnv('OPENCLAUDE_CONFIG_DIR', originalEnv.openClaudeConfigDir)
+    restoreEnv('CLAUDE_CONFIG_DIR', originalEnv.claudeConfigDir)
+    restoreEnv('CLAUDE_COWORK_MEMORY_PATH_OVERRIDE', originalEnv.memoryPathOverride)
+    restoreEnv('CLAUDE_CODE_DISABLE_AUTO_MEMORY', originalEnv.disableAutoMemory)
+    restoreEnv('CLAUDE_CODE_SIMPLE', originalEnv.simple)
+    getAutoMemPath.cache?.clear?.()
+    setGovernancePolicySettingsForSourceForTesting(null)
+    if (projectCwd) rmSync(projectCwd, { recursive: true, force: true })
+    if (memoryDir) rmSync(memoryDir, { recursive: true, force: true })
+    if (configDir) rmSync(configDir, { recursive: true, force: true })
+  } finally {
+    releaseSharedMutationLock()
+  }
+}
+
 function removeProjectArtifacts(): void {
   for (const f of ['knowledge_graph.json', 'knowledge_graph.json.backup', 'knowledge.db', 'knowledge.db-wal', 'knowledge.db-shm']) {
     rmSync(join(projectRoot(), f), { force: true })
@@ -51,29 +114,9 @@ function removeProjectArtifacts(): void {
 }
 
 describe('knowledgeGraph legacy migration', () => {
-  beforeEach(() => {
-    projectCwd = mkdtempSync(join(tmpdir(), 'kg-test-'))
-    setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
-    // Redirect auto-memory to a per-test temp directory so getAutoMemPath()
-    // does NOT resolve to the user's real memory dir (P1).
-    process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE = mkdtempSync(join(tmpdir(), 'kg-mem-'))
-    removeProjectArtifacts()
-    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
-    delete process.env.CLAUDE_CODE_SIMPLE
-    getAutoMemPath.cache?.clear?.()
-    setGovernancePolicySettingsForSourceForTesting(() => ({
-      memory: { requireApprovalBeforeWrite: false },
-    }))
-  })
+  beforeEach(setUpKnowledgeGraphTest)
 
-  afterEach(() => {
-    removeProjectArtifacts()
-    setOriginalFsImplementation()
-    delete process.env.CLAUDE_COWORK_MEMORY_PATH_OVERRIDE
-    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
-    getAutoMemPath.cache?.clear?.()
-    setGovernancePolicySettingsForSourceForTesting(null)
-  })
+  afterEach(tearDownKnowledgeGraphTest)
 
   it('does not write to memdir when auto-memory is disabled (P1#2)', () => {
     process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
@@ -120,6 +163,67 @@ describe('knowledgeGraph legacy migration', () => {
     const filesAfterSecond = existsSync(factsDir()) ? readdirSync(factsDir()) : []
     const matchingSecond = filesAfterSecond.filter(f => f.startsWith('fact-fact-b-fact-') && f.endsWith('.md'))
     expect(matchingSecond.length).toBe(1)
+  })
+
+  it('merges legacy stores from both the canonical root and raw cwd', () => {
+    writeLegacyJson({
+      entities: {
+        cwd: { id: 'cwd', type: 'service', name: 'Cwd Service', attributes: {} },
+      },
+      relations: [],
+    })
+    const canonicalJson = join(canonicalProjectRoot(), 'knowledge_graph.json')
+    mkdirSync(canonicalProjectRoot(), { recursive: true })
+    writeFileSync(canonicalJson, JSON.stringify({
+      entities: {
+        root: { id: 'root', type: 'service', name: 'Root Service', attributes: {} },
+      },
+      relations: [],
+    }))
+
+    const graph = getGlobalGraph()
+    const names = Object.values(graph.entities).map(entity => entity.name)
+    expect(names).toContain('Cwd Service')
+    expect(names).toContain('Root Service')
+    expect(existsSync(legacyJsonPath())).toBe(false)
+    expect(existsSync(canonicalJson)).toBe(false)
+    expect(existsSync(`${legacyJsonPath()}.migration-backup`)).toBe(true)
+    expect(existsSync(`${canonicalJson}.migration-backup`)).toBe(true)
+  })
+
+  it('does not mark migration complete when a source cannot be archived', () => {
+    writeLegacyJson({
+      entities: {
+        retry: { id: 'retry', type: 'service', name: 'Retry Service', attributes: {} },
+      },
+      relations: [],
+    })
+    const blockedBackup = `${legacyJsonPath()}.migration-backup`
+    mkdirSync(blockedBackup)
+
+    expect(Object.values(getGlobalGraph().entities).map(entity => entity.name)).not.toContain('Retry Service')
+    expect(existsSync(legacyJsonPath())).toBe(true)
+
+    rmSync(blockedBackup, { recursive: true, force: true })
+    expect(Object.values(getGlobalGraph().entities).map(entity => entity.name)).toContain('Retry Service')
+    expect(existsSync(legacyJsonPath())).toBe(false)
+  })
+
+  it('leaves an unsupported JSON store live and retries after it is repaired', () => {
+    mkdirSync(projectRoot(), { recursive: true })
+    writeFileSync(legacyJsonPath(), JSON.stringify({ unexpected: true }))
+
+    getGlobalGraph()
+    expect(existsSync(legacyJsonPath())).toBe(true)
+
+    writeLegacyJson({
+      entities: {
+        repaired: { id: 'repaired', type: 'service', name: 'Repaired Service', attributes: {} },
+      },
+      relations: [],
+    })
+    expect(Object.values(getGlobalGraph().entities).map(entity => entity.name)).toContain('Repaired Service')
+    expect(existsSync(legacyJsonPath())).toBe(false)
   })
 
   it('regression: maps relation endpoints to new fact_* ids during migration and read-back', () => {
@@ -318,10 +422,30 @@ describe('knowledgeGraph legacy migration', () => {
 
     expect(graph.summaries.length).toBe(1)
     expect(graph.summaries[0].content).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890')
-    expect(graph.summaries[0].content).toContain('Bearer')
+    expect(graph.summaries[0].content).toContain('Authorization: [REDACTED]')
     expect(graph.summaries[0].keywords.join(' ')).not.toContain('eyJhbGciOiJIUzI1NiJ9')
     expect(graph.rules.length).toBe(1)
     expect(graph.rules[0]).not.toContain('abcDEFghiJKLmnoPQRstUVwxyz')
+  })
+
+  it('drops whole-value secrets from summaries, keywords, and rules', () => {
+    const secret = 'Tr0ub4dour1'
+    writeLegacyJson({
+      entities: {},
+      relations: [],
+      summaries: [
+        { id: 'secret-summary', content: secret, keywords: ['safe', secret], timestamp: 1 },
+        { id: 'safe-summary', content: 'Keep this migration note', keywords: ['migration', secret], timestamp: 2 },
+      ],
+      rules: [secret, 'Always run focused tests'],
+    })
+
+    const graph = getGlobalGraph()
+    const serialized = JSON.stringify(graph)
+    expect(serialized).not.toContain(secret)
+    expect(graph.summaries.map(summary => summary.content)).toContain('Keep this migration note')
+    expect(graph.summaries.flatMap(summary => summary.keywords)).not.toContain(secret)
+    expect(graph.rules).toEqual(['Always run focused tests'])
   })
 
   it('rejects entities whose names carry embedded secrets (P1)', () => {
@@ -342,16 +466,9 @@ describe('knowledgeGraph legacy migration', () => {
 })
 
 describe('knowledgeGraph reset', () => {
-  beforeEach(() => {
-    projectCwd = mkdtempSync(join(tmpdir(), 'kg-test-'))
-    setFsImplementation({ ...getFsImplementation(), cwd: () => projectCwd })
-    removeProjectArtifacts()
-  })
+  beforeEach(setUpKnowledgeGraphTest)
 
-  afterEach(() => {
-    removeProjectArtifacts()
-    setOriginalFsImplementation()
-  })
+  afterEach(tearDownKnowledgeGraphTest)
 
   it('removes SQLite WAL/SHM sidecars on clear (P2#8)', () => {
     mkdirSync(projectRoot(), { recursive: true })

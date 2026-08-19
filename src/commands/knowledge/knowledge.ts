@@ -13,13 +13,13 @@ export const call: LocalCommandCall = async (args, _context) => {
 
   if (!subCommand || subCommand === 'status') {
     const config = getGlobalConfig();
-    
+
     const statusText = (config.knowledgeGraphEnabled !== false)
-      ? chalk.green('ENABLED') 
+      ? chalk.green('ENABLED')
       : chalk.red('DISABLED');
-      
+
     let output = `${chalk.bold('Knowledge Graph Engine')}: ${statusText}\n`;
-    
+
     // Do not initialize or migrate when disabled (P2).
     if (config.knowledgeGraphEnabled !== false) {
       const stats = getArcStats();
@@ -29,7 +29,7 @@ export const call: LocalCommandCall = async (args, _context) => {
         output += `• Stats: ${stats.goalCount} goals, ${stats.milestoneCount} milestones, ${entityCount} technical facts learned`;
       }
     }
-    
+
     return { type: 'text', value: output };
   }
 
@@ -43,9 +43,9 @@ export const call: LocalCommandCall = async (args, _context) => {
     }
 
     saveGlobalConfig(current => ({ ...current, knowledgeGraphEnabled: isEnabled }));
-    return { 
-      type: 'text', 
-      value: `✨ Knowledge Graph engine ${isEnabled ? chalk.green('enabled') : chalk.red('disabled')}.` 
+    return {
+      type: 'text',
+      value: `✨ Knowledge Graph engine ${isEnabled ? chalk.green('enabled') : chalk.red('disabled')}.`
     };
   }
 
@@ -58,21 +58,21 @@ export const call: LocalCommandCall = async (args, _context) => {
       clearArcArtifacts(memDir);
     }
     if (retireResult.failures.length > 0) {
-      return { 
-        type: 'text', 
-        value: '⚠️ Knowledge graph memory cleared, but the following legacy artifacts could not be backed up and were left in place — resolve any read/write issue and retry: ' 
+      return {
+        type: 'text',
+        value: '⚠️ Knowledge graph memory cleared, but the following legacy artifacts could not be backed up and were left in place — resolve any read/write issue and retry: '
           + retireResult.failures.join(', ')
-          + '.' 
+          + '.'
       };
     }
-    return { 
-      type: 'text', 
+    return {
+      type: 'text',
       value: '🗑️ Knowledge graph memory has been cleared (all .facts files, vector index, arc state, and multi-turn tracking removed'.concat(
         retireResult.archived.length > 0
           ? `; ${retireResult.archived.length} legacy artifact(s) verified and archived alongside originals`
           : '; no legacy JSON/SQLite stores present',
         ').',
-      ) 
+      )
     };
   }
 
@@ -84,8 +84,8 @@ export const call: LocalCommandCall = async (args, _context) => {
     return { type: 'text', value: await getArcSummary() };
   }
 
-  return { 
-    type: 'text', 
-    value: `Unknown subcommand: ${subCommand}. Available: enable, clear, status, list` 
+  return {
+    type: 'text',
+    value: `Unknown subcommand: ${subCommand}. Available: enable, clear, status, list`
   };
 };

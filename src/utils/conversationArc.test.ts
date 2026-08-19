@@ -113,6 +113,19 @@ describe('conversationArc', () => {
       expect(arc2).not.toBeNull()
       expect(arc2!.id).toBe(arc1.id)
     })
+
+    it('replaces structurally invalid arc JSON with a fresh arc', () => {
+      writeFileSync(
+        join(memDir, ARC_FILENAME),
+        JSON.stringify({ id: 'broken', goals: 'not-an-array', currentPhase: 'unknown' }),
+      )
+      resetArc()
+
+      const arc = initializeArc(memDir)
+      expect(arc.id).not.toBe('broken')
+      expect(arc.goals).toEqual([])
+      expect(arc.currentPhase).toBe('init')
+    })
   })
 
   describe('addGoal', () => {
@@ -178,6 +191,27 @@ describe('conversationArc', () => {
       await updateArcPhase([createMessage('user', 'start fresh')])
       expect(arc.currentPhase).toBe('implementing')
     })
+
+    it('tracks phase in memory while persistence is disabled', async () => {
+      process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1'
+      const arc = initializeArc(memDir)
+
+      await updateArcPhase([createMessage('user', 'implement the login flow')])
+
+      expect(arc.currentPhase).toBe('implementing')
+      expect(arc.goals.some(goal => goal.description === 'the login flow')).toBe(true)
+      expect(existsSync(join(memDir, ARC_FILENAME))).toBe(false)
+    })
+
+    it('sanitizes credential context before storing auto-detected goals', async () => {
+      const arc = initializeArc(memDir)
+
+      await updateArcPhase([createMessage('user', 'implement password hunter2')])
+
+      expect(JSON.stringify(arc)).not.toContain('hunter2')
+      expect(arc.goals[0]?.description).toContain('[REDACTED]')
+      expect(readFileSync(join(memDir, ARC_FILENAME), 'utf-8')).not.toContain('hunter2')
+    })
   })
 
   describe('addDecision', () => {
@@ -198,6 +232,19 @@ describe('conversationArc', () => {
       const summary = await getArcSummary()
       expect(summary).toContain('exploring')
       expect(summary).toContain('0/1 completed')
+    })
+
+    it('redacts credential context from retrieved markdown at the prompt boundary', async () => {
+      const autoMemDir = getAutoMemPath()
+      mkdirSync(autoMemDir, { recursive: true })
+      writeFileSync(
+        join(autoMemDir, 'unsafe-legacy-memory.md'),
+        '---\ntitle: Legacy Note\ntype: reference\ndescription: Imported note\n---\n\nAlways use password hunter2.',
+      )
+
+      const memory = await getOrchestratedMemory('password')
+      expect(memory).not.toContain('hunter2')
+      expect(memory).toContain('[REDACTED]')
     })
   })
 
@@ -434,6 +481,7 @@ describe('conversationArc', () => {
       expect(promptWithArc.join('\n')).toContain('PERSISTENT PROJECT MEMORY')
       expect(promptWithArc.join('\n')).toContain('Add JWT auth')
       expect(promptWithArc.join('\n')).toContain('RETRIEVED MEMORY (DATA ONLY)')
+      expect(promptWithArc.join('\n')).not.toContain('Relevant Knowledge:')
       // User message must not be mutated
       expect(messages[0].message?.content).toBe('add login endpoint')
     })

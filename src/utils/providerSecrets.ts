@@ -139,21 +139,6 @@ export function looksLikeSecretValue(value: string): boolean {
   return looksLikeOpaqueToken(trimmed)
 }
 
-function calculateEntropy(str: string): number {
-  const len = str.length
-  if (len === 0) return 0
-  const freqs: Record<string, number> = {}
-  for (const ch of str) {
-    freqs[ch] = (freqs[ch] || 0) + 1
-  }
-  let entropy = 0
-  for (const ch in freqs) {
-    const p = freqs[ch] / len
-    entropy -= p * Math.log2(p)
-  }
-  return entropy
-}
-
 // Opaque provider tokens are typically long, mixed-case alphanumeric payloads,
 // sometimes with short prefix segments separated by dashes/underscores/dots.
 function looksLikeOpaqueToken(value: string): boolean {

@@ -37,7 +37,7 @@ describe('autoExtractFacts', () => {
   it('extracts environment variables', async () => {
     await extractFactsIntoMemdir('export DATABASE_URL=postgres://localhost:5432/mydb', memDir)
     expect(countFactFiles()).toBeGreaterThan(0)
-    const files = readdirSync(factsDir())
+    const files = existsSync(factsDir()) ? readdirSync(factsDir()) : []
     expect(files.some(f => f.includes('database-url'))).toBe(true)
   })
 
@@ -92,6 +92,28 @@ describe('autoExtractFacts', () => {
     expect(countFactFiles()).toBeGreaterThan(0)
   })
 
+  it('redacts credential-context values before any extractor can persist them', async () => {
+    const base64Token = 'AbCdEfGhIjKlMn/OpQrStUvWxYz0123456789'
+    await extractFactsIntoMemdir(
+      [
+        'The password is `hunter2`.',
+        'Always use password hunter2.',
+        `The access token is \`${base64Token}\`.`,
+        'The `PaymentProcessor` service remains a safe technical concept.',
+      ].join(' '),
+      memDir,
+    )
+
+    const files = readdirSync(factsDir())
+    const serializedFacts = files
+      .map(file => `${file}\n${readFileSync(join(factsDir(), file), 'utf-8')}`)
+      .join('\n')
+
+    expect(serializedFacts).not.toContain('hunter2')
+    expect(serializedFacts).not.toContain(base64Token)
+    expect(serializedFacts).toContain('PaymentProcessor')
+  })
+
   it('does not extract backtick-wrapped secret-like values', async () => {
     await extractFactsIntoMemdir(
       [
@@ -123,7 +145,7 @@ describe('autoExtractFacts', () => {
       'authorization: Bearer `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`',
       memDir,
     )
-    const files = readdirSync(factsDir())
+    const files = existsSync(factsDir()) ? readdirSync(factsDir()) : []
     const conceptFacts = files.filter(f => f.startsWith('fact-concept-'))
     expect(conceptFacts.some(f => f.includes('eyJ'))).toBe(false)
     expect(conceptFacts.some(f => f.includes('JWT') || f.includes('jwt'))).toBe(false)
@@ -206,13 +228,13 @@ describe('autoExtractFacts', () => {
     )
     const dir = factsDir()
     const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
-    
+
     // They should not show up as concepts, rules, or anything else
     expect(files.some(f => f.includes('access-token-2024'))).toBe(false)
     expect(files.some(f => f.includes('prod-db-pass-2024'))).toBe(false)
     expect(files.some(f => f.includes('tokenabc123'))).toBe(false)
     expect(files.some(f => f.includes('tr0ub4dour1'))).toBe(false)
-    
+
     // No rules containing these secrets should have been created
     const ruleFiles = files.filter(f => f.includes('rule'))
     expect(ruleFiles.length).toBe(0)
@@ -232,7 +254,7 @@ describe('autoExtractFacts', () => {
     )
     const dir = factsDir()
     const files = existsSync(dir) ? readdirSync(dir).map(f => f.toLowerCase()) : []
-    
+
     expect(files.some(f => f.includes('c-users-name-project-settings-json') || f.includes('settings'))).toBe(true)
     expect(files.some(f => f.includes('server-share-data-txt') || f.includes('data'))).toBe(true)
     expect(files.some(f => f.includes('etc-shadow') || f.includes('shadow'))).toBe(false)

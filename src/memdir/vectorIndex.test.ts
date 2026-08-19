@@ -265,6 +265,17 @@ ${body}`
       expect(r2.some(r => r.title.includes('Two'))).toBe(true)
     })
 
+    it('rebuilds when the persisted index checksum does not match', async () => {
+      writeMem('checksum.md', 'Checksum Doc', 'reference', 'Integrity check', 'Recoverable content')
+      await initMemdirIndex(memDir)
+
+      writeFileSync(getIndexPath(memDir), 'corrupted-index-bytes')
+      clearAllIndices()
+
+      const results = await searchMemdirIndex('Recoverable', memDir)
+      expect(results.some(result => result.title === 'Checksum Doc')).toBe(true)
+    })
+
     it('searching when .vector-index-meta.json is missing rebuilds', async () => {
       // Create files and build index
       writeMem('meta-test.md', 'Meta Test', 'project', 'Test metadata', 'Metadata test content')

@@ -32,7 +32,6 @@ interface MdStats {
 interface DirIndex {
   db: OramaDb<typeof ORAMA_SCHEMA> | null
   pending: Promise<void> | null
-  statsCache?: MdStats
   lastBuiltStats?: MdStats
 }
 
@@ -82,8 +81,6 @@ function getSortedMdFiles(memoryDir: string): FileInfo[] {
       } else if (entry.name.endsWith('.md') && entry.name !== 'MEMORY.md' && !entry.name.startsWith('.')) {
         try {
           const st = statSync(fullPath)
-          // Make sure file is readable before including it (L10)
-          const fd = readFileSync(fullPath)
           files.push({
             fullPath,
             relPath: relative(memoryDir, fullPath),
@@ -132,10 +129,7 @@ function getMdStats(memoryDir: string): MdStats {
   }
   const contentHash = contentHasher.digest('hex')
 
-  const stats = { count, totalSize, latestMtime, fileFingerprint, contentHash }
-  const state = getOrCreateDirState(memoryDir)
-  state.statsCache = stats
-  return stats
+  return { count, totalSize, latestMtime, fileFingerprint, contentHash }
 }
 
 async function scanMdFiles(
@@ -190,17 +184,22 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
       let storedTotalSize = -1
       let storedFileFingerprint = ''
       let storedContentHash = ''
+      let storedIndexHash = ''
       try {
         const meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
         storedFileCount = typeof meta.fileCount === 'number' ? meta.fileCount : -1
         storedTotalSize = typeof meta.totalSize === 'number' ? meta.totalSize : -1
         storedFileFingerprint = typeof meta.fileFingerprint === 'string' ? meta.fileFingerprint : (typeof meta.contentHash === 'string' ? meta.contentHash : '')
         storedContentHash = typeof meta.contentHash === 'string' ? meta.contentHash : ''
+        storedIndexHash = typeof meta.indexHash === 'string' ? meta.indexHash : ''
       } catch { /* missing or corrupt meta — rebuild */ }
 
       if (stats.latestMtime <= indexMtime && stats.count === storedFileCount && stats.totalSize === storedTotalSize && stats.fileFingerprint === storedFileFingerprint && stats.contentHash === storedContentHash) {
         try {
           const data = readFileSync(indexPath)
+          if (!storedIndexHash || createHash('sha256').update(data).digest('hex') !== storedIndexHash) {
+            throw new Error('persisted vector index checksum mismatch')
+          }
           const restored = await restore('binary', data) as OramaDb<typeof ORAMA_SCHEMA>
           const schema = restored.schema
           const expectedFields = Object.keys(ORAMA_SCHEMA) as Array<keyof typeof ORAMA_SCHEMA>
@@ -224,7 +223,7 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
       }
     }
 
-    await performRebuildIndex(memoryDir, state)
+    await performRebuildIndex(memoryDir, state, stats)
   })()
 
   try {
@@ -234,8 +233,12 @@ export async function initMemdirIndex(memoryDir: string): Promise<void> {
   }
 }
 
-async function performRebuildIndex(memoryDir: string, state: DirIndex): Promise<void> {
-  const stats = getMdStats(memoryDir)
+async function performRebuildIndex(
+  memoryDir: string,
+  state: DirIndex,
+  knownStats?: MdStats,
+): Promise<void> {
+  const stats = knownStats ?? getMdStats(memoryDir)
   const newDb = await create({ schema: ORAMA_SCHEMA }) as OramaDb<typeof ORAMA_SCHEMA>
   const docs = await scanMdFiles(memoryDir)
 
@@ -252,7 +255,7 @@ async function performRebuildIndex(memoryDir: string, state: DirIndex): Promise<
 
   state.db = newDb
   state.lastBuiltStats = stats
-  await saveIndex(memoryDir)
+  await saveIndexWithStats(memoryDir, stats)
 }
 
 export async function rebuildIndex(memoryDir: string): Promise<void> {
@@ -348,7 +351,7 @@ export async function searchMemdirIndex(
   }
 }
 
-export async function saveIndex(memoryDir: string): Promise<void> {
+async function saveIndexWithStats(memoryDir: string, knownStats?: MdStats): Promise<void> {
   const state = indices.get(memoryDir)
   if (!state?.db) return
   if (!isAutoMemoryEnabled() || isMemoryWriteApprovalRequired()) return
@@ -356,13 +359,24 @@ export async function saveIndex(memoryDir: string): Promise<void> {
   const metaPath = getIndexMetaPath(memoryDir)
   try {
     const data = await persist(state.db, 'binary')
-    writeFileSync(indexPath, data as Buffer)
-    const stats = getMdStats(memoryDir)
-    const meta = { fileCount: stats.count, totalSize: stats.totalSize, fileFingerprint: stats.fileFingerprint, contentHash: stats.contentHash }
+    const indexData = Buffer.from(data as Uint8Array)
+    writeFileSync(indexPath, indexData)
+    const stats = knownStats ?? getMdStats(memoryDir)
+    const meta = {
+      fileCount: stats.count,
+      totalSize: stats.totalSize,
+      fileFingerprint: stats.fileFingerprint,
+      contentHash: stats.contentHash,
+      indexHash: createHash('sha256').update(indexData).digest('hex'),
+    }
     writeFileSync(metaPath, JSON.stringify(meta), 'utf-8')
   } catch {
     // persist failed — non-fatal
   }
+}
+
+export async function saveIndex(memoryDir: string): Promise<void> {
+  await saveIndexWithStats(memoryDir)
 }
 
 export function clearIndex(memoryDir: string): void {
