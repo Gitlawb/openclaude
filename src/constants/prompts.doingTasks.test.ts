@@ -1,6 +1,24 @@
-import { expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { withMockMacro } from 'src/test/mockMacro.js'
 import { getSystemPrompt } from './prompts.js'
+
+// getSystemPrompt returns a minimal prompt without the doing-tasks section
+// when CLAUDE_CODE_SIMPLE is truthy — unset it so the test always exercises
+// the full prompt path regardless of process-level state.
+let originalSimple: string | undefined
+
+beforeEach(() => {
+  originalSimple = process.env.CLAUDE_CODE_SIMPLE
+  delete process.env.CLAUDE_CODE_SIMPLE
+})
+
+afterEach(() => {
+  if (originalSimple === undefined) {
+    delete process.env.CLAUDE_CODE_SIMPLE
+  } else {
+    process.env.CLAUDE_CODE_SIMPLE = originalSimple
+  }
+})
 
 test('coding system prompt includes the timing and wiring robustness guidance', async () => {
   const prompt = await withMockMacro(
