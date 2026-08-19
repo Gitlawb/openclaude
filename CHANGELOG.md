@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/Gitlawb/openclaude/compare/v0.29.0...v0.29.1) (2026-08-19)
+
+
+### Performance Improvements
+
+* stop busting the prompt cache and slim per-turn context ([#2142](https://github.com/Gitlawb/openclaude/issues/2142)) ([31ac8a6](https://github.com/Gitlawb/openclaude/commit/31ac8a6ecae593ec08770568aa9ea651595eb162))
+
 ## [0.29.0](https://github.com/Gitlawb/openclaude/compare/v0.28.0...v0.29.0) (2026-08-19)
 
 
