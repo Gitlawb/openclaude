@@ -16,6 +16,11 @@ import {
   updateGoalStatus,
 } from './utils/conversationArc.js'
 import { resetGlobalGraph } from './utils/knowledgeGraph.js'
+import {
+  addToolCallToTurn,
+  resetMultiTurnState,
+  startNewTurn,
+} from './utils/multiTurnContext.js'
 import { setClaudeConfigHomeDirForTesting } from './utils/envUtils.js'
 import { getAutoMemPath } from './memdir/paths.js'
 import { setGovernancePolicySettingsForSourceForTesting } from './utils/governancePolicy.js'
@@ -38,11 +43,13 @@ beforeEach(async () => {
     memory: { requireApprovalBeforeWrite: false },
   }))
   resetArc()
+  resetMultiTurnState()
 })
 
 afterEach(() => {
   try {
     resetArc()
+    resetMultiTurnState()
     resetGlobalGraph()
     setGovernancePolicySettingsForSourceForTesting(null)
     setClaudeConfigHomeDirForTesting(undefined)
@@ -109,6 +116,18 @@ productionArcTest('query appends arc memory to the model system prompt without m
   updateGoalStatus(goal.id, 'completed')
   await finalizeArcTurn()
 
+  // Seed a prior COMPLETED turn: the multi-turn tracking block renders only
+  // completed turns (the in-progress turn's tool-call list grows between
+  // model requests and would bust the prompt cache). query() starts a fresh
+  // turn, which completes this one.
+  startNewTurn()
+  addToolCallToTurn({
+    id: 'call_prior',
+    name: 'read_file',
+    input: { path: '/prior.ts' },
+    timestamp: Date.now(),
+  })
+
   const userMessage = createUserMessage({ content: 'review query integration' })
   let observedSystemPrompt: readonly string[] = []
   const deps: QueryDeps = {
@@ -141,5 +160,10 @@ productionArcTest('query appends arc memory to the model system prompt without m
   expect(prompt).toContain('PERSISTENT PROJECT MEMORY')
   expect(prompt).toContain('Ship query integration')
   expect(prompt).toContain('MULTI-TURN CONTEXT TRACKING')
+  expect(prompt).toContain('read_file')
+  // No per-request-varying content: wall-clock durations and running token
+  // totals would rewrite the system prompt every request and bust the cache.
+  expect(prompt).not.toContain('Duration:')
+  expect(prompt).not.toContain('Total Tokens:')
   expect(userMessage.message.content).toBe('review query integration')
 })

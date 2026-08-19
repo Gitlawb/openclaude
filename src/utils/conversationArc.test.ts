@@ -18,6 +18,7 @@ import {
 } from './conversationArc.js'
 import { resetGlobalGraph } from './knowledgeGraph.js'
 import { setClaudeConfigHomeDirForTesting } from './envUtils.js'
+import { getIsInteractive, setIsInteractive } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -39,6 +40,7 @@ const ARC_FILENAME = '.arc.json'
 describe('conversationArc', () => {
   let memDir: string
   let configDir: string | undefined
+  let originalInteractive = false
   const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
 
   beforeEach(async () => {
@@ -51,6 +53,10 @@ describe('conversationArc', () => {
     resetGlobalGraph()
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY
     delete process.env.CLAUDE_CODE_SIMPLE
+    // Auto-memory defaults off in non-interactive sessions (which includes
+    // the test process); these tests exercise interactive-session behavior.
+    originalInteractive = getIsInteractive()
+    setIsInteractive(true)
     // Disable memory-write approval for tests so arc persistence, fact
     // extraction, and vector-index writes behave as they do in production
     // when the policy is set to require-approval=false.
@@ -63,6 +69,7 @@ describe('conversationArc', () => {
     try {
       resetArc()
       resetGlobalGraph()
+      setIsInteractive(originalInteractive)
       setGovernancePolicySettingsForSourceForTesting(null)
       if (originalConfigDir === undefined) {
         delete process.env.CLAUDE_CONFIG_DIR
@@ -509,18 +516,26 @@ describe('conversationArc', () => {
       }
     })
 
-    it('regression: appends multi-turn context information when MULTI_TURN_CONTEXT feature is enabled', async () => {
+    it('regression: appends multi-turn context for completed turns when MULTI_TURN_CONTEXT feature is enabled', async () => {
       process.env.MULTI_TURN_CONTEXT = 'true'
       try {
         const { startNewTurn, addMessageToTurn, addToolCallToTurn, resetMultiTurnState } = await import('./multiTurnContext.js')
         resetMultiTurnState()
 
+        // First turn completes (a second turn starts), so it is renderable.
         startNewTurn()
         addMessageToTurn(createMessage('assistant', 'Running checks'))
         addToolCallToTurn({
           id: 'call_test',
           name: 'read_file',
           input: { path: '/test.ts' },
+          timestamp: Date.now()
+        })
+        startNewTurn()
+        addToolCallToTurn({
+          id: 'call_current',
+          name: 'write_file',
+          input: { path: '/current.ts' },
           timestamp: Date.now()
         })
 
@@ -538,9 +553,62 @@ describe('conversationArc', () => {
         expect(promptWithArc.length).toBe(mockSystemPrompt.length + 1)
         const promptText = promptWithArc.join('\n')
         expect(promptText).toContain('MULTI-TURN CONTEXT TRACKING')
-        expect(promptText).toContain('Total Turns: 1')
+        expect(promptText).toContain('Total Turns: 2')
         expect(promptText).toContain('read_file')
+        // The in-progress turn is never rendered: its tool-call list grows
+        // between model requests and would bust the prompt cache.
+        expect(promptText).not.toContain('write_file')
+        expect(promptText).not.toContain('Duration:')
+        expect(promptText).not.toContain('Total Tokens:')
       } finally {
+        delete process.env.MULTI_TURN_CONTEXT
+      }
+    })
+
+    it('regression: multi-turn context block is byte-stable across model requests within a turn', async () => {
+      process.env.MULTI_TURN_CONTEXT = 'true'
+      const realDateNow = Date.now
+      try {
+        const { startNewTurn, addToolCallToTurn, resetMultiTurnState } = await import('./multiTurnContext.js')
+        resetMultiTurnState()
+
+        startNewTurn()
+        addToolCallToTurn({
+          id: 'call_done',
+          name: 'read_file',
+          input: { path: '/done.ts' },
+          timestamp: Date.now()
+        })
+        startNewTurn()
+
+        const autoMemDir = getAutoMemPath()
+        clearArcArtifacts(autoMemDir)
+        mkdirSync(autoMemDir, { recursive: true })
+        initializeArc(autoMemDir)
+
+        const lastMessage = createMessage('user', 'continue')
+        const mockSystemPrompt = ['# System Instructions']
+        const { appendArcToSystemPrompt } = await import('./conversationArc.js')
+
+        Date.now = () => 1_000_000
+        const first = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
+
+        // A later model request in the SAME turn: the clock has advanced and
+        // the in-progress turn has picked up a tool call. The rendered system
+        // prompt must be byte-identical, or the prompt cache is busted.
+        Date.now = () => 9_000_000
+        addToolCallToTurn({
+          id: 'call_in_progress',
+          name: 'write_file',
+          input: { path: '/wip.ts' },
+          timestamp: Date.now()
+        })
+        const second = await appendArcToSystemPrompt(mockSystemPrompt, [lastMessage])
+
+        expect(second.join('\n')).toBe(first.join('\n'))
+        expect(first.join('\n')).not.toContain('Duration:')
+      } finally {
+        Date.now = realDateNow
         delete process.env.MULTI_TURN_CONTEXT
       }
     })

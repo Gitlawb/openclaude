@@ -96,3 +96,12 @@ test('env kill switch wins even inside a git repository', () => {
   process.env.CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS = '1'
   expect(shouldIncludeGitInstructions()).toBe(false)
 })
+
+test('explicit CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=0 forces instructions on outside a repository', () => {
+  const plainDir = join(tempRoot, 'plain-env-forced-on')
+  mkdirSync(plainDir)
+  setCwdState(plainDir)
+  process.env.CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS = '0'
+  // The defined-falsy env value short-circuits before repository detection.
+  expect(shouldIncludeGitInstructions()).toBe(true)
+})
