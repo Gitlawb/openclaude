@@ -46,6 +46,7 @@ import {
 } from './settingsCache.js'
 import { type SettingsJson, SettingsSchema } from './types.js'
 import {
+  filterInvalidModelPricing,
   filterInvalidPermissionRules,
   formatZodError,
   type SettingsWithErrors,
@@ -215,15 +216,22 @@ function parseSettingsFileUncached(path: string): {
     // Filter invalid permission rules before schema validation so one bad
     // rule doesn't cause the entire settings file to be rejected.
     const ruleWarnings = filterInvalidPermissionRules(data, path)
+    const modelPricingWarnings = filterInvalidModelPricing(data, path)
 
     const result = SettingsSchema().safeParse(data)
 
     if (!result.success) {
       const errors = formatZodError(result.error, path)
-      return { settings: null, errors: [...ruleWarnings, ...errors] }
+      return {
+        settings: null,
+        errors: [...ruleWarnings, ...modelPricingWarnings, ...errors],
+      }
     }
 
-    return { settings: result.data, errors: ruleWarnings }
+    return {
+      settings: result.data,
+      errors: [...ruleWarnings, ...modelPricingWarnings],
+    }
   } catch (error) {
     handleFileSystemError(error, path)
     return { settings: null, errors: [] }
@@ -524,7 +532,7 @@ export function updateSettingsForSource(
 }
 
 /**
- * Custom merge function for arrays - concatenate and deduplicate
+ * Custom merge function for structured settings values.
  */
 function mergeArrays<T>(targetArray: T[], sourceArray: T[]): T[] {
   return uniq([...targetArray, ...sourceArray])
@@ -532,15 +540,44 @@ function mergeArrays<T>(targetArray: T[], sourceArray: T[]): T[] {
 
 /**
  * Custom merge function for lodash mergeWith when merging settings.
- * Arrays are concatenated and deduplicated; other values use default lodash merge behavior.
+ * Arrays are concatenated and deduplicated. Model-pricing maps preserve
+ * arbitrary exact keys and replace complete entries. Other values use default
+ * lodash merge behavior.
  * Exported for testing.
  */
 export function settingsMergeCustomizer(
   objValue: unknown,
   srcValue: unknown,
+  key?: PropertyKey,
 ): unknown {
   if (Array.isArray(objValue) && Array.isArray(srcValue)) {
     return mergeArrays(objValue, srcValue)
+  }
+  if (
+    key === 'modelPricing' &&
+    typeof srcValue === 'object' &&
+    srcValue !== null &&
+    !Array.isArray(srcValue)
+  ) {
+    // Model ids are arbitrary strings, including Object.prototype names.
+    // Copy into a null-prototype map so mergeWith cannot interpret them as
+    // structure. Replace each complete higher-priority entry atomically: a
+    // missing optional webSearchRequests field must use its documented
+    // default, not inherit a lower-priority source's value.
+    const merged = Object.create(null) as Record<string, unknown>
+    if (
+      typeof objValue === 'object' &&
+      objValue !== null &&
+      !Array.isArray(objValue)
+    ) {
+      for (const [model, entry] of Object.entries(objValue)) {
+        merged[model] = entry
+      }
+    }
+    for (const [model, entry] of Object.entries(srcValue)) {
+      merged[model] = entry
+    }
+    return merged
   }
   // Return undefined to let lodash handle default merge behavior
   return undefined

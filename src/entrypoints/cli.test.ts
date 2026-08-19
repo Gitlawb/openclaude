@@ -17,6 +17,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from '../cli/bgRouting.js'
+import {
   applyLoadedEnvFileValues,
   loadEnvFile,
 } from '../utils/envFile.js'
@@ -37,6 +41,7 @@ const mockLogsHandler = mock(async (_args: string[]) => {})
 const mockAttachHandler = mock(async (_args: string[]) => {})
 const mockKillHandler = mock(async (_args: string[]) => {})
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
+const mockPrepareBackgroundSessionFinalizer = mock(async () => 'installed')
 const mockLoadEnvFile = mock((_filePath: string) => ({}))
 const mockParseProviderEnvFileArgs = mock((_args: string[]) => ({ paths: [] }))
 const mockReapplyRememberedEnvFileValues = mock(() => {})
@@ -74,6 +79,7 @@ const runtimeMocks = [
   mockAttachHandler,
   mockKillHandler,
   mockHandleBgFlag,
+  mockPrepareBackgroundSessionFinalizer,
   mockLoadEnvFile,
   mockParseProviderEnvFileArgs,
   mockReapplyRememberedEnvFileValues,
@@ -334,6 +340,10 @@ describe('cli.tsx — background routing behavior', () => {
         killHandler: mockKillHandler,
         handleBgFlag: mockHandleBgFlag,
       }),
+      bgFinalizer: async () => ({
+        prepareBackgroundSessionFinalizer:
+          mockPrepareBackgroundSessionFinalizer,
+      }),
       envFile: async () => ({
         loadEnvFile: mockLoadEnvFile,
         parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
@@ -425,6 +435,36 @@ describe('cli.tsx — background routing behavior', () => {
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
       expect(mockCliMain).not.toHaveBeenCalled()
     }
+  })
+
+  it('establishes background finalizer ownership before any command path', async () => {
+    process.env[BACKGROUND_SESSION_ID_ENV] = 'bg-entrypoint'
+    mockPrepareBackgroundSessionFinalizer.mockImplementationOnce(async () => {
+      throw new Error('finalizer ownership not ready')
+    })
+    try {
+      await expect(runCliEntrypoint(['ps'], bgOptions)).rejects.toThrow(
+        'finalizer ownership not ready',
+      )
+    } finally {
+      delete process.env[BACKGROUND_SESSION_ID_ENV]
+    }
+
+    expect(mockPrepareBackgroundSessionFinalizer).toHaveBeenCalledTimes(1)
+    expect(mockPsHandler).not.toHaveBeenCalled()
+    expect(mockEnableConfigs).not.toHaveBeenCalled()
+  })
+
+  it('routes partial background metadata through the finalizer before dispatch', async () => {
+    process.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV] = '123'
+    try {
+      await runCliEntrypoint(['ps'], bgOptions)
+    } finally {
+      delete process.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]
+    }
+
+    expect(mockPrepareBackgroundSessionFinalizer).toHaveBeenCalledTimes(1)
+    expect(mockPsHandler).toHaveBeenCalledTimes(1)
   })
 
   it('keeps management commands on the management path even with --bg arguments', async () => {

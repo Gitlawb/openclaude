@@ -13,6 +13,10 @@ import {
   applyModelFlagFromArgs,
   VALID_PROVIDERS,
 } from './providerFlag.js'
+import {
+  resolveActiveRouteIdFromEnv,
+  resolveEnvOnlyProviderRouteId,
+} from '../integrations/routeMetadata.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
@@ -46,6 +50,9 @@ const ENV_KEYS = [
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'LLMTR_API_KEY',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -101,6 +108,9 @@ const RESET_KEYS = [
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'LLMTR_API_KEY',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
   'OPENGATEWAY_BASE_URL',
@@ -200,23 +210,27 @@ describe('applyProviderFlag - anthropic', () => {
     expect(process.env.ANTHROPIC_API_KEY).toBe('first-party-key')
   })
 
-  test('does not leave ApiSmart env-only selection active', () => {
+  test('suppresses competing env-only routes without deleting their configuration', () => {
     process.env.APISMART_API_KEY = 'apismart-key'
     process.env.APISMART_MODEL = 'KIMI_K3'
-
-    applyProviderFlag('anthropic', [])
-
-    expect(process.env.APISMART_API_KEY).toBeUndefined()
-    expect(process.env.APISMART_MODEL).toBeUndefined()
-  })
-
-  test('does not leave LLMTR env-only selection active', () => {
     process.env.LLMTR_API_KEY = 'llmtr-key'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
 
     applyProviderFlag('anthropic', [])
 
-    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBe('apismart-key')
+    expect(process.env.APISMART_MODEL).toBe('KIMI_K3')
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-key')
+    expect(process.env.CONCENTRATE_BASE_URL).toBe(
+      'https://api.concentrate.ai/v1',
+    )
+    expect(process.env.CONCENTRATE_MODEL).toBe('claude-sonnet-5')
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('anthropic')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('anthropic')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
   })
 })
 
@@ -278,6 +292,25 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('proxy-model')
   })
 
+  test('suppresses Concentrate env-only selection without deleting its configuration', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-key')
+    expect(process.env.CONCENTRATE_BASE_URL).toBe(
+      'https://api.concentrate.ai/v1',
+    )
+    expect(process.env.CONCENTRATE_MODEL).toBe('claude-sonnet-5')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('custom-anthropic')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
+  })
+
   test('accepts native x-api-key authentication', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://proxy.example/v1'
     process.env.ANTHROPIC_API_KEY = 'stale-first-party-key'
@@ -317,27 +350,43 @@ describe('applyProviderFlag - openai', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
 
-  test('does not leave ApiSmart env-only selection active', () => {
+  test('suppresses competing env-only routes without deleting their configuration', () => {
     process.env.APISMART_API_KEY = 'apismart-key'
     process.env.APISMART_MODEL = 'KIMI_K3'
-
-    applyProviderFlag('openai', [])
-
-    expect(process.env.APISMART_API_KEY).toBeUndefined()
-    expect(process.env.APISMART_MODEL).toBeUndefined()
-  })
-
-  test('does not leave LLMTR env-only selection active', () => {
     process.env.LLMTR_API_KEY = 'llmtr-key'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
     process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
     process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
 
     applyProviderFlag('openai', ['--model', 'gpt-4o'])
 
-    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.APISMART_API_KEY).toBe('apismart-key')
+    expect(process.env.APISMART_MODEL).toBe('KIMI_K3')
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-key')
+    expect(process.env.CONCENTRATE_BASE_URL).toBe(
+      'https://api.concentrate.ai/v1',
+    )
+    expect(process.env.CONCENTRATE_MODEL).toBe('claude-sonnet-5')
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('openai')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('openai')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
+  })
+
+  test('preserves deliberate Azure-compatible endpoint and model settings', () => {
+    process.env.OPENAI_AZURE_STYLE = '1'
+    process.env.OPENAI_BASE_URL = 'https://azure.example/openai'
+    process.env.OPENAI_MODEL = 'azure-model'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://azure.example/openai')
+    expect(process.env.OPENAI_MODEL).toBe('azure-model')
   })
 })
 
@@ -1432,5 +1481,135 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--model', 'qwen2.5-coder:14b'])
     expect(process.env.OPENAI_MODEL).toBe('qwen2.5-coder:14b')
+  })
+})
+
+describe('applyProviderFlag - concentrate', () => {
+  test('sets Concentrate OpenAI-compatible defaults and mirrors CONCENTRATE_API_KEY', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    const result = applyProviderFlag('concentrate', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-flash')
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-secret-key')
+  })
+
+  test('uses CONCENTRATE_BASE_URL and CONCENTRATE_MODEL from env', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-5')
+  })
+
+  test('does not mirror the dedicated key to a noncanonical Concentrate URL', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/staging/v1'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/staging/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('explicit --model overrides CONCENTRATE_MODEL and OPENAI_MODEL', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderFlag('concentrate', ['--model', 'deepseek-v4-pro-0731'])
+
+    expect(process.env.OPENAI_MODEL).toBe('deepseek-v4-pro-0731')
+    expect(process.env.CONCENTRATE_MODEL).toBeUndefined()
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('concentrate-secret-key')
+  })
+
+  test('clears a stale OPENAI_API_KEY when no Concentrate key is set', () => {
+    delete process.env.CONCENTRATE_API_KEY
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder Concentrate credential %s',
+    placeholder => {
+      process.env.CONCENTRATE_API_KEY = placeholder
+
+      applyProviderFlag('concentrate', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
+  test('clears a copied Concentrate key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.OPENAI_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-secret-key')
+  })
+
+  test('switching from Concentrate to Ollama replaces the route without deleting saved configuration', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+    process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+    applyProviderFlag('concentrate', [])
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-secret-key')
+    expect(process.env.CONCENTRATE_BASE_URL).toBe(
+      'https://api.concentrate.ai/v1',
+    )
+    expect(process.env.CONCENTRATE_MODEL).toBe('claude-sonnet-5')
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ollama')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('ollama')
+  })
+
+  test('switching from Concentrate to OpenAI replaces the known gateway endpoint', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+
+    applyProviderFlag('concentrate', [])
+    applyProviderFlag('openai', [])
+
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-secret-key')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('openai')
+  })
+
+  test('clears unsupported OpenAI shim settings from a previous route', () => {
+    process.env.CONCENTRATE_API_KEY = 'concentrate-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-value'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: proxy-secret'
+
+    applyProviderFlag('concentrate', [])
+
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 })

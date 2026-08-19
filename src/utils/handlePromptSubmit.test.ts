@@ -7,6 +7,12 @@ import * as realAnalyticsModule from 'src/services/analytics/index.js'
 import { getCommandQueue, resetCommandQueue } from './messageQueueManager.js'
 import { createUserMessage } from './messages.js'
 import * as realProcessUserInputModule from './processUserInput/processUserInput.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from './interruptionTrace.js'
+import type { HandlePromptSubmitParams } from './handlePromptSubmit.js'
 
 const realAnalytics = { ...realAnalyticsModule }
 const realProcessUserInput = { ...realProcessUserInputModule }
@@ -665,5 +671,62 @@ describe('handlePromptSubmit', () => {
         mode: 'prompt',
       },
     ])
+  })
+
+  it('traces the explicit submit-interrupt path at runtime', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const controller = new AbortController()
+    const { handlePromptSubmit } = await import('./handlePromptSubmit.js')
+    try {
+      const params: HandlePromptSubmitParams = {
+        input: 'echo ready',
+        mode: 'bash',
+        pastedContents: {},
+        helpers: {
+          setCursorOffset: () => {},
+          clearBuffer: () => {},
+          resetHistory: () => {},
+        },
+        onInputChange: () => {},
+        setPastedContents: () => {},
+        abortController: controller,
+        hasInterruptibleToolInProgress: true,
+        streamMode: 'requesting',
+        queryGuard: { isActive: true } as never,
+        isExternalLoading: false,
+        commands: [],
+        messages: [],
+        mainLoopModel: 'sonnet',
+        ideSelection: undefined,
+        querySource: 'repl' as never,
+        setToolJSX: () => {},
+        getToolUseContext: () => ({}) as never,
+        setUserInputOnProcessing: () => {},
+        setAbortController: () => {},
+        onQuery: async () => {},
+        setAppState: () => ({}) as never,
+      }
+      await handlePromptSubmit(params)
+
+      expect(controller.signal.aborted).toBe(true)
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const inputEvent = trace.find(
+        entry => entry.event === 'input.submit_interrupt',
+      )
+      const abortEvent = trace.find(entry => entry.event === 'abort.requested')
+      expect(abortEvent?.source).toBe('interrupt_on_submit')
+      expect(inputEvent).toBeDefined()
+      expect(abortEvent).toBeDefined()
+      expect(typeof inputEvent!.eventId).toBe('string')
+      expect(typeof abortEvent!.causalEventId).toBe('string')
+      expect(abortEvent!.causalEventId).toBe(inputEvent!.eventId)
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    }
   })
 })

@@ -305,6 +305,25 @@ describe('loadEnvFile', () => {
     expect(loaded).toEqual({ LLMTR_API_KEY: 'llmtr-key' })
   })
 
+  it('loads documented Concentrate env-only provider setup values', () => {
+    const filePath = writeTempEnvFile([
+      'CONCENTRATE_API_KEY=concentrate-key',
+      'CONCENTRATE_BASE_URL=https://api.concentrate.ai/v1',
+      'CONCENTRATE_MODEL=claude-sonnet-5',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.CONCENTRATE_API_KEY).toBe('concentrate-key')
+    expect(process.env.CONCENTRATE_BASE_URL).toBe('https://api.concentrate.ai/v1')
+    expect(process.env.CONCENTRATE_MODEL).toBe('claude-sonnet-5')
+    expect(loaded).toEqual({
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
+      CONCENTRATE_MODEL: 'claude-sonnet-5',
+    })
+  })
+
   it('loads documented Azure OpenAI API version values', () => {
     const filePath = writeTempEnvFile(
       'AZURE_OPENAI_API_VERSION=2024-12-01-preview',

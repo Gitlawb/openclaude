@@ -231,7 +231,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
-    envVar === 'LLMTR_API_KEY'
+    envVar === 'LLMTR_API_KEY' ||
+    envVar === 'CONCENTRATE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -473,6 +474,70 @@ export function isClinePassBaseUrl(value: string | undefined): boolean {
   } catch {
     return false
   }
+}
+
+export function isConcentrateBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const url = new URL(trimmed)
+    return (
+      url.protocol === 'https:' &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      url.hostname.toLowerCase() === 'api.concentrate.ai'
+    )
+  } catch {
+    return false
+  }
+}
+
+const CONCENTRATE_CANONICAL_INFERENCE_BASE_URL = 'https://api.concentrate.ai/v1'
+
+export function isCanonicalConcentrateInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(CONCENTRATE_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+export function getConcentrateBaseUrlOverride(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const openAIBaseUrl = processEnv.OPENAI_BASE_URL?.trim()
+  if (isConcentrateBaseUrl(openAIBaseUrl)) {
+    return openAIBaseUrl
+  }
+
+  const openAIApiBase = processEnv.OPENAI_API_BASE?.trim()
+  if (isConcentrateBaseUrl(openAIApiBase)) {
+    return openAIApiBase
+  }
+
+  return undefined
 }
 
 /**
@@ -972,6 +1037,22 @@ export function hasLlmtrEnvOnlyProviderIntent(
   )
 }
 
+export function hasConcentrateEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // The dedicated credential explicitly selects Concentrate. Base/model
+  // overrides alone are configuration details, not route identity: treating
+  // them as identity would let a stale optional setting override a valid
+  // generic OpenAI configuration.
+  return (
+    hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&
+    !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -986,7 +1067,15 @@ export function resolveEnvOnlyProviderRouteId(
   | 'clinepass'
   | 'apismart'
   | 'llmtr'
+  | 'concentrate'
   | null {
+  // Explicit CLI selections and applied profiles own the invocation. This
+  // guard is shared by every env-only provider, including callers such as
+  // client.ts that invoke this resolver directly.
+  if (resolvePinnedProviderRouteId(processEnv)) {
+    return null
+  }
+
   if (
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
@@ -1036,6 +1125,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasLlmtrEnvOnlyProviderIntent(processEnv)) {
     return 'llmtr'
+  }
+
+  if (hasConcentrateEnvOnlyProviderIntent(processEnv)) {
+    return 'concentrate'
   }
 
   return null
@@ -1114,6 +1207,15 @@ export function resolveRouteCredential(
     routeId === 'apismart' &&
     options?.baseUrl !== undefined &&
     !isCanonicalApismartInferenceBaseUrl(options.baseUrl)
+  ) {
+    return null
+  }
+  // Concentrate is the same: route identity is host-scoped, but the dedicated
+  // credential is only valid for the documented /v1 inference endpoint.
+  if (
+    routeId === 'concentrate' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalConcentrateInferenceBaseUrl(options.baseUrl)
   ) {
     return null
   }
@@ -1273,7 +1375,9 @@ export function resolveRouteIdFromBaseUrl(
           (route.id === 'cloudflare' && !isCloudflareBaseUrl(baseUrl)) ||
           (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
           (route.id === 'apismart' && !isApismartBaseUrl(baseUrl)) ||
-          (route.id === 'llmtr' && !isCanonicalLlmtrInferenceBaseUrl(baseUrl))
+          (route.id === 'llmtr' && !isCanonicalLlmtrInferenceBaseUrl(baseUrl)) ||
+          (route.id === 'concentrate' &&
+            !isCanonicalConcentrateInferenceBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1322,7 +1426,50 @@ function profileRouteHonorsBaseUrlBoundary(
   if (routeId === 'llmtr') {
     return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
+  if (routeId === 'concentrate') {
+    return isCanonicalConcentrateInferenceBaseUrl(baseUrl)
+  }
   return true
+}
+
+function pinnedRouteMatchesCurrentProviderMode(
+  routeId: string,
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  if (processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1') {
+    return true
+  }
+
+  if (routeId === 'gemini') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)
+  }
+  if (routeId === 'mistral') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_MISTRAL)
+  }
+  if (routeId === 'github') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_GITHUB)
+  }
+  if (routeId === 'bedrock') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_BEDROCK)
+  }
+  if (routeId === 'vertex') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_VERTEX)
+  }
+  if (routeId === 'foundry') {
+    return isEnvTruthy(processEnv.CLAUDE_CODE_USE_FOUNDRY)
+  }
+  if (routeId === 'anthropic' || routeId === 'custom-anthropic') {
+    return hasNoExplicitNonOpenAICompatibleProvider(processEnv)
+  }
+
+  const descriptor = getRouteDescriptor(routeId)
+  return Boolean(
+    descriptor &&
+      (descriptor.transportConfig.kind === 'openai-compatible' ||
+        descriptor.transportConfig.kind === 'local') &&
+      isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI) &&
+      hasNoExplicitNonOpenAIProvider(processEnv),
+  )
 }
 
 function resolvePinnedProviderRouteId(
@@ -1335,6 +1482,9 @@ function resolvePinnedProviderRouteId(
 
   const route = resolveProfileRoute(pinnedProvider)
   if (route.routeId === 'unknown-fallback') {
+    return null
+  }
+  if (!pinnedRouteMatchesCurrentProviderMode(route.routeId, processEnv)) {
     return null
   }
 

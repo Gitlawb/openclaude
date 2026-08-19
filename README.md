@@ -185,7 +185,17 @@ usually `~/.openclaude/bg-sessions/`; `OPENCLAUDE_CONFIG_DIR` can point
 OpenClaude somewhere else. `CLAUDE_CONFIG_DIR` is ignored for OpenClaude
 background-session storage. Session names can be reused after older sessions
 reach a terminal state; use the session ID to inspect older logs with the same
-name.
+name. A naturally finished session is recorded as `exited` when its process
+returns zero and `failed` when it returns nonzero or handles a termination
+signal. `stale` remains the conservative result when the process disappears
+without an observed outcome; an explicit successful `openclaude kill` is
+recorded as `killed`, and `killed` takes precedence over a natural `exited` or
+`failed` outcome for the same process. Terminal outcomes are stored separately
+under `bg-sessions/terminal/`; deleting that directory makes finished sessions
+fall back to liveness-derived status. OpenClaude does not infer POSIX signal
+names on Windows.
+Unobservable force termination, host crashes, and power loss remain `stale` on
+every platform.
 
 `openclaude attach <id-or-name>` currently reports the matching session and
 points to `openclaude logs <id> -f`; full terminal reattach is not implemented
@@ -280,6 +290,7 @@ Advanced and source-build guides:
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Z.AI GLM Coding Plan | `/provider` or OpenAI-compatible env vars | Uses `OPENAI_API_KEY` at `https://api.z.ai/api/coding/paas/v4` and defaults to `glm-5.2` |
 | AI/ML API | `/provider` or `AIMLAPI_API_KEY` ([setup guide](docs/aimlapi-setup.md)) | Uses `https://api.aimlapi.com/v1`, auto-detects the OpenAI-compatible route from `AIMLAPI_API_KEY`, sends OpenClaude attribution headers, and discovers chat-capable models from the public `/models` catalog |
+| Concentrate | `/provider` or `CONCENTRATE_API_KEY` | Unified OpenAI-compatible gateway at `https://api.concentrate.ai/v1`; defaults to `deepseek-v4-flash` and auto-discovers the chat model catalog |
 | ApiSmart | `/provider` or `APISMART_API_KEY` | Uses `https://gw.apismart.ai/v1`, defaults to `DEEPSEEK_V4_FLASH`, and supports optional `APISMART_MODEL` plus authenticated model discovery |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |
 | LLMTR | `/provider` or OpenAI-compatible env vars | OpenAI-compatible multi-vendor gateway at `https://llmtr.com/v1`, hosted in Turkey; uses `LLMTR_API_KEY` and routes by `OPENAI_MODEL`. Proxies OpenAI/Anthropic/Google/Qwen/DeepSeek/Z.ai/MiniMax/Moonshot/Mistral and also serves its own Turkey-hosted `llmtr/*` models |

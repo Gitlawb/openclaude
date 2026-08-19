@@ -16,12 +16,7 @@ import {
   isTeamPremiumSubscriber,
 } from '../auth.js'
 import { getModelStrings } from './modelStrings.js'
-import {
-  COST_TIER_3_15,
-  COST_HAIKU_35,
-  COST_HAIKU_45,
-  formatModelPricing,
-} from '../modelCost.js'
+import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
 import {
@@ -187,8 +182,14 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(currentDefaultModel)})${getPricingSuffix(getDefaultSonnetModel())}`,
   }
+}
+
+function getPricingSuffix(model: string): string {
+  if (!isFirstPartyAnthropicProvider()) return ''
+  const pricing = getModelPricingString(model)
+  return pricing ? ` · ${pricing}` : ''
 }
 
 function getCustomSonnetOption(): ModelOption | undefined {
@@ -216,7 +217,7 @@ function getSonnet46Option(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 : 'sonnet',
     label: 'Sonnet',
-    description: `Sonnet 4.6 · Best for everyday tasks${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 · Best for everyday tasks${getPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 - best for everyday tasks. Generally recommended for most coding tasks',
   }
@@ -253,7 +254,7 @@ function getOpus48Option(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus48 : 'opus',
     label: 'Opus',
-    description: `Opus 4.8 · Most capable for complex work${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.8 · Most capable for complex work${getOpus46PricingSuffix(fastMode, getModelStrings().opus48)}`,
     descriptionForModel: 'Opus 4.8 - most capable for complex work',
   }
 }
@@ -263,7 +264,7 @@ function getOpus47Option(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus47 : 'opus',
     label: 'Opus',
-    description: `Opus 4.7 · Most capable for complex work${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.7 · Most capable for complex work${getOpus46PricingSuffix(fastMode, getModelStrings().opus47)}`,
     descriptionForModel: 'Opus 4.7 - most capable for complex work',
   }
 }
@@ -273,7 +274,7 @@ function getOpus46Option(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 : 'opus',
     label: 'Opus',
-    description: `Opus 4.6 · Most capable for complex work${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.6 · Most capable for complex work${getOpus46PricingSuffix(fastMode, getModelStrings().opus46)}`,
     descriptionForModel: 'Opus 4.6 - most capable for complex work',
   }
 }
@@ -283,7 +284,7 @@ export function getSonnet46_1MOption(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 + '[1m]' : 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 for long sessions${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 for long sessions${getPricingSuffix(getModelStrings().sonnet46)}`,
     descriptionForModel:
       'Sonnet 4.6 with 1M context window - for long sessions with large codebases',
   }
@@ -297,7 +298,7 @@ export function getOpus46_1MOption(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode)}`,
+    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus46 : getModelStrings().opus48)}`,
     descriptionForModel: `${opusName} with 1M context window - for long sessions with large codebases`,
   }
 }
@@ -319,22 +320,20 @@ function getCustomHaikuOption(): ModelOption | undefined {
 }
 
 function getHaiku45Option(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 4.5 · Fastest for quick answers${is3P ? '' : ` · ${formatModelPricing(COST_HAIKU_45)}`}`,
+    description: `Haiku 4.5 · Fastest for quick answers${getPricingSuffix(getModelStrings().haiku45)}`,
     descriptionForModel:
       'Haiku 4.5 - fastest for quick answers. Lower cost but less capable than Sonnet 4.6.',
   }
 }
 
 function getHaiku35Option(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   return {
     value: 'haiku',
     label: 'Haiku',
-    description: `Haiku 3.5 for simple tasks${is3P ? '' : ` · ${formatModelPricing(COST_HAIKU_35)}`}`,
+    description: `Haiku 3.5 for simple tasks${getPricingSuffix(getModelStrings().haiku35)}`,
     descriptionForModel:
       'Haiku 3.5 - faster and lower cost, but less capable than Sonnet. Use for simple tasks.',
   }
@@ -352,17 +351,16 @@ function getMaxOpusOption(fastMode = false): ModelOption {
   return {
     value: 'opus',
     label: 'Opus',
-    description: `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`,
+    description: `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getModelStrings().opus48) : ''}`,
   }
 }
 
 export function getMaxSonnet46_1MOption(): ModelOption {
-  const is3P = getAPIProvider() !== 'firstParty'
   const billingInfo = isClaudeAISubscriber() ? ' · Billed as extra usage' : ''
   return {
     value: 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 with 1M context${billingInfo}${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Sonnet 4.6 with 1M context${billingInfo}${getPricingSuffix(getModelStrings().sonnet46)}`,
   }
 }
 
@@ -371,7 +369,7 @@ export function getMaxOpus46_1MOption(fastMode = false): ModelOption {
   return {
     value: 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.8 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode)}`,
+    description: `Opus 4.8 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode, getModelStrings().opus48)}`,
   }
 }
 
@@ -380,7 +378,7 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode) : ''}`,
+    description: `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode, getModelStrings().opus48) : ''}`,
     descriptionForModel:
       `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context - most capable for complex work`,
   }

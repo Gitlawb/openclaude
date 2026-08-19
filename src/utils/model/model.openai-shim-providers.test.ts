@@ -14,6 +14,8 @@ import {
   clearPluginSettingsBase,
   resetSettingsCache,
 } from '../settings/settingsCache.js'
+let allowedModels: Set<string> | undefined
+
 async function importFreshModelModule() {
   mock.restore()
   const getAPIProvider = () => {
@@ -44,7 +46,7 @@ async function importFreshModelModule() {
       getAPIProvider() === 'firstParty' && !!process.env.ANTHROPIC_BASE_URL,
   }))
   mock.module('./modelAllowlist.js', () => ({
-    isModelAllowed: () => true,
+    isModelAllowed: (model: string) => allowedModels?.has(model) ?? true,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./model.js?ts=${nonce}`)
@@ -75,6 +77,9 @@ const SAVED_ENV = {
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
+  CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+  CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
+  CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
@@ -122,6 +127,7 @@ beforeEach(async () => {
   resetStateForTests()
   resetSettingsCache()
   clearPluginSettingsBase()
+  allowedModels = undefined
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -133,6 +139,9 @@ beforeEach(async () => {
   delete process.env.MINIMAX_API_KEY
   delete process.env.ANTHROPIC_MODEL
   delete process.env.MIMO_API_KEY
+  delete process.env.CONCENTRATE_API_KEY
+  delete process.env.CONCENTRATE_BASE_URL
+  delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.CODEX_API_KEY
@@ -339,6 +348,91 @@ test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
 })
+
+test('Concentrate selects its dedicated model before client normalization', async () => {
+  // getMainLoopModel runs before getAnthropicClient mirrors Concentrate into
+  // OPENAI_MODEL. A saved model must not win during that interval.
+  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('claude-sonnet-5')
+  expect(getDefaultMainLoopModelSetting()).toBe('claude-sonnet-5')
+  expect(getMainLoopModel()).toBe('claude-sonnet-5')
+})
+
+test('Concentrate honors its legacy OpenAI model fallback before client normalization', async () => {
+  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.OPENAI_MODEL = 'legacy-concentrate-model'
+
+  const { getMainLoopModel, getUserSpecifiedModelSetting } =
+    await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('legacy-concentrate-model')
+  expect(getMainLoopModel()).toBe('legacy-concentrate-model')
+})
+
+test('Concentrate skips a discovered-model rejection to its OpenAI fallback', async () => {
+  allowedModels = new Set(['legacy-concentrate-model'])
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.CONCENTRATE_MODEL = 'rejected-concentrate-model'
+  process.env.OPENAI_MODEL = 'legacy-concentrate-model'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('legacy-concentrate-model')
+  expect(getDefaultMainLoopModelSetting()).toBe('legacy-concentrate-model')
+  expect(getMainLoopModel()).toBe('legacy-concentrate-model')
+})
+
+test('Concentrate falls back to its route default when configured models are rejected', async () => {
+  allowedModels = new Set()
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+  process.env.CONCENTRATE_MODEL = 'rejected-concentrate-model'
+  process.env.OPENAI_MODEL = 'also-rejected-model'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBeUndefined()
+  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
+  expect(getMainLoopModel()).toBe('deepseek-v4-flash')
+})
+
+test('Concentrate uses its descriptor default before client normalization', async () => {
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
+})
+
+test.each(['null', 'undefined', '   '])(
+  'Concentrate ignores unusable dedicated model value %p before client normalization',
+  async value => {
+    saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+    process.env.CONCENTRATE_API_KEY = 'concentrate-test'
+    process.env.CONCENTRATE_MODEL = value
+
+    const {
+      getDefaultMainLoopModelSetting,
+      getMainLoopModel,
+      getUserSpecifiedModelSetting,
+    } = await importFreshModelModule()
+    expect(getUserSpecifiedModelSetting()).toBeUndefined()
+    expect(getDefaultMainLoopModelSetting()).toBe('deepseek-v4-flash')
+    expect(getMainLoopModel()).toBe('deepseek-v4-flash')
+  },
+)
 
 test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {
   process.env.NVIDIA_NIM = '1'

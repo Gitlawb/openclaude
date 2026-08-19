@@ -27,6 +27,7 @@ import {
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
@@ -119,6 +120,9 @@ const PROFILE_ENV_KEYS = [
   'FIREWORKS_API_KEY',
   'LLMTR_API_KEY',
   'LONGCAT_API_KEY',
+  'CONCENTRATE_API_KEY',
+  'CONCENTRATE_BASE_URL',
+  'CONCENTRATE_MODEL',
   'CLINE_API_KEY',
   'OPENCODE_API_KEY',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
@@ -207,6 +211,9 @@ export type ProfileEnv = {
   FIREWORKS_API_KEY?: string
   LLMTR_API_KEY?: string
   LONGCAT_API_KEY?: string
+  CONCENTRATE_API_KEY?: string
+  CONCENTRATE_BASE_URL?: string
+  CONCENTRATE_MODEL?: string
   OPENCODE_API_KEY?: string
   CLOUDFLARE_API_TOKEN?: string
   CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS?: string
@@ -742,6 +749,61 @@ export function buildApismartProfileEnv(options: {
     OPENAI_API_KEY: key,
     APISMART_API_KEY: key,
     CLAUDE_CODE_PROVIDER_ROUTE_ID: 'apismart',
+  }
+}
+
+export function buildConcentrateProfileEnv(options: {
+  model?: string | null
+  baseUrl?: string | null
+  apiKey?: string | null
+  processEnv?: NodeJS.ProcessEnv
+}): ProfileEnv | null {
+  const processEnv = options.processEnv ?? process.env
+  const key = sanitizeApiKey(options.apiKey ?? processEnv.CONCENTRATE_API_KEY)
+  if (!key) {
+    return null
+  }
+
+  const defaultBaseUrl = getRouteDefaultBaseUrl('concentrate')
+  const defaultModel = getRouteDefaultModel('concentrate')
+  if (!defaultBaseUrl || !defaultModel) {
+    throw new Error('Concentrate route defaults are missing from integration metadata.')
+  }
+  const secretSource: SecretValueSource = {
+    OPENAI_API_KEY: key,
+    CONCENTRATE_API_KEY: key,
+  }
+  const configuredBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.CONCENTRATE_BASE_URL, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL, secretSource)
+  // The dedicated credential belongs only to Concentrate's documented
+  // inference endpoint. Returning null lets the caller use its generic
+  // profile path without serializing this secret for a proxy or alternate
+  // same-host path.
+  if (
+    configuredBaseUrl &&
+    !isCanonicalConcentrateInferenceBaseUrl(configuredBaseUrl)
+  ) {
+    return null
+  }
+
+  return {
+    OPENAI_BASE_URL: configuredBaseUrl || defaultBaseUrl,
+    OPENAI_MODEL:
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(options.model, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.CONCENTRATE_MODEL, secretSource),
+      ) ||
+      normalizeProfileModel(
+        sanitizeProviderConfigValue(processEnv.OPENAI_MODEL, secretSource),
+      ) ||
+      defaultModel,
+    OPENAI_API_KEY: key,
+    CONCENTRATE_API_KEY: key,
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'concentrate',
   }
 }
 
@@ -1472,7 +1534,8 @@ function hasConcreteProviderSelection(
     sanitizeApiKey(processEnv.LLMTR_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.CONCENTRATE_API_KEY) !== undefined
   )
 }
 
@@ -2149,16 +2212,28 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'llmtr' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalLlmtrInferenceBaseUrl(env.OPENAI_BASE_URL)
+  const isNoncanonicalConcentrateLaunch =
+    effectiveOpenAIRouteId === 'concentrate' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalConcentrateInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
     isNoncanonicalAimlapiLaunch ||
     isNoncanonicalApismartLaunch ||
-    isNoncanonicalLlmtrLaunch
+    isNoncanonicalLlmtrLaunch ||
+    isNoncanonicalConcentrateLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
-    const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
-    if (persistedCredential) {
-      env[persistedCredential.envVar] = persistedCredential.value
+    // AIMLAPI and ApiSmart may retain a user-configured proxy credential in
+    // their persisted generic OpenAI field. Concentrate is different: its
+    // dedicated credential is never valid off the canonical endpoint, and
+    // older profiles could have stored that same secret under either generic
+    // alias. Do not resurrect it for a noncanonical Concentrate launch.
+    if (!isNoncanonicalLlmtrLaunch && !isNoncanonicalConcentrateLaunch) {
+      const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
+      if (persistedCredential) {
+        env[persistedCredential.envVar] = persistedCredential.value
+      }
     }
     // Custom authentication is a second credential channel, not just transport
     // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
@@ -2186,6 +2261,7 @@ export async function buildLaunchEnv(options: {
   for (const dedicatedKey of [
     'ATLAS_CLOUD_API_KEY',
     'APISMART_API_KEY',
+    'CONCENTRATE_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
@@ -2203,6 +2279,9 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'APISMART_API_KEY' && effectiveOpenAIRouteId !== 'apismart') {
+      continue
+    }
+    if (dedicatedKey === 'CONCENTRATE_API_KEY' && effectiveOpenAIRouteId !== 'concentrate') {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
@@ -2241,8 +2320,20 @@ export async function buildLaunchEnv(options: {
       dedicatedKey === 'APISMART_API_KEY' &&
       !!dedicatedBaseUrl &&
       !isCanonicalApismartInferenceBaseUrl(dedicatedBaseUrl)
+    const withholdAmbientConcentrateKey =
+      dedicatedKey === 'CONCENTRATE_API_KEY' &&
+      !!dedicatedBaseUrl &&
+      !isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
-      withholdAmbientAimlapiKey || withholdAmbientApismartKey
+      withholdAmbientAimlapiKey || withholdAmbientApismartKey || withholdAmbientConcentrateKey
+    // Unlike the generic proxy-compatible routes above, Concentrate's
+    // dedicated key is never valid outside its canonical inference endpoint.
+    // Do not preserve a legacy persisted key for a retargeted Concentrate
+    // profile: older versions could have serialized one before this boundary
+    // was enforced.
+    if (withholdAmbientConcentrateKey) {
+      continue
+    }
     // AIMLAPI accepts generic OpenAI credentials, but ApiSmart is
     // dedicatedCredentialsOnly. Never promote a shell OPENAI_API_KEY into the
     // dedicated credential on relaunch.
@@ -2264,12 +2355,22 @@ export async function buildLaunchEnv(options: {
       persistedOpenAICredential?.kind === 'usable'
         ? sanitizeApiKey(persistedOpenAICredential.value)
         : undefined
+    const backfillLegacyConcentrateProfileKey =
+      dedicatedKey === 'CONCENTRATE_API_KEY' &&
+      effectiveOpenAIRouteId === 'concentrate' &&
+      persistedOpenAIRouteId === 'concentrate' &&
+      !!dedicatedBaseUrl &&
+      isCanonicalConcentrateInferenceBaseUrl(dedicatedBaseUrl) &&
+      persistedOpenAICredential?.kind === 'usable'
+        ? sanitizeApiKey(persistedOpenAICredential.value)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
-        backfillLegacyApismartProfileKey
+        backfillLegacyApismartProfileKey ||
+        backfillLegacyConcentrateProfileKey
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }
@@ -2361,10 +2462,10 @@ export async function buildStartupEnvFromProfile(options?: {
   // If startup already has a concrete provider selection, keep trusting it.
   // This prevents legacy profiles or the fresh-install default from becoming
   // a silent third precedence layer over explicit env/flags.
-  // A retained ApiSmart proxy profile carries route identity specifically to
-  // withhold ambient dedicated credentials from its noncanonical endpoint.
-  // Do not let an env-only key skip that guard; the persisted profile must be
-  // applied first so buildLaunchEnv can preserve the proxy boundary.
+  // Retained dedicated-provider proxy profiles carry route identity specifically
+  // to withhold ambient credentials from their noncanonical endpoint. Do not
+  // let an env-only key skip that guard; the persisted profile must be applied
+  // first so buildLaunchEnv can preserve the credential boundary.
   const persistedApismartProxy =
     persisted?.profile === 'openai' &&
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'apismart' &&
@@ -2379,10 +2480,16 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'llmtr' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalLlmtrInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  const persistedConcentrateProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'concentrate' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalConcentrateInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
   if (
     hasConcreteProviderSelection(processEnv) &&
     !persistedApismartProxy &&
-    !persistedLlmtrProxy
+    !persistedLlmtrProxy &&
+    !persistedConcentrateProxy
   ) {
     return processEnv
   }

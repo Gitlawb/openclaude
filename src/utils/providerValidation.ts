@@ -17,6 +17,7 @@ import {
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -140,7 +141,8 @@ function hasUsableCredentialEnvValue(
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar === 'APISMART_API_KEY' ||
+    envVar === 'CONCENTRATE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -262,6 +264,14 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
+  // The documented CONCENTRATE_API_KEY-only setup is routed before the client
+  // applies its default base URL. Select its descriptor directly so startup
+  // validates the dedicated credential, including a noncanonical dedicated
+  // base URL, instead of returning early for an unset OpenAI mode.
+  if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
+    return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  }
+
   if (!useOpenAI) {
     return undefined
   }
@@ -296,7 +306,9 @@ function getRuntimeValidationTarget(
         // to generic custom-endpoint validation instead — the same alignment
         // ApiSmart keeps between this check and the runtime resolver.
         (target.descriptor.id === 'llmtr' &&
-          !isCanonicalLlmtrInferenceBaseUrl(request.baseUrl)))
+          !isCanonicalLlmtrInferenceBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'concentrate' &&
+          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)))
     ) {
       return false
     }
@@ -397,6 +409,21 @@ async function getDescriptorValidationError(
   const validation = target.descriptor.validation
   if (!validation) {
     return null
+  }
+
+  // An explicit Concentrate credential carries the dedicated contract. A
+  // same-host proxy with only generic OpenAI variables is not selected as this
+  // route, but once Concentrate is selected its base must be canonical.
+  const concentrateBaseUrl =
+    env.CONCENTRATE_BASE_URL?.trim() ||
+    env.OPENAI_BASE_URL?.trim() ||
+    env.OPENAI_API_BASE?.trim()
+  if (
+    target.descriptor.id === 'concentrate' &&
+    concentrateBaseUrl &&
+    !isCanonicalConcentrateInferenceBaseUrl(concentrateBaseUrl)
+  ) {
+    return 'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.'
   }
 
   switch (validation.kind) {

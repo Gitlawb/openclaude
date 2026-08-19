@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import {
+  createProviderStreamTrace,
   createReaderCanceller,
   createStreamAbortError,
   readWithIdleTimeout,
@@ -8,6 +9,7 @@ import {
 import { geminiSseToAnthropic } from './geminiStreamConversion.js'
 
 const dependencies = {
+  createProviderStreamTrace,
   createReaderCanceller,
   createStreamAbortError,
   getStreamIdleTimeoutMs: () => 1_000,

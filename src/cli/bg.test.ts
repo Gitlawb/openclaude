@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   buildBackgroundSessionLaunch,
   buildBackgroundChildProcessConfig,
+  confirmBackgroundSessionLaunch,
   followLogFile,
   killBackgroundSession,
   printExistingLog,
@@ -15,6 +16,10 @@ import {
   parseBackgroundInvocation,
   parseLogsInvocation,
 } from './bg.js'
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from './bgFinalizer.js'
 import type {
   BackgroundSession,
   BackgroundSessionProcessIdentity,
@@ -453,7 +458,7 @@ describe('background session CLI parsing', () => {
     })
   })
 
-  it('preserves Node exec flags and lets the launcher manage heap relaunch state', () => {
+  it('preserves Node exec flags while keeping the registered child PID stable', () => {
     const config = buildBackgroundChildProcessConfig({
       execPath: '/usr/bin/node',
       execArgv: ['--max-old-space-size=8192', '--expose-gc'],
@@ -465,6 +470,8 @@ describe('background session CLI parsing', () => {
       },
       sessionName: 'tests',
       stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-tests',
+      launcherPid: 700,
     })
 
     expect(config.command).toBe('/usr/bin/node')
@@ -475,11 +482,53 @@ describe('background session CLI parsing', () => {
       '--print',
       'fix failing tests',
     ])
-    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBeUndefined()
+    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBe('1')
     expect(config.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB).toBe('8192')
     expect(config.env.CLAUDE_CODE_SESSION_KIND).toBe('bg')
     expect(config.env.CLAUDE_CODE_SESSION_LOG).toBe('/tmp/bg.out.log')
     expect(config.env.CLAUDE_CODE_SESSION_NAME).toBe('tests')
+    expect(config.env[BACKGROUND_SESSION_ID_ENV]).toBe('bg-tests')
+    expect(config.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]).toBe('700')
+  })
+
+  it('supplies launcher heap flags instead of relaunching to a different PID', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/bin/node',
+      execArgv: [],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'fix failing tests'],
+      processEnv: {
+        OPENCLAUDE_HEAP_RELAUNCHED: '1',
+        OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB: '4096',
+      },
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-no-wrapper',
+      launcherPid: 701,
+    })
+
+    expect(config.args.slice(0, 2)).toEqual([
+      '--max-old-space-size=4096',
+      '--expose-gc',
+    ])
+    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBe('1')
+  })
+
+  it('prevents the installed launcher from replacing a non-Node registered PID', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/local/bin/bun',
+      execArgv: [],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'work'],
+      processEnv: {},
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-bun-owner',
+      launcherPid: 702,
+    })
+
+    expect(config.command).toBe('/usr/local/bin/bun')
+    expect(config.env.OPENCLAUDE_HEAP_RELAUNCHED).toBe('1')
+    expect(config.env[BACKGROUND_SESSION_ID_ENV]).toBe('bg-bun-owner')
+    expect(config.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]).toBe('702')
   })
 
   it('escalates process-tree termination and waits for exit before returning', async () => {
@@ -501,6 +550,118 @@ describe('background session CLI parsing', () => {
     })
 
     expect(signals).toEqual(['SIGTERM', 'SIGKILL'])
+  })
+
+  it('fails a detached launch that becomes stale before finalizer installation', async () => {
+    const session: BackgroundSession = {
+      id: 'bg-finalizer-not-installed',
+      pid: 4243,
+      cwd: '/repo',
+      status: 'running',
+      startedAt: '2026-07-10T08:00:00.000Z',
+      updatedAt: '2026-07-10T08:00:00.000Z',
+      sessionId: 'conversation-finalizer-not-installed',
+      command: ['node', 'openclaude', '--print', 'work'],
+      stdoutLogPath: '/tmp/bg-finalizer-not-installed.out.log',
+      stderrLogPath: '/tmp/bg-finalizer-not-installed.err.log',
+    }
+    const calls: string[] = []
+
+    await expect(
+      confirmBackgroundSessionLaunch(session, {
+        isProcessAlive: () => false,
+        refreshStatuses: async () => {
+          calls.push('refresh')
+          return []
+        },
+        resolveSession: async id => {
+          calls.push(`resolve:${id}`)
+          return { ...session, status: 'stale' }
+        },
+      }),
+    ).rejects.toThrow(
+      'Background session bg-finalizer-not-installed exited before finalization was installed. ' +
+        'Logs were retained at /tmp/bg-finalizer-not-installed.out.log and /tmp/bg-finalizer-not-installed.err.log.',
+    )
+    expect(calls).toEqual([
+      'refresh',
+      'resolve:bg-finalizer-not-installed',
+    ])
+  })
+
+  it('returns a live launch without consulting the registry', async () => {
+    const session: BackgroundSession = {
+      id: 'bg-live-confirmation',
+      pid: 4244,
+      cwd: '/repo',
+      status: 'running',
+      startedAt: '2026-07-10T08:00:00.000Z',
+      updatedAt: '2026-07-10T08:00:00.000Z',
+      sessionId: 'conversation-live-confirmation',
+      command: ['node', 'openclaude', '--print', 'work'],
+      stdoutLogPath: '/tmp/bg-live-confirmation.out.log',
+      stderrLogPath: '/tmp/bg-live-confirmation.err.log',
+    }
+    const calls: string[] = []
+
+    const confirmed = await confirmBackgroundSessionLaunch(session, {
+      isProcessAlive: () => true,
+      refreshStatuses: async () => {
+        calls.push('refresh')
+        return []
+      },
+      resolveSession: async id => {
+        calls.push(`resolve:${id}`)
+        return session
+      },
+    })
+
+    expect(confirmed).toBe(session)
+    expect(calls).toEqual([])
+  })
+
+  it('returns an authoritative terminal launch after refreshing a dead PID', async () => {
+    const session: BackgroundSession = {
+      id: 'bg-terminal-confirmation',
+      pid: 4245,
+      cwd: '/repo',
+      status: 'running',
+      startedAt: '2026-07-10T08:00:00.000Z',
+      updatedAt: '2026-07-10T08:00:00.000Z',
+      sessionId: 'conversation-terminal-confirmation',
+      command: ['node', 'openclaude', '--print', 'work'],
+      stdoutLogPath: '/tmp/bg-terminal-confirmation.out.log',
+      stderrLogPath: '/tmp/bg-terminal-confirmation.err.log',
+    }
+    const terminal: BackgroundSession = {
+      ...session,
+      status: 'failed',
+      updatedAt: '2026-07-10T08:00:01.000Z',
+      finishedAt: '2026-07-10T08:00:01.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    }
+    const calls: string[] = []
+
+    const confirmed = await confirmBackgroundSessionLaunch(session, {
+      isProcessAlive: () => false,
+      refreshStatuses: async () => {
+        calls.push('refresh')
+        return [terminal]
+      },
+      resolveSession: async id => {
+        calls.push(`resolve:${id}`)
+        return terminal
+      },
+    })
+
+    expect(confirmed).toMatchObject({
+      status: 'failed',
+      finishedAt: '2026-07-10T08:00:01.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    })
+    expect(calls).toEqual(['refresh', 'resolve:bg-terminal-confirmation'])
   })
 })
 

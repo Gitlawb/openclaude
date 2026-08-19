@@ -70,6 +70,9 @@ const originalEnv = {
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
   LLMTR_API_KEY: process.env.LLMTR_API_KEY,
+  CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+  CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
+  CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -168,6 +171,9 @@ beforeEach(async () => {
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
   delete process.env.LLMTR_API_KEY
+  delete process.env.CONCENTRATE_API_KEY
+  delete process.env.CONCENTRATE_BASE_URL
+  delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
@@ -219,6 +225,9 @@ afterEach(() => {
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
     restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
+    restoreEnv('CONCENTRATE_API_KEY', originalEnv.CONCENTRATE_API_KEY)
+    restoreEnv('CONCENTRATE_BASE_URL', originalEnv.CONCENTRATE_BASE_URL)
+    restoreEnv('CONCENTRATE_MODEL', originalEnv.CONCENTRATE_MODEL)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
     restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
@@ -776,41 +785,240 @@ test('env-only ApiSmart setup withholds its key from a noncanonical same-host UR
 })
 
 test('env-only LLMTR setup applies its defaults and mirrors the dedicated key', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
   delete process.env.GEMINI_AUTH_MODE
   process.env.LLMTR_API_KEY = 'llmtr-test-key'
+  process.env.OPENAI_AUTH_HEADER = 'X-Previous-Key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-secret'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: ambient-proxy-secret'
 
-  await getAnthropicClient({ maxRetries: 0, model: 'anthropic/claude-sonnet-4.6' })
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-llmtr',
+        model: 'anthropic/claude-sonnet-4.6',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'llmtr ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'anthropic/claude-sonnet-4.6',
+  })) as unknown as ShimClient
+  await client.beta.messages.create({
+    model: 'anthropic/claude-sonnet-4.6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
 
   expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
   expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
-  // dedicatedCredentialsOnly: the shim transport reads OPENAI_API_KEY, so the
-  // dedicated key has to be mirrored for an env-only setup to authenticate.
   expect(process.env.OPENAI_API_KEY).toBe('llmtr-test-key')
+  expect(capturedUrl).toBe('https://llmtr.com/v1/chat/completions')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer llmtr-test-key')
+  expect(capturedHeaders?.get('x-previous-key')).toBeNull()
+  expect(capturedHeaders?.get('x-proxy-auth')).toBeNull()
+  expect(capturedBody?.model).toBe('anthropic/claude-sonnet-4.6')
 })
 
-test('env-only LLMTR setup withholds its key from a noncanonical same-host URL', async () => {
-  // Plaintext puts the key on the wire unencrypted and a non-default port is a
-  // different service sharing the hostname. Neither may receive the key, and
-  // neither may claim the dedicated route in the first place.
-  for (const baseUrl of ['http://llmtr.com/v1', 'https://llmtr.com:8443/v1']) {
+test('noncanonical and retargeted LLMTR endpoints never receive the dedicated key', async () => {
+  for (const baseUrl of [
+    'http://llmtr.com/v1',
+    'https://llmtr.com:8443/v1',
+    'https://proxy.example/v1',
+  ]) {
+    let capturedUrl: string | undefined
+    let capturedHeaders: Headers | undefined
+
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.GEMINI_API_KEY
     delete process.env.GEMINI_MODEL
     delete process.env.GEMINI_BASE_URL
     delete process.env.GEMINI_AUTH_MODE
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'openai'
     delete process.env.OPENAI_API_KEY
     process.env.LLMTR_API_KEY = 'llmtr-test-key'
     process.env.OPENAI_BASE_URL = baseUrl
 
-    await getAnthropicClient({ maxRetries: 0, model: 'anthropic/claude-sonnet-4.6' })
+    globalThis.fetch = (async (input, init) => {
+      capturedUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      capturedHeaders = new Headers(init?.headers)
+      return new Response(
+        JSON.stringify({
+          id: 'chatcmpl-noncanonical-llmtr',
+          model: 'anthropic/claude-sonnet-4.6',
+          choices: [
+            {
+              message: { role: 'assistant', content: 'proxy ok' },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: { prompt_tokens: 8, completion_tokens: 3, total_tokens: 11 },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }) as FetchType
+
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      model: 'anthropic/claude-sonnet-4.6',
+    })) as unknown as ShimClient
+    await client.beta.messages.create({
+      model: 'anthropic/claude-sonnet-4.6',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
 
     expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(capturedUrl).toBe(`${baseUrl}/chat/completions`)
+    expect(capturedHeaders?.get('authorization')).toBeNull()
   }
+})
+
+test('routes env-only Concentrate requests through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+  let capturedBody: Record<string, unknown> | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test-key'
+  process.env.CONCENTRATE_BASE_URL = 'https://api.concentrate.ai/v1'
+  process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: ambient-proxy-secret'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-concentrate',
+        model: 'claude-sonnet-5',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'concentrate ok',
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-sonnet-5',
+  })) as unknown as ShimClient
+
+  const response = await client.beta.messages.create({
+    model: 'claude-sonnet-5',
+    system: 'test system',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.concentrate.ai/v1/chat/completions')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer concentrate-test-key')
+  expect(capturedHeaders?.get('x-proxy-auth')).toBeNull()
+  expect(capturedBody?.model).toBe('claude-sonnet-5')
+  expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+  expect(process.env.OPENAI_API_KEY).toBe('concentrate-test-key')
+  expect(response).toMatchObject({
+    role: 'assistant',
+    model: 'claude-sonnet-5',
+  })
+})
+
+test('env-only Concentrate setup withholds its key from a noncanonical same-host URL', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.CONCENTRATE_API_KEY = 'concentrate-test-key'
+  process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/v1/models'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'claude-sonnet-5' })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_BASE_URL).toBe(
+    'https://api.concentrate.ai/v1/models',
+  )
+  expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
+test('generic OpenAI configuration for the canonical Concentrate endpoint retains its key', async () => {
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.OPENAI_API_KEY = 'generic-openai-key'
+  process.env.OPENAI_BASE_URL = 'https://api.concentrate.ai/v1'
+  process.env.OPENAI_MODEL = 'claude-sonnet-5'
+
+  await getAnthropicClient({ maxRetries: 0, model: 'claude-sonnet-5' })
+
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  expect(process.env.OPENAI_BASE_URL).toBe('https://api.concentrate.ai/v1')
+  expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-5')
+  expect(process.env.OPENAI_API_KEY).toBe('generic-openai-key')
 })
 
 test('routes env-only AI/ML API requests through the OpenAI-compatible shim despite an ambient OpenAI key', async () => {

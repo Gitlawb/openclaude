@@ -45,6 +45,7 @@ import {
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalConcentrateInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -420,9 +421,6 @@ function applyLlmtrEnvOnlyDefaults(): void {
   const modelOverride =
     usableProviderConfigEnvValue(process.env.OPENAI_MODEL) || undefined
   const apiKey = process.env.LLMTR_API_KEY
-  const hasAppliedLlmtrProfile =
-    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
-    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim() === 'llmtr'
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = baseUrlOverride ?? getRouteDefaultBaseUrl('llmtr')
@@ -444,16 +442,47 @@ function applyLlmtrEnvOnlyDefaults(): void {
   }
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
-  // Env-only inference must not inherit process-global custom auth from a
-  // previous provider. A matching applied profile is different: profile
-  // application has already cleared managed env and then installed these
-  // values deliberately for this exact route.
-  if (!hasAppliedLlmtrProfile) {
-    delete process.env.OPENAI_AUTH_HEADER
-    delete process.env.OPENAI_AUTH_SCHEME
-    delete process.env.OPENAI_AUTH_HEADER_VALUE
-    delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+}
+
+function applyConcentrateEnvOnlyDefaults(): void {
+  const baseUrlOverride =
+    usableProviderConfigEnvValue(process.env.CONCENTRATE_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
+    undefined
+  const modelOverride =
+    usableProviderConfigEnvValue(process.env.CONCENTRATE_MODEL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) ||
+    undefined
+  const apiKey = process.env.CONCENTRATE_API_KEY
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('concentrate')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('concentrate')
+  // A dedicated key explicitly selects Concentrate. Mirror it into
+  // OPENAI_API_KEY for the shared transport and avoid forwarding a stale
+  // generic credential. Generic OpenAI credentials remain supported when the
+  // user explicitly configures the canonical Concentrate base URL without the
+  // dedicated selection key.
+  if (
+    hasUsableOpenAICredential(apiKey) &&
+    isCanonicalConcentrateInferenceBaseUrl(process.env.OPENAI_BASE_URL)
+  ) {
+    process.env.OPENAI_API_KEY = apiKey
+  } else {
+    delete process.env.OPENAI_API_KEY
   }
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
 function usableProviderConfigEnvValue(
@@ -557,6 +586,44 @@ export async function getAnthropicClient({
             ? 'max'
           : standardEffortToOpenAI(appliedEffortLevel))
       : undefined
+  // Normalize env-only routes before snapshotting custom headers. Dedicated
+  // routes such as Concentrate deliberately clear inherited proxy headers;
+  // doing that after getCustomHeaders() would leave a copied secret in the
+  // request defaults.
+  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
+  const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
+    model,
+    envOnlyProviderRouteId,
+  )
+  const useXiaomiMimoEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
+  const useXaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
+  const useNearaiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
+  const useFireworksEnvOnlyProvider =
+    envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
+  const useLongcatEnvOnlyProvider =
+    envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
+  const useAimlapiEnvOnlyProvider =
+    envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
+  const useApismartEnvOnlyProvider =
+    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
+  const useLlmtrEnvOnlyProvider =
+    envOnlyProviderRouteId === 'llmtr' && !useMiniMaxEnvOnlyProvider
+  const useConcentrateEnvOnlyProvider =
+    envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
+  if (useMiniMaxEnvOnlyProvider) applyMiniMaxEnvOnlyDefaults(model)
+  if (useXiaomiMimoEnvOnlyProvider) applyXiaomiMimoEnvOnlyDefaults()
+  if (useXaiEnvOnlyProvider) applyXaiEnvOnlyDefaults()
+  if (useNearaiEnvOnlyProvider) applyNearaiEnvOnlyDefaults()
+  if (useFireworksEnvOnlyProvider) applyFireworksEnvOnlyDefaults()
+  if (useLongcatEnvOnlyProvider) applyLongcatEnvOnlyDefaults()
+  if (useAimlapiEnvOnlyProvider) applyAimlapiEnvOnlyDefaults()
+  if (useApismartEnvOnlyProvider) applyApismartEnvOnlyDefaults()
+  if (useLlmtrEnvOnlyProvider) applyLlmtrEnvOnlyDefaults()
+  if (useConcentrateEnvOnlyProvider) applyConcentrateEnvOnlyDefaults()
+
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
@@ -585,55 +652,6 @@ export async function getAnthropicClient({
   )
   if (additionalProtectionEnabled) {
     defaultHeaders['x-anthropic-additional-protection'] = 'true'
-  }
-
-  const envOnlyProviderRouteId = resolveEnvOnlyProviderRouteId(process.env)
-  const useMiniMaxEnvOnlyProvider = shouldUseMiniMaxEnvOnlyProvider(
-    model,
-    envOnlyProviderRouteId,
-  )
-  const useXiaomiMimoEnvOnlyProvider =
-    envOnlyProviderRouteId === 'xiaomi-mimo' && !useMiniMaxEnvOnlyProvider
-  const useXaiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'xai' && !useMiniMaxEnvOnlyProvider
-  const useNearaiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'nearai' && !useMiniMaxEnvOnlyProvider
-  const useFireworksEnvOnlyProvider =
-    envOnlyProviderRouteId === 'fireworks' && !useMiniMaxEnvOnlyProvider
-  const useLongcatEnvOnlyProvider =
-    envOnlyProviderRouteId === 'longcat' && !useMiniMaxEnvOnlyProvider
-  const useAimlapiEnvOnlyProvider =
-    envOnlyProviderRouteId === 'aimlapi' && !useMiniMaxEnvOnlyProvider
-  const useApismartEnvOnlyProvider =
-    envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
-  const useLlmtrEnvOnlyProvider =
-    envOnlyProviderRouteId === 'llmtr' && !useMiniMaxEnvOnlyProvider
-  if (useMiniMaxEnvOnlyProvider) {
-    applyMiniMaxEnvOnlyDefaults(model)
-  }
-  if (useXiaomiMimoEnvOnlyProvider) {
-    applyXiaomiMimoEnvOnlyDefaults()
-  }
-  if (useXaiEnvOnlyProvider) {
-    applyXaiEnvOnlyDefaults()
-  }
-  if (useNearaiEnvOnlyProvider) {
-    applyNearaiEnvOnlyDefaults()
-  }
-  if (useFireworksEnvOnlyProvider) {
-    applyFireworksEnvOnlyDefaults()
-  }
-  if (useLongcatEnvOnlyProvider) {
-    applyLongcatEnvOnlyDefaults()
-  }
-  if (useAimlapiEnvOnlyProvider) {
-    applyAimlapiEnvOnlyDefaults()
-  }
-  if (useApismartEnvOnlyProvider) {
-    applyApismartEnvOnlyDefaults()
-  }
-  if (useLlmtrEnvOnlyProvider) {
-    applyLlmtrEnvOnlyDefaults()
   }
 
   const apiProvider = getAPIProvider()
@@ -740,6 +758,7 @@ export async function getAnthropicClient({
     useFireworksEnvOnlyProvider ||
     useAimlapiEnvOnlyProvider ||
     useApismartEnvOnlyProvider ||
+    useConcentrateEnvOnlyProvider ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GITHUB) ||
     isEnvTruthy(process.env.CLAUDE_CODE_USE_GEMINI) ||

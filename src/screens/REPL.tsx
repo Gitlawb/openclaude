@@ -38,7 +38,7 @@ import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
 import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
-import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
+import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalOutcome, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { claimBackgroundTurnBudget, canRestoreDeferredMaxTurnsCap, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurnsForSession, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
 import { isEnvTruthy } from '../utils/envUtils.js';
@@ -92,7 +92,10 @@ import { CommandKeybindingHandlers } from '../hooks/useCommandKeybindings.js';
 import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js';
 import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
 import { getShortcutDisplay } from '../keybindings/shortcutFormat.js';
-import { CancelRequestHandler } from '../hooks/useCancelRequest.js';
+import {
+  CancelRequestHandler,
+  type CancelRequestSource,
+} from '../hooks/useCancelRequest.js';
 import { useBackgroundTaskNavigation } from '../hooks/useBackgroundTaskNavigation.js';
 import { useSwarmInitialization } from '../hooks/useSwarmInitialization.js';
 import { useTeammateViewAutoExit } from '../hooks/useTeammateViewAutoExit.js';
@@ -224,6 +227,18 @@ import { RemoteCallout } from '../components/RemoteCallout.js';
 import { getAPIProvider } from '../utils/model/providers.js';
 import { activityManager } from '../utils/activityManager.js';
 import { createAbortController } from '../utils/abortController.js';
+import {
+  flushInterruptionTrace,
+  getInterruptionSignalAbortEventId,
+  registerInterruptionController,
+  requestAbort,
+  traceInterruptionEvent,
+} from '../utils/interruptionTrace.js';
+import { driveQueryEvents } from '../utils/queryEventDriver.js';
+import {
+  requestBackgroundHandoffAbort,
+  requestPriorityNowAbort,
+} from '../utils/replInterruption.js';
 import { MCPConnectionManager } from 'src/services/mcp/MCPConnectionManager.js';
 import { useFeedbackSurvey } from 'src/components/FeedbackSurvey/useFeedbackSurvey.js';
 import { useMemorySurvey } from 'src/components/FeedbackSurvey/useMemorySurvey.js';
@@ -1887,7 +1902,20 @@ export function REPL({
     const activeAbortController = abortControllerRef.current;
     if (activeAbortController && !activeAbortController.signal.aborted) {
       logQueryLifecycle('abort_requested', timeout.context, formatQueryLifecycleAbortSignalReason(timeoutAbortReason));
-      activeAbortController.abort(timeoutAbortReason);
+      requestAbort(activeAbortController, timeoutAbortReason, {
+        source: 'query_guard',
+        causalEventId: timeout.causalEventId,
+        subsystem: 'repl',
+        phase: 'timeout',
+        queryId: timeout.context.queryId,
+        queryGeneration: timeout.generation,
+        querySource: timeout.context.querySource,
+        controllerRole: 'query-root',
+        elapsedQueryMs: timeout.elapsedMs,
+        activeApiCallCount: timeout.activeOperations.apiCalls.length,
+        activeToolUseCount: timeout.activeOperations.toolUses.length,
+      });
+      flushInterruptionTrace('query_guard_timeout');
     }
     if (timeout.activeOperations.apiCalls.length > 0) {
       logForDebugging(`api.call.active_on_abort queryId=${timeout.context.queryId} generation=${timeout.generation} ${timeoutOperations}`);
@@ -2382,7 +2410,11 @@ export function REPL({
   }, [focusedInputDialog, repinScroll]);
   // Omitted means a programmatic edit/restore cancellation, which must not arm
   // correction context because those flows rewind the conversation themselves.
-  function onCancel(isUserInitiated = false) {
+  function onCancel(
+    isUserInitiated = false,
+    cancelSource: CancelRequestSource | 'programmatic' = 'programmatic',
+    causalEventId?: string,
+  ) {
     if (focusedInputDialog === 'elicitation') {
       // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
       return;
@@ -2436,7 +2468,7 @@ export function REPL({
     }
     if (focusedInputDialog === 'tool-permission') {
       // Tool use confirm handles the abort signal itself
-      toolUseConfirmQueue[0]?.onAbort();
+      toolUseConfirmQueue[0]?.onAbort(cancelSource, causalEventId);
       setToolUseConfirmQueue([]);
     } else if (focusedInputDialog === 'prompt') {
       // Reject all pending prompts and clear the queue
@@ -2444,12 +2476,26 @@ export function REPL({
         item.reject(new Error('Prompt cancelled by user'));
       }
       setPromptQueue([]);
-      abortController?.abort('user-cancel');
+      if (abortController) {
+        requestAbort(abortController, 'user-cancel', {
+          source: cancelSource,
+          causalEventId,
+          subsystem: 'repl',
+          controllerRole: 'query-root',
+        });
+      }
     } else if (activeRemote.isRemoteMode) {
       // Remote mode: send interrupt signal to CCR
       activeRemote.cancelRequest();
     } else {
-      abortController?.abort('user-cancel');
+      if (abortController) {
+        requestAbort(abortController, 'user-cancel', {
+          source: cancelSource,
+          causalEventId,
+          subsystem: 'repl',
+          controllerRole: 'query-root',
+        });
+      }
     }
     if (cancelContext) {
       logQueryLifecycle('abort_acknowledged', cancelContext, formatQueryLifecycleAbortSignalReason('user-cancel'));
@@ -2496,7 +2542,7 @@ export function REPL({
   // CancelRequestHandler props - rendered inside KeybindingSetup
   const cancelRequestProps = {
     setToolUseConfirmQueue,
-    onCancel: () => onCancel(true),
+    onCancel: (source, causalEventId) => onCancel(true, source, causalEventId),
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
     screen,
@@ -3018,7 +3064,7 @@ export function REPL({
     // but its controller must be reachable during preparation so Escape can
     // cancel the handoff before it dispatches a provider request.
     setAbortController(backgroundSession.abortController);
-    abortController?.abort('background');
+    requestBackgroundHandoffAbort(abortController);
   }, [abortController, mainLoopModel, toolPermissionContext, mainThreadAgentDefinition, getToolUseContext, customSystemPrompt, appendSystemPrompt, canUseTool, setAppState, getAutoCompactTrackingForSession, setAutoCompactTrackingForSession, fallbackModel, setAbortController, addNotification, terminalTitle]);
   const {
     handleBackgroundSession
@@ -3266,23 +3312,11 @@ export function REPL({
         }
       }
     });
-    let queryTerminal: QueryTerminal;
-    let generatorDone = false;
-    try {
-      while (true) {
-        const next = await queryGenerator.next();
-        if (next.done) {
-          generatorDone = true;
-          queryTerminal = next.value;
-          break;
-        }
-        const event = next.value;
-        queryGuard.registerActivity(`query_event:${event.type}`, queryGeneration);
-        onQueryEvent(event);
-      }
-    } finally {
-      if (!generatorDone) await queryGenerator.return(undefined as never);
-    }
+    const queryTerminal = await driveQueryEvents(
+      queryGenerator,
+      reason => queryGuard.registerActivity(reason, queryGeneration),
+      onQueryEvent,
+    );
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {
         ...prev,
@@ -3359,6 +3393,20 @@ export function REPL({
     const turnBudget = turnBudgetHandoff.budget;
     foregroundTurnBudgetRef.current = turnBudgetHandoff;
     const queryContext = startResult.context;
+    registerInterruptionController(abortController, {
+      subsystem: 'repl',
+      controllerRole: 'query-root',
+      queryId: queryContext.queryId,
+      queryGeneration: thisGeneration,
+      querySource: queryContext.querySource,
+    });
+    traceInterruptionEvent('query.started', {
+      subsystem: 'repl',
+      phase: 'running',
+      queryId: queryContext.queryId,
+      queryGeneration: thisGeneration,
+      querySource: queryContext.querySource,
+    });
     logQueryLifecycle('start', queryContext);
     logQueryLifecycle('guard_start', queryContext);
     let didThrow = false;
@@ -3456,8 +3504,24 @@ export function REPL({
       // then clear it only when this query reaches its terminal cleanup.
       interruptionCorrectionTracker.finishModelTurn(queryContext.queryId);
       const terminalReason = getQueryTerminalReason(abortController.signal, didThrow);
+      const terminalOutcome = getQueryTerminalOutcome(abortController.signal, didThrow);
       const abortReason = getAbortReasonLabel(abortController.signal.reason);
       const activeOperations = lifecycleTracker.snapshot();
+      traceInterruptionEvent('query.terminal', {
+        subsystem: 'repl',
+        phase: terminalReason,
+        outcome: terminalOutcome,
+        queryId: queryContext.queryId,
+        queryGeneration: thisGeneration,
+        querySource: queryContext.querySource,
+        reason: abortController.signal.reason,
+        causalEventId: getInterruptionSignalAbortEventId(
+          abortController.signal,
+        ),
+        activeApiCallCount: activeOperations.apiCalls.length,
+        activeToolUseCount: activeOperations.toolUses.length,
+      });
+      if (abortController.signal.aborted) flushInterruptionTrace('query_terminal');
       const completedContext = {
         ...queryContext,
         terminalReason,
@@ -4660,7 +4724,7 @@ export function REPL({
   // (e.g. from a chat UI client via UDS).
   useEffect(() => {
     if (queuedCommands.some(cmd => cmd.priority === 'now')) {
-      abortControllerRef.current?.abort('interrupt');
+      requestPriorityNowAbort(abortControllerRef);
     }
   }, [queuedCommands]);
 
