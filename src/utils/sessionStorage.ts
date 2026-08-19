@@ -2036,25 +2036,23 @@ class Project {
             // and reparent the next remote entry so hydrateRemoteSession /
             // buildConversationChain do not stop at a missing parentUuid.
             if (isTranscriptMessage(entry)) {
-              if (isSafeForExternalEgress(entry)) {
+              if (!shouldOmitFromExternalEgress(entry)) {
                 const originalParentUuid = entry.parentUuid ?? null
                 let remoteEntry = projectTranscriptParentForExternalEgress(
                   entry,
                   this.remoteEgressOmittedParents,
                 )
                 let parentConfirmedSafe = false
-                const parentMayNeedResolve =
-                  !!originalParentUuid &&
-                  (this.remoteEgressOmittedParents.has(originalParentUuid) ||
-                    this.remoteEgressCompactAncestry.has(originalParentUuid) ||
-                    this.evictedRemoteEgressOmissions.has(originalParentUuid) ||
-                    this.remoteEgressKnownOmitted.has(originalParentUuid) ||
-                    this.remoteEgressOmissionRebuildIncomplete)
-                if (
-                  originalParentUuid &&
-                  remoteEntry.parentUuid === originalParentUuid
-                ) {
-                  if (
+                if (originalParentUuid) {
+                  if (originalParentUuid === this.lastRemoteEgressUuid) {
+                    parentConfirmedSafe = true
+                  } else if (
+                    this.remoteEgressConfirmedSafeParents.has(
+                      originalParentUuid,
+                    )
+                  ) {
+                    parentConfirmedSafe = true
+                  } else if (
                     this.remoteEgressCompactAncestry.has(originalParentUuid)
                   ) {
                     remoteEntry = {
@@ -2064,19 +2062,10 @@ class Project {
                           originalParentUuid,
                         ) ?? null,
                     }
+                  } else if (remoteEntry.parentUuid !== originalParentUuid) {
+                    // Already reparented via projectTranscriptParentForExternalEgress
                   } else if (
-                    this.remoteEgressConfirmedSafeParents.has(
-                      originalParentUuid,
-                    )
-                  ) {
-                    parentConfirmedSafe = true
-                  } else if (
-                    !this.remoteEgressResolvedMisses.has(originalParentUuid) &&
-                    (this.evictedRemoteEgressOmissions.has(
-                      originalParentUuid,
-                    ) ||
-                      this.remoteEgressKnownOmitted.has(originalParentUuid) ||
-                      this.remoteEgressOmissionRebuildIncomplete)
+                    !this.remoteEgressResolvedMisses.has(originalParentUuid)
                   ) {
                     const queue = this.sessionFile
                       ? this.writeQueues.get(this.sessionFile)
@@ -2127,22 +2116,30 @@ class Project {
                 const parentStillUnresolved =
                   !!originalParentUuid &&
                   !parentConfirmedSafe &&
-                  parentMayNeedResolve &&
                   (this.remoteEgressOmissionRebuildIncomplete ||
-                    (remoteEntry.parentUuid === originalParentUuid &&
-                      (this.remoteEgressOmittedParents.has(
-                        originalParentUuid,
-                      ) ||
-                        this.evictedRemoteEgressOmissions.has(
-                          originalParentUuid,
-                        ) ||
-                        this.remoteEgressKnownOmitted.has(
-                          originalParentUuid,
-                        ))))
+                    remoteEntry.parentUuid === originalParentUuid)
                 if (!parentStillUnresolved) {
-                  await this.persistToRemote(sessionId, remoteEntry)
-                  if (remoteEntry.uuid) {
+                  const delivered = await this.persistToRemote(
+                    sessionId,
+                    remoteEntry,
+                  )
+                  if (delivered && remoteEntry.uuid) {
                     this.lastRemoteEgressUuid = remoteEntry.uuid
+                  } else if (
+                    !delivered &&
+                    this.hasActiveRemoteEgressSink() &&
+                    entry.uuid
+                  ) {
+                    this.remoteEgressOmittedParents.set(
+                      entry.uuid,
+                      this.lastRemoteEgressUuid,
+                    )
+                    boundRemoteEgressOmissionMap(
+                      this.remoteEgressOmittedParents,
+                      this.evictedRemoteEgressOmissions,
+                      this.remoteEgressCompactAncestry,
+                      this.remoteEgressKnownOmitted,
+                    )
                   }
                 } else if (entry.uuid) {
                   // Fail-closed persist still owns this UUID: later children
@@ -2227,9 +2224,12 @@ class Project {
     }
   }
 
-  private async persistToRemote(sessionId: UUID, entry: TranscriptMessage) {
+  private async persistToRemote(
+    sessionId: UUID,
+    entry: TranscriptMessage,
+  ): Promise<boolean> {
     if (isShuttingDown()) {
-      return
+      return false
     }
 
     // CCR v2 path: write as internal worker event
@@ -2243,11 +2243,12 @@ class Project {
             ...(entry.agentId && { agentId: entry.agentId }),
           },
         )
+        return true
       } catch {
         logEvent('tengu_session_persistence_failed', {})
         logForDebugging('Failed to write transcript as internal event')
+        return false
       }
-      return
     }
 
     // v1 Session Ingress path
@@ -2255,7 +2256,7 @@ class Project {
       !isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE) ||
       !this.remoteIngressUrl
     ) {
-      return
+      return false
     }
 
     const success = await sessionIngress.appendSessionLog(
@@ -2267,7 +2268,9 @@ class Project {
     if (!success) {
       logEvent('tengu_session_persistence_failed', {})
       gracefulShutdownSync(1, 'other')
+      return false
     }
+    return true
   }
 
   setRemoteIngressUrl(url: string): void {
@@ -3845,7 +3848,7 @@ function ingestRemoteEgressOmissionsFromTranscriptContent(
     // Always apply current external egress policy. hook_additional_context is
     // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
     // allows local persistence — local save ≠ upload consent.
-    if (!isSafeForExternalEgress(entry)) {
+    if (shouldOmitFromExternalEgress(entry)) {
       recordExternalEgressOmission(
         omittedParents,
         entry.uuid,
@@ -4158,7 +4161,7 @@ function ingestCompactAncestryNodesFromTranscriptContent(
     if (!entry.uuid) continue
     byUuid.set(entry.uuid, {
       parentUuid: entry.parentUuid ?? null,
-      safe: isSafeForExternalEgress(entry),
+      safe: !shouldOmitFromExternalEgress(entry),
     })
   }
 }
@@ -4175,7 +4178,7 @@ function ingestCompactAncestryNodesFromWriteQueue(
     if (!entry.uuid) continue
     byUuid.set(entry.uuid, {
       parentUuid: entry.parentUuid ?? null,
-      safe: isSafeForExternalEgress(entry),
+      safe: !shouldOmitFromExternalEgress(entry),
     })
   }
 }
@@ -6206,6 +6209,9 @@ export function isSafeForExternalEgress(entry: {
   type?: string
   attachment?: unknown
 }): boolean {
+  if (isMalformedAttachmentBearingEgressRecord(entry)) {
+    return false
+  }
   // Listings must never cross remote / share / feedback — including ant.
   if (isExternalEgressListingAttachment(entry)) {
     return false
@@ -6254,7 +6260,7 @@ export async function readFilteredTranscriptJsonlForExternalEgress(
  * outer type must fail closed for egress — they would otherwise bypass the
  * listing classifier (isSafeForExternalEgress only inspects type===attachment).
  */
-function isMalformedAttachmentBearingEgressRecord(entry: {
+export function isMalformedAttachmentBearingEgressRecord(entry: {
   type?: string
   attachment?: unknown
 }): boolean {
@@ -6262,6 +6268,23 @@ function isMalformedAttachmentBearingEgressRecord(entry: {
     return false
   }
   return entry.type !== 'attachment'
+}
+
+/**
+ * Authoritative fail-closed classifier for external transcript records across
+ * all egress consumers (live CCR/session-ingress, feedback, share, rebuild,
+ * and on-demand ancestry lookup).
+ *
+ * Returns true if the entry MUST be omitted from external egress.
+ */
+export function shouldOmitFromExternalEgress(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  if (isMalformedAttachmentBearingEgressRecord(entry)) {
+    return true
+  }
+  return !isSafeForExternalEgress(entry)
 }
 
 /**
@@ -6282,17 +6305,7 @@ export function filterMessagesForExternalEgress<
   const omittedParents = new Map<UUID, UUID | null>()
   const kept: T[] = []
   for (const message of messages) {
-    if (isMalformedAttachmentBearingEgressRecord(message)) {
-      if (typeof message.uuid === 'string') {
-        recordExternalEgressOmission(
-          omittedParents,
-          message.uuid,
-          message.parentUuid ?? null,
-        )
-      }
-      continue
-    }
-    if (!isSafeForExternalEgress(message)) {
+    if (shouldOmitFromExternalEgress(message)) {
       if (typeof message.uuid === 'string') {
         recordExternalEgressOmission(
           omittedParents,
@@ -6368,17 +6381,7 @@ export function filterJsonlForExternalEgress(jsonl: string): string {
         uuid?: UUID
         parentUuid?: UUID | null
       }
-      if (isMalformedAttachmentBearingEgressRecord(entry)) {
-        if (typeof entry.uuid === 'string') {
-          recordExternalEgressOmission(
-            omittedParents,
-            entry.uuid,
-            entry.parentUuid ?? null,
-          )
-        }
-        continue
-      }
-      if (!isSafeForExternalEgress(entry)) {
+      if (shouldOmitFromExternalEgress(entry)) {
         if (typeof entry.uuid === 'string') {
           recordExternalEgressOmission(
             omittedParents,

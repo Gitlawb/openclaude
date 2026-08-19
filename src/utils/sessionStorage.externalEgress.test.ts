@@ -20,7 +20,9 @@ import {
   flushSessionStorage,
   getRemoteEgressOmittedParentsForTesting,
   getRemoteEgressOmissionRebuildIncompleteForTesting,
+  isMalformedAttachmentBearingEgressRecord,
   isSafeForExternalEgress,
+  shouldOmitFromExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
   OMISSION_REBUILD_TAIL_BYTES,
@@ -1606,3 +1608,415 @@ describe('appendEntry remote egress gate', () => {
     }
   })
 })
+
+describe('jatmn review 4965633776 regressions', () => {
+  test('shouldOmitFromExternalEgress rejects malformed records, listings, and un-consented attachments', () => {
+    process.env.USER_TYPE = 'external'
+    delete process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+
+    // Malformed records: attachment payload on non-attachment outer type
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'user',
+        attachment: { type: 'skill_listing', skills: ['bash'] },
+      }),
+    ).toBe(true)
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'assistant',
+        attachment: { type: 'some_tool' },
+      }),
+    ).toBe(true)
+
+    // Listings
+    for (const listingType of EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES) {
+      expect(
+        shouldOmitFromExternalEgress({
+          type: 'attachment',
+          attachment: { type: listingType },
+        }),
+      ).toBe(true)
+    }
+
+    // Progress and hook context
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'progress',
+      }),
+    ).toBe(true)
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: { type: 'hook_additional_context' },
+      }),
+    ).toBe(true)
+
+    // Safe records
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'user',
+      }),
+    ).toBe(false)
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'assistant',
+      }),
+    ).toBe(false)
+  })
+
+  test('P1-delivery: writer rejection on parent A omits A; child C reparents past A without dangling', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-p1-delivery-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(601)
+    const parentA_Uuid = id(602)
+    const listingB_Uuid = id(603)
+    const childC_Uuid = id(604)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        if (payload.uuid === parentA_Uuid) {
+          throw new Error('Simulated CCR writer transport failure for parent A')
+        }
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver safe seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed message' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+      expect(remotePayloads.find(p => p.uuid === seedUuid)).toBeDefined()
+
+      // 2. Attempt parent A: writer rejects, so persistToRemote returns false
+      // and A is recorded as omitted pointing to seedUuid (last confirmed tip).
+      const parentA = {
+        type: 'user',
+        uuid: parentA_Uuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'parent A (fails write)' },
+      } as unknown as Message
+      await recordTranscript([parentA], undefined, seedUuid)
+      await flushSessionStorage()
+      expect(remotePayloads.find(p => p.uuid === parentA_Uuid)).toBeUndefined()
+      expect(getRemoteEgressOmittedParentsForTesting().get(parentA_Uuid)).toBe(
+        seedUuid,
+      )
+
+      // 3. Unsafe listing B is withheld by classifier and chained to parent A
+      const listingB = {
+        type: 'attachment',
+        uuid: listingB_Uuid,
+        parentUuid: parentA_Uuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'WITHHELD_HOOK_CONTENT',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'WITHHELD_HOOK_CONTENT',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([listingB], undefined, parentA_Uuid)
+      await flushSessionStorage()
+      expect(remotePayloads.find(p => p.uuid === listingB_Uuid)).toBeUndefined()
+
+      // 4. Safe child C (parented to listing B) is delivered.
+      // Its parentUuid must be reparented past B and A to seedUuid!
+      const childC = {
+        type: 'user',
+        uuid: childC_Uuid,
+        parentUuid: listingB_Uuid,
+        timestamp: '2026-08-11T00:05:03.000Z',
+        message: { role: 'user', content: 'child C' },
+      } as unknown as Message
+      await recordTranscript([childC], undefined, listingB_Uuid)
+      await flushSessionStorage()
+
+      const remoteC = remotePayloads.find(p => p.uuid === childC_Uuid)
+      expect(remoteC).toBeDefined()
+      // Assert: C does NOT have dangling parentUuid pointing to unwritten A or B
+      expect(remoteC?.parentUuid).toBe(seedUuid)
+      expect(remoteC?.parentUuid).not.toBe(parentA_Uuid)
+      expect(remoteC?.parentUuid).not.toBe(listingB_Uuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('P1-malformed: malformed attachment record on user message is blocked on live CCR persistence', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-p1-malformed-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(610)
+    const malformedUuid = id(611)
+    const childUuid = id(612)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver safe seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed message' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Malformed record: outer type 'user' with attachment payload
+      const malformed = {
+        type: 'user',
+        uuid: malformedUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'malformed entry' },
+        attachment: {
+          type: 'skill_listing',
+          skills: [{ name: 'SECRET_MALFORMED_SKILL' }],
+        },
+      } as unknown as Message
+      await recordTranscript([malformed], undefined, seedUuid)
+      await flushSessionStorage()
+
+      // Assert: malformed record never reached remote
+      expect(remotePayloads.find(p => p.uuid === malformedUuid)).toBeUndefined()
+      expect(JSON.stringify(remotePayloads)).not.toContain(
+        'SECRET_MALFORMED_SKILL',
+      )
+      // Assert: malformed entry was recorded in omission map
+      expect(
+        getRemoteEgressOmittedParentsForTesting().has(malformedUuid),
+      ).toBe(true)
+
+      // 3. Child of malformed entry reparents to seed
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: malformedUuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        message: { role: 'user', content: 'child of malformed' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, malformedUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('P2-eviction: child of historic withheld parent evicted past all tracking tiers resolves from local transcript', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-p2-eviction-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(700)
+    const ancientWithheldUuid = id(701)
+    const childUuid = id(799)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Deliver ancient withheld parent (parented to seed)
+      const ancientWithheld = {
+        type: 'attachment',
+        uuid: ancientWithheldUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'ANCIENT-LEAK',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'ANCIENT-LEAK',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([ancientWithheld], undefined, seedUuid)
+      await flushSessionStorage()
+
+      // 3. Flood with > 4 tiers of omissions (> 256) so ancientWithheldUuid
+      // is evicted from:
+      // - remoteEgressOmittedParents (Tier 1)
+      // - evictedRemoteEgressOmissions (Tier 2)
+      // - remoteEgressCompactAncestry (Tier 2)
+      // - remoteEgressKnownOmitted (Tier 3)
+      let prev = ancientWithheldUuid
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE * 4 + 10; n++) {
+        const u = id(800 + n)
+        const floodEntry = {
+          type: 'attachment',
+          uuid: u,
+          parentUuid: prev,
+          timestamp: `2026-08-11T00:05:02.${String(n % 1000).padStart(3, '0')}Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: 'FLOOD',
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: 'FLOOD',
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message
+        await recordTranscript([floodEntry], undefined, prev)
+        prev = u
+      }
+      await flushSessionStorage()
+
+      // Verify that ancientWithheldUuid is completely absent from Tier 1 map
+      expect(
+        getRemoteEgressOmittedParentsForTesting().has(ancientWithheldUuid),
+      ).toBe(false)
+
+      // 4. Send child of ancientWithheldUuid on a branching chain.
+      // Because ancientWithheldUuid is absent from all 4 memory tiers, it must
+      // resolve on-demand from the local transcript file to seedUuid.
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: ancientWithheldUuid,
+        timestamp: '2026-08-11T00:06:00.000Z',
+        message: { role: 'user', content: 'branch child of ancient withheld' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, ancientWithheldUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // Assert: child was reparented to seedUuid (nearest safe ancestor), NOT ancientWithheldUuid
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
+      expect(remoteChild?.parentUuid).not.toBe(ancientWithheldUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('ANCIENT-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('P2-eviction without transcript: child of fully-evicted parent whose ancestry cannot be resolved fails closed', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(
+      join(tmpdir(), 'openclaude-egress-p2-failclosed-'),
+    )
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(900)
+    const unknownParentUuid = id(901) // Not in transcript
+    const childUuid = id(902)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Child references unknownParentUuid which does not exist in the local transcript
+      // and is not in any omission map.
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: unknownParentUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'child of unresolvable parent' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, unknownParentUuid)
+      await flushSessionStorage()
+
+      // Assert: child fails closed and is NOT delivered with dangling reference
+      expect(remotePayloads.find(p => p.uuid === childUuid)).toBeUndefined()
+      // Assert: child itself was recorded in omission map for subsequent rematching
+      expect(
+        getRemoteEgressOmittedParentsForTesting().has(childUuid),
+      ).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
