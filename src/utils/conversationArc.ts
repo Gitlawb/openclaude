@@ -647,14 +647,21 @@ export async function appendArcToSystemPrompt(
 
     let multiTurnContent = ''
     if (feature('MULTI_TURN_CONTEXT') || (typeof process !== 'undefined' && process.env.MULTI_TURN_CONTEXT === 'true')) {
-      const { getMultiTurnStats, getRecentTurns } = await import('./multiTurnContext.js')
+      const { getMultiTurnStats, getRecentTurns, getCurrentTurn } = await import('./multiTurnContext.js')
       const stats = getMultiTurnStats()
-      if (stats.totalTurns > 0) {
+      // Render only COMPLETED turns and no running token totals: the current
+      // turn's tool-call list grows with every model request, and the
+      // aggregate token counters change per request too. This block lands in
+      // the system prompt, so any per-request variation rewrites the prefix
+      // and busts the prompt cache. Total Turns changes once per turn, which
+      // keeps the prompt stable across the requests within a turn.
+      const currentTurn = getCurrentTurn()
+      const recent = getRecentTurns(4)
+        .filter(turn => turn !== currentTurn)
+        .slice(-3)
+      if (stats.totalTurns > 0 && recent.length > 0) {
         multiTurnContent = '\n--- BEGIN MULTI-TURN CONTEXT TRACKING ---\n'
           + `Total Turns: ${stats.totalTurns}\n`
-          + `Total Tokens: ${stats.totalTokens}\n`
-          + `Average Tokens Per Turn: ${stats.avgTokensPerTurn}\n`
-        const recent = getRecentTurns(3)
         const MAX_TOOL_INPUT_BYTES = 2000
         const MAX_AGGREGATE_BYTES = 10000
         let trimmedTurns = 0

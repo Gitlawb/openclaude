@@ -76,9 +76,15 @@ export function isAutoMemoryEnabled(): boolean {
   // One-shot non-interactive (-p) runs have no future session to build memory
   // for: default off to skip the ~3.2k-token memory protocol section, the
   // per-request arc/RAG system-prompt append (which busts the prompt cache),
-  // and turn-end extraction forks. An explicit settings opt-in or
-  // CLAUDE_CODE_DISABLE_AUTO_MEMORY=0 (handled above) still enables it.
-  if (!explicitOptIn && getIsNonInteractiveSession()) {
+  // and turn-end extraction forks. Still enabled by any explicit provisioning:
+  // a settings opt-in, CLAUDE_CODE_DISABLE_AUTO_MEMORY=0 (handled above), a
+  // Cowork memory-path override, or a mounted remote memory dir — those
+  // sessions are non-interactive but deliberately memory-backed.
+  const envProvisionedMemory =
+    hasAutoMemPathOverride() ||
+    (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) &&
+      Boolean(process.env.CLAUDE_CODE_REMOTE_MEMORY_DIR))
+  if (!explicitOptIn && !envProvisionedMemory && getIsNonInteractiveSession()) {
     return false
   }
   return true

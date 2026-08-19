@@ -485,7 +485,7 @@ test('FIX: 1M context model with 30 exchanges → only first 5 mid-truncated', a
   }
 })
 
-test('Kimi K3 256K selection uses its own compression window while sending the k3 API name', async () => {
+test('Kimi K3 256K selection keeps history uncompressed (implicit prefix caching) while sending the k3 API name', async () => {
   mockState.enabled = true
   process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
   const messages = buildLongConversation(50, 5_000)
@@ -497,7 +497,13 @@ test('Kimi K3 256K selection uses its own compression window while sending the k
 
   expect(body.model).toBe('k3')
   expect(toolMessages).toHaveLength(50)
-  expect(toolMessages[0].content).toContain('chars omitted')
+  // api.kimi.com does implicit prefix caching: compressToolHistory's
+  // end-relative window would rewrite already-sent tool results each turn
+  // and bust the cache, so compression is skipped for this host.
+  for (const m of toolMessages) {
+    expect(m.content).not.toContain('chars omitted')
+    expect(m.content).not.toContain('[…truncated')
+  }
 })
 
 // ============================================================================
