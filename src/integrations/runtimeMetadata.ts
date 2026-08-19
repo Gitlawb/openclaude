@@ -20,9 +20,13 @@ import {
 import {
   getRouteDescriptor,
   isCanonicalXaiInferenceBaseUrl,
+  resolveRouteCredential,
   resolveRouteCredentialValue,
   resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
+  routeSupportsApiFormatSelection,
+  routeSupportsAuthHeaders,
+  type ResolvedRouteCredential,
   type RouteDescriptor,
 } from './routeMetadata.js'
 import { parseCustomHeadersEnv } from '../utils/providerCustomHeaders.js'
@@ -259,6 +263,16 @@ export type OpenAIShimRuntimeContext = {
   descriptor: RouteDescriptor | null
   catalogEntry: ModelCatalogEntry | null
   openaiShimConfig: OpenAIShimTransportConfig
+  connection: {
+    baseUrl: string | undefined
+    credential: ResolvedRouteCredential | null
+    apiFormatPolicy: {
+      supportsSelection: boolean
+      required: OpenAIShimTransportConfig['requiredApiFormat']
+      default: OpenAIShimTransportConfig['defaultApiFormat']
+    }
+    customAuthSource: 'catalog' | 'profile' | 'process' | 'none'
+  }
 }
 
 export type ModelRuntimeLimits = {
@@ -316,6 +330,33 @@ export function resolveOpenAIShimRuntimeContext(options?: {
         }
       : inferRemoteModelOpenAIShimConfig(options?.model, catalogEntry)
 
+  const openaiShimConfig = resolveRouteOpenAIShimConfig(
+    routeId,
+    effectiveBaseUrl,
+    mergeOpenAIShimConfig(
+      descriptor?.transportConfig.openaiShim,
+      catalogEntry?.transportOverrides?.openaiShim,
+      inferredConfig,
+    ),
+  )
+  const hasCatalogAuthHeader = Boolean(
+    catalogEntry?.transportOverrides?.openaiShim?.defaultAuthHeader,
+  )
+  const hasAppliedRouteProfile =
+    runtimeEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
+    runtimeEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim() === routeId
+  const customAuthSource = hasCatalogAuthHeader
+    ? 'catalog'
+    : !descriptor || routeId === 'custom' || routeId === 'openai'
+      ? 'process'
+      : routeId !== null &&
+          routeSupportsAuthHeaders(routeId) &&
+          (!descriptor.setup.dedicatedCredentialsOnly || hasAppliedRouteProfile)
+        ? hasAppliedRouteProfile
+          ? 'profile'
+          : 'process'
+        : 'none'
+
   return {
     routeId,
     descriptor,
@@ -323,15 +364,25 @@ export function resolveOpenAIShimRuntimeContext(options?: {
     // Sanitize AIMLAPI attribution headers AFTER merging every layer: a
     // catalog- or model-level `openaiShim.headers` override could otherwise
     // reintroduce the partner/attribution headers on a proxy endpoint.
-    openaiShimConfig: resolveRouteOpenAIShimConfig(
-      routeId,
-      effectiveBaseUrl,
-      mergeOpenAIShimConfig(
-        descriptor?.transportConfig.openaiShim,
-        catalogEntry?.transportOverrides?.openaiShim,
-        inferredConfig,
-      ),
-    ),
+    openaiShimConfig,
+    connection: {
+      baseUrl: effectiveBaseUrl,
+      credential: resolveRouteCredential({
+        routeId,
+        baseUrl: effectiveBaseUrl,
+        processEnv: runtimeEnv,
+      }),
+      apiFormatPolicy: {
+        supportsSelection:
+          !descriptor ||
+          routeId === 'custom' ||
+          routeId === 'openai' ||
+          (routeId !== null && routeSupportsApiFormatSelection(routeId)),
+        required: openaiShimConfig.requiredApiFormat,
+        default: openaiShimConfig.defaultApiFormat,
+      },
+      customAuthSource,
+    },
   }
 }
 

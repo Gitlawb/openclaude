@@ -25,6 +25,7 @@ export default defineGateway({
   transportConfig: {
     kind: 'openai-compatible',
     openaiShim: {
+      requiredApiFormat: 'chat_completions',
       supportsAuthHeaders: true,
     },
   },

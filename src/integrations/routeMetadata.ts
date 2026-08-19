@@ -230,7 +230,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'OPENAI_API_KEYS' ||
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
-    envVar === 'APISMART_API_KEY'
+    envVar === 'APISMART_API_KEY' ||
+    envVar === 'LLMTR_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -1080,14 +1081,19 @@ export function getRouteCredentialValue(
   )
 }
 
-export function resolveRouteCredentialValue(
+export type ResolvedRouteCredential = {
+  sourceEnvVar: string
+  value: string
+}
+
+export function resolveRouteCredential(
   options?: {
     routeId?: string | null
     baseUrl?: string
     processEnv?: NodeJS.ProcessEnv
     activeProfileProvider?: string
   },
-): string | undefined {
+): ResolvedRouteCredential | null {
   const processEnv = options?.processEnv ?? process.env
   const routeId =
     options?.routeId ??
@@ -1098,36 +1104,47 @@ export function resolveRouteCredentialValue(
     (options?.baseUrl ? 'custom' : null)
 
   if (!routeId || routeId === 'anthropic') {
-    return undefined
+    return null
   }
 
-  // ApiSmart's host is intentionally sufficient for route identity, but its
-  // dedicated credential is valid only for the documented inference base.
-  // Keep those concerns separate so discovery, versioned, or custom paths on
-  // the same host cannot receive the bearer token.
+  // Route identity and credential forwarding are separate boundaries for
+  // dedicated gateways. A hostname may identify a route without authorizing
+  // its secret for a non-canonical endpoint on that host.
   if (
     routeId === 'apismart' &&
     options?.baseUrl !== undefined &&
     !isCanonicalApismartInferenceBaseUrl(options.baseUrl)
   ) {
-    return undefined
+    return null
   }
 
-  // Same split for LLMTR, which is dedicatedCredentialsOnly: the hostname is
-  // enough to identify the route, but LLMTR_API_KEY may only be handed to the
-  // canonical HTTPS origin. `http://llmtr.com` would put it on the wire in
-  // plaintext and `https://llmtr.com:8443` is a different service that merely
-  // shares the hostname. hydrateOpenAIShimCompatibilityEnv copies whatever this
-  // returns into OPENAI_API_KEY, so an ungated value reaches request execution.
   if (
     routeId === 'llmtr' &&
     options?.baseUrl !== undefined &&
     !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
   ) {
-    return undefined
+    return null
   }
 
-  return getRouteCredentialValue(routeId, processEnv)
+  for (const sourceEnvVar of getRouteCredentialEnvVars(routeId)) {
+    const value = processEnv[sourceEnvVar]
+    if (hasUsableEnvCredentialValue(sourceEnvVar, value)) {
+      return { sourceEnvVar, value: value!.trim() }
+    }
+  }
+
+  return null
+}
+
+export function resolveRouteCredentialValue(
+  options?: {
+    routeId?: string | null
+    baseUrl?: string
+    processEnv?: NodeJS.ProcessEnv
+    activeProfileProvider?: string
+  },
+): string | undefined {
+  return resolveRouteCredential(options)?.value
 }
 
 export function routeSupportsCustomHeaders(
@@ -1308,6 +1325,33 @@ function profileRouteHonorsBaseUrlBoundary(
   return true
 }
 
+function resolvePinnedProviderRouteId(
+  processEnv: NodeJS.ProcessEnv,
+): string | null {
+  const pinnedProvider = processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim()
+  if (!pinnedProvider) {
+    return null
+  }
+
+  const route = resolveProfileRoute(pinnedProvider)
+  if (route.routeId === 'unknown-fallback') {
+    return null
+  }
+
+  const baseUrl =
+    processEnv.OPENAI_BASE_URL ??
+    processEnv.OPENAI_API_BASE ??
+    processEnv.ANTHROPIC_BASE_URL
+  if (
+    baseUrl &&
+    !profileRouteHonorsBaseUrlBoundary(route.routeId, baseUrl)
+  ) {
+    return resolveRouteIdFromBaseUrl(baseUrl) ?? 'custom'
+  }
+
+  return route.routeId
+}
+
 export function resolveActiveRouteIdFromEnv(
   processEnv: NodeJS.ProcessEnv = process.env,
   options?: {
@@ -1315,6 +1359,15 @@ export function resolveActiveRouteIdFromEnv(
     activeProfileBaseUrl?: string
   },
 ): string | null {
+  // Saved profiles stamp their selected route here, and applyProviderFlag
+  // overwrites the same marker for an explicit CLI selection. Resolving it
+  // before mode/env-only inference establishes the intended precedence:
+  // explicit flag > applied profile > ambient provider-specific env signal.
+  const pinnedRouteId = resolvePinnedProviderRouteId(processEnv)
+  if (pinnedRouteId) {
+    return pinnedRouteId
+  }
+
   if (isEnvTruthy(processEnv.CLAUDE_CODE_USE_GEMINI)) {
     return 'gemini'
   }

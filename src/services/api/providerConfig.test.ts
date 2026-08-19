@@ -39,6 +39,23 @@ test('resolveProviderRequest forces LongCat onto chat completions', () => {
   expect(request.transport).toBe('chat_completions')
 })
 
+test('resolveProviderRequest ignores a stale API format outside the LLMTR route contract', () => {
+  const request = resolveProviderRequest({
+    processEnv: {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      CLAUDE_CODE_USE_OPENAI: '1',
+      LLMTR_API_KEY: 'llmtr-key',
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'anthropic/claude-sonnet-4.6',
+      OPENAI_API_FORMAT: 'responses',
+    },
+  })
+
+  expect(request.baseUrl).toBe('https://llmtr.com/v1')
+  expect(request.resolvedModel).toBe('anthropic/claude-sonnet-4.6')
+  expect(request.transport).toBe('chat_completions')
+})
+
 test('resolveProviderRequest maps explicit route catalog aliases to API model ids', () => {
   const request = resolveProviderRequest({
     model: 'glm-5.2?reasoning=high',

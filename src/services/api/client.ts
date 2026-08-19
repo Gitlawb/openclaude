@@ -420,6 +420,9 @@ function applyLlmtrEnvOnlyDefaults(): void {
   const modelOverride =
     usableProviderConfigEnvValue(process.env.OPENAI_MODEL) || undefined
   const apiKey = process.env.LLMTR_API_KEY
+  const hasAppliedLlmtrProfile =
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED === '1' &&
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim() === 'llmtr'
 
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = baseUrlOverride ?? getRouteDefaultBaseUrl('llmtr')
@@ -441,10 +444,16 @@ function applyLlmtrEnvOnlyDefaults(): void {
   }
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
-  delete process.env.OPENAI_AUTH_HEADER
-  delete process.env.OPENAI_AUTH_SCHEME
-  delete process.env.OPENAI_AUTH_HEADER_VALUE
-  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  // Env-only inference must not inherit process-global custom auth from a
+  // previous provider. A matching applied profile is different: profile
+  // application has already cleared managed env and then installed these
+  // values deliberately for this exact route.
+  if (!hasAppliedLlmtrProfile) {
+    delete process.env.OPENAI_AUTH_HEADER
+    delete process.env.OPENAI_AUTH_SCHEME
+    delete process.env.OPENAI_AUTH_HEADER_VALUE
+    delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  }
 }
 
 function usableProviderConfigEnvValue(

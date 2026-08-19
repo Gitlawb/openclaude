@@ -52,11 +52,6 @@ type RequestExecutorContext = {
     headers?: Record<string, string>,
   ) => Record<string, string>
   isGeminiMode: () => boolean
-  resolveRouteCredentialValue: (input: {
-    routeId?: string
-    baseUrl: string
-    processEnv: NodeJS.ProcessEnv
-  }) => string | undefined
   isXaiBaseUrl: (baseUrl: string) => boolean
   isLongcatBaseUrl: (baseUrl: string) => boolean
   parseCredentialList: (value?: string) => string[]
@@ -184,7 +179,6 @@ export async function executeOpenAIRequest(
     getCredentialPool,
     filterAnthropicHeaders,
     isGeminiMode,
-    resolveRouteCredentialValue,
     isXaiBaseUrl,
     isLongcatBaseUrl,
     parseCredentialList,
@@ -248,11 +242,8 @@ export async function executeOpenAIRequest(
   }
 
   const isGemini = isGeminiMode()
-  const routeCredential = resolveRouteCredentialValue({
-    routeId: runtimeShimContext.routeId ?? undefined,
-    baseUrl: request.baseUrl,
-    processEnv: requestProcessEnv,
-  })
+  const resolvedRouteCredential = runtimeShimContext.connection.credential
+  const routeCredential = resolvedRouteCredential?.value
   // xAI OAuth: when the active route is xAI and no API key is set, fall
   // back to a stored OAuth access token (auto-refreshed). The token is
   // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
@@ -288,28 +279,19 @@ export async function executeOpenAIRequest(
       requestProcessEnv.MINIMAX_API_KEY,
       requestProcessEnv.ATLAS_CLOUD_API_KEY,
       requestProcessEnv.APISMART_API_KEY,
+      requestProcessEnv.LLMTR_API_KEY,
       requestProcessEnv.NEARAI_API_KEY,
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
-  const routeCredentialIsCopiedProviderKey = Boolean(
-    routeCredential &&
-    openAIApiKeyRawUsable &&
-    routeCredential === openAIApiKeyRawUsable &&
-    openAIApiKeyIsCopiedProviderKey,
-  )
   const routeCredentialIsProviderSpecific = Boolean(
-    routeCredential &&
-    (!openAIApiKeyRawUsable ||
-      routeCredential !== openAIApiKeyRawUsable ||
-      routeCredentialIsCopiedProviderKey),
+    resolvedRouteCredential &&
+    resolvedRouteCredential.sourceEnvVar !== 'OPENAI_API_KEY' &&
+    resolvedRouteCredential.sourceEnvVar !== 'OPENAI_API_KEYS',
   )
   const routeCredentialIsGenericOpenAIFallback = Boolean(
-    !routeCredentialIsProviderSpecific &&
-    routeCredential &&
-    openAIApiKeyRawUsable &&
-    routeCredential === openAIApiKeyRawUsable,
+    resolvedRouteCredential && !routeCredentialIsProviderSpecific,
   )
   const apiKeyRaw =
     providerOverride?.apiKey ??
@@ -329,9 +311,14 @@ export async function executeOpenAIRequest(
   const catalogAuthHeader =
     runtimeShimContext.catalogEntry?.transportOverrides?.openaiShim
       ?.defaultAuthHeader
+  const allowsProcessCustomAuth =
+    runtimeShimContext.connection.customAuthSource === 'profile' ||
+    runtimeShimContext.connection.customAuthSource === 'process'
   const configuredAuthHeaderValue = catalogAuthHeader
     ? undefined
-    : requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
+    : allowsProcessCustomAuth
+      ? requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
+      : undefined
   if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
     throw new Error(
       'OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters',
@@ -339,7 +326,9 @@ export async function executeOpenAIRequest(
   }
   const customAuthHeader = catalogAuthHeader
     ? undefined
-    : requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
+    : allowsProcessCustomAuth
+      ? requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
+      : undefined
   const hasCustomAuthHeader = Boolean(
     customAuthHeader && /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(customAuthHeader),
   )

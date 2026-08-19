@@ -2,7 +2,12 @@ import { APIError } from '@anthropic-ai/sdk'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../../test/sharedMutationLock.js'
 import { asMockFetch } from '../../../test/typedMocks.js'
-import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
+import {
+  _clearRegistryForTesting,
+  ensureIntegrationsLoaded,
+  registerGateway,
+  resolveActiveRouteIdFromEnv,
+} from '../../../integrations/index.ts'
 import { applyProviderFlag } from '../../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../../utils/providerProfiles.ts'
 import {
@@ -10,6 +15,7 @@ import {
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from '../errors.ts'
 import { createOpenAIShimClient } from '../openaiShim.ts'
+import { getAnthropicClient } from '../client.ts'
 
 type FetchType = typeof globalThis.fetch
 
@@ -39,6 +45,14 @@ const originalEnv = {
   GEMINI_MODEL: process.env.GEMINI_MODEL,
   GOOGLE_CLOUD_PROJECT: process.env.GOOGLE_CLOUD_PROJECT,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+  APISMART_API_KEY: process.env.APISMART_API_KEY,
+  APISMART_MODEL: process.env.APISMART_MODEL,
+  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
   NVIDIA_API_KEY: process.env.NVIDIA_API_KEY,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
   MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
@@ -58,6 +72,8 @@ const originalEnv = {
 }
 
 const originalFetch = globalThis.fetch
+const originalMacro = (globalThis as Record<string, unknown>).MACRO
+const hadOriginalMacro = Object.hasOwn(globalThis, 'MACRO')
 
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -429,8 +445,124 @@ async function captureChatCompletionRequest(
   return { authorization, url }
 }
 
+const PROVIDER_TRANSITION_ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'OPENAI_API_KEY',
+  'OPENAI_API_KEYS',
+  'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'OPENAI_AZURE_STYLE',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_CUSTOM_HEADERS',
+  'APISMART_API_KEY',
+  'APISMART_MODEL',
+  'LLMTR_API_KEY',
+] as const
+
+function resetProviderTransitionEnv(): void {
+  for (const key of PROVIDER_TRANSITION_ENV_KEYS) {
+    delete process.env[key]
+  }
+}
+
+async function captureResolvedProviderRequest(options: {
+  clientKind: 'shim' | 'anthropic'
+  model: string
+}): Promise<{
+  body: Record<string, unknown>
+  headers: Headers
+  routeId: string | null
+  url: string
+}> {
+  let body: Record<string, unknown> = {}
+  let headers = new Headers()
+  let url = ''
+
+  const fetchOverride = (async (input, init) => {
+    url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    headers = new Headers(init?.headers)
+    if (init?.body) {
+      body = JSON.parse(String(init.body)) as Record<string, unknown>
+    }
+
+    if (options.clientKind === 'anthropic') {
+      return new Response(
+        JSON.stringify({
+          id: 'msg-provider-transition',
+          type: 'message',
+          role: 'assistant',
+          model: options.model,
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    return makeChatCompletionResponse(options.model)
+  }) as FetchType
+
+  globalThis.fetch = fetchOverride
+  const client = await getAnthropicClient({
+    apiKey:
+      options.clientKind === 'anthropic'
+        ? process.env.ANTHROPIC_API_KEY
+        : undefined,
+    maxRetries: 0,
+    model: options.model,
+    fetchOverride,
+  })
+
+  if (options.clientKind === 'anthropic') {
+    await client.messages.create({
+      model: options.model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+    })
+  } else {
+    await (client as unknown as OpenAIShimClient).beta.messages.create({
+      model: options.model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })
+  }
+
+  return {
+    body,
+    headers,
+    routeId: resolveActiveRouteIdFromEnv(process.env),
+    url,
+  }
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('openaiShim.test.ts')
+  ;(globalThis as Record<string, unknown>).MACRO = { VERSION: 'test-version' }
   process.env.OPENAI_BASE_URL = 'http://example.test/v1'
   delete process.env.OPENAI_API_BASE
   process.env.OPENAI_API_KEY = 'test-key'
@@ -456,6 +588,14 @@ beforeEach(async () => {
   delete process.env.GEMINI_MODEL
   delete process.env.GOOGLE_CLOUD_PROJECT
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_MODEL
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.APISMART_API_KEY
+  delete process.env.APISMART_MODEL
+  delete process.env.LLMTR_API_KEY
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   delete process.env.NVIDIA_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.MINIMAX_API_KEY
@@ -500,6 +640,14 @@ afterEach(() => {
     restoreEnv('GEMINI_MODEL', originalEnv.GEMINI_MODEL)
     restoreEnv('GOOGLE_CLOUD_PROJECT', originalEnv.GOOGLE_CLOUD_PROJECT)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
+    restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
+    restoreEnv('ANTHROPIC_API_KEY', originalEnv.ANTHROPIC_API_KEY)
+    restoreEnv('ANTHROPIC_AUTH_TOKEN', originalEnv.ANTHROPIC_AUTH_TOKEN)
+    restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
+    restoreEnv('APISMART_MODEL', originalEnv.APISMART_MODEL)
+    restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
+    restoreEnv('CLAUDE_CODE_PROVIDER_ROUTE_ID', originalEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID)
     restoreEnv('NVIDIA_API_KEY', originalEnv.NVIDIA_API_KEY)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
     restoreEnv('MINIMAX_API_KEY', originalEnv.MINIMAX_API_KEY)
@@ -516,6 +664,11 @@ afterEach(() => {
     restoreEnv('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID', originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID)
     restoreEnv('CLAUDE_STREAM_IDLE_TIMEOUT_MS', originalEnv.CLAUDE_STREAM_IDLE_TIMEOUT_MS)
     restoreEnv('HICAP_API_KEY', originalEnv.HICAP_API_KEY)
+    if (hadOriginalMacro) {
+      ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    } else {
+      delete (globalThis as Record<string, unknown>).MACRO
+    }
     globalThis.fetch = originalFetch
     _clearRegistryForTesting()
     ensureIntegrationsLoaded()
@@ -523,6 +676,146 @@ afterEach(() => {
     releaseSharedMutationLock()
   }
 })
+
+test.each([
+  {
+    name: 'custom-header provider -> LLMTR',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    provider: 'llmtr',
+    args: [] as string[],
+    setup: () => {
+      process.env.OPENAI_BASE_URL = 'https://previous.example/v1'
+      process.env.OPENAI_MODEL = 'previous-model'
+      process.env.OPENAI_API_FORMAT = 'responses'
+      process.env.OPENAI_AUTH_HEADER = 'X-Previous-Key'
+      process.env.OPENAI_AUTH_SCHEME = 'raw'
+      process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-secret'
+      process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Previous: previous-secret'
+      process.env.LLMTR_API_KEY = 'llmtr-secret'
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-secret',
+    absentAuthHeader: 'x-previous-key',
+  },
+  {
+    name: 'LLMTR -> Anthropic',
+    clientKind: 'anthropic' as const,
+    model: 'claude-sonnet-4-6',
+    provider: 'anthropic',
+    args: [] as string[],
+    setup: () => {
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+      process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+      process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+      process.env.OPENAI_API_KEY = 'llmtr-secret'
+      process.env.LLMTR_API_KEY = 'llmtr-secret'
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret'
+    },
+    expectedRouteId: 'anthropic',
+    expectedUrl: 'https://api.anthropic.com/v1/messages',
+    expectedAuthHeader: 'x-api-key',
+    expectedAuthValue: 'anthropic-secret',
+    absentAuthHeader: 'authorization',
+  },
+  {
+    name: 'LLMTR -> OpenAI',
+    clientKind: 'shim' as const,
+    model: 'gpt-4o',
+    provider: 'openai',
+    args: ['--model', 'gpt-4o'],
+    setup: () => {
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+      process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+      process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+      process.env.OPENAI_API_KEY = 'openai-secret'
+      process.env.LLMTR_API_KEY = 'llmtr-secret'
+    },
+    expectedRouteId: 'openai',
+    expectedUrl: 'https://api.openai.com/v1/chat/completions',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer openai-secret',
+    absentAuthHeader: 'x-previous-key',
+  },
+  {
+    name: 'direct env-only LLMTR startup',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    setup: () => {
+      process.env.LLMTR_API_KEY = 'llmtr-env-secret'
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-env-secret',
+    absentAuthHeader: 'x-previous-key',
+  },
+  {
+    name: 'clean explicit LLMTR selection',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    provider: 'llmtr',
+    args: [] as string[],
+    setup: () => {
+      process.env.LLMTR_API_KEY = 'llmtr-clean-secret'
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-clean-secret',
+    absentAuthHeader: 'x-previous-key',
+  },
+  {
+    name: 'route-scoped LLMTR profile auth',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    setup: () => {
+      applyProviderProfileToProcessEnv({
+        id: 'llmtr-route-scoped-auth',
+        provider: 'llmtr',
+        name: 'LLMTR route-scoped auth',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-profile-key',
+        authHeader: 'X-LLMTR-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'llmtr-profile-header-secret',
+      })
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'x-llmtr-key',
+    expectedAuthValue: 'llmtr-profile-header-secret',
+    absentAuthHeader: 'authorization',
+  },
+])(
+  'provider transition contract: $name',
+  async scenario => {
+    resetProviderTransitionEnv()
+    scenario.setup()
+    if ('provider' in scenario && scenario.provider) {
+      const result = applyProviderFlag(scenario.provider, [...scenario.args])
+      expect(result.error).toBeUndefined()
+    }
+
+    const captured = await captureResolvedProviderRequest({
+      clientKind: scenario.clientKind,
+      model: scenario.model,
+    })
+
+    expect(captured.routeId).toBe(scenario.expectedRouteId)
+    expect(captured.url).toBe(scenario.expectedUrl)
+    expect(captured.body.model).toBe(scenario.model)
+    expect(captured.headers.get(scenario.expectedAuthHeader)).toBe(
+      scenario.expectedAuthValue,
+    )
+    expect(captured.headers.get(scenario.absentAuthHeader)).toBeNull()
+  },
+)
 
 
 test('uses OpenAI-compatible responses endpoint when OPENAI_API_FORMAT=responses', async () => {

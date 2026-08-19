@@ -13,6 +13,7 @@ import {
   isLlmtrBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
+  resolveRouteCredential,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
@@ -441,6 +442,42 @@ test('LLMTR dedicated credential is limited to the canonical inference origin', 
   expect(
     resolveRouteCredentialValue({ routeId: 'llmtr', processEnv }),
   ).toBe('llmtr-secret')
+  expect(
+    resolveRouteCredential({
+      routeId: 'llmtr',
+      baseUrl: 'https://llmtr.com/v1',
+      processEnv,
+    }),
+  ).toEqual({ sourceEnvVar: 'LLMTR_API_KEY', value: 'llmtr-secret' })
+})
+
+test.each([
+  ['openai', 'https://api.openai.com/v1'],
+  ['anthropic', undefined],
+] as const)(
+  'pinned %s selection outranks an ambient LLMTR env-only signal',
+  (routeId, baseUrl) => {
+    expect(
+      resolveActiveRouteIdFromEnv({
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: routeId,
+        CLAUDE_CODE_USE_OPENAI: routeId === 'openai' ? '1' : undefined,
+        OPENAI_BASE_URL: baseUrl,
+        LLMTR_API_KEY: 'ambient-llmtr-key',
+      }),
+    ).toBe(routeId)
+  },
+)
+
+test('pinned retargeted LLMTR profile still resolves as custom', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+      LLMTR_API_KEY: 'ambient-llmtr-key',
+    }),
+  ).toBe('custom')
 })
 
 test('resolveActiveRouteIdFromEnv does not retain LLMTR identity for a retargeted profile', () => {

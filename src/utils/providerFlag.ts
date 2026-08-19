@@ -255,6 +255,54 @@ function clearUnsupportedOpenAIShimSettings(routeId: string): void {
   }
 }
 
+/**
+ * An explicit provider selection owns the invocation. Dedicated provider
+ * credentials and model hints are process-global env signals, so leaving a
+ * different route's signal in place lets env-only inference undo the flag
+ * later during client startup. Derive the exclusion set from descriptors so
+ * new dedicated routes inherit the same boundary automatically.
+ */
+function clearCompetingDedicatedProviderState(provider: string): void {
+  const selectedRoute = resolveProfileRoute(provider)
+  const selectedRouteIds = new Set(
+    [
+      provider,
+      selectedRoute.routeId,
+      selectedRoute.gatewayId,
+      selectedRoute.vendorId,
+    ].filter((value): value is string => Boolean(value)),
+  )
+
+  for (const route of [...getAllGateways(), ...getAllVendors()]) {
+    if (
+      route.setup.dedicatedCredentialsOnly !== true ||
+      selectedRouteIds.has(route.id)
+    ) {
+      continue
+    }
+
+    for (const envVar of [
+      ...(route.setup.credentialEnvVars ?? []),
+      ...(route.preset?.modelEnvVars ?? []),
+    ]) {
+      // Shared OpenAI-compatible state is reset by the selected route itself.
+      // This loop only removes the competing route-specific intent signal.
+      if (envVar !== 'OPENAI_API_KEY' && envVar !== 'OPENAI_MODEL') {
+        delete process.env[envVar]
+      }
+    }
+  }
+}
+
+function clearExplicitOpenAIShimOverrides(): void {
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+}
+
 function usableProviderModelEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -386,6 +434,10 @@ export function applyProviderFlag(
   delete process.env.CLAUDE_CODE_USE_VERTEX
   delete process.env.CLAUDE_CODE_USE_FOUNDRY
   delete process.env.NVIDIA_NIM
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
+  delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  clearCompetingDedicatedProviderState(provider)
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
   }
@@ -416,8 +468,6 @@ export function applyProviderFlag(
       // `--provider anthropic` is an explicit selection even though the
       // default provider has no positive mode flag. Do not let a dedicated
       // OpenAI-compatible env-only route override it later in startup.
-      delete process.env.APISMART_API_KEY
-      delete process.env.APISMART_MODEL
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
@@ -460,11 +510,13 @@ export function applyProviderFlag(
 
     case 'openai':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      // An explicit generic OpenAI selection must not be reclassified as a
-      // dedicated env-only gateway during client startup.
-      delete process.env.APISMART_API_KEY
-      delete process.env.APISMART_MODEL
-      if (model) process.env.OPENAI_MODEL = model
+      clearExplicitOpenAIShimOverrides()
+      delete process.env.OPENAI_BASE_URL
+      delete process.env.OPENAI_API_BASE
+      delete process.env.OPENAI_MODEL
+      process.env.OPENAI_BASE_URL =
+        defaultBaseUrl ?? 'https://api.openai.com/v1'
+      process.env.OPENAI_MODEL = model ?? defaultModel ?? 'gpt-4o'
       break
 
     case 'gemini':
@@ -678,17 +730,21 @@ export function applyProviderFlag(
 
     case 'llmtr':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      applyOpenAIBaseUrlDefault(provider, defaultBaseUrl ?? 'https://llmtr.com/v1')
-      if (defaultModel) {
-        process.env.OPENAI_MODEL ??= defaultModel
-      }
-      if (model) process.env.OPENAI_MODEL = model
+      // `--provider llmtr` is a complete route transition, not a partial
+      // mutation of the previous OpenAI-compatible provider. Route-scoped
+      // custom auth remains available through saved profiles; process-global
+      // leftovers never belong to this explicit selection.
+      clearExplicitOpenAIShimOverrides()
+      delete process.env.OPENAI_API_BASE
+      process.env.OPENAI_BASE_URL =
+        defaultBaseUrl ?? 'https://llmtr.com/v1'
+      process.env.OPENAI_MODEL =
+        model ?? defaultModel ?? 'anthropic/claude-sonnet-4.6'
       // DedicatedCredentialsOnly: only LLMTR_API_KEY authenticates this route.
       // Mirror it into OPENAI_API_KEY for the shared shim transport, and only
-      // on the canonical endpoint — applyOpenAIBaseUrlDefault preserves an
-      // existing OPENAI_BASE_URL, so the selection can land on a stale or
-      // plaintext URL. In every other case delete the generic key rather than
-      // leaving a previous provider's credential behind for LLMTR to receive.
+      // on the canonical endpoint. In every other case delete the generic key
+      // rather than leaving a previous provider's credential behind for LLMTR
+      // to receive.
       if (
         hasUsableOpenAICredential(process.env.LLMTR_API_KEY) &&
         isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
@@ -788,6 +844,12 @@ export function applyProviderFlag(
       if (model) process.env.OPENAI_MODEL = model
       break
   }
+
+  const selectedRoute = resolveProfileRoute(provider)
+  process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID =
+    selectedRoute.routeId === 'unknown-fallback'
+      ? provider
+      : selectedRoute.routeId
 
   return {}
 }

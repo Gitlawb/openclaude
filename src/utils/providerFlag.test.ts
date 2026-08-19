@@ -22,6 +22,9 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -74,6 +77,9 @@ const RESET_KEYS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEY',
@@ -203,6 +209,15 @@ describe('applyProviderFlag - anthropic', () => {
     expect(process.env.APISMART_API_KEY).toBeUndefined()
     expect(process.env.APISMART_MODEL).toBeUndefined()
   })
+
+  test('does not leave LLMTR env-only selection active', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-key'
+
+    applyProviderFlag('anthropic', [])
+
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('anthropic')
+  })
 })
 
 describe('applyProviderFlag - custom Anthropic-compatible', () => {
@@ -310,6 +325,19 @@ describe('applyProviderFlag - openai', () => {
 
     expect(process.env.APISMART_API_KEY).toBeUndefined()
     expect(process.env.APISMART_MODEL).toBeUndefined()
+  })
+
+  test('does not leave LLMTR env-only selection active', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-key'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+    process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+
+    applyProviderFlag('openai', ['--model', 'gpt-4o'])
+
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('openai')
   })
 })
 
@@ -1126,9 +1154,7 @@ describe('applyProviderFlag - llmtr', () => {
     expect(process.env.OPENAI_API_KEY).toBe('llmtr-secret-key')
   })
 
-  test('does not forward the dedicated key to a preserved non-canonical base URL', () => {
-    // applyOpenAIBaseUrlDefault keeps an existing OPENAI_BASE_URL, so the
-    // selection can land on a proxy or a plaintext URL.
+  test('replaces inherited non-canonical base URLs with the route default', () => {
     for (const baseUrl of [
       'https://llm-proxy.internal.example/v1',
       'http://llmtr.com/v1',
@@ -1139,9 +1165,27 @@ describe('applyProviderFlag - llmtr', () => {
 
       applyProviderFlag('llmtr', [])
 
-      expect(process.env.OPENAI_BASE_URL).toBe(baseUrl)
-      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+      expect(process.env.OPENAI_API_KEY).toBe('llmtr-secret-key')
     }
+  })
+
+  test('clears inherited shim auth and API-mode overrides', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Previous-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Previous: previous-secret'
+
+    applyProviderFlag('llmtr', [])
+
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
   })
 
   test('clears a stale OPENAI_API_KEY when no LLMTR key is set', () => {

@@ -293,6 +293,51 @@ describe('resolveModelRuntimeLimits', () => {
   })
 })
 
+describe('LLMTR route-owned connection state', () => {
+  it('uses only the dedicated credential and rejects ambient shim overrides', () => {
+    const context = resolveOpenAIShimRuntimeContext({
+      processEnv: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://llmtr.com/v1',
+        OPENAI_MODEL: 'anthropic/claude-sonnet-4.6',
+        OPENAI_API_FORMAT: 'responses',
+        OPENAI_AUTH_HEADER: 'X-Previous-Key',
+        OPENAI_AUTH_HEADER_VALUE: 'previous-secret',
+        LLMTR_API_KEY: 'llmtr-secret',
+      },
+      baseUrl: 'https://llmtr.com/v1',
+      model: 'anthropic/claude-sonnet-4.6',
+    })
+
+    expect(context.routeId).toBe('llmtr')
+    expect(context.connection.credential).toEqual({
+      sourceEnvVar: 'LLMTR_API_KEY',
+      value: 'llmtr-secret',
+    })
+    expect(context.connection.apiFormatPolicy.supportsSelection).toBe(false)
+    expect(context.connection.customAuthSource).toBe('none')
+  })
+
+  it('permits custom auth only when an LLMTR profile applied it', () => {
+    const context = resolveOpenAIShimRuntimeContext({
+      processEnv: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+        CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://llmtr.com/v1',
+        OPENAI_AUTH_HEADER: 'X-LLMTR-Key',
+        OPENAI_AUTH_HEADER_VALUE: 'profile-secret',
+        LLMTR_API_KEY: 'llmtr-secret',
+      },
+      baseUrl: 'https://llmtr.com/v1',
+      model: 'anthropic/claude-sonnet-4.6',
+    })
+
+    expect(context.connection.customAuthSource).toBe('profile')
+  })
+})
+
 describe('AIMLAPI runtime attribution', () => {
   it('sends the fixed partner id on the canonical endpoint only', () => {
     const previous = process.env.AIMLAPI_PARTNER_ID
