@@ -19,9 +19,10 @@ import { readFileSync } from '../fileRead.js'
 import { getFsImplementation, safeResolvePath } from '../fsOperations.js'
 import { addFileGlobRuleToGitignore } from '../git/gitignore.js'
 import { safeParseJSON } from '../json.js'
+import { stripBOM } from '../jsonRead.js'
 import { logError } from '../log.js'
 import { getPlatform } from '../platform.js'
-import { clone, jsonStringify } from '../slowOperations.js'
+import { clone, jsonParse, jsonStringify } from '../slowOperations.js'
 import { profileCheckpoint } from '../startupProfiler.js'
 import {
   type EditableSettingSource,
@@ -447,7 +448,8 @@ export function updateSettingsForSource(
         // caches so a peer's completed update cannot be overwritten.
         let existingSettings = parseSettingsFileUncached(targetPath).settings
 
-        // If validation failed, check if the physical file has a JSON syntax error.
+        // If validation failed, distinguish syntax errors from schema-invalid
+        // objects whose unknown fields still need to survive the merge.
         if (!existingSettings) {
           let content: string | null = null
           try {
@@ -457,18 +459,28 @@ export function updateSettingsForSource(
             // File doesn't exist — fall through to merge with empty settings.
           }
           if (content !== null) {
-            const rawData = safeParseJSON(content)
-            if (rawData === null) {
+            let rawData: unknown
+            try {
+              rawData = jsonParse(stripBOM(content))
+            } catch (parseError) {
+              logError(parseError)
               return new Error(
                 `Invalid JSON syntax in settings file at ${filePath}`,
               )
             }
-            if (rawData && typeof rawData === 'object') {
-              existingSettings = rawData as SettingsJson
-              logForDebugging(
-                `Using raw settings from ${filePath} due to validation failure`,
+            if (
+              rawData === null ||
+              typeof rawData !== 'object' ||
+              Array.isArray(rawData)
+            ) {
+              return new Error(
+                `Invalid settings document at ${filePath}: expected a JSON object`,
               )
             }
+            existingSettings = rawData as SettingsJson
+            logForDebugging(
+              `Using raw settings from ${filePath} due to validation failure`,
+            )
           }
         }
 

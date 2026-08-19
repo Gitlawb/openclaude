@@ -367,6 +367,40 @@ test('a malformed document is untouched and does not strand the lock', async () 
   })
 })
 
+test('an array document is rejected without dropping the requested update', async () => {
+  await withIsolatedUserSettings((_root, settingsPath) => {
+    const invalidSettings = '[]\n'
+    writeFileSync(settingsPath, invalidSettings)
+
+    const result = updateSettingsForSource('userSettings', {
+      env: { NEVER_WRITTEN: 'yes' },
+    })
+
+    expect(result.error?.message).toBe(
+      `Invalid settings document at ${settingsPath}: expected a JSON object`,
+    )
+    expect(readFileSync(settingsPath, 'utf8')).toBe(invalidSettings)
+    expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+  })
+})
+
+test('JSON null is reported as an invalid settings document', async () => {
+  await withIsolatedUserSettings((_root, settingsPath) => {
+    const invalidSettings = 'null\n'
+    writeFileSync(settingsPath, invalidSettings)
+
+    const result = updateSettingsForSource('userSettings', {
+      env: { NEVER_WRITTEN: 'yes' },
+    })
+
+    expect(result.error?.message).toBe(
+      `Invalid settings document at ${settingsPath}: expected a JSON object`,
+    )
+    expect(readFileSync(settingsPath, 'utf8')).toBe(invalidSettings)
+    expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+  })
+})
+
 test('does not retry unrelated filesystem errors', async () => {
   const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-fs-error-'))
   const nonDirectory = join(root, 'not-a-directory')
