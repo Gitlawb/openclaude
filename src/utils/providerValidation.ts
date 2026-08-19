@@ -142,6 +142,7 @@ function hasUsableCredentialEnvValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
+    envVar === 'LLMTR_API_KEY' ||
     envVar === 'CONCENTRATE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)

@@ -33,6 +33,7 @@ const ENV_KEYS = [
   'MINIMAX_API_KEY',
   'LONGCAT_API_KEY',
   'APISMART_API_KEY',
+  'LLMTR_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -274,6 +275,22 @@ test('Concentrate key-only setup validates before client defaults are applied', 
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
+
+test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+  'LLMTR validation rejects placeholder LLMTR_API_KEY %s',
+  async placeholder => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+    process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+    process.env.LLMTR_API_KEY = placeholder
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'Set LLMTR_API_KEY for the LLMTR provider. Get a key at https://llmtr.com.',
+    )
+  },
+)
 
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'Concentrate validation rejects placeholder CONCENTRATE_API_KEY %s',
