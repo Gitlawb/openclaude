@@ -1,5 +1,11 @@
 import { describe, expect, test, vi } from 'vitest'
 import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+  requestAbort,
+} from '../../../utils/interruptionTrace.js'
+import {
   handleInteractivePermission,
   type InteractivePermissionParams,
 } from './interactiveHandler.js'
@@ -9,7 +15,7 @@ import {
 // bypasses resolveOnce fails here instead of silently stranding the watchdog.
 
 type QueueItem = {
-  onAbort: () => void
+  onAbort: (source?: string, causalEventId?: string) => void
   onAllow: (
     updatedInput: Record<string, unknown>,
     permissionUpdates: unknown[],
@@ -118,10 +124,19 @@ describe('handleInteractivePermission watchdog suspension', () => {
   })
 
   test('resumes exactly once on abort', () => {
-    const { getQueueItem, resume, resolve } = setup()
-    getQueueItem().onAbort()
+    const { ctx, getQueueItem, resume, resolve } = setup()
+    getQueueItem().onAbort('cancel_keybinding', 'input-event-1')
     expect(resume).toHaveBeenCalledTimes(1)
     expect(resolve).toHaveBeenCalledTimes(1)
+    expect(ctx.cancelAndAbort).toHaveBeenCalledWith(
+      undefined,
+      true,
+      undefined,
+      {
+        source: 'cancel_keybinding',
+        causalEventId: 'input-event-1',
+      },
+    )
   })
 
   test('resumes only once when two resolution paths race', async () => {
@@ -164,6 +179,55 @@ describe('handleInteractivePermission watchdog suspension', () => {
     expect(resolve).toHaveBeenCalledTimes(1)
     // Stale prompt must be removed from the queue on external abort.
     expect(ctx.removeFromQueue).toHaveBeenCalledTimes(1)
+  })
+
+  test('preserves the originating trace when an external abort closes the dialog', async () => {
+    const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+    process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+    __resetInterruptionTraceForTests()
+    const { ctx, abortController } = setup()
+
+    try {
+      requestAbort(abortController, undefined, {
+        source: 'cancel_keybinding',
+        subsystem: 'query_engine',
+        controllerRole: 'query-root',
+      })
+
+      const trace = __getInterruptionTraceSnapshotForTests()
+      const originatingAbort = trace.find(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.source === 'cancel_keybinding',
+      )
+      const permissionResolution = trace.find(
+        entry => entry.event === 'permission.abort_resolved',
+      )
+      expect(typeof originatingAbort?.eventId).toBe('string')
+      expect(permissionResolution).toMatchObject({
+        source: 'cancel_keybinding',
+        subsystem: 'tool_permission',
+        causalEventId: originatingAbort!.eventId,
+        outcome: 'denied',
+      })
+      expect(ctx.cancelAndAbort).toHaveBeenCalledWith(
+        undefined,
+        true,
+        undefined,
+        {
+          source: 'cancel_keybinding',
+          causalEventId: originatingAbort!.eventId,
+        },
+      )
+    } finally {
+      await __waitForInterruptionTraceFlushForTests()
+      __resetInterruptionTraceForTests()
+      if (originalTrace === undefined) {
+        delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+      } else {
+        process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+      }
+    }
   })
 
   test('resolves and resumes immediately if already aborted when shown', () => {

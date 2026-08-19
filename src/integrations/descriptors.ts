@@ -355,6 +355,11 @@ export interface ModelDescriptor {
   reasoning?: ReasoningControlMetadata
   contextWindow?: number
   maxOutputTokens?: number
+  /**
+   * Restrict shared runtime metadata to catalog entries that explicitly
+   * reference this descriptor. Omit for the legacy global model-name fallback.
+   */
+  runtimeMetadataScope?: 'global' | 'catalog'
   cacheConfig?: CacheConfig
 }
 

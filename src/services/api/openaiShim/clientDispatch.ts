@@ -1,5 +1,10 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
+import {
+  registerInterruptionController,
+  registerInterruptionSignal,
+  requestAbort,
+} from '../../../utils/interruptionTrace.js'
 import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
   isLikelyOllamaEndpoint,
@@ -90,6 +95,17 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   ) {
     this.makeGenerator = makeGenerator
     this.parentSignal = parentSignal
+    const parentId = parentSignal
+      ? registerInterruptionSignal(parentSignal, {
+          subsystem: 'openai_shim_dispatch',
+          controllerRole: 'combined-parent',
+        })
+      : undefined
+    registerInterruptionController(this.controller, {
+      subsystem: 'openai_shim_dispatch',
+      controllerRole: 'stream-controller',
+      ...(parentId && { parentControllerIds: [parentId] }),
+    })
 
     if (cancelBeforeIteration) {
       let cleaned = false
@@ -129,6 +145,10 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
 
     const combined = createCombinedAbortSignal(this.parentSignal, {
       signalB: this.controller.signal,
+      trace: {
+        subsystem: 'openai_shim_dispatch',
+        controllerRole: 'stream-combined',
+      },
     })
     this.cleanupCombinedSignal = combined.cleanup
     this.generator = this.makeGenerator(combined.signal)
@@ -138,12 +158,20 @@ export class OpenAIShimStream implements AsyncIterable<AnthropicStreamEvent> {
   async *[Symbol.asyncIterator](): AsyncGenerator<AnthropicStreamEvent> {
     const generator = this.getGenerator()
     let completed = false
+    let failed = false
     try {
       yield* generator
       completed = true
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
-      if (!completed && !this.controller.signal.aborted) {
-        this.controller.abort()
+      if (!completed && !failed && !this.controller.signal.aborted) {
+        requestAbort(this.controller, undefined, {
+          source: 'iterator_closed',
+          subsystem: 'openai_shim_dispatch',
+          controllerRole: 'stream-controller',
+        })
       }
       this.cleanupCombinedSignal?.()
       this.cleanupCombinedSignal = undefined

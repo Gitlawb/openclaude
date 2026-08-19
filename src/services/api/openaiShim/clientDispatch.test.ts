@@ -1,4 +1,13 @@
 import { expect, test } from 'bun:test'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../../test/sharedMutationLock.js'
+import {
+  __getInterruptionTraceSnapshotForTests,
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../../utils/interruptionTrace.js'
 import type { AnthropicStreamEvent, ShimCreateParams } from '../codexShim.js'
 import {
   createShimRequest,
@@ -107,6 +116,47 @@ test('OpenAIShimStream combines parent and controller cancellation', async () =>
   expect(receivedSignal?.aborted).toBe(true)
 })
 
+test('OpenAIShimStream records its parent signal relationship', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-parent-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
+  const parent = new AbortController()
+  let stream: OpenAIShimStream | undefined
+  try {
+    stream = new OpenAIShimStream(async function* () {
+      yield { type: 'unused' }
+    }, parent.signal)
+    const trace = __getInterruptionTraceSnapshotForTests()
+    const parentRegistration = trace.find(
+      entry =>
+        entry.event === 'signal.registered' &&
+        entry.controllerRole === 'combined-parent',
+    )
+    const streamRegistration = trace.find(
+      entry =>
+        entry.event === 'controller.registered' &&
+        entry.controllerRole === 'stream-controller',
+    )
+    expect(parentRegistration).toBeDefined()
+    expect(streamRegistration).toBeDefined()
+    if (!parentRegistration?.controllerId || !streamRegistration) {
+      throw new Error('missing interruption controller registration')
+    }
+    expect(streamRegistration.parentControllerIds).toEqual([
+      parentRegistration.controllerId,
+    ])
+  } finally {
+    stream?.controller.abort('test-cleanup')
+    parent.abort('test-cleanup')
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
+})
+
 test('OpenAIShimStream cancels the response before iteration starts', () => {
   let cancellations = 0
   const stream = new OpenAIShimStream(
@@ -123,12 +173,61 @@ test('OpenAIShimStream cancels the response before iteration starts', () => {
 })
 
 test('OpenAIShimStream aborts its controller when a consumer returns early', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-closure-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
   const stream = new OpenAIShimStream(async function* () {
     yield { type: 'first' }
     yield { type: 'second' }
   })
-  for await (const _event of stream) break
-  expect(stream.controller.signal.aborted).toBe(true)
+  try {
+    for await (const _event of stream) break
+    expect(stream.controller.signal.aborted).toBe(true)
+    expect(
+      __getInterruptionTraceSnapshotForTests().find(
+        entry => entry.event === 'abort.requested',
+      ),
+    ).toMatchObject({ source: 'iterator_closed' })
+  } finally {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
+})
+
+test('OpenAIShimStream does not relabel a provider exception as consumer closure', async () => {
+  await acquireSharedMutationLock('openaiShim-clientDispatch-failure-trace')
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  __resetInterruptionTraceForTests()
+  const stream = new OpenAIShimStream(async function* () {
+    yield { type: 'message_start' }
+    throw new Error('provider generator failed')
+  })
+
+  try {
+    const iterator = stream[Symbol.asyncIterator]()
+    expect((await iterator.next()).done).toBe(false)
+    await expect(iterator.next()).rejects.toThrow('provider generator failed')
+    expect(stream.controller.signal.aborted).toBe(false)
+    expect(
+      __getInterruptionTraceSnapshotForTests().some(
+        entry =>
+          entry.event === 'abort.requested' &&
+          entry.source === 'iterator_closed',
+      ),
+    ).toBe(false)
+  } finally {
+    stream.controller.abort('test-cleanup')
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    releaseSharedMutationLock()
+  }
 })
 
 test.each([

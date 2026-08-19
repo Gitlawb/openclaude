@@ -1,4 +1,8 @@
 import { feature } from 'bun:bundle';
+import {
+  BACKGROUND_SESSION_ID_ENV,
+  BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+} from '../cli/bgRouting.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -42,7 +46,7 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
-  '--yolo',
+  '--yolo', // alias for --dangerously-skip-permissions
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--disable-slash-commands',
@@ -249,6 +253,7 @@ type CliEntrypointOptions = {
 type CliEntrypointImporters = {
   startupProfiler: () => Promise<typeof import('../utils/startupProfiler.js')>
   bg: () => Promise<typeof import('../cli/bg.js')>
+  bgFinalizer: () => Promise<typeof import('../cli/bgFinalizer.js')>
   providerFlag: () => Promise<typeof import('../utils/providerFlag.js')>
   envFile: () => Promise<typeof import('../utils/envFile.js')>
   config: () => Promise<typeof import('../utils/config.js')>
@@ -276,6 +281,7 @@ type CliEntrypointImporters = {
 const defaultCliEntrypointImporters: CliEntrypointImporters = {
   startupProfiler: () => import('../utils/startupProfiler.js'),
   bg: () => import('../cli/bg.js'),
+  bgFinalizer: () => import('../cli/bgFinalizer.js'),
   providerFlag: () => import('../utils/providerFlag.js'),
   envFile: () => import('../utils/envFile.js'),
   config: () => import('../utils/config.js'),
@@ -312,8 +318,21 @@ export async function main(
   args: string[] = process.argv.slice(2),
   options: CliEntrypointOptions = {},
 ): Promise<void> {
-  const bgSessionsEnabled = isBgSessionsEnabled(options)
   const importers = getCliEntrypointImporters(options.importers)
+  // The detached CLI is the registered background-session PID. Establish
+  // exact registry ownership and install its terminal finalizer before any
+  // fast path or startup validation can call process.exit(). The private env
+  // value only routes this check; the registry's exact ID/PID match is the
+  // authority.
+  if (
+    process.env[BACKGROUND_SESSION_ID_ENV] !== undefined ||
+    process.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV] !== undefined
+  ) {
+    const { prepareBackgroundSessionFinalizer } = await importers.bgFinalizer()
+    await prepareBackgroundSessionFinalizer()
+  }
+
+  const bgSessionsEnabled = isBgSessionsEnabled(options)
   let reapplyProviderEnvFileValues = () => {}
   let reapplyProviderFlagValues = () => {}
   const reapplyExplicitProviderInputs = () => {

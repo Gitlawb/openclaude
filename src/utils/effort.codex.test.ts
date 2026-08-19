@@ -1150,6 +1150,31 @@ test('compat Z.AI routes expose only verified levels and clamp stale values', as
   expect(resolveAppliedEffort('GLM-5.1', 'xhigh')).toBe('high')
 })
 
+test('direct Z.AI GLM-5.3 resolves effort from explicit catalog metadata', async () => {
+  const {
+    getAvailableEffortLevels,
+    resolveAppliedEffort,
+    resolveModelReasoningControl,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'zai',
+  })
+
+  expect(resolveModelReasoningControl('glm-5.3')).toMatchObject({
+    supportsReasoning: true,
+    controllable: true,
+    source: 'metadata',
+    mode: 'levels',
+    levels: ['low', 'high', 'xhigh'],
+    defaultLevel: undefined,
+    wireFormat: 'zai_compatible',
+  })
+  expect(getAvailableEffortLevels('glm-5.3')).toEqual(['low', 'high', 'xhigh'])
+  expect(resolveAppliedEffort('glm-5.3', 'low')).toBe('low')
+  expect(resolveAppliedEffort('glm-5.3', 'xhigh')).toBe('xhigh')
+})
+
 test('provider override support context ignores ambient catalog metadata', async () => {
   const { modelSupportsShimReasoningEffort } = await importFreshEffortModule({
     provider: 'openai',
@@ -1343,6 +1368,27 @@ test('explicit compat metadata wire formats are controllable and feed the reques
   expect(resolveOpenAIShimReasoningRequestPlan({
     model: 'custom-zai-low-only',
     requestedEffort: 'low',
+    reasoningControl: zaiLowOnlyControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'low',
+    wireFormat: 'zai_compatible',
+    source: 'metadata',
+  })
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-low-only',
+    requestThinkingType: 'disabled',
+    reasoningControl: zaiLowOnlyControl,
+  })).toEqual({
+    thinkingType: 'enabled',
+    reasoningEffort: 'low',
+    wireFormat: 'zai_compatible',
+    source: 'metadata',
+  })
+  expect(resolveOpenAIShimReasoningRequestPlan({
+    model: 'custom-zai-low-only',
+    requestedEffort: 'high',
+    requestThinkingType: 'disabled',
     reasoningControl: zaiLowOnlyControl,
   })).toEqual({
     thinkingType: 'enabled',

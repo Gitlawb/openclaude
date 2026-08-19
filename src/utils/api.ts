@@ -94,11 +94,20 @@ const SWARM_FIELDS_BY_TOOL: Record<string, string[]> = {
  * Filter swarm-related fields from a tool's input schema.
  * Called at runtime when isAgentSwarmsEnabled() returns false.
  */
-function filterSwarmFieldsFromSchema(
+export function filterSwarmFieldsFromSchema(
   toolName: string,
   schema: Anthropic.Tool.InputSchema,
 ): Anthropic.Tool.InputSchema {
-  const fieldsToRemove = SWARM_FIELDS_BY_TOOL[toolName]
+  // Guard with Object.hasOwn: a bare `SWARM_FIELDS_BY_TOOL[toolName]` lookup
+  // resolves inherited Object.prototype members for names like `constructor` or
+  // `hasOwnProperty` to their functions. Those are truthy with `.length === 1`,
+  // so the guard below is bypassed and the `for...of` on line ~111 throws
+  // "is not iterable", breaking schema construction for the whole request.
+  // Mirrors the own-key guard already used for provider-supplied tool names in
+  // services/api/toolArgumentNormalization.ts.
+  const fieldsToRemove = Object.hasOwn(SWARM_FIELDS_BY_TOOL, toolName)
+    ? SWARM_FIELDS_BY_TOOL[toolName]
+    : undefined
   if (!fieldsToRemove || fieldsToRemove.length === 0) {
     return schema
   }

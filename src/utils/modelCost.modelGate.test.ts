@@ -1,10 +1,36 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
-import { hasUnknownModelCost, resetCostState } from '../bootstrap/state.js'
+import {
+  getAllowedSettingSources,
+  getFlagSettingsInline,
+  getFlagSettingsPath,
+  hasUnknownModelCost,
+  resetCostState,
+  setAllowedSettingSources,
+  setFlagSettingsInline,
+  setFlagSettingsPath,
+} from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
 import * as realFastMode from './fastMode.js'
+import * as realModel from './model/model.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
+
+const realModelSnapshot = { ...realModel }
+
+type PricingOverride = {
+  inputTokens: number
+  outputTokens: number
+  promptCacheReadTokens: number
+  promptCacheWriteTokens: number
+  webSearchRequests: number
+}
+
+let pricingByModel: Record<string, PricingOverride>
+let originalSources: ReturnType<typeof getAllowedSettingSources>
+let originalFlagPath: string | undefined
+let originalFlagInline: Record<string, unknown> | null
 
 async function importFreshModelCost() {
   return import(`./modelCost.js?ts=${Date.now()}-${Math.random()}`)
@@ -12,12 +38,25 @@ async function importFreshModelCost() {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/modelCost.modelGate.test.ts')
+  originalSources = [...getAllowedSettingSources()]
+  originalFlagPath = getFlagSettingsPath()
+  originalFlagInline = getFlagSettingsInline()
+  pricingByModel = Object.create(null) as Record<string, PricingOverride>
+  setAllowedSettingSources(['flagSettings'])
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline({ modelPricing: pricingByModel })
+  resetSettingsCache()
 })
 
 afterEach(() => {
   try {
     mock.restore()
     mock.module('./fastMode.js', () => realFastMode)
+    mock.module('./model/model.js', () => realModelSnapshot)
+    setAllowedSettingSources(originalSources)
+    setFlagSettingsPath(originalFlagPath)
+    setFlagSettingsInline(originalFlagInline)
+    resetSettingsCache()
   } finally {
     releaseSharedMutationLock()
   }
@@ -110,4 +149,128 @@ test('proto-member model ids fall through the unknown-model path, not NaN', asyn
     // Clear the process-wide flag so this suite cannot leak into another.
     resetCostState()
   }
+})
+
+test('exact unknown-model override prices every usage field and suppresses the unknown warning', async () => {
+  const model = 'provider/model:v1?profile=paid'
+  pricingByModel[model] = {
+    inputTokens: 1,
+    outputTokens: 2,
+    promptCacheReadTokens: 3,
+    promptCacheWriteTokens: 4,
+    webSearchRequests: 5,
+  }
+  const {
+    calculateUSDCost,
+    calculateCostFromTokens,
+    getModelCosts,
+    getModelPricingString,
+  } = await importFreshModelCost()
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 2_000_000,
+    cache_read_input_tokens: 3_000_000,
+    cache_creation_input_tokens: 4_000_000,
+    server_tool_use: { web_search_requests: 2 },
+  } as Parameters<typeof calculateUSDCost>[1]
+
+  expect(getModelCosts(model, usage)).toEqual(pricingByModel[model])
+  expect(calculateUSDCost(model, usage)).toBe(40)
+  expect(
+    calculateCostFromTokens(model, {
+      inputTokens: 1_000_000,
+      outputTokens: 2_000_000,
+      cacheReadInputTokens: 3_000_000,
+      cacheCreationInputTokens: 4_000_000,
+    }),
+  ).toBe(30)
+  expect(getModelPricingString(model)).toBe('$1/$2 per Mtok')
+  expect(hasUnknownModelCost()).toBe(false)
+})
+
+test('all-zero exact override is authoritative for unknown and fast-mode known models', async () => {
+  const zero = {
+    inputTokens: 0,
+    outputTokens: 0,
+    promptCacheReadTokens: 0,
+    promptCacheWriteTokens: 0,
+    webSearchRequests: 0,
+  }
+  pricingByModel['nvidia/free-model'] = zero
+  pricingByModel['claude-opus-4-8'] = zero
+  mock.module('./fastMode.js', () => ({
+    ...realFastMode,
+    isFastModeEnabled: () => true,
+  }))
+  const { calculateUSDCost, getModelCosts, getModelPricingString } =
+    await importFreshModelCost()
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 1_000_000,
+    cache_read_input_tokens: 1_000_000,
+    cache_creation_input_tokens: 1_000_000,
+    server_tool_use: { web_search_requests: 1 },
+    speed: 'fast',
+  } as Parameters<typeof calculateUSDCost>[1]
+
+  for (const model of ['nvidia/free-model', 'claude-opus-4-8']) {
+    expect(getModelCosts(model, usage)).toEqual(zero)
+    expect(calculateUSDCost(model, usage)).toBe(0)
+    expect(getModelPricingString(model)).toBe('$0/$0 per Mtok')
+  }
+  expect(hasUnknownModelCost()).toBe(false)
+})
+
+test('custom pricing matches exact resolved ids only, including unusual own keys', async () => {
+  mock.restore()
+  mock.module('./fastMode.js', () => realFastMode)
+  mock.module('./model/model.js', () => realModelSnapshot)
+  const configured = {
+    inputTokens: 7,
+    outputTokens: 11,
+    promptCacheReadTokens: 1,
+    promptCacheWriteTokens: 2,
+    webSearchRequests: 0.5,
+  }
+  const exact = 'Provider/model:v1?route=alpha'
+  pricingByModel[exact] = configured
+  for (const model of ['constructor', 'toString', '__proto__']) {
+    Object.defineProperty(pricingByModel, model, {
+      configurable: true,
+      enumerable: true,
+      value: configured,
+      writable: true,
+    })
+  }
+  const {
+    calculateUSDCost,
+    getModelCosts,
+    COST_TIER_5_25,
+    DEFAULT_UNKNOWN_MODEL_COST,
+  } = await importFreshModelCost()
+  const usage = {
+    input_tokens: 1_000_000,
+    output_tokens: 0,
+  } as Parameters<typeof calculateUSDCost>[1]
+
+  for (const model of [exact, 'constructor', 'toString', '__proto__']) {
+    expect(calculateUSDCost(model, usage)).toBe(7)
+  }
+  resetCostState()
+  for (const nearMatch of [
+    exact.toLowerCase(),
+    exact.slice(0, -1),
+    `${exact}/child`,
+  ]) {
+    expect(getModelCosts(nearMatch, usage)).toEqual(
+      DEFAULT_UNKNOWN_MODEL_COST,
+    )
+  }
+  expect(hasUnknownModelCost()).toBe(true)
+
+  resetCostState()
+  expect(getModelCosts('claude-opus-4-8-20260815', usage)).toEqual(
+    COST_TIER_5_25,
+  )
+  expect(hasUnknownModelCost()).toBe(false)
 })

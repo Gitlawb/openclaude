@@ -1483,7 +1483,6 @@ test('OpenGateway MiMo replays real reasoning_content without adding empty fallb
             input: {
               description: 'Inspect code',
               prompt: 'Look at the relevant code',
-              subagent_type: 'general-purpose',
             },
           },
         ],
@@ -1566,7 +1565,6 @@ test('Xiaomi MiMo replays real reasoning_content without adding empty fallback',
             input: {
               description: 'Inspect code',
               prompt: 'Look at the relevant code',
-              subagent_type: 'general-purpose',
             },
           },
         ],
@@ -1643,7 +1641,6 @@ test('OpenGateway MiMo does not synthesize empty reasoning_content when missing'
             input: {
               description: 'Inspect code',
               prompt: 'Look at the relevant code',
-              subagent_type: 'general-purpose',
             },
           },
         ],

@@ -177,6 +177,24 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "concentrate",
+    "routeKind": "gateway",
+    "routeId": "concentrate",
+    "vendorId": "openai",
+    "gatewayId": "concentrate",
+    "description": "Concentrate AI — 150+ models via OpenAI-compatible API",
+    "apiKeyEnvVars": [
+      "CONCENTRATE_API_KEY"
+    ],
+    "baseUrlEnvVars": [
+      "CONCENTRATE_BASE_URL"
+    ],
+    "modelEnvVars": [
+      "CONCENTRATE_MODEL",
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "deepseek",
     "routeKind": "vendor",
     "routeId": "deepseek",
@@ -548,6 +566,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "bankr",
   "clinepass",
   "cloudflare",
+  "concentrate",
   "deepseek",
   "fireworks",
   "gemini",

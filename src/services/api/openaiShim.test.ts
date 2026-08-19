@@ -7,6 +7,10 @@ import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } f
 import { applyProviderFlag } from '../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../utils/providerProfiles.ts'
 import {
+  __resetInterruptionTraceForTests,
+  __waitForInterruptionTraceFlushForTests,
+} from '../../utils/interruptionTrace.js'
+import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
@@ -4751,6 +4755,49 @@ test('caller abort winning the timeout catch race prevents a retry', async () =>
   expect(fetchCalls).toBe(1)
 })
 
+test('interruption tracing preserves the native AbortSignal.any request path', async () => {
+  const originalTrace = process.env.OPENCLAUDE_INTERRUPT_TRACE
+  const originalAbortSignalAny = Object.getOwnPropertyDescriptor(
+    AbortSignal,
+    'any',
+  )
+  const nativeAny = AbortSignal.any.bind(AbortSignal)
+  let nativeAnyCalls = 0
+  Object.defineProperty(AbortSignal, 'any', {
+    configurable: true,
+    value: (signals: AbortSignal[]) => {
+      nativeAnyCalls++
+      return nativeAny(signals)
+    },
+  })
+  process.env.OPENCLAUDE_INTERRUPT_TRACE = '1'
+  globalThis.fetch = asMockFetch(
+    mock(async () => makeChatCompletionResponse('gpt-4o-mini')),
+  )
+
+  try {
+    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    await client.beta.messages.create(
+      {
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: false,
+      },
+      { signal: new AbortController().signal },
+    )
+    expect(nativeAnyCalls).toBe(1)
+  } finally {
+    await __waitForInterruptionTraceFlushForTests()
+    __resetInterruptionTraceForTests()
+    if (originalTrace === undefined) delete process.env.OPENCLAUDE_INTERRUPT_TRACE
+    else process.env.OPENCLAUDE_INTERRUPT_TRACE = originalTrace
+    if (originalAbortSignalAny) {
+      Object.defineProperty(AbortSignal, 'any', originalAbortSignalAny)
+    }
+  }
+})
+
 test('manual signal fallback preserves caller cancellation after headers arrive', async () => {
   process.env.API_TIMEOUT_MS = '200'
   const fetchSignals: AbortSignal[] = []
@@ -5438,6 +5485,100 @@ test.each([
 })
 
 test.each([
+  ['glm-5.3', undefined, undefined],
+  ['glm-5.3?reasoning=low', 'enabled', 'low'],
+  ['glm-5.3?reasoning=high', 'enabled', 'high'],
+  ['glm-5.3?reasoning=xhigh', 'enabled', 'max'],
+  ['glm-5.3?thinking=disabled', 'enabled', 'low'],
+  ['glm-5.3?thinking=disabled&reasoning=high', 'enabled', 'high'],
+] as const)('Z.AI GLM-5.3 serializes the verified request contract for %s', async (
+  model,
+  thinkingType,
+  reasoningEffort,
+) => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.3',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.3')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+  expect(requestBody?.thinking).toEqual(
+    thinkingType ? { type: thinkingType } : undefined,
+  )
+  expect(requestBody?.reasoning_effort).toBe(reasoningEffort)
+})
+
+test('streaming direct Z.AI GLM-5.3 tool requests opt into tool_stream', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.3',
+        choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-1',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.3',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const stream = await client.beta.messages.create({
+    model: 'glm-5.3',
+    messages: [{ role: 'user', content: 'add two numbers' }],
+    max_tokens: 64,
+    stream: true,
+    tools: [{
+      name: 'add_numbers',
+      description: 'Add two numbers',
+      input_schema: {
+        type: 'object',
+        properties: { a: { type: 'number' }, b: { type: 'number' } },
+        required: ['a', 'b'],
+      },
+    }],
+  })
+  for await (const _event of stream as AsyncIterable<unknown>) {
+    // Drain the mocked response so request execution completes.
+  }
+
+  expect(requestBody?.tool_stream).toBe(true)
+})
+
+test.each([
   'GLM-5.1?reasoning=high',
   'GLM-4.5-Air?reasoning=high',
 ] as const)('Z.AI GLM: %s does not receive GLM-5.2-only reasoning_effort', async model => {
@@ -5477,6 +5618,7 @@ test.each([
 test.each([
   ['non-streaming Z.AI request with tools', 'https://api.z.ai/api/coding/paas/v4', false, true, 'glm-5.2'],
   ['streaming Z.AI request without tools', 'https://api.z.ai/api/coding/paas/v4', true, false, 'glm-5.2'],
+  ['streaming NVIDIA GLM-5.3 request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3'],
   ['streaming non-Z.AI request with tools', 'https://api.openai.com/v1', true, true, 'gpt-4o'],
 ] as const)('does not send tool_stream for %s', async (_name, baseUrl, stream, includeTools, model) => {
   process.env.OPENAI_BASE_URL = baseUrl

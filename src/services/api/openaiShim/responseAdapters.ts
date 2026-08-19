@@ -25,6 +25,7 @@ import { openaiStreamToAnthropic as convertOpenAIStream } from './streamConversi
 import { geminiSseToAnthropic as convertGeminiStream } from './geminiStreamConversion.js'
 import {
   anthropicSsePassthrough as parseAnthropicSsePassthrough,
+  createProviderStreamTrace,
   createReaderCanceller,
   createStreamAbortError,
   getStreamIdleTimeoutMs,
@@ -93,6 +94,7 @@ export async function* geminiSseToAnthropic(
   signal?: AbortSignal,
 ): AsyncGenerator<AnthropicStreamEvent> {
   yield* convertGeminiStream(response, model, signal, {
+    createProviderStreamTrace,
     createReaderCanceller,
     createStreamAbortError,
     getStreamIdleTimeoutMs,
@@ -135,6 +137,7 @@ export async function* openaiStreamToAnthropic(
         streamModel,
       ),
     couldBeRawToolCallsRequestedPrefix,
+    createProviderStreamTrace,
     createReaderCanceller,
     createStreamAbortError,
     findXmlToolCallOpener,

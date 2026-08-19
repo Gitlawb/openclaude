@@ -208,7 +208,9 @@ function normalizeDeepSeekReasoningEffort(
 
 function normalizeZaiReasoningEffort(
   effort: OpenAIShimEffortLevel,
-): 'high' | 'max' {
+  supportsLowEffort = false,
+): 'low' | 'high' | 'max' {
+  if (supportsLowEffort && effort === 'low') return 'low'
   return effort === 'xhigh' || effort === 'max' ? 'max' : 'high'
 }
 
@@ -635,8 +637,16 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   if (wireFormat === 'zai_compatible') {
     const thinkingType = requestedThinkingType ?? defaultThinkingType
     if (thinkingType === 'disabled') {
+      const supportsLowEffort =
+        metadataWireFormat === 'zai_compatible' &&
+        options.reasoningControl?.levels.includes('low') === true &&
+        options.reasoningControl.disableFormat !== 'thinking_type_disabled'
+      const translatedEffort = supportsLowEffort && options.requestedEffort
+        ? normalizeZaiReasoningEffort(options.requestedEffort, true)
+        : 'low'
       return {
-        thinkingType: 'disabled',
+        thinkingType: supportsLowEffort ? 'enabled' : 'disabled',
+        reasoningEffort: supportsLowEffort ? translatedEffort : undefined,
         wireFormat,
         source,
       }
@@ -651,7 +661,10 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
         metadataWireFormat !== 'zai_compatible' &&
         supportsZaiReasoningEffort(options.model)
       ))
-      ? normalizeZaiReasoningEffort(options.requestedEffort)
+      ? normalizeZaiReasoningEffort(
+        options.requestedEffort,
+        options.reasoningControl?.levels.includes('low') === true,
+      )
       : undefined
     return {
       thinkingType: shouldEnableThinking ? 'enabled' : undefined,

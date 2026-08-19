@@ -19,6 +19,7 @@ import {
 } from '../../Tool.js'
 import { assembleToolPool, getTools } from '../../tools.js'
 import { createFileStateCacheWithSizeLimit } from '../../utils/fileStateCache.js'
+import { requestSdkRootAbort } from './interruption.js'
 import { init } from '../init.js'
 import {
   resolveSessionFilePath,
@@ -387,8 +388,14 @@ class SDKSessionImpl implements SDKSession {
   }
 
   interrupt(): void {
+    this.interruptWithSource('sdk_interrupt')
+  }
+
+  private interruptWithSource(source: string): void {
     if (this._engine) {
-      this._engine.interrupt()
+      this._engine.interrupt(source)
+    } else if (this._abortController) {
+      requestSdkRootAbort(this._abortController, source, 'sdk_session')
     }
     // Deny all pending permission prompts before clearing
     for (const [toolUseId, pending] of this.pendingPermissionPrompts) {
@@ -403,10 +410,11 @@ class SDKSessionImpl implements SDKSession {
   }
 
   close(): void {
-    this.interrupt()
-    // Abort the AbortController to cancel any in-flight HTTP requests or
-    // async operations tied to the signal. Mirrors QueryImpl.close().
-    this._abortController?.abort()
+    const wrapperController = this._abortController
+    this.interruptWithSource('sdk_close')
+    if (wrapperController) {
+      requestSdkRootAbort(wrapperController, 'sdk_close', 'sdk_session')
+    }
     this._abortController = null
     // Disconnect MCP clients to prevent resource leaks
     const mcpClients = this._engine?.getMcpClients?.() ?? []

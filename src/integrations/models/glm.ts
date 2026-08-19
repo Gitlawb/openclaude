@@ -1,4 +1,5 @@
 import { defineModel } from '../define.js'
+import type { ModelDescriptor } from '../descriptors.js'
 
 const glmCapabilities = {
   supportsVision: false,
@@ -14,6 +15,7 @@ function glmModel(
   label: string,
   contextWindow: number,
   maxOutputTokens: number,
+  runtimeMetadataScope?: ModelDescriptor['runtimeMetadataScope'],
 ) {
   return defineModel({
     id,
@@ -25,10 +27,12 @@ function glmModel(
     capabilities: glmCapabilities,
     contextWindow,
     maxOutputTokens,
+    ...(runtimeMetadataScope ? { runtimeMetadataScope } : {}),
   })
 }
 
 export default [
+  glmModel('glm-5.3', 'GLM 5.3', 1_000_000, 131_072, 'catalog'),
   defineModel({
     id: 'glm-5v-turbo',
     label: 'GLM 5V Turbo',

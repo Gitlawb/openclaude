@@ -509,10 +509,16 @@ export function resolveModelRuntimeLimits(options: {
     modelApiName,
     runtimeEnv,
   )
-  const modelDescriptor =
+  const catalogModelDescriptor =
     getModelDescriptorForCatalogEntry(catalogEntry) ??
-    getModelDescriptorForCatalogEntry(cachedCatalogEntry) ??
+    getModelDescriptorForCatalogEntry(cachedCatalogEntry)
+  const inferredModelDescriptor =
     findModelDescriptorForApiName(routeId, modelApiName)
+  const modelDescriptor =
+    catalogModelDescriptor ??
+    (inferredModelDescriptor?.runtimeMetadataScope === 'catalog'
+      ? null
+      : inferredModelDescriptor)
   const externalContextWindow = getOpenAIContextWindowMatches(
     modelApiName,
     runtimeEnv,

@@ -142,6 +142,28 @@ test('readWithIdleTimeout settles when a custom canceller throws synchronously',
   reader.releaseLock()
 })
 
+test('readWithIdleTimeout contains a throwing custom error factory', async () => {
+  const cancelReasons: unknown[] = []
+  const reader = new ReadableStream<Uint8Array>({
+    cancel(reason) {
+      cancelReasons.push(reason)
+    },
+  }).getReader()
+
+  await expect(
+    withDeadline(
+      readWithIdleTimeout(reader, 20, {
+        createTimeoutError: () => {
+          throw new Error('factory failed')
+        },
+      }),
+      'idle timeout did not reject within 500ms',
+    ),
+  ).rejects.toBeInstanceOf(StreamIdleTimeoutError)
+  expect(cancelReasons).toHaveLength(1)
+  expect(cancelReasons[0]).toBeInstanceOf(StreamIdleTimeoutError)
+})
+
 test('stream idle timeout parser validates and bounds overrides', () => {
   expect(getStreamIdleTimeoutMs()).toBe(90_000)
   process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = '25'

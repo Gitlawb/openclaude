@@ -2699,7 +2699,14 @@ export function startRelevantMemoryPrefetch(
 
   // Chained to the turn-level abort so user Escape cancels the sideQuery
   // immediately, not just on [Symbol.dispose] when queryLoop exits.
-  const controller = createChildAbortController(toolUseContext.abortController)
+  const controller = createChildAbortController(
+    toolUseContext.abortController,
+    undefined,
+    {
+      subsystem: 'memory_attachments',
+      controllerRole: 'memory-prefetch',
+    },
+  )
   const firedAt = Date.now()
   const promise = getRelevantMemoryAttachments(
     input,
