@@ -3040,7 +3040,7 @@ test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_comple
   expect(requestBody?.store).toBeUndefined()
 })
 
-test('does not send stream_options to local OpenAI-compatible servers', async () => {
+test('requests streaming usage from local OpenAI-compatible servers', async () => {
   process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
 
   let requestBody: Record<string, unknown> | undefined
@@ -3060,7 +3060,7 @@ test('does not send stream_options to local OpenAI-compatible servers', async ()
   })
 
   expect(requestBody?.stream).toBe(true)
-  expect(requestBody).not.toHaveProperty('stream_options')
+  expect(requestBody?.stream_options).toEqual({ include_usage: true })
 })
 
 test('Mistral: strips unsupported store on chat_completions (#739)', async () => {
