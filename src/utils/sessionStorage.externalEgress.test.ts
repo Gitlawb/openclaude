@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as sessionIngress from '../services/api/sessionIngress.js'
+import * as gracefulShutdownModule from '../utils/gracefulShutdown.js'
 import {
   isSessionPersistenceDisabled,
   setSessionPersistenceDisabled,
@@ -2167,6 +2168,11 @@ describe('external egress delivery failures, malformed records, and eviction fal
     const failedUuid = id(1202)
     const childUuid = id(1203)
 
+    const shutdownSpy = spyOn(
+      gracefulShutdownModule,
+      'gracefulShutdownSync',
+    ).mockImplementation(() => {})
+
     const appendSpy = spyOn(
       sessionIngress,
       'appendSessionLog',
@@ -2209,9 +2215,94 @@ describe('external egress delivery failures, malformed records, and eviction fal
       expect(
         getRemoteEgressOmittedParentsForTesting().get(failedUuid),
       ).toBe(seedUuid)
+
+      // 3. Child of failedEntry reparents past failed entry to seedUuid and is successfully sent
+      const childEntry = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: failedUuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        message: { role: 'user', content: 'child of failed entry' },
+      } as unknown as Message
+      await recordTranscript([childEntry], undefined, failedUuid)
+      await flushSessionStorage()
+
+      const childCall = appendSpy.mock.calls.find(
+        args => (args[1] as TranscriptMessage).uuid === childUuid,
+      )
+      expect(childCall).toBeDefined()
+      expect((childCall?.[1] as TranscriptMessage).parentUuid).toBe(seedUuid)
     } finally {
-      process.exitCode = 0
+      shutdownSpy.mockRestore()
       appendSpy.mockRestore()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('root-level omitted first entry projects child to safe root with parentUuid null', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-root-omit-'))
+    const path = join(dir, 'session.jsonl')
+    const omittedRootUuid = id(1301)
+    const childUuid = id(1302)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver root-level withheld entry (parentUuid is null)
+      const withheldRoot = {
+        type: 'attachment',
+        uuid: omittedRootUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'ROOT-LEAK',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'ROOT-LEAK',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([withheldRoot])
+      await flushSessionStorage()
+
+      // Assert withheld root was omitted from remote payloads
+      expect(remotePayloads.find(p => p.uuid === omittedRootUuid)).toBeUndefined()
+      expect(getRemoteEgressOmittedParentsForTesting().get(omittedRootUuid)).toBeNull()
+
+      // 2. Deliver safe child whose parent is the omitted root
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: omittedRootUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'child of omitted root' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, omittedRootUuid)
+      await flushSessionStorage()
+
+      // Assert child was delivered as a root message with parentUuid: null
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBeNull()
+    } finally {
       await rm(dir, { recursive: true, force: true })
     }
   })

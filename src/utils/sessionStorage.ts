@@ -2042,8 +2042,8 @@ class Project {
                   entry,
                   this.remoteEgressOmittedParents,
                 )
-                let parentConfirmedSafe = false
                 let targetParentUuid = remoteEntry.parentUuid
+                let parentConfirmedSafe = targetParentUuid === null
                 const seenAncestors = new Set<UUID>()
                 while (
                   targetParentUuid &&
@@ -2066,6 +2066,10 @@ class Project {
                       this.remoteEgressOmittedParents.get(targetParentUuid) ??
                       null
                     remoteEntry = { ...entry, parentUuid: targetParentUuid }
+                    if (targetParentUuid === null) {
+                      parentConfirmedSafe = true
+                      break
+                    }
                     continue
                   }
                   if (this.remoteEgressCompactAncestry.has(targetParentUuid)) {
@@ -2073,6 +2077,10 @@ class Project {
                       this.remoteEgressCompactAncestry.get(targetParentUuid) ??
                       null
                     remoteEntry = { ...entry, parentUuid: targetParentUuid }
+                    if (targetParentUuid === null) {
+                      parentConfirmedSafe = true
+                      break
+                    }
                     continue
                   }
                   if (!this.remoteEgressResolvedMisses.has(targetParentUuid)) {
@@ -2095,6 +2103,10 @@ class Project {
                       remoteEntry = {
                         ...entry,
                         parentUuid: targetParentUuid,
+                      }
+                      if (targetParentUuid === null) {
+                        parentConfirmedSafe = true
+                        break
                       }
                       continue
                     }
