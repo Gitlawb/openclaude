@@ -57,6 +57,7 @@ export function isAutoMemoryEnabled(): boolean {
   // a parent-scope opt-out cannot be re-enabled by a narrower scope (#1326).
   // Per-source reads are cached (getSettingsForSource), so this stays cheap on
   // the hot path.
+  let explicitOptIn = false
   for (const source of getEnabledSettingSources()) {
     const sourceSettings = getSettingsForSource(source)
     if (
@@ -65,6 +66,20 @@ export function isAutoMemoryEnabled(): boolean {
     ) {
       return false
     }
+    if (
+      sourceSettings?.autoMemoryEnabled === true ||
+      sourceSettings?.memory?.autoWrite === true
+    ) {
+      explicitOptIn = true
+    }
+  }
+  // One-shot non-interactive (-p) runs have no future session to build memory
+  // for: default off to skip the ~3.2k-token memory protocol section, the
+  // per-request arc/RAG system-prompt append (which busts the prompt cache),
+  // and turn-end extraction forks. An explicit settings opt-in or
+  // CLAUDE_CODE_DISABLE_AUTO_MEMORY=0 (handled above) still enables it.
+  if (!explicitOptIn && getIsNonInteractiveSession()) {
+    return false
   }
   return true
 }

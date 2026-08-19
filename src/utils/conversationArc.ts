@@ -667,8 +667,10 @@ export async function appendArcToSystemPrompt(
               : redacted
             return `${tc.name}(${truncated})`
           }).join(', ') || 'None'
+          // No wall-clock-relative values here: "Ns ago" changes on every
+          // request, which rewrites the system prompt and busts the prompt
+          // cache upstream of the entire message history.
           const turnStr = `- Turn ID: ${turn.turnId}\n`
-            + `  Duration: ${Math.round((Date.now() - turn.startTime) / 1000)}s ago\n`
             + `  Tool Calls: ${toolCallsStr}\n`
           if (Buffer.byteLength(multiTurnContent, 'utf8') + Buffer.byteLength(turnStr, 'utf8') > MAX_AGGREGATE_BYTES) {
             trimmedTurns++
