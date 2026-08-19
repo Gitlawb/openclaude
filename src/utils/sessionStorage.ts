@@ -2043,81 +2043,92 @@ class Project {
                   this.remoteEgressOmittedParents,
                 )
                 let parentConfirmedSafe = false
-                if (originalParentUuid) {
-                  if (originalParentUuid === this.lastRemoteEgressUuid) {
+                let targetParentUuid = remoteEntry.parentUuid
+                const seenAncestors = new Set<UUID>()
+                while (
+                  targetParentUuid &&
+                  !parentConfirmedSafe &&
+                  !seenAncestors.has(targetParentUuid)
+                ) {
+                  seenAncestors.add(targetParentUuid)
+                  if (targetParentUuid === this.lastRemoteEgressUuid) {
                     parentConfirmedSafe = true
-                  } else if (
-                    this.remoteEgressConfirmedSafeParents.has(
-                      originalParentUuid,
-                    )
+                    break
+                  }
+                  if (
+                    this.remoteEgressConfirmedSafeParents.has(targetParentUuid)
                   ) {
                     parentConfirmedSafe = true
-                  } else if (
-                    this.remoteEgressCompactAncestry.has(originalParentUuid)
-                  ) {
-                    remoteEntry = {
-                      ...entry,
-                      parentUuid:
-                        this.remoteEgressCompactAncestry.get(
-                          originalParentUuid,
-                        ) ?? null,
-                    }
-                  } else if (remoteEntry.parentUuid !== originalParentUuid) {
-                    // Already reparented via projectTranscriptParentForExternalEgress
-                  } else if (
-                    !this.remoteEgressResolvedMisses.has(originalParentUuid)
-                  ) {
+                    break
+                  }
+                  if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
+                    targetParentUuid =
+                      this.remoteEgressOmittedParents.get(targetParentUuid) ??
+                      null
+                    remoteEntry = { ...entry, parentUuid: targetParentUuid }
+                    continue
+                  }
+                  if (this.remoteEgressCompactAncestry.has(targetParentUuid)) {
+                    targetParentUuid =
+                      this.remoteEgressCompactAncestry.get(targetParentUuid) ??
+                      null
+                    remoteEntry = { ...entry, parentUuid: targetParentUuid }
+                    continue
+                  }
+                  if (!this.remoteEgressResolvedMisses.has(targetParentUuid)) {
                     const queue = this.sessionFile
                       ? this.writeQueues.get(this.sessionFile)
                       : undefined
                     const resolved =
                       resolveCompactOmissionAncestorFromLocalTranscript(
                         this.sessionFile,
-                        originalParentUuid,
+                        targetParentUuid,
                         queue,
                       )
                     if (resolved.status === 'resolved') {
                       this.remoteEgressCompactAncestry.set(
-                        originalParentUuid,
+                        targetParentUuid,
                         resolved.ancestor,
                       )
                       boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+                      targetParentUuid = resolved.ancestor
                       remoteEntry = {
                         ...entry,
-                        parentUuid: resolved.ancestor,
+                        parentUuid: targetParentUuid,
                       }
-                    } else if (resolved.status === 'parent_safe') {
+                      continue
+                    }
+                    if (resolved.status === 'parent_safe') {
                       parentConfirmedSafe = true
-                      this.evictedRemoteEgressOmissions.delete(
-                        originalParentUuid,
-                      )
-                      this.remoteEgressKnownOmitted.delete(originalParentUuid)
+                      this.evictedRemoteEgressOmissions.delete(targetParentUuid)
+                      this.remoteEgressKnownOmitted.delete(targetParentUuid)
                       this.remoteEgressConfirmedSafeParents.add(
-                        originalParentUuid,
+                        targetParentUuid,
                       )
                       boundUuidSet(
                         this.remoteEgressConfirmedSafeParents,
                         MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
                       )
-                    } else if (!queueHasPendingTranscriptAppends(queue)) {
+                      break
+                    }
+                    if (!queueHasPendingTranscriptAppends(queue)) {
                       // Only cache durable misses — queued parents may land soon.
-                      this.remoteEgressResolvedMisses.add(originalParentUuid)
+                      this.remoteEgressResolvedMisses.add(targetParentUuid)
                       boundUuidSet(
                         this.remoteEgressResolvedMisses,
                         MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
                       )
                     }
                   }
+                  // Target ancestor could not be confirmed safe or resolved
+                  break
                 }
-                // Fail closed: do not emit a remote child whose parent still
-                // points at a withheld / incomplete-rebuild UUID. Incomplete
-                // rebuilds skip persist even after a one-hop rematch (O2→O1)
-                // — the rematch target may also be withheld and unseen.
+                // Fail closed: do not emit a remote child whose target parent
+                // cannot be confirmed safe, or under an incomplete rebuild.
                 const parentStillUnresolved =
                   !!originalParentUuid &&
-                  !parentConfirmedSafe &&
-                  (this.remoteEgressOmissionRebuildIncomplete ||
-                    remoteEntry.parentUuid === originalParentUuid)
+                  (!parentConfirmedSafe ||
+                    this.remoteEgressOmissionRebuildIncomplete)
                 if (!parentStillUnresolved) {
                   const delivered = await this.persistToRemote(
                     sessionId,
@@ -2255,18 +2266,24 @@ class Project {
       return false
     }
 
-    const success = await sessionIngress.appendSessionLog(
-      sessionId,
-      entry,
-      this.remoteIngressUrl,
-    )
+    try {
+      const success = await sessionIngress.appendSessionLog(
+        sessionId,
+        entry,
+        this.remoteIngressUrl,
+      )
 
-    if (!success) {
+      if (!success) {
+        logEvent('tengu_session_persistence_failed', {})
+        gracefulShutdownSync(1, 'other')
+        return false
+      }
+      return true
+    } catch {
       logEvent('tengu_session_persistence_failed', {})
       gracefulShutdownSync(1, 'other')
       return false
     }
-    return true
   }
 
   setRemoteIngressUrl(url: string): void {

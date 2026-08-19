@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import type { UUID } from 'crypto'
 import { mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as sessionIngress from '../services/api/sessionIngress.js'
 import {
   isSessionPersistenceDisabled,
   setSessionPersistenceDisabled,
@@ -11,6 +12,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import type { Entry, TranscriptMessage } from '../types/logs.js'
 import type { Message } from '../types/message.js'
 import {
   clearSessionMessagesCache,
@@ -32,6 +34,7 @@ import {
   recordTranscript,
   resetProjectForTesting,
   setInternalEventWriter,
+  setRemoteIngressUrlForTesting,
   setSessionFileForTesting,
 } from './sessionStorage.js'
 
@@ -2015,6 +2018,200 @@ describe('external egress delivery failures, malformed records, and eviction fal
         getRemoteEgressOmittedParentsForTesting().has(childUuid),
       ).toBe(true)
     } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('P2-eviction: recursive compact ancestry resolution through chained omitted and evicted parents', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-p2-chain-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(1001)
+    const withheldC_Uuid = id(1002)
+    const withheldB_Uuid = id(1003)
+    const childA_Uuid = id(1004)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Deliver withheld C (parented to seed)
+      const entryC = {
+        type: 'attachment',
+        uuid: withheldC_Uuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'LEAK-C',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'LEAK-C',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([entryC], undefined, seedUuid)
+      await flushSessionStorage()
+
+      // 3. Flood > 64 items so C is evicted into remoteEgressCompactAncestry
+      let prev = withheldC_Uuid
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 5; n++) {
+        const u = id(1100 + n)
+        const floodEntry = {
+          type: 'attachment',
+          uuid: u,
+          parentUuid: prev,
+          timestamp: `2026-08-11T00:05:02.${String(n % 1000).padStart(3, '0')}Z`,
+          attachment: {
+            type: 'hook_additional_context',
+            content: 'FLOOD',
+            hookName: 'SessionStart',
+            toolName: 'SessionStart',
+            hookEvent: 'SessionStart',
+            stdout: 'FLOOD',
+            stderr: '',
+            exitCode: 0,
+          },
+        } as unknown as Message
+        await recordTranscript([floodEntry], undefined, prev)
+        prev = u
+      }
+      await flushSessionStorage()
+
+      // Verify C was evicted from Tier 1
+      expect(
+        getRemoteEgressOmittedParentsForTesting().has(withheldC_Uuid),
+      ).toBe(false)
+
+      // 4. Send withheld B parented to evicted C
+      const entryB = {
+        type: 'attachment',
+        uuid: withheldB_Uuid,
+        parentUuid: withheldC_Uuid,
+        timestamp: '2026-08-11T00:05:03.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'LEAK-B',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'LEAK-B',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([entryB], undefined, withheldC_Uuid)
+      await flushSessionStorage()
+
+      // 5. Send safe child A parented to withheld B
+      const entryA = {
+        type: 'user',
+        uuid: childA_Uuid,
+        parentUuid: withheldB_Uuid,
+        timestamp: '2026-08-11T00:06:00.000Z',
+        message: { role: 'user', content: 'safe child A' },
+      } as unknown as Message
+      await recordTranscript([entryA], undefined, withheldB_Uuid)
+      await flushSessionStorage()
+
+      const remoteA = remotePayloads.find(p => p.uuid === childA_Uuid)
+      expect(remoteA).toBeDefined()
+      // Assert: A reparented all the way through B and evicted C to seedUuid
+      expect(remoteA?.parentUuid).toBe(seedUuid)
+      expect(remoteA?.parentUuid).not.toBe(withheldB_Uuid)
+      expect(remoteA?.parentUuid).not.toBe(withheldC_Uuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('LEAK-B')
+      expect(JSON.stringify(remotePayloads)).not.toContain('LEAK-C')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('v1 session ingress: appendSessionLog promise rejection is caught and records omission', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-v1-reject-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(1201)
+    const failedUuid = id(1202)
+    const childUuid = id(1203)
+
+    const appendSpy = spyOn(
+      sessionIngress,
+      'appendSessionLog',
+    ).mockImplementation(async (_sessionId, entry) => {
+      if (entry.uuid === failedUuid) {
+        throw new Error('Simulated network connection reset in v1 ingress')
+      }
+      return true
+    })
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setRemoteIngressUrlForTesting('https://mock-ingress.anthropic.com/api/v1')
+
+      // 1. Deliver seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Send failed message: appendSessionLog throws, persistToRemote catches and returns false
+      const failedEntry = {
+        type: 'user',
+        uuid: failedUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        message: { role: 'user', content: 'entry that throws during v1 append' },
+      } as unknown as Message
+      await recordTranscript([failedEntry], undefined, seedUuid)
+      await flushSessionStorage()
+
+      // Assert: failedEntry is caught and recorded in omission map pointing to seedUuid
+      expect(
+        getRemoteEgressOmittedParentsForTesting().get(failedUuid),
+      ).toBe(seedUuid)
+    } finally {
+      process.exitCode = 0
+      appendSpy.mockRestore()
       await rm(dir, { recursive: true, force: true })
     }
   })
