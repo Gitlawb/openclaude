@@ -85,6 +85,10 @@ describe('onboarding auth precedence cleanup', () => {
   test('clears preexisting OpenAI auth when switching to GitHub', () => {
     const env: NodeJS.ProcessEnv = {
       CLAUDE_CODE_USE_OPENAI: '1',
+      CLAUDE_CODE_USE_MISTRAL: '1',
+      MISTRAL_BASE_URL: 'https://mistral.example.com',
+      MISTRAL_MODEL: 'mistral-large',
+      MISTRAL_API_KEY: 'stale-mistral-key',
       OPENAI_MODEL: 'gpt-4o',
       OPENAI_API_KEYS: 'sk-stale-pool-a,sk-stale-pool-b',
       OPENAI_API_KEY: 'sk-stale-openai-key',
@@ -95,6 +99,12 @@ describe('onboarding auth precedence cleanup', () => {
       OPENAI_API_BASE: 'https://api.openai.com/v1',
       GITHUB_COPILOT_KEY: 'stale-copilot-key',
       GITHUB_ENTERPRISE_URL: 'https://github.old.example.com',
+      GEMINI_API_KEY: 'stale-gemini-key',
+      GOOGLE_API_KEY: 'stale-google-key',
+      GEMINI_BASE_URL: 'https://stale-gemini.example.com',
+      GEMINI_MODEL: 'stale-gemini-model',
+      GEMINI_ACCESS_TOKEN: 'stale-gemini-token',
+      GEMINI_AUTH_MODE: 'oauth',
       CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED: '1',
       CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID: 'profile_old',
     }
@@ -113,20 +123,42 @@ describe('onboarding auth precedence cleanup', () => {
     expect(env.OPENAI_API_BASE).toBeUndefined()
     expect(env.GITHUB_COPILOT_KEY).toBeUndefined()
     expect(env.GITHUB_ENTERPRISE_URL).toBeUndefined()
+    expect(env.GEMINI_API_KEY).toBeUndefined()
+    expect(env.GOOGLE_API_KEY).toBeUndefined()
+    expect(env.GEMINI_BASE_URL).toBeUndefined()
+    expect(env.GEMINI_MODEL).toBeUndefined()
+    expect(env.GEMINI_ACCESS_TOKEN).toBeUndefined()
+    expect(env.GEMINI_AUTH_MODE).toBeUndefined()
 
     expect(env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(env.CLAUDE_CODE_USE_MISTRAL).toBeUndefined()
+    expect(env.MISTRAL_BASE_URL).toBeUndefined()
+    expect(env.MISTRAL_MODEL).toBeUndefined()
+    expect(env.MISTRAL_API_KEY).toBeUndefined()
     expect(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED).toBeUndefined()
     expect(env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID).toBeUndefined()
 
     const settingsEnv = buildGithubOnboardingSettingsEnv('github:copilot')
     expect(settingsEnv.CLAUDE_CODE_USE_GITHUB).toBe('1')
     expect(settingsEnv.OPENAI_MODEL).toBe('github:copilot')
-    expect(settingsEnv.OPENAI_API_KEYS).toBeUndefined()
-    expect(settingsEnv.OPENAI_API_KEY).toBeUndefined()
-    expect(settingsEnv.OPENAI_ORG).toBeUndefined()
-    expect(settingsEnv.OPENAI_PROJECT).toBeUndefined()
-    expect(settingsEnv.OPENAI_ORGANIZATION).toBeUndefined()
-    expect(settingsEnv.GITHUB_ENTERPRISE_URL).toBeUndefined()
+    for (const key of [
+      'OPENAI_API_KEYS',
+      'OPENAI_API_KEY',
+      'OPENAI_ORG',
+      'OPENAI_PROJECT',
+      'OPENAI_ORGANIZATION',
+      'GITHUB_ENTERPRISE_URL',
+      'GEMINI_API_KEY',
+      'CLAUDE_CODE_USE_MISTRAL',
+      'MISTRAL_BASE_URL',
+      'MISTRAL_MODEL',
+      'MISTRAL_API_KEY',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+      'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+    ]) {
+      expect(Object.hasOwn(settingsEnv, key)).toBe(true)
+      expect(settingsEnv[key]).toBeUndefined()
+    }
   })
 
   test('persists Enterprise URL when switching to GitHub Enterprise', () => {

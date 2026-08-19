@@ -2,9 +2,9 @@ import type { OptionWithDescription } from '../../components/CustomSelect/select
 import { getAgentModelOptions } from '../../utils/model/agent.js'
 import {
   getInitialSettings,
-  getSettingsForSource,
   getSettingsWithSources,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
   type SettingsWithSources,
 } from '../../utils/settings/settings.js'
 import { isSettingSourceEnabled } from '../../utils/settings/constants.js'
@@ -320,35 +320,64 @@ function userSettingsDisabledError(): Error {
   )
 }
 
+function getLockScopedUserSources(
+  freshUserSettings: SettingsJson,
+): SettingsWithSources['sources'] {
+  return [
+    { source: 'userSettings', settings: freshUserSettings },
+    ...getSettingsWithSources().sources.filter(
+      source => source.source !== 'userSettings',
+    ),
+  ]
+}
+
 /** Persist a route from `agentType` to `modelKey` in user-global settings. */
 export function setAgentRoute(
   agentType: string,
   modelKey: string,
 ): { error: Error | null } {
   if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
-  const shadow = getRouteShadowSource(agentType)
-  if (shadow) return { error: shadowError(agentType, shadow) }
-  // A higher-priority source defining agentModels[modelKey] wins on merge, so a
-  // user-level route to it resolves to that entry, not the model the option
-  // promised. Refuse rather than silently save a misleading route. This holds
-  // even when userSettings also defines the key: the user's entry is the one
-  // being shadowed, so the save still would not take effect. Mirrors the
-  // shadow flag buildRouteOptions shows for the same keys.
-  const modelShadow = getModelKeyShadowSource(modelKey)
-  if (modelShadow) return { error: modelKeyShadowError(modelKey, modelShadow) }
-  const next = computeSetRouteUpdate(getSettingsForSource('userSettings'), agentType, modelKey)
-  return updateSettingsForSource('userSettings', next)
+  const result = updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    freshSettings => {
+      const sources = getLockScopedUserSources(freshSettings)
+      const shadow = findShadowingSource(sources, agentType)
+      if (shadow) throw shadowError(agentType, shadow)
+
+      // A higher-priority source defining agentModels[modelKey] wins on merge,
+      // so a user-level route to it would resolve to that entry rather than the
+      // current-provider model the picker promised.
+      const modelShadow = findModelKeyShadowingSource(sources, modelKey)
+      if (modelShadow) throw modelKeyShadowError(modelKey, modelShadow)
+      return computeSetRouteUpdate(freshSettings, agentType, modelKey)
+    },
+  )
+  return {
+    error: wasSettingsUpdateCommitted(result)
+      ? null
+      : result.error ?? new Error('Settings update was not written'),
+  }
 }
 
 /** Remove `agentType`'s route in user-global settings. */
 export function clearAgentRoute(agentType: string): { error: Error | null } {
   if (!isSettingSourceEnabled('userSettings')) return { error: userSettingsDisabledError() }
-  const shadow = getRouteShadowSource(agentType)
-  if (shadow) return { error: shadowError(agentType, shadow) }
-  return updateSettingsForSource(
+  const result = updateSettingsForSourceWithFreshSettings(
     'userSettings',
-    computeClearRouteUpdate(getSettingsForSource('userSettings'), agentType),
+    freshSettings => {
+      const shadow = findShadowingSource(
+        getLockScopedUserSources(freshSettings),
+        agentType,
+      )
+      if (shadow) throw shadowError(agentType, shadow)
+      return computeClearRouteUpdate(freshSettings, agentType)
+    },
   )
+  return {
+    error: wasSettingsUpdateCommitted(result)
+      ? null
+      : result.error ?? new Error('Settings update was not written'),
+  }
 }
 
 /**

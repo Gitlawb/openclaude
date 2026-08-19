@@ -19,7 +19,7 @@ import { loadKnownMarketplacesConfig, refreshMarketplace, removeMarketplaceSourc
 import { updatePluginsForMarketplaces } from '../../utils/plugins/pluginAutoupdate.js';
 import { loadAllPlugins } from '../../utils/plugins/pluginLoader.js';
 import { isMarketplaceAutoUpdate } from '../../utils/plugins/schemas.js';
-import { getSettingsForSource, updateSettingsForSource } from '../../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { plural } from '../../utils/stringUtils.js';
 import type { ViewState } from './types.js';
 type Props = {
@@ -189,7 +189,6 @@ export function ManageMarketplaces({
     setSuccessMessage(null);
     setProgressMessage(null);
     try {
-      const settings = getSettingsForSource('userSettings');
       let updatedCount = 0;
       let removedCount = 0;
       const refreshedMarketplaces = new Set<string>();
@@ -198,17 +197,19 @@ export function ManageMarketplaces({
         if (state.pendingRemove) {
           // First uninstall all plugins from this marketplace
           if (state.installedPlugins && state.installedPlugins.length > 0) {
-            const newEnabledPlugins = {
-              ...settings?.enabledPlugins
-            };
+            const newEnabledPlugins: Record<string, false> = {};
             for (const plugin of state.installedPlugins) {
               const pluginId = createPluginId(plugin.name, state.name);
               // Mark as disabled/uninstalled
               newEnabledPlugins[pluginId] = false;
             }
-            updateSettingsForSource('userSettings', {
+            const result = updateSettingsForSourceWithResult('userSettings', {
               enabledPlugins: newEnabledPlugins
             });
+            if (!wasSettingsUpdateCommitted(result)) {
+              setProcessError(result.error?.message ?? 'Settings update was not written');
+              return;
+            }
           }
 
           // Then remove the marketplace

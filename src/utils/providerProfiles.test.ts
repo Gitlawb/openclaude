@@ -1,4 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -142,7 +149,11 @@ afterEach(() => {
   }
 })
 
-async function importFreshProviderProfileModules() {
+async function importFreshProviderProfileModules(options?: {
+  saveGlobalConfig?: (
+    updater: (current: MockConfigState) => MockConfigState,
+  ) => boolean | void
+}) {
   mock.restore()
   const actualConfig = await import(`./config.js?ts=${Date.now()}-${Math.random()}`)
   mock.module('./config.js', () => ({
@@ -160,7 +171,12 @@ async function importFreshProviderProfileModules() {
     saveGlobalConfig: (
       updater: (current: MockConfigState) => MockConfigState,
     ) => {
-      mockConfigState = updater(mockConfigState)
+      if (options?.saveGlobalConfig) {
+        return options.saveGlobalConfig(updater)
+      } else {
+        mockConfigState = updater(mockConfigState)
+        return true
+      }
     },
   }))
   const nonce = `${Date.now()}-${Math.random()}`
@@ -1918,9 +1934,197 @@ describe('clearActiveProviderProfile', () => {
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
+
+  test('does not change global or live provider state when startup profile cleanup fails', async () => {
+    const { clearActiveProviderProfile } =
+      await importFreshProviderProfileModules()
+    const profilePath = mkdtempSync(
+      join(tmpdir(), 'openclaude-provider-profile-directory-'),
+    )
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = 'saved_deepseek'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.deepseek.com'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [buildProfile({ id: 'saved_deepseek' })],
+      activeProviderProfileId: 'saved_deepseek',
+      openaiAdditionalModelOptionsCache: [
+        { value: 'deepseek-v4', label: 'DeepSeek V4', description: 'saved' },
+      ],
+    }))
+
+    try {
+      expect(() => clearActiveProviderProfile({ filePath: profilePath })).toThrow()
+      expect(mockConfigState.activeProviderProfileId).toBe('saved_deepseek')
+      expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+        { value: 'deepseek-v4', label: 'DeepSeek V4', description: 'saved' },
+      ])
+      expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+      expect(process.env.OPENAI_BASE_URL).toBe('https://api.deepseek.com')
+    } finally {
+      rmSync(profilePath, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Anthropic sentinel survives profile management (#1426)', () => {
+  test('addProviderProfile rolls back its saved profile when startup persistence fails', async () => {
+    const { addProviderProfile, ANTHROPIC_DEFAULT_PROFILE_ID } =
+      await importFreshProviderProfileModules()
+    const blockedConfigDir = join(testConfigDir!, 'not-a-directory')
+    writeFileSync(blockedConfigDir, 'blocked', 'utf8')
+    process.env.CLAUDE_CONFIG_DIR = blockedConfigDir
+    process.env.OPENCLAUDE_CONFIG_DIR = blockedConfigDir
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      activeProviderProfileId: ANTHROPIC_DEFAULT_PROFILE_ID,
+    }))
+
+    expect(() =>
+      addProviderProfile({
+        provider: 'openai',
+        name: 'Cannot Activate',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    ).toThrow()
+
+    expect(mockConfigState.providerProfiles).toEqual([])
+    expect(mockConfigState.activeProviderProfileId).toBe(
+      ANTHROPIC_DEFAULT_PROFILE_ID,
+    )
+  })
+
+  test('updateProviderProfile restores the saved profile when startup persistence fails', async () => {
+    const { updateProviderProfile } = await importFreshProviderProfileModules()
+    const originalProfile = buildProfile({
+      id: 'saved_one',
+      name: 'Saved One',
+    })
+    const blockedConfigDir = join(testConfigDir!, 'not-a-directory')
+    writeFileSync(blockedConfigDir, 'blocked', 'utf8')
+    process.env.CLAUDE_CONFIG_DIR = blockedConfigDir
+    process.env.OPENCLAUDE_CONFIG_DIR = blockedConfigDir
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [originalProfile],
+      activeProviderProfileId: originalProfile.id,
+      openaiAdditionalModelOptionsCache: [
+        { value: 'saved-model', label: 'Saved model' },
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        [originalProfile.id]: [
+          { value: 'profile-model', label: 'Profile model' },
+        ],
+      },
+    }))
+
+    expect(() =>
+      updateProviderProfile(originalProfile.id, {
+        ...originalProfile,
+        name: 'Cannot Activate',
+      }),
+    ).toThrow()
+
+    expect(mockConfigState.providerProfiles).toEqual([originalProfile])
+    expect(mockConfigState.activeProviderProfileId).toBe(originalProfile.id)
+    expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+      { value: 'saved-model', label: 'Saved model' },
+    ])
+    expect(mockConfigState.openaiAdditionalModelOptionsCacheByProfile).toEqual({
+      [originalProfile.id]: [
+        { value: 'profile-model', label: 'Profile model' },
+      ],
+    })
+  })
+
+  test('addProviderProfile throws when the profile is not persisted', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: () => undefined,
+    })
+
+    expect(() =>
+      addProviderProfile({
+        provider: 'openai',
+        name: 'Not Persisted',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      }),
+    ).toThrow('was not saved to the global config')
+  })
+
+  test('updateProviderProfile rejects a write dropped after running its updater', async () => {
+    const originalProfile = buildProfile({ id: 'saved_one', name: 'Saved One' })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [originalProfile],
+      activeProviderProfileId: originalProfile.id,
+    }))
+    const { updateProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: updater => {
+        updater(mockConfigState)
+        return false
+      },
+    })
+
+    expect(() =>
+      updateProviderProfile(originalProfile.id, {
+        ...originalProfile,
+        name: 'Dropped Update',
+      }),
+    ).toThrow('was not saved to the global config')
+    expect(mockConfigState.providerProfiles).toEqual([originalProfile])
+  })
+
+  test('updateProviderProfile keeps the original rollback snapshot across updater retries', async () => {
+    const originalProfile = buildProfile({ id: 'saved_one', name: 'Saved One' })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [originalProfile],
+      activeProviderProfileId: originalProfile.id,
+      openaiAdditionalModelOptionsCache: [
+        { value: 'saved-model', label: 'Saved model' },
+      ],
+      openaiAdditionalModelOptionsCacheByProfile: {
+        [originalProfile.id]: [
+          { value: 'profile-model', label: 'Profile model' },
+        ],
+      },
+    }))
+    const { updateProviderProfile } = await importFreshProviderProfileModules({
+      saveGlobalConfig: updater => {
+        const first = updater(mockConfigState)
+        mockConfigState = updater(first)
+        return true
+      },
+    })
+    const blockedConfigDir = join(testConfigDir!, 'retry-not-a-directory')
+    writeFileSync(blockedConfigDir, 'blocked', 'utf8')
+    process.env.CLAUDE_CONFIG_DIR = blockedConfigDir
+    process.env.OPENCLAUDE_CONFIG_DIR = blockedConfigDir
+
+    expect(() =>
+      updateProviderProfile(originalProfile.id, {
+        ...originalProfile,
+        name: 'Cannot Activate',
+      }),
+    ).toThrow()
+    expect(mockConfigState.providerProfiles).toEqual([originalProfile])
+    expect(mockConfigState.activeProviderProfileId).toBe(originalProfile.id)
+    expect(mockConfigState.openaiAdditionalModelOptionsCache).toEqual([
+      { value: 'saved-model', label: 'Saved model' },
+    ])
+    expect(mockConfigState.openaiAdditionalModelOptionsCacheByProfile).toEqual({
+      [originalProfile.id]: [
+        { value: 'profile-model', label: 'Profile model' },
+      ],
+    })
+  })
+
   test('addProviderProfile with makeActive:false keeps the Anthropic sentinel active', async () => {
     const {
       addProviderProfile,
@@ -3015,6 +3219,46 @@ describe('getProviderPresetDefaults', () => {
 })
 
 describe('setActiveProviderProfile', () => {
+  test('restores the previous startup profile when the global selection is not saved', async () => {
+    const configDir = testConfigDir!
+    const { createProfileFile, loadProfileFile, saveProfileFile } = await import(
+      './providerProfile.js'
+    )
+    const previousStartupProfile = createProfileFile('anthropic', {
+      ANTHROPIC_API_KEY: 'previous-key',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+    })
+    saveProfileFile(previousStartupProfile, { configDir })
+
+    const { setActiveProviderProfile } =
+      await importFreshProviderProfileModules({ saveGlobalConfig: () => {} })
+    const previousProfile = buildProfile({
+      id: 'previous_prof',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+    })
+    const nextProfile = buildProfile({
+      id: 'next_prof',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      apiKey: 'next-key',
+    })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [previousProfile, nextProfile],
+      activeProviderProfileId: previousProfile.id,
+    }))
+
+    expect(() =>
+      setActiveProviderProfile(nextProfile.id, { configDir }),
+    ).toThrow('Global provider profile selection was not saved')
+
+    expect(loadProfileFile({ configDir })).toEqual(previousStartupProfile)
+    expect(mockConfigState.activeProviderProfileId).toBe(previousProfile.id)
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
   test('sets OPENAI_MODEL env var when switching to an openai-type provider', async () => {
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
@@ -4257,6 +4501,30 @@ describe('deleteProviderProfile', () => {
     expect(persisted.env.OPENAI_BASE_URL).toBe('https://replacement.example/v1')
     expect(persisted.env.OPENAI_MODEL).toBe('replacement-model')
     expect(persisted.env.OPENAI_API_KEY).toBe('replacement-token')
+  })
+
+  test('replacement startup failure restores the deleted active profile', async () => {
+    const { deleteProviderProfile, getProviderProfiles } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildProfile({ id: 'active_profile' })
+    const replacement = buildProfile({
+      id: 'replacement_profile',
+      baseUrl: 'https://replacement.example/v1',
+    })
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [activeProfile, replacement],
+      activeProviderProfileId: activeProfile.id,
+    }))
+    mkdirSync(join(testConfigDir!, '.openclaude-profile.json'))
+
+    expect(() => deleteProviderProfile(activeProfile.id)).toThrow()
+
+    expect(getProviderProfiles().map(profile => profile.id)).toEqual([
+      activeProfile.id,
+      replacement.id,
+    ])
+    expect(mockConfigState.activeProviderProfileId).toBe(activeProfile.id)
   })
 
   test('deleting final profile preserves explicit startup provider env', async () => {

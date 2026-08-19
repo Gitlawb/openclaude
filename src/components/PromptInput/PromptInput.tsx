@@ -41,6 +41,7 @@ import { useKeybinding, useKeybindings } from '../../keybindings/useKeybinding.j
 import type { MCPServerConnection } from '../../services/mcp/types.js';
 import { abortPromptSuggestion, logSuggestionSuppressed } from '../../services/PromptSuggestion/promptSuggestion.js';
 import { type ActiveSpeculationState, abortSpeculation } from '../../services/PromptSuggestion/speculation.js';
+import { commitModelStateUpdate } from '../../state/onChangeAppState.js';
 import { getActiveAgentForInput, getViewedTeammateTask } from '../../state/selectors.js';
 import { enterTeammateView, exitTeammateView, stopOrDismissAgent } from '../../state/teammateViewHelpers.js';
 import type { ToolPermissionContext } from '../../Tool.js';
@@ -64,7 +65,7 @@ import type { EffortLevel } from '../../utils/effort.js';
 import { env } from '../../utils/env.js';
 import { errorMessage } from '../../utils/errors.js';
 import { isBilledAsExtraUsage } from '../../utils/extraUsage.js';
-import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel } from '../../utils/fastMode.js';
+import { getFastModeUnavailableReason, isFastModeAvailable, isFastModeCooldown, isFastModeEnabled, isFastModeSupportedByModel, syncFastModeModelRestoreAfterSelection } from '../../utils/fastMode.js';
 import { isFullscreenEnvEnabled } from '../../utils/fullscreen.js';
 import type { PromptInputHelpers } from '../../utils/handlePromptSubmit.js';
 import { extractDraggedFilePaths } from '../../utils/dragDropPaths.js';
@@ -80,7 +81,7 @@ import { transitionPermissionMode } from '../../utils/permissions/permissionSetu
 import { getPlatform } from '../../utils/platform.js';
 import type { ProcessUserInputContext } from '../../utils/processUserInput/processUserInput.js';
 import { editPromptInEditor } from '../../utils/promptEditor.js';
-import { hasAutoModeOptIn } from '../../utils/settings/settings.js';
+import { hasAutoModeOptIn, wasSettingsUpdateCommitted } from '../../utils/settings/settings.js';
 import { findBtwTriggerPositions } from '../../utils/sideQuestion.js';
 import { findSlashCommandPositions } from '../../utils/suggestions/commandSuggestions.js';
 import { findSlackChannelPositions, getKnownChannelsVersion, hasSlackMcpServer, subscribeKnownChannels } from '../../utils/suggestions/slackChannelSuggestions.js';
@@ -102,7 +103,7 @@ import { getVisibleAgentTasks, useCoordinatorTaskCount } from '../CoordinatorAge
 import { getFastIconString } from '../FastIcon.js';
 import { GlobalSearchDialog } from '../GlobalSearchDialog.js';
 import { HistorySearchDialog } from '../HistorySearchDialog.js';
-import { ModelPicker } from '../ModelPicker.js';
+import { ModelPicker, type ModelPickerPersistence } from '../ModelPicker.js';
 import { usePermissionModeChangeRequest } from '../permissions/usePermissionModeChangeRequest.js';
 import { QuickOpenDialog } from '../QuickOpenDialog.js';
 import TextInput from '../TextInput.js';
@@ -2086,22 +2087,32 @@ function PromptInput({
   // Memoized callbacks for model picker to prevent re-renders when unrelated
   // state (like notifications) changes. This prevents the inline model picker
   // from visually "jumping" when notifications arrive.
-  const handleModelSelect = useCallback((model: string | null, _effort: EffortLevel | undefined) => {
+  const handleModelSelect = useCallback((model: string | null, _effort: EffortLevel | undefined, _switchToProfileId?: string, persistence?: ModelPickerPersistence): string | null => {
     let wasFastModeDisabled = false;
-    setAppState(prev => {
-      wasFastModeDisabled = isFastModeEnabled() && !isFastModeSupportedByModel(model) && !!prev.fastMode;
-      return {
-        ...prev,
-        mainLoopModel: model,
-        mainLoopModelForSession: null,
-        // Turn off fast mode if switching to a model that doesn't support it
-        ...(wasFastModeDisabled && {
-          fastMode: false
-        })
-      };
-    });
+    const modelUpdate = commitModelStateUpdate(model, () => {
+      setAppState(prev => {
+        wasFastModeDisabled = isFastModeEnabled() && !isFastModeSupportedByModel(model) && !!prev.fastMode;
+        return {
+          ...prev,
+          mainLoopModel: model,
+          mainLoopModelForSession: null,
+          ...(persistence ? {
+            effortValue: persistence.effortValue
+          } : {}),
+          // Turn off fast mode if switching to a model that doesn't support it
+          ...(wasFastModeDisabled && {
+            fastMode: false
+          })
+        };
+      });
+    }, undefined, persistence?.settingsPatch);
+    if (!wasSettingsUpdateCommitted(modelUpdate)) {
+      const detail = modelUpdate.error?.message ?? 'settings were not written';
+      return `Could not save model and effort preference: ${detail}`;
+    }
     setShowModelPicker(false);
     const effectiveFastMode = (isFastMode ?? false) && !wasFastModeDisabled;
+    syncFastModeModelRestoreAfterSelection(model, effectiveFastMode);
     let message = `Model set to ${modelDisplayString(model)}`;
     if (isBilledAsExtraUsage(model, effectiveFastMode, isOpus1mMergeEnabled())) {
       message += ' · Billed as extra usage';
@@ -2118,6 +2129,7 @@ function PromptInput({
     logEvent('tengu_model_picker_hotkey', {
       model: model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
     });
+    return null;
   }, [setAppState, addNotification, isFastMode]);
   const handleModelCancel = useCallback(() => {
     setShowModelPicker(false);

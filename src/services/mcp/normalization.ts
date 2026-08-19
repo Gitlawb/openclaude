@@ -21,3 +21,14 @@ export function normalizeNameForMCP(name: string): string {
   }
   return normalized
 }
+
+/** Keep the first server name for each normalized MCP identity. */
+export function deduplicateServerNames(serverNames: string[]): string[] {
+  const seen = new Set<string>()
+  return serverNames.filter(serverName => {
+    const normalizedName = normalizeNameForMCP(serverName)
+    if (seen.has(normalizedName)) return false
+    seen.add(normalizedName)
+    return true
+  })
+}

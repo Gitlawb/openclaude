@@ -3,7 +3,8 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { logError } from '../utils/log.js'
 import {
   hasSkipDangerousModePermissionPrompt,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -20,9 +21,13 @@ export function migrateBypassPermissionsAcceptedToSettings(): void {
 
   try {
     if (!hasSkipDangerousModePermissionPrompt()) {
-      updateSettingsForSource('userSettings', {
+      const result = updateSettingsForSourceWithResult('userSettings', {
         skipDangerousModePermissionPrompt: true,
       })
+      if (!wasSettingsUpdateCommitted(result)) {
+        if (result.error) logError(result.error)
+        return
+      }
     }
 
     logEvent('tengu_migrate_bypass_permissions_accepted', {})

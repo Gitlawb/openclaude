@@ -9,6 +9,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
+import { settingsWriteResult } from '../../test/settingsWriteResult.js'
 import * as actualAuth from '../../utils/auth.js'
 import * as actualModelSupportOverrides from '../../utils/model/modelSupportOverrides.js'
 import * as actualProviders from '../../utils/model/providers.js'
@@ -17,10 +18,12 @@ import * as actualThinking from '../../utils/thinking.js'
 import * as actualGrowthbook from '../../services/analytics/growthbook.js'
 
 const originalEffortEnv = process.env.CLAUDE_CODE_EFFORT_LEVEL
+const originalOpenAIProviderEnv = process.env.CLAUDE_CODE_USE_OPENAI
 
 beforeEach(async () => {
   await acquireSharedMutationLock('commands/effort/effort.test.tsx')
   delete process.env.CLAUDE_CODE_EFFORT_LEVEL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
 })
 
 afterEach(() => {
@@ -31,14 +34,22 @@ afterEach(() => {
     } else {
       process.env.CLAUDE_CODE_EFFORT_LEVEL = originalEffortEnv
     }
+    if (originalOpenAIProviderEnv === undefined) {
+      delete process.env.CLAUDE_CODE_USE_OPENAI
+    } else {
+      process.env.CLAUDE_CODE_USE_OPENAI = originalOpenAIProviderEnv
+    }
   } finally {
     releaseSharedMutationLock()
   }
 })
 
-async function importFreshEffortCommandModule(): Promise<
+async function importFreshEffortCommandModule(
+  writeResult: Parameters<typeof settingsWriteResult>[0] = { written: true },
+): Promise<
   typeof import('./effort.js')
 > {
+  const completeWriteResult = settingsWriteResult(writeResult)
   mock.module('../../utils/model/providers.js', () => ({
     ...actualProviders,
     getAPIProvider: () => 'firstParty',
@@ -49,7 +60,8 @@ async function importFreshEffortCommandModule(): Promise<
   }))
   mock.module('../../utils/settings/settings.js', () => ({
     ...actualSettings,
-    updateSettingsForSource: () => ({ error: null }),
+    updateSettingsForSource: () => completeWriteResult,
+    updateSettingsForSourceWithResult: () => completeWriteResult,
   }))
   mock.module('../../utils/auth.js', () => ({
     ...actualAuth,
@@ -233,4 +245,26 @@ test('/effort picker reports env override when selecting ultracode', async () =>
     'Not applied: CLAUDE_CODE_EFFORT_LEVEL=high overrides effort this session, and ultracode is session-only (nothing saved)',
   ])
   expect(finalEffortValue).toBe('ultracode')
+})
+
+test('/effort does not advance session state when persistence is unwritten', async () => {
+  const { executeEffort } = await importFreshEffortCommandModule({
+    error: null,
+    written: false,
+  })
+
+  expect(executeEffort('high')).toEqual({
+    message: 'Failed to set effort level: settings were not written',
+  })
+})
+
+test('/effort advances session state when bytes landed before a release error', async () => {
+  const { executeEffort } = await importFreshEffortCommandModule({
+    error: new Error('lock release failed'),
+    written: true,
+  })
+
+  const result = executeEffort('high')
+  expect(result.message).toStartWith('Set effort level to high')
+  expect(result.effortUpdate).toEqual({ value: 'high' })
 })

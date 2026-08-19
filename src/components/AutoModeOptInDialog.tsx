@@ -2,7 +2,7 @@ import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { logEvent } from 'src/services/analytics/index.js';
 import { Box, Link, Text } from '../ink.js';
-import { updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
 import { Dialog } from './design-system/Dialog.js';
 
@@ -21,6 +21,7 @@ export function AutoModeOptInDialog(t0: Props) {
     onDecline,
     declineExits
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1: [];
   if ($[0] === Symbol.for("react.memo_cache_sentinel")) {
     t1 = [];
@@ -32,26 +33,35 @@ export function AutoModeOptInDialog(t0: Props) {
   let t2;
   if ($[1] !== onAccept || $[2] !== onDecline) {
     t2 = function onChange(value: 'accept' | 'accept-default' | 'decline') {
+      setSaveError(null);
       bb3: switch (value) {
         case "accept":
           {
             logEvent("tengu_auto_mode_opt_in_dialog_accept", {});
-            updateSettingsForSource("userSettings", {
+            const result = updateSettingsForSourceWithResult("userSettings", {
               skipAutoPermissionPrompt: true
             });
-            onAccept();
+            if (wasSettingsUpdateCommitted(result)) {
+              onAccept();
+            } else {
+              setSaveError(result.error?.message ?? "Could not save auto mode preference. Try again.");
+            }
             break bb3;
           }
         case "accept-default":
           {
             logEvent("tengu_auto_mode_opt_in_dialog_accept_default", {});
-            updateSettingsForSource("userSettings", {
+            const result_0 = updateSettingsForSourceWithResult("userSettings", {
               skipAutoPermissionPrompt: true,
               permissions: {
                 defaultMode: "auto"
               }
             });
-            onAccept();
+            if (wasSettingsUpdateCommitted(result_0)) {
+              onAccept();
+            } else {
+              setSaveError(result_0.error?.message ?? "Could not save auto mode preference. Try again.");
+            }
             break bb3;
           }
         case "decline":
@@ -134,7 +144,7 @@ export function AutoModeOptInDialog(t0: Props) {
   } else {
     t10 = $[17];
   }
-  return t10;
+  return <>{t10}{saveError ? <Text color="error">{saveError}</Text> : null}</>;
 }
 function _temp() {
   logEvent("tengu_auto_mode_opt_in_dialog_shown", {});

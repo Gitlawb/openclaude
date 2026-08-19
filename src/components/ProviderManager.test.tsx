@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 
-import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, spyOn, test } from 'bun:test'
 import React from 'react'
 import { stripVTControlCharacters as stripAnsi } from 'node:util'
 
@@ -13,6 +13,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { settingsWriteResult } from '../test/settingsWriteResult.js'
 
 type SettingsModule = typeof import('../utils/settings/settings.js')
 type ProviderStartupOverridesModule = typeof import('../utils/providerStartupOverrides.js')
@@ -198,6 +199,7 @@ function createDeferred<T>(): {
 
 function mockProviderProfilesModule(options?: {
   addProviderProfile?: (...args: unknown[]) => unknown
+  deleteProviderProfile?: (...args: unknown[]) => unknown
   getActiveProviderProfile?: () => unknown
   getProviderProfiles?: () => unknown[]
   updateProviderProfile?: (...args: unknown[]) => unknown
@@ -206,7 +208,9 @@ function mockProviderProfilesModule(options?: {
   mock.module('../utils/providerProfiles.js', () => ({
     addProviderProfile: options?.addProviderProfile ?? (() => null),
     applyActiveProviderProfileFromConfig: () => {},
-    deleteProviderProfile: () => ({ removed: false, activeProfileId: null }),
+    deleteProviderProfile:
+      options?.deleteProviderProfile ??
+      (() => ({ removed: false, activeProfileId: null })),
     getActiveProviderProfile: options?.getActiveProviderProfile ?? (() => null),
     getProviderPresetDefaults: (preset: string) => {
       if (preset === 'ollama') {
@@ -330,6 +334,8 @@ function mockProviderManagerDependencies(
     addProviderProfile?: (...args: any[]) => unknown
     applySavedProfileToCurrentSession?: (...args: any[]) => Promise<string | null>
     clearCodexCredentials?: () => { success: boolean; warning?: string }
+    clearXaiCredentials?: () => { success: boolean; warning?: string }
+    deleteProviderProfile?: (...args: any[]) => unknown
     getActiveProviderProfile?: () => unknown
     getProviderProfiles?: () => unknown[]
     probeRouteReadiness?: (
@@ -353,6 +359,8 @@ function mockProviderManagerDependencies(
     }>
     codexSyncRead?: () => unknown
     codexAsyncRead?: () => Promise<unknown>
+    xaiSyncRead?: () => unknown
+    xaiAsyncRead?: () => Promise<unknown>
     updateProviderProfile?: (...args: any[]) => unknown
     setActiveProviderProfile?: (...args: any[]) => unknown
     provisionAimlapiKey?: (...args: any[]) => Promise<unknown>
@@ -404,6 +412,7 @@ function mockProviderManagerDependencies(
 
   mockProviderProfilesModule({
     addProviderProfile: options?.addProviderProfile,
+    deleteProviderProfile: options?.deleteProviderProfile,
     getActiveProviderProfile: options?.getActiveProviderProfile,
     getProviderProfiles: options?.getProviderProfiles,
     updateProviderProfile: options?.updateProviderProfile,
@@ -453,6 +462,21 @@ function mockProviderManagerDependencies(
     readCodexCredentialsAsync:
       options?.codexAsyncRead ?? (async () => undefined),
   }))
+
+  if (
+    options?.clearXaiCredentials ||
+    options?.xaiSyncRead ||
+    options?.xaiAsyncRead
+  ) {
+    mock.module('../utils/xaiCredentials.js', () => ({
+      clearXaiCredentials:
+        options?.clearXaiCredentials ?? (() => ({ success: true })),
+      readXaiCredentials:
+        options?.xaiSyncRead ?? (() => undefined),
+      readXaiCredentialsAsync:
+        options?.xaiAsyncRead ?? (async () => undefined),
+    }))
+  }
 
   mock.module('../utils/providerProfile.js', () => ({
     applySavedProfileToCurrentSession:
@@ -5730,6 +5754,117 @@ test('ProviderManager resolves Codex OAuth state from async storage without sync
   expect(codexAsyncRead).toHaveBeenCalled()
 })
 
+test('ProviderManager preserves Codex OAuth credentials when profile deletion fails', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  const customSelectModule = await import('./CustomSelect/index.js')
+  let selectLogout: ((value: string) => void) | undefined
+  spyOn(customSelectModule, 'Select').mockImplementation(
+    ((props: {
+      options: Array<{ value: string }>
+      onChange(value: string): void
+    }) => {
+      if (props.options.some(option => option.value === 'logout-codex-oauth')) {
+        selectLogout = props.onChange
+      }
+      return null
+    }) as never,
+  )
+  const codexProfile = {
+    id: 'provider_codex_oauth',
+    provider: 'openai',
+    name: 'Codex OAuth',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    model: 'codexplan',
+    apiKey: '',
+  }
+  const deleteProviderProfile = mock(() => {
+    throw new Error('provider registry is locked')
+  })
+  const clearCodexCredentials = mock(() => ({ success: true }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    clearCodexCredentials,
+    codexAsyncRead: async () => ({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      profileId: codexProfile.id,
+    }),
+    deleteProviderProfile,
+    getProviderProfiles: () => [codexProfile],
+  })
+
+  const { ProviderManager } = await import(
+    `./ProviderManager.js?codex-logout-delete-failure=${Date.now()}`
+  )
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForCondition(() => selectLogout !== undefined)
+    selectLogout?.('logout-codex-oauth')
+
+    await waitForCondition(() => deleteProviderProfile.mock.calls.length > 0)
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(deleteProviderProfile).toHaveBeenCalledWith(codexProfile.id)
+    expect(clearCodexCredentials).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager preserves xAI OAuth credentials when profile deletion fails', async () => {
+  delete process.env.CLAUDE_CODE_SIMPLE
+  const customSelectModule = await import('./CustomSelect/index.js')
+  let selectLogout: ((value: string) => void) | undefined
+  spyOn(customSelectModule, 'Select').mockImplementation(
+    ((props: {
+      options: Array<{ value: string }>
+      onChange(value: string): void
+    }) => {
+      if (props.options.some(option => option.value === 'logout-xai-oauth')) {
+        selectLogout = props.onChange
+      }
+      return null
+    }) as never,
+  )
+  const xaiProfile = {
+    id: 'provider_xai_oauth',
+    provider: 'xai',
+    name: 'xAI OAuth',
+    baseUrl: 'https://api.x.ai/v1',
+    model: 'grok-4.6',
+    apiKey: '',
+  }
+  const deleteProviderProfile = mock(() => {
+    throw new Error('provider registry is locked')
+  })
+  const clearXaiCredentials = mock(() => ({ success: true }))
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    clearXaiCredentials,
+    deleteProviderProfile,
+    getProviderProfiles: () => [xaiProfile],
+    xaiAsyncRead: async () => ({
+      accessToken: 'xai-access-token',
+      refreshToken: 'xai-refresh-token',
+    }),
+  })
+
+  const { ProviderManager } = await import(
+    `./ProviderManager.js?xai-logout-delete-failure=${Date.now()}`
+  )
+  const mounted = await mountProviderManager(ProviderManager)
+  try {
+    await waitForCondition(() => selectLogout !== undefined)
+    selectLogout?.('logout-xai-oauth')
+
+    await waitForCondition(() => deleteProviderProfile.mock.calls.length > 0)
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(deleteProviderProfile).toHaveBeenCalledWith(xaiProfile.id)
+    expect(clearXaiCredentials).not.toHaveBeenCalled()
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager hides Codex OAuth setup in bare mode', async () => {
   process.env.CLAUDE_CODE_SIMPLE = '1'
   delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -5941,6 +6076,7 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
   ]
   const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
   let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+  const deletionEvents: string[] = []
 
   try {
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -5970,12 +6106,22 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
       getActiveProviderProfile: () => null,
     }))
     mock.module('../utils/githubModelsCredentials.js', () => ({
-      clearGithubModelsToken: () => ({ success: true }),
+      clearGithubModelsToken: () => {
+        deletionEvents.push('credentials-cleared')
+        return { success: true }
+      },
       clearHydratedGithubModelsTokenFromEnv,
       GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
       hydrateGithubModelsTokenFromSecureStorage: () => {},
       readGithubModelsToken: () => storedToken,
       readGithubModelsTokenAsync: async () => storedToken,
+    }))
+    mock.module('../utils/settings/settings.js', () => ({
+      ...actualSettingsModule,
+      updateSettingsForSourceWithResult: () => {
+        deletionEvents.push('settings-committed')
+        return settingsWriteResult({ written: true })
+      },
     }))
 
     const nonce = `${Date.now()}-${Math.random()}`
@@ -6018,6 +6164,106 @@ test('ProviderManager deleting the GitHub provider reverts the hydrated credenti
     // fails the test if the delete path regresses to a partial hand-rolled
     // cleanup that leaves the hydrated Copilot key behind.
     expect(clearHydratedGithubModelsTokenFromEnv).toHaveBeenCalledWith(storedToken)
+    expect(deletionEvents).toEqual(['settings-committed', 'credentials-cleared'])
+  } finally {
+    if (mounted) {
+      await mounted.dispose()
+    }
+    for (const [key, value] of envSnapshot) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+})
+
+test('ProviderManager keeps GitHub credentials when provider settings removal is not committed', async () => {
+  const envKeys = [
+    'CLAUDE_CODE_USE_GITHUB',
+    'GITHUB_TOKEN',
+    'GITHUB_COPILOT_KEY',
+    'GH_TOKEN',
+    'CLAUDE_CODE_SIMPLE',
+  ]
+  const envSnapshot = new Map(envKeys.map(key => [key, process.env[key]] as const))
+  let mounted: Awaited<ReturnType<typeof mountProviderManager>> | undefined
+  const clearGithubModelsToken = mock(() => ({ success: true }))
+
+  try {
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    delete process.env.GITHUB_TOKEN
+    delete process.env.GITHUB_COPILOT_KEY
+    delete process.env.GH_TOKEN
+    delete process.env.CLAUDE_CODE_SIMPLE
+
+    const realProviderProfiles = await import('../utils/providerProfiles.js')
+
+    const githubSyncRead = mock(() => undefined)
+    const githubAsyncRead = mock(async () => undefined)
+    mockProviderManagerDependencies(githubSyncRead, githubAsyncRead, {
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    })
+
+    mock.module('../utils/providerProfiles.js', () => ({
+      ...realProviderProfiles,
+      applyActiveProviderProfileFromConfig: () => {},
+      getProviderProfiles: () => [],
+      getActiveProviderProfile: () => null,
+    }))
+    mock.module('../utils/githubModelsCredentials.js', () => ({
+      clearGithubModelsToken,
+      clearHydratedGithubModelsTokenFromEnv: () => {},
+      GITHUB_MODELS_HYDRATED_ENV_MARKER: 'CLAUDE_CODE_GITHUB_TOKEN_HYDRATED',
+      hydrateGithubModelsTokenFromSecureStorage: () => {},
+      readGithubModelsToken: () => 'ghp_stored_secure_storage_token',
+      readGithubModelsTokenAsync: async () => 'ghp_stored_secure_storage_token',
+    }))
+    mock.module('../utils/settings/settings.js', () => ({
+      ...actualSettingsModule,
+      updateSettingsForSourceWithResult: () => settingsWriteResult({
+        error: new Error('settings file is locked'),
+        written: false,
+      }),
+    }))
+
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    mounted = await mountProviderManager(ProviderManager)
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame =>
+        frame.includes('Provider manager') &&
+        frame.includes('Delete provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes('Delete provider') && frame.includes('GitHub Models'),
+    )
+    await Bun.sleep(40)
+    mounted.stdin.write('\r')
+
+    await Bun.sleep(100)
+    expect(clearGithubModelsToken).not.toHaveBeenCalled()
+    expect(process.env.CLAUDE_CODE_USE_GITHUB).toBe('1')
+    await waitForFrameOutput(
+      mounted.getOutput,
+      frame => frame.includes(
+        'Could not delete GitHub provider: settings file is locked',
+      ),
+    )
   } finally {
     if (mounted) {
       await mounted.dispose()

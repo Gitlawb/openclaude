@@ -49,6 +49,7 @@ import { normalizeControlMessageKeys } from '../utils/controlMessageCompat.js'
 import { executePermissionRequestHooks } from '../utils/hooks.js'
 import {
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
 } from '../utils/permissions/PermissionUpdate.js'
 import { applyPermissionUpdatesToLiveContext } from '../utils/permissions/permissionSetup.js'
@@ -869,17 +870,33 @@ async function executePermissionRequestHooksForSDK(
             toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length > 0) {
-          let updatedContext = toolUseContext.getAppState().toolPermissionContext
-          // Update permission context via setAppState
-          toolUseContext.setAppState(prev => {
-            updatedContext = applyPermissionUpdatesToLiveContext(
-              prev.toolPermissionContext,
-              permissionUpdates,
+          const persistence = persistPermissionUpdates(permissionUpdates)
+          const appliedUpdates = persistence.appliedUpdates
+          if (appliedUpdates.length > 0) {
+            // Update permission context via setAppState
+            toolUseContext.setAppState(prev => {
+              const updatedContext = applyPermissionUpdatesToLiveContext(
+                prev.toolPermissionContext,
+                appliedUpdates,
+              )
+              if (prev.toolPermissionContext === updatedContext) return prev
+              return { ...prev, toolPermissionContext: updatedContext }
+            })
+          }
+          if (persistence.failedUpdates.length > 0) {
+            const message = permissionPersistenceFailureMessage(
+              persistence.failedUpdates,
             )
-            if (prev.toolPermissionContext === updatedContext) return prev
-            return { ...prev, toolPermissionContext: updatedContext }
-          })
-          persistPermissionUpdates(permissionUpdates)
+            return {
+              behavior: 'deny',
+              message,
+              decisionReason: {
+                type: 'hook',
+                hookName: 'PermissionRequest',
+                reason: message,
+              },
+            }
+          }
         }
 
         const postUpdatePlanModeDecision =

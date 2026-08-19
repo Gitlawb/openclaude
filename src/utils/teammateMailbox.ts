@@ -23,6 +23,7 @@ import { lazySchema } from './lazySchema.js'
 import * as lockfile from './lockfile.js'
 import { logError } from './log.js'
 import { jsonParse, jsonStringify } from './slowOperations.js'
+import { normalizeSandboxDomainPattern } from './sandbox/domainValidation.js'
 import type { BackendType } from './swarm/backends/types.js'
 import { TEAM_LEAD_NAME } from './swarm/constants.js'
 import { sanitizePathComponent } from './tasks.js'
@@ -131,12 +132,20 @@ export async function readUnreadMessages(
  * @param message - The message to write
  * @param teamName - Optional team name
  */
-export async function writeToMailbox(
+export async function writeToMailboxWithResult(
   recipientName: string,
   message: Omit<TeammateMessage, 'read'>,
   teamName?: string,
-): Promise<void> {
-  await ensureInboxDir(teamName)
+): Promise<boolean> {
+  try {
+    await ensureInboxDir(teamName)
+  } catch (error) {
+    logForDebugging(
+      `[TeammateMailbox] writeToMailbox: failed to create inbox directory: ${error}`,
+    )
+    logError(error)
+    return false
+  }
 
   const inboxPath = getInboxPath(recipientName, teamName)
   const lockFilePath = `${inboxPath}.lock`
@@ -156,19 +165,26 @@ export async function writeToMailbox(
         `[TeammateMailbox] writeToMailbox: failed to create inbox file: ${error}`,
       )
       logError(error)
-      return
+      return false
     }
   }
 
   let release: (() => Promise<void>) | undefined
+  let written = false
   try {
     release = await lockfile.lock(inboxPath, {
       lockfilePath: lockFilePath,
       ...LOCK_OPTIONS,
     })
 
-    // Re-read messages after acquiring lock to get the latest state
-    const messages = await readMailbox(recipientName, teamName)
+    // Re-read strictly after acquiring the lock. The public read helper treats
+    // failures as an empty inbox for polling, but a writer must not overwrite
+    // existing messages when the current contents cannot be read or parsed.
+    const content = await readFile(inboxPath, 'utf-8')
+    const messages = jsonParse(content) as TeammateMessage[]
+    if (!Array.isArray(messages)) {
+      throw new Error(`Inbox for ${recipientName} does not contain a message list`)
+    }
 
     const newMessage: TeammateMessage = {
       ...message,
@@ -178,6 +194,7 @@ export async function writeToMailbox(
     messages.push(newMessage)
 
     await writeFile(inboxPath, jsonStringify(messages, null, 2), 'utf-8')
+    written = true
     logForDebugging(
       `[TeammateMailbox] Wrote message to ${recipientName}'s inbox from ${message.from}`,
     )
@@ -186,9 +203,29 @@ export async function writeToMailbox(
     logError(error)
   } finally {
     if (release) {
-      await release()
+      try {
+        await release()
+      } catch (error) {
+        logForDebugging(
+          `[TeammateMailbox] Failed to release inbox lock for ${recipientName}: ${error}`,
+        )
+        logError(error)
+      }
     }
   }
+
+  return written
+}
+
+/**
+ * Write a message for callers that do not need delivery acknowledgement.
+ */
+export async function writeToMailbox(
+  recipientName: string,
+  message: Omit<TeammateMessage, 'read'>,
+  teamName?: string,
+): Promise<void> {
+  await writeToMailboxWithResult(recipientName, message, teamName)
 }
 
 /**
@@ -616,13 +653,17 @@ export function createSandboxPermissionRequestMessage(params: {
   workerColor?: string
   host: string
 }): SandboxPermissionRequestMessage {
+  const host = normalizeSandboxDomainPattern(params.host)
+  if (!host) {
+    throw new Error(`Invalid sandbox domain pattern: ${params.host}`)
+  }
   return {
     type: 'sandbox_permission_request',
     requestId: params.requestId,
     workerId: params.workerId,
     workerName: params.workerName,
     workerColor: params.workerColor,
-    hostPattern: { host: params.host },
+    hostPattern: { host },
     createdAt: Date.now(),
   }
 }
@@ -635,10 +676,14 @@ export function createSandboxPermissionResponseMessage(params: {
   host: string
   allow: boolean
 }): SandboxPermissionResponseMessage {
+  const host = normalizeSandboxDomainPattern(params.host)
+  if (!host) {
+    throw new Error(`Invalid sandbox domain pattern: ${params.host}`)
+  }
   return {
     type: 'sandbox_permission_response',
     requestId: params.requestId,
-    host: params.host,
+    host,
     allow: params.allow,
     timestamp: new Date().toISOString(),
   }
@@ -652,8 +697,19 @@ export function isSandboxPermissionRequest(
 ): SandboxPermissionRequestMessage | null {
   try {
     const parsed = jsonParse(messageText)
-    if (parsed && parsed.type === 'sandbox_permission_request') {
-      return parsed as SandboxPermissionRequestMessage
+    const host =
+      typeof parsed?.hostPattern?.host === 'string'
+        ? normalizeSandboxDomainPattern(parsed.hostPattern.host)
+        : null
+    if (
+      parsed &&
+      parsed.type === 'sandbox_permission_request' &&
+      host
+    ) {
+      return {
+        ...parsed,
+        hostPattern: { ...parsed.hostPattern, host },
+      } as SandboxPermissionRequestMessage
     }
   } catch {
     // Not JSON or not a valid sandbox permission request
@@ -669,8 +725,16 @@ export function isSandboxPermissionResponse(
 ): SandboxPermissionResponseMessage | null {
   try {
     const parsed = jsonParse(messageText)
-    if (parsed && parsed.type === 'sandbox_permission_response') {
-      return parsed as SandboxPermissionResponseMessage
+    const host =
+      typeof parsed?.host === 'string'
+        ? normalizeSandboxDomainPattern(parsed.host)
+        : null
+    if (
+      parsed &&
+      parsed.type === 'sandbox_permission_response' &&
+      host
+    ) {
+      return { ...parsed, host } as SandboxPermissionResponseMessage
     }
   } catch {
     // Not JSON or not a valid sandbox permission response

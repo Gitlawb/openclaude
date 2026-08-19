@@ -19,6 +19,7 @@
  */
 
 import axios from 'axios'
+import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import isEqual from 'lodash-es/isEqual.js'
 import memoize from 'lodash-es/memoize.js'
@@ -37,10 +38,17 @@ import { execFileNoThrow, execFileNoThrowWithCwd } from '../execFileNoThrow.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { gitExe } from '../git.js'
 import { logError } from '../log.js'
+import type { SettingSource } from '../settings/constants.js'
 import {
+  SETTINGS_UPDATE_NO_CHANGE,
   getInitialSettings,
+  getSettingsFilePathForSource,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  updateSettingsForSourceWithFreshSettings,
+  updateSettingsForSourceWithFreshSettingsOrNoop,
+  wasSettingsUpdateApplied,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import type { SettingsJson } from '../settings/types.js'
 import {
@@ -55,7 +63,11 @@ import {
 import { markPluginVersionOrphaned } from './cacheUtils.js'
 import { buildGitChildEnv } from './gitEnv.js'
 import { classifyFetchError, logPluginFetch } from './fetchTelemetry.js'
-import { removeAllPluginsForMarketplace } from './installedPluginsManager.js'
+import {
+  finalizeMarketplaceRemovalIfEmpty,
+  getMarketplacePluginCleanupSnapshot,
+  removeAllPluginsForMarketplace,
+} from './installedPluginsManager.js'
 import {
   extractHostFromSource,
   formatSourceForDisplay,
@@ -77,6 +89,13 @@ import {
 import { parsePluginIdentifier } from './pluginIdentifier.js'
 import { deletePluginOptions } from './pluginOptionsStorage.js'
 import {
+  clearCaseInsensitiveFsCacheForTesting,
+  isCaseInsensitiveFsAt,
+  pathsEqualForFs,
+  resolvePathWithinBase,
+  validatePathWithinBase,
+} from './pathConfinement.js'
+import {
   isLocalMarketplaceSource,
   type KnownMarketplace,
   type KnownMarketplacesFile,
@@ -94,70 +113,6 @@ import {
 type LoadedPluginMarketplace = {
   marketplace: PluginMarketplace
   cachePath: string
-}
-
-/** Memoized per-directory case-sensitivity probe results. */
-const caseInsensitiveFsCache = new Map<string, boolean>()
-
-/**
- * Flip the case of the last alphabetic character in a path, yielding a variant
- * that differs only in case (so it targets the same entry on a case-insensitive
- * volume). Returns the input unchanged when there is no alphabetic character.
- */
-function flipLastAlphaCase(p: string): string {
-  for (let i = p.length - 1; i >= 0; i--) {
-    const c = p[i]!
-    const lower = c.toLowerCase()
-    const upper = c.toUpperCase()
-    if (lower !== upper) {
-      return p.slice(0, i) + (c === upper ? lower : upper) + p.slice(i + 1)
-    }
-  }
-  return p
-}
-
-/**
- * Probe whether the filesystem backing `dir` treats paths case-insensitively,
- * rather than assuming it from process.platform. Windows volumes are always
- * case-insensitive (and inode numbers there are unreliable), so trust the
- * platform. Everywhere else — including macOS, which can mount case-sensitive
- * APFS/HFS+ volumes — stat `dir` under a case-flipped name and treat the volume
- * as case-insensitive only when both names resolve to the same inode. Memoized
- * per directory; falls back to case-sensitive on any probe error.
- */
-function isCaseInsensitiveFsAt(dir: string): boolean {
-  if (process.platform === 'win32') return true
-  const key = resolve(dir)
-  const cached = caseInsensitiveFsCache.get(key)
-  if (cached !== undefined) return cached
-  let result = false
-  try {
-    const flipped = flipLastAlphaCase(key)
-    if (flipped !== key) {
-      const fs = getFsImplementation()
-      const original = fs.statSync(key)
-      const alt = fs.statSync(flipped)
-      result = original.ino === alt.ino && original.dev === alt.dev
-    }
-  } catch {
-    // The case-flipped path does not exist → the volume is case-sensitive.
-    result = false
-  }
-  caseInsensitiveFsCache.set(key, result)
-  return result
-}
-
-/**
- * Compare two filesystem paths honoring the case sensitivity of the volume
- * backing `probeDir` (the directory both paths live under). On a
- * case-insensitive volume a case-only difference means the same directory; on
- * case-sensitive volumes such paths are genuinely distinct, so an unconditional
- * lowercase comparison would wrongly collapse them.
- */
-function pathsEqualForFs(a: string, b: string, probeDir: string): boolean {
-  return isCaseInsensitiveFsAt(probeDir)
-    ? a.toLowerCase() === b.toLowerCase()
-    : a === b
 }
 
 /**
@@ -295,11 +250,10 @@ export function saveMarketplaceToSettings(
     | 'userSettings'
     | 'projectSettings'
     | 'localSettings' = 'userSettings',
-): void {
-  const existing = getSettingsForSource(settingSource) ?? {}
-  const current = { ...existing.extraKnownMarketplaces }
-  current[name] = entry
-  updateSettingsForSource(settingSource, { extraKnownMarketplaces: current })
+): ReturnType<typeof updateSettingsForSourceWithResult> {
+  return updateSettingsForSourceWithResult(settingSource, {
+    extraKnownMarketplaces: { [name]: entry },
+  })
 }
 
 /**
@@ -430,6 +384,28 @@ export async function saveKnownMarketplacesConfig(
   // Get directory from config file path to ensure consistency
   const dir = join(configFile, '..')
   await fs.mkdir(dir)
+  writeFileSync_DEPRECATED(configFile, jsonStringify(parsed.data, null, 2), {
+    encoding: 'utf-8',
+    flush: true,
+  })
+}
+
+/** Synchronous variant used while marketplace removal owns the registry lock. */
+function saveKnownMarketplacesConfigSync(
+  config: KnownMarketplacesConfig,
+): void {
+  const parsed = KnownMarketplacesFileSchema().safeParse(config)
+  const configFile = getKnownMarketplacesFile()
+  if (!parsed.success) {
+    throw new ConfigParseError(
+      `Invalid marketplace config: ${parsed.error.message}`,
+      configFile,
+      config,
+    )
+  }
+
+  const fs = getFsImplementation()
+  fs.mkdirSync(join(configFile, '..'))
   writeFileSync_DEPRECATED(configFile, jsonStringify(parsed.data, null, 2), {
     encoding: 'utf-8',
     flush: true,
@@ -2036,18 +2012,79 @@ export async function addMarketplaceSource(
  * @param name - The marketplace name to remove
  * @throws If marketplace with given name is not found
  */
-export async function removeMarketplaceSource(name: string): Promise<void> {
-  const config = await loadKnownMarketplacesConfig()
+type MarketplaceRemovalDependencies = {
+  getCleanupSnapshot?: typeof getMarketplacePluginCleanupSnapshot
+  finalizeRemoval?: typeof finalizeMarketplaceRemovalIfEmpty
+  deleteOptions?: typeof deletePluginOptions
+  orphanVersion?: typeof markPluginVersionOrphaned
+  deleteData?: typeof deletePluginDataDir
+  removePlugins?: typeof removeAllPluginsForMarketplace
+  saveConfig?: typeof saveKnownMarketplacesConfigSync
+}
 
-  if (!config[name]) {
+export async function removeMarketplaceSource(
+  name: string,
+  dependencies: MarketplaceRemovalDependencies = {},
+): Promise<void> {
+  // Older persisted configs may predate MarketplaceNameSchema. Reject path-like
+  // keys before reading config or resolving cache targets so a crafted name
+  // cannot traverse through a symlinked cache parent during removal.
+  if (
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('..') ||
+    name === '.'
+  ) {
+    throw new Error(
+      `Invalid marketplace name '${name}': path separators, ".." sequences, and "." are not allowed`,
+    )
+  }
+
+  const getCleanupSnapshot =
+    dependencies.getCleanupSnapshot ?? getMarketplacePluginCleanupSnapshot
+  const finalizeRemoval =
+    dependencies.finalizeRemoval ?? finalizeMarketplaceRemovalIfEmpty
+  const config = await loadKnownMarketplacesConfig()
+  const cleanupSnapshot = getCleanupSnapshot(name)
+  const entry = config[name]
+
+  if (!entry && cleanupSnapshot.pluginIds.length === 0) {
     throw new Error(`Marketplace '${name}' not found`)
+  }
+
+  // Resolve every cache-owned deletion target before mutating settings or the
+  // plugin registry. Local file/directory sources point at user-owned paths and
+  // must never be deleted by marketplace removal.
+  const cacheDir = getMarketplacesCacheDir()
+  const jsonCachePath = resolvePathWithinBase(cacheDir, `${name}.json`, {
+    allowBase: false,
+  })
+  let cachePath: string | null = null
+  if (!entry || !isLocalMarketplaceSource(entry.source)) {
+    const configuredPath = entry?.installLocation ?? name.toLowerCase()
+    try {
+      const resolvedPath = resolvePathWithinBase(cacheDir, configuredPath, {
+        allowBase: false,
+      })
+      cachePath = existsSync(resolvedPath)
+        ? validatePathWithinBase(cacheDir, configuredPath, { allowBase: false })
+        : resolvedPath
+    } catch (error) {
+      if (pathsEqualForFs(resolve(configuredPath), resolve(cacheDir), cacheDir)) {
+        throw error
+      }
+      logForDebugging(
+        `Skipping cache cleanup for marketplace '${name}': ${errorMessage(error)}`,
+        { level: 'warn' },
+      )
+      cachePath = null
+    }
   }
 
   // Seed-registered marketplaces are admin-baked into the container — removing
   // them is a category error. They'd resurrect on next startup anyway. Guide
   // the user to the right action instead.
-  const entry = config[name]
-  const seedDir = seedDirFor(entry.installLocation)
+  const seedDir = entry ? seedDirFor(entry.installLocation) : null
   if (seedDir) {
     throw new Error(
       `Marketplace '${name}' is registered from the read-only seed directory ` +
@@ -2055,22 +2092,6 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
         `To stop using its plugins: claude plugin disable <plugin>@${name}`,
     )
   }
-
-  // Remove from config
-  delete config[name]
-  await saveKnownMarketplacesConfig(config)
-
-  // Clean up cached files (both directory and JSON formats).
-  // Prefer the recorded installLocation: recomputing a lowercased path would
-  // miss a mixed-case cache directory on case-sensitive filesystems (Linux),
-  // leaving the real cache behind. Fall back to the legacy computed path for
-  // older entries that predate installLocation tracking.
-  const fs = getFsImplementation()
-  const cacheDir = getMarketplacesCacheDir()
-  const cachePath = entry.installLocation ?? join(cacheDir, name.toLowerCase())
-  await fs.rm(cachePath, { recursive: true, force: true })
-  const jsonCachePath = join(cacheDir, `${name}.json`)
-  await fs.rm(jsonCachePath, { force: true })
 
   // Clean up settings.json - remove marketplace from extraKnownMarketplaces
   // and remove related plugin entries from enabledPlugins
@@ -2081,81 +2102,120 @@ export async function removeMarketplaceSource(name: string): Promise<void> {
   > = ['userSettings', 'projectSettings', 'localSettings']
 
   for (const source of editableSources) {
-    const settings = getSettingsForSource(source)
-    if (!settings) continue
-
-    let needsUpdate = false
-    const updates: {
-      extraKnownMarketplaces?: typeof settings.extraKnownMarketplaces
-      enabledPlugins?: typeof settings.enabledPlugins
-    } = {}
-
-    // Remove from extraKnownMarketplaces if present
-    if (settings.extraKnownMarketplaces?.[name]) {
-      const updatedMarketplaces: Partial<
-        SettingsJson['extraKnownMarketplaces']
-      > = { ...settings.extraKnownMarketplaces }
-      // Use undefined values (NOT delete) to signal key removal via mergeWith
-      updatedMarketplaces[name] = undefined
-      updates.extraKnownMarketplaces =
-        updatedMarketplaces as SettingsJson['extraKnownMarketplaces']
-      needsUpdate = true
+    const settingsPath = getSettingsFilePathForSource(source)
+    if (
+      source !== 'userSettings' &&
+      settingsPath &&
+      !existsSync(settingsPath)
+    ) {
+      continue
     }
+    const marketplaceSuffix = `@${name}`
+    let needsUpdate = false
+    const result = updateSettingsForSourceWithFreshSettingsOrNoop(
+      source,
+      freshSettings => {
+        needsUpdate = false
+        const updates: SettingsJson = {}
+        if (freshSettings.extraKnownMarketplaces?.[name]) {
+          updates.extraKnownMarketplaces = {
+            [name]: undefined,
+          } as unknown as SettingsJson['extraKnownMarketplaces']
+          needsUpdate = true
+        }
 
-    // Remove related plugins from enabledPlugins (format: "plugin@marketplace")
-    if (settings.enabledPlugins) {
-      const marketplaceSuffix = `@${name}`
-      // Use undefined values (NOT delete) to signal key removal via mergeWith
-      const updatedPlugins: Partial<SettingsJson['enabledPlugins']> = {
-        ...settings.enabledPlugins,
-      }
-      let removedPlugins = false
+        const removedPlugins = Object.fromEntries(
+          Object.keys(freshSettings.enabledPlugins ?? {})
+            .filter(pluginId => pluginId.endsWith(marketplaceSuffix))
+            .map(pluginId => [pluginId, undefined]),
+        )
+        if (Object.keys(removedPlugins).length > 0) {
+          updates.enabledPlugins =
+            removedPlugins as unknown as SettingsJson['enabledPlugins']
+          needsUpdate = true
+        }
+        return needsUpdate ? updates : SETTINGS_UPDATE_NO_CHANGE
+      },
+    )
+    if (!wasSettingsUpdateApplied(result)) {
+      if (result.error) logError(result.error)
+      throw new Error(
+        `Failed to clean up marketplace '${name}' from ${source} settings: ${result.error?.message ?? 'settings were not written'}`,
+      )
+    }
+    if (result.error) logError(result.error)
+    if (needsUpdate) {
+      logForDebugging(
+        `Cleaned up marketplace '${name}' from ${source} settings`,
+      )
+    }
+  }
 
-      for (const pluginId in updatedPlugins) {
-        if (pluginId.endsWith(marketplaceSuffix)) {
-          updatedPlugins[pluginId] = undefined
-          removedPlugins = true
+  // Clean one exact registry snapshot at a time. Entries remain registered
+  // until every fallible cleanup for that snapshot succeeds. A plugin added
+  // concurrently stays visible for the next iteration and therefore remains
+  // a durable retry handle if its cleanup fails.
+  const fs = getFsImplementation()
+  let currentSnapshot = cleanupSnapshot
+  while (true) {
+    if (currentSnapshot.pluginIds.length > 0) {
+      for (const pluginId of currentSnapshot.pluginIds) {
+        const cleanup = (dependencies.deleteOptions ?? deletePluginOptions)(pluginId)
+        if (!cleanup.success) {
+          throw new Error(
+            `Stored options for '${pluginId}' could not be cleared: ${cleanup.error ?? 'cleanup did not complete'}`,
+          )
         }
       }
-
-      if (removedPlugins) {
-        updates.enabledPlugins =
-          updatedPlugins as SettingsJson['enabledPlugins']
-        needsUpdate = true
+      for (const installPath of currentSnapshot.orphanedPaths) {
+        await (dependencies.orphanVersion ?? markPluginVersionOrphaned)(installPath)
       }
+      for (const pluginId of currentSnapshot.pluginIds) {
+        await (dependencies.deleteData ?? deletePluginDataDir)(pluginId, { throwOnError: true })
+      }
+
+      ;(dependencies.removePlugins ?? removeAllPluginsForMarketplace)(name, {
+        pluginIds: currentSnapshot.pluginIds,
+      })
     }
 
-    // Update settings if changes were made
-    if (needsUpdate) {
-      const result = updateSettingsForSource(source, updates)
-      if (result.error) {
-        logError(result.error)
-        logForDebugging(
-          `Failed to clean up marketplace '${name}' from ${source} settings: ${result.error.message}`,
-        )
-      } else {
-        logForDebugging(
-          `Cleaned up marketplace '${name}' from ${source} settings`,
-        )
+    const finalization = finalizeRemoval(name, () => {
+      if (cachePath) {
+        fs.rmSync(cachePath, { recursive: true, force: true })
       }
+      fs.rmSync(jsonCachePath, { force: true })
+      if (entry) {
+        delete config[name]
+        ;(dependencies.saveConfig ?? saveKnownMarketplacesConfigSync)(config)
+      }
+    })
+    if (finalization.finalized) break
+    if (
+      currentSnapshot.pluginIds.length === 0 &&
+      finalization.snapshot.pluginIds.length === 0
+    ) {
+      throw new Error(
+        'Marketplace removal could not be finalized with no plugin registrations remaining; retry removal after concurrent plugin changes settle',
+      )
     }
-  }
-
-  // Remove plugins from installed_plugins.json and mark orphaned paths.
-  // Also wipe their stored options/secrets — after marketplace removal
-  // zero installations remain, same "last scope gone" condition as
-  // uninstallPluginOp.
-  const { orphanedPaths, removedPluginIds } =
-    removeAllPluginsForMarketplace(name)
-  for (const installPath of orphanedPaths) {
-    await markPluginVersionOrphaned(installPath)
-  }
-  for (const pluginId of removedPluginIds) {
-    deletePluginOptions(pluginId)
-    await deletePluginDataDir(pluginId)
+    if (currentSnapshot.pluginIds.length > 0) {
+      assertMarketplaceCleanupProgress(currentSnapshot, finalization.snapshot)
+    }
+    currentSnapshot = finalization.snapshot
   }
 
   logForDebugging(`Removed marketplace source: ${name}`)
+}
+
+function assertMarketplaceCleanupProgress(
+  current: { pluginIds: string[] },
+  next: { pluginIds: string[] },
+): void {
+  if (next.pluginIds.length >= current.pluginIds.length) {
+    throw new Error(
+      'Marketplace plugin cleanup made no progress; retry removal after concurrent plugin changes settle',
+    )
+  }
 }
 
 /**
@@ -2724,12 +2784,6 @@ export async function setMarketplaceAutoUpdate(
     return
   }
 
-  config[name] = {
-    ...entry,
-    autoUpdate,
-  }
-  await saveKnownMarketplacesConfig(config)
-
   // Also update intent in settings if declared there — write to the SAME
   // source that declared it to avoid creating duplicates at wrong scope
   const declaringSource = getMarketplaceDeclaringSource(name)
@@ -2737,15 +2791,48 @@ export async function setMarketplaceAutoUpdate(
     const declared =
       getSettingsForSource(declaringSource)?.extraKnownMarketplaces?.[name]
     if (declared) {
-      saveMarketplaceToSettings(
-        name,
-        { source: declared.source, autoUpdate },
+      const result = updateSettingsForSourceWithFreshSettings(
         declaringSource,
+        freshSettings =>
+          buildMarketplaceAutoUpdatePatch(
+            freshSettings,
+            name,
+            autoUpdate,
+            declaringSource,
+          ),
       )
+      if (!wasSettingsUpdateCommitted(result)) {
+        throw result.error ?? new Error('Settings update was not written')
+      }
     }
   }
 
+  config[name] = {
+    ...entry,
+    autoUpdate,
+  }
+  await saveKnownMarketplacesConfig(config)
+
   logForDebugging(`Set autoUpdate=${autoUpdate} for marketplace: ${name}`)
+}
+
+function buildMarketplaceAutoUpdatePatch(
+  freshSettings: SettingsJson,
+  name: string,
+  autoUpdate: boolean,
+  declaringSource: SettingSource,
+): SettingsJson {
+  const freshDeclaration = freshSettings.extraKnownMarketplaces?.[name]
+  if (!freshDeclaration) {
+    throw new Error(
+      `Marketplace '${name}' is no longer declared in ${declaringSource}`,
+    )
+  }
+  return {
+    extraKnownMarketplaces: {
+      [name]: { ...freshDeclaration, autoUpdate },
+    },
+  }
 }
 
 export const _test = {
@@ -2753,5 +2840,6 @@ export const _test = {
   loadAndCacheMarketplace,
   isCaseInsensitiveFsAt,
   pathsEqualForFs,
-  _clearCaseInsensitiveFsCache: () => caseInsensitiveFsCache.clear(),
+  buildMarketplaceAutoUpdatePatch,
+  _clearCaseInsensitiveFsCache: clearCaseInsensitiveFsCacheForTesting,
 }

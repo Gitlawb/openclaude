@@ -7,7 +7,8 @@ import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
 import { settingsChangeDetector } from '../../utils/settings/changeDetector.js'
 import {
   getInitialSettings,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
 import { isVoiceModeEnabled } from '../../voice/voiceModeEnabled.js'
 
@@ -36,10 +37,10 @@ export const call: LocalCommandCall = async () => {
 
   // Toggle OFF — no checks needed
   if (isCurrentlyEnabled) {
-    const result = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       voiceEnabled: false,
     })
-    if (result.error) {
+    if (!wasSettingsUpdateCommitted(result)) {
       return {
         type: 'text' as const,
         value:
@@ -112,8 +113,8 @@ export const call: LocalCommandCall = async () => {
   }
 
   // All checks passed — enable voice
-  const result = updateSettingsForSource('userSettings', { voiceEnabled: true })
-  if (result.error) {
+  const result = updateSettingsForSourceWithResult('userSettings', { voiceEnabled: true })
+  if (!wasSettingsUpdateCommitted(result)) {
     return {
       type: 'text' as const,
       value:

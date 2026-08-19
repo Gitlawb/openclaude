@@ -11,7 +11,7 @@ import { env } from '../utils/env.js';
 import { errorMessage } from '../utils/errors.js';
 import { hasNativeDistribution } from '../utils/nativeDistribution.js';
 import { checkInstall, cleanupNpmInstallations, cleanupShellAliases, installLatest, repairNativeLauncher } from '../utils/nativeInstaller/index.js';
-import { getInitialSettings, updateSettingsForSource } from '../utils/settings/settings.js';
+import { getInitialSettings, updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 interface InstallProps {
   onDone: (result: string, options?: {
     display?: CommandResultDisplay;
@@ -191,16 +191,29 @@ export function Install({
           forced: force ? 1 : 0
         });
 
+        let channelSettingsWarning: string | null = null;
         // If user explicitly specified a channel, save it to settings
         if (target === 'latest' || target === 'stable') {
-          updateSettingsForSource('userSettings', {
+          const settingsResult = updateSettingsForSourceWithResult('userSettings', {
             autoUpdatesChannel: target
           });
-          logForDebugging(`Install: Saved autoUpdatesChannel=${target} to user settings`);
+          if (wasSettingsUpdateCommitted(settingsResult)) {
+            logForDebugging(`Install: Saved autoUpdatesChannel=${target} to user settings`);
+            if (settingsResult.error) {
+              logForDebugging(`Install: auto-updates channel was saved, but settings cleanup failed: ${settingsResult.error.message}`, {
+                level: 'warn'
+              });
+            }
+          } else {
+            channelSettingsWarning = `Installed successfully, but could not save the ${target} update channel: ${settingsResult.error?.message ?? 'settings were not written'}`;
+            logForDebugging(`Install: ${channelSettingsWarning}`, {
+              level: 'warn'
+            });
+          }
         }
 
         // Combine all warning/info messages (convert SetupMessage to string)
-        const allWarnings = [...warnings, ...aliasMessages.map(m_0 => m_0.message)];
+        const allWarnings = [...warnings, ...aliasMessages.map(m_0 => m_0.message), ...(channelSettingsWarning ? [channelSettingsWarning] : [])];
 
         // Check if there were any setup errors or notes
         if (setupMessages.length > 0) {

@@ -9,6 +9,7 @@ import type {
 } from './PermissionResult.js'
 import {
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import { permissionUpdateSchema } from './PermissionUpdateSchema.js'
@@ -124,19 +125,35 @@ export async function permissionPromptToolResultToPermissionDecision(
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan',
     )
     if (updatedPermissions.length > 0) {
+      const persistence = persistPermissionUpdates(updatedPermissions)
+      const appliedUpdates = persistence.appliedUpdates
       let updatedContext = toolUseContext.getAppState().toolPermissionContext
-      toolUseContext.setAppState(prev => {
-        updatedContext = applyPermissionUpdatesToLiveContext(
-          prev.toolPermissionContext,
-          updatedPermissions,
+      if (appliedUpdates.length > 0) {
+        toolUseContext.setAppState(prev => {
+          updatedContext = applyPermissionUpdatesToLiveContext(
+            prev.toolPermissionContext,
+            appliedUpdates,
+          )
+          if (prev.toolPermissionContext === updatedContext) return prev
+          return {
+            ...prev,
+            toolPermissionContext: updatedContext,
+          }
+        })
+      }
+      if (persistence.failedUpdates.length > 0) {
+        const message = permissionPersistenceFailureMessage(
+          persistence.failedUpdates,
         )
-        if (prev.toolPermissionContext === updatedContext) return prev
         return {
-          ...prev,
-          toolPermissionContext: updatedContext,
+          behavior: 'deny',
+          message,
+          decisionReason: {
+            type: 'other',
+            reason: message,
+          },
         }
-      })
-      persistPermissionUpdates(updatedPermissions)
+      }
     }
     const postUpdatePlanModeDecision =
       await revalidatePlanModePermissionAllowWithRaceGuard(

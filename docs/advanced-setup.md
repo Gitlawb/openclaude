@@ -492,6 +492,22 @@ Model env vars are provider-scoped: first-party Anthropic sessions read
 `GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
 or Foundry launches, select the model with `--model`.
 
+### Concurrent settings updates
+
+OpenClaude serializes the complete read, merge, and write transaction for each
+settings file, so concurrent sessions preserve one another's changes. If a
+settings control cannot acquire that file briefly, the current session keeps
+its previous value so you can retry; commands that return status also report
+the failed save.
+
+A warning can also occur after the updated file has already been committed—for
+example, if cleanup of the write lock fails. In that case OpenClaude keeps the
+committed value in the current session and reports the cleanup warning.
+
+Settings sync applies each settings source independently. Sources that commit
+successfully are refreshed immediately; a source that could not be written
+keeps its previous state and can be retried without rolling back other sources.
+
 ### Per-model limit overrides (`settings.json`)
 
 When a custom OpenAI-compatible provider does not expose context metadata from

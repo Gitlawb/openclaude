@@ -53,6 +53,7 @@ import {
   applyPermissionUpdate,
   applyPermissionUpdates,
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
 } from './PermissionUpdate.js'
 import type {
@@ -495,21 +496,36 @@ async function runPermissionRequestHooksForHeadlessAgent(
             context.getAppState().toolPermissionContext.mode === 'plan',
         )
         if (permissionUpdates.length) {
-          // Capture so the narrowing survives into the setAppState callback
-          const updatedPermissions = permissionUpdates
-          let updatedContext = context.getAppState().toolPermissionContext
-          context.setAppState(prev => {
-            updatedContext = applyPermissionUpdatesToLiveContext(
-              prev.toolPermissionContext,
-              updatedPermissions,
+          const persistence = persistPermissionUpdates(permissionUpdates)
+          const appliedUpdates = persistence.appliedUpdates
+          if (appliedUpdates.length > 0) {
+            let updatedContext = context.getAppState().toolPermissionContext
+            context.setAppState(prev => {
+              updatedContext = applyPermissionUpdatesToLiveContext(
+                prev.toolPermissionContext,
+                appliedUpdates,
+              )
+              if (prev.toolPermissionContext === updatedContext) return prev
+              return {
+                ...prev,
+                toolPermissionContext: updatedContext,
+              }
+            })
+          }
+          if (persistence.failedUpdates.length > 0) {
+            const message = permissionPersistenceFailureMessage(
+              persistence.failedUpdates,
             )
-            if (prev.toolPermissionContext === updatedContext) return prev
             return {
-              ...prev,
-              toolPermissionContext: updatedContext,
+              behavior: 'deny',
+              message,
+              decisionReason: {
+                type: 'hook',
+                hookName: 'PermissionRequest',
+                reason: message,
+              },
             }
-          })
-          persistPermissionUpdates(permissionUpdates)
+          }
         }
         return {
           behavior: 'allow',

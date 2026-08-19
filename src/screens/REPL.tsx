@@ -730,6 +730,7 @@ export function REPL({
   const ultraplanLaunchPending = useAppState(s => s.ultraplanLaunchPending);
   const viewingAgentTaskId = useAppState(s => s.viewingAgentTaskId);
   const setAppState = useSetAppState();
+  const workerSandboxResponsesInFlightRef = useRef(new Set<string>());
   const autoCompactTrackingBySessionRef = useRef(new Map<ReturnType<typeof getSessionId>, AutoCompactTrackingState>());
   const getAutoCompactTrackingForSession = useCallback((sessionId: ReturnType<typeof getSessionId>) => autoCompactTrackingBySessionRef.current.get(sessionId), []);
   const setAutoCompactTrackingForSession = useCallback((sessionId: ReturnType<typeof getSessionId>, tracking: AutoCompactTrackingState | undefined) => {
@@ -5241,6 +5242,7 @@ export function REPL({
             const currentRequest = sandboxPermissionRequestQueue[0];
             if (!currentRequest) return;
             const approvedHost = currentRequest.hostPattern.host;
+            let effectiveAllow = allow;
             if (persistToSettings) {
               const update = {
                 type: 'addRules' as const,
@@ -5251,21 +5253,41 @@ export function REPL({
                 behavior: (allow ? 'allow' : 'deny') as 'allow' | 'deny',
                 destination: 'localSettings' as const
               };
-              setAppState(prev => ({
-                ...prev,
-                toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
-              }));
-              persistPermissionUpdate(update);
+              const persisted = persistPermissionUpdate(update);
 
-              // Immediately update sandbox in-memory config to prevent race conditions
-              // where pending requests slip through before settings change is detected
-              SandboxManager.refreshConfig();
+              // Apply the explicit decision for this session even when the
+              // durable write fails; otherwise "allow and remember" silently
+              // degrades to a one-shot approval.
+              const sessionOnly = persisted ? (SandboxManager.applyNetworkApproval(approvedHost, true), false) : allow ? SandboxManager.applyNetworkApproval(approvedHost, false) : true;
+              const applied = persisted || sessionOnly;
+              if (applied) {
+                setAppState(prev => ({
+                  ...prev,
+                  toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
+                }));
+              }
+              if (sessionOnly) {
+                addNotification({
+                  key: `sandbox-permission-session-only:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
+                  color: 'warning',
+                  priority: 'immediate'
+                });
+              } else if (allow && !applied) {
+                effectiveAllow = false;
+                addNotification({
+                  key: `sandbox-permission-unapplied:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} could not be saved or applied to this session.`,
+                  color: 'error',
+                  priority: 'immediate'
+                });
+              }
             }
 
             // Resolve ALL pending requests for the same host (not just the first one)
             // This handles the case where multiple parallel requests came in for the same domain
             setSandboxPermissionRequestQueue(queue => {
-              queue.filter(item => item.hostPattern.host === approvedHost).forEach(item => item.resolvePromise(allow));
+              queue.filter(item => item.hostPattern.host === approvedHost).forEach(item => item.resolvePromise(effectiveAllow));
               return queue.filter(item => item.hostPattern.host !== approvedHost);
             });
 
@@ -5301,7 +5323,7 @@ export function REPL({
           {focusedInputDialog === 'worker-sandbox-permission' && <SandboxPermissionRequest key={workerSandboxPermissions.queue[0]!.requestId} hostPattern={{
             host: workerSandboxPermissions.queue[0]!.host,
             port: undefined
-          } as NetworkHostPattern} onUserResponse={(response: {
+          } as NetworkHostPattern} onUserResponse={async (response: {
             allow: boolean;
             persistToSettings: boolean;
           }) => {
@@ -5311,10 +5333,11 @@ export function REPL({
             } = response;
             const currentRequest = workerSandboxPermissions.queue[0];
             if (!currentRequest) return;
+            if (workerSandboxResponsesInFlightRef.current.has(currentRequest.requestId)) return;
+            workerSandboxResponsesInFlightRef.current.add(currentRequest.requestId);
+            try {
             const approvedHost = currentRequest.host;
-
-            // Send response via mailbox to the worker
-            void sendSandboxPermissionResponseViaMailbox(currentRequest.workerName, currentRequest.requestId, approvedHost, allow, teamContext?.teamName);
+            let effectiveAllow = allow;
             if (persistToSettings && allow) {
               const update = {
                 type: 'addRules' as const,
@@ -5325,22 +5348,57 @@ export function REPL({
                 behavior: 'allow' as const,
                 destination: 'localSettings' as const
               };
-              setAppState(prev => ({
-                ...prev,
-                toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
-              }));
-              persistPermissionUpdate(update);
-              SandboxManager.refreshConfig();
+              const persisted = persistPermissionUpdate(update);
+              const sessionOnly = SandboxManager.applyNetworkApproval(approvedHost, persisted);
+              const applied = persisted || sessionOnly;
+              if (applied) {
+                setAppState(prev => ({
+                  ...prev,
+                  toolPermissionContext: applyPermissionUpdate(prev.toolPermissionContext, update)
+                }));
+              }
+              if (sessionOnly) {
+                addNotification({
+                  key: `worker-sandbox-permission-session-only:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} applies to this session only; settings could not be saved.`,
+                  color: 'warning',
+                  priority: 'immediate'
+                });
+              } else if (!applied) {
+                effectiveAllow = false;
+                addNotification({
+                  key: `worker-sandbox-permission-unapplied:${approvedHost}`,
+                  text: `Sandbox rule for ${approvedHost} could not be saved or applied to this session.`,
+                  color: 'error',
+                  priority: 'immediate'
+                });
+              }
             }
 
-            // Remove from queue
+            // Do not tell a worker to proceed until the durable rule or the
+            // session fallback is actually active in the leader runtime.
+            const sent = await sendSandboxPermissionResponseViaMailbox(currentRequest.workerName, currentRequest.requestId, approvedHost, effectiveAllow, teamContext?.teamName);
+            if (!sent) {
+              addNotification({
+                key: `worker-sandbox-permission-send-failed:${currentRequest.requestId}`,
+                text: `Could not send the sandbox response for ${approvedHost}. The request was kept so you can retry.`,
+                color: 'error',
+                priority: 'immediate'
+              });
+              return;
+            }
+
+            // Remove from queue only after the response reaches the worker.
             setAppState(prev => ({
               ...prev,
               workerSandboxPermissions: {
                 ...prev.workerSandboxPermissions,
-                queue: prev.workerSandboxPermissions.queue.slice(1)
+                queue: prev.workerSandboxPermissions.queue[0]?.requestId === currentRequest.requestId ? prev.workerSandboxPermissions.queue.slice(1) : prev.workerSandboxPermissions.queue
               }
             }));
+            } finally {
+              workerSandboxResponsesInFlightRef.current.delete(currentRequest.requestId);
+            }
           }} />}
           {focusedInputDialog === 'elicitation' && <ElicitationDialog key={elicitation.queue[0]!.serverName + ':' + String(elicitation.queue[0]!.requestId)} event={elicitation.queue[0]!} onResponse={(action, content) => {
             const currentRequest = elicitation.queue[0];

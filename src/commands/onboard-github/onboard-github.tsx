@@ -21,8 +21,10 @@ import { getDisplayPath } from '../../utils/file.js'
 import {
   getSettingsFilePathForSource,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../../utils/settings/settings.js'
+import type { SettingsJson } from '../../utils/settings/types.js'
 
 const DEFAULT_MODEL = 'github:copilot'
 const FORCE_RELOGIN_ARGS = new Set([
@@ -42,10 +44,14 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_MISTRAL',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_ORG',
+  'OPENAI_PROJECT',
+  'OPENAI_ORGANIZATION',
   'OPENAI_MODEL',
   'GITHUB_COPILOT_KEY',
   'GITHUB_ENTERPRISE_URL',
@@ -55,6 +61,11 @@ const PROVIDER_SPECIFIC_KEYS = new Set([
   'GEMINI_MODEL',
   'GEMINI_ACCESS_TOKEN',
   'GEMINI_AUTH_MODE',
+  'MISTRAL_BASE_URL',
+  'MISTRAL_MODEL',
+  'MISTRAL_API_KEY',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
 ])
 
 function getUserSettingsDisplayPath(): string {
@@ -100,23 +111,13 @@ export function buildGithubOnboardingSettingsEnv(
   model: string,
   gheUrl?: string,
 ): Record<string, string | undefined> {
-  return {
-    CLAUDE_CODE_USE_GITHUB: '1',
-    OPENAI_MODEL: model,
-    GITHUB_ENTERPRISE_URL: gheUrl,
-    OPENAI_API_KEYS: undefined,
-    OPENAI_API_KEY: undefined,
-    OPENAI_ORG: undefined,
-    OPENAI_PROJECT: undefined,
-    OPENAI_ORGANIZATION: undefined,
-    OPENAI_BASE_URL: undefined,
-    OPENAI_API_BASE: undefined,
-    CLAUDE_CODE_USE_OPENAI: undefined,
-    CLAUDE_CODE_USE_GEMINI: undefined,
-    CLAUDE_CODE_USE_BEDROCK: undefined,
-    CLAUDE_CODE_USE_VERTEX: undefined,
-    CLAUDE_CODE_USE_FOUNDRY: undefined,
-  }
+  const env = Object.fromEntries(
+    [...PROVIDER_SPECIFIC_KEYS].map(key => [key, undefined]),
+  ) as Record<string, string | undefined>
+  env.CLAUDE_CODE_USE_GITHUB = '1'
+  env.OPENAI_MODEL = model
+  env.GITHUB_ENTERPRISE_URL = gheUrl
+  return env
 }
 
 export function applyGithubOnboardingProcessEnv(
@@ -124,59 +125,37 @@ export function applyGithubOnboardingProcessEnv(
   gheUrl?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
+  for (const key of PROVIDER_SPECIFIC_KEYS) {
+    delete env[key]
+  }
   env.CLAUDE_CODE_USE_GITHUB = '1'
   env.OPENAI_MODEL = model
   if (gheUrl) {
     env.GITHUB_ENTERPRISE_URL = gheUrl
-  } else {
-    delete env.GITHUB_ENTERPRISE_URL
   }
-
-  delete env.OPENAI_API_KEYS
-  delete env.OPENAI_API_KEY
-  delete env.OPENAI_ORG
-  delete env.OPENAI_PROJECT
-  delete env.OPENAI_ORGANIZATION
-  delete env.OPENAI_BASE_URL
-  delete env.OPENAI_API_BASE
-  delete env.GITHUB_COPILOT_KEY
-
-  delete env.CLAUDE_CODE_USE_OPENAI
-  delete env.CLAUDE_CODE_USE_GEMINI
-  delete env.CLAUDE_CODE_USE_BEDROCK
-  delete env.CLAUDE_CODE_USE_VERTEX
-  delete env.CLAUDE_CODE_USE_FOUNDRY
-  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
-  delete env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 }
 
 function mergeUserSettingsEnv(
   model: string,
   gheUrl?: string,
 ): { ok: boolean; detail?: string } {
-  const currentSettings = getSettingsForSource('userSettings')
-  const currentEnv = currentSettings?.env ?? {}
-
-  const newEnv: Record<string, string> = {}
-  for (const [key, value] of Object.entries(currentEnv)) {
-    if (!PROVIDER_SPECIFIC_KEYS.has(key)) {
-      newEnv[key] = value
+  const result = updateSettingsForSourceWithFreshSettings(
+    'userSettings',
+    freshSettings => {
+      return {
+        model,
+        env: {
+          ...(freshSettings.env ?? {}),
+          ...buildGithubOnboardingSettingsEnv(model, gheUrl),
+        } as SettingsJson['env'],
+      }
+    },
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
+    return {
+      ok: false,
+      detail: result.error?.message ?? 'Settings update was not written',
     }
-  }
-
-  newEnv.CLAUDE_CODE_USE_GITHUB = '1'
-  newEnv.OPENAI_MODEL = model
-  if (gheUrl) {
-    newEnv.GITHUB_ENTERPRISE_URL = gheUrl
-  } else {
-    delete newEnv.GITHUB_ENTERPRISE_URL
-  }
-
-  const { error } = updateSettingsForSource('userSettings', {
-    env: newEnv,
-  })
-  if (error) {
-    return { ok: false, detail: error.message }
   }
   return { ok: true }
 }

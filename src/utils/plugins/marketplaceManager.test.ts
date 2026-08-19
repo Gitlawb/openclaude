@@ -10,7 +10,15 @@ import {
   test,
 } from 'bun:test'
 import * as realAxios from 'axios'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -19,15 +27,513 @@ import {
   setFsImplementation,
   type FsOperations,
 } from '../fsOperations.js'
+import {
+  getClaudeConfigHomeDirOverrideForTesting,
+  setClaudeConfigHomeDirForTesting,
+} from '../envUtils.js'
+import { resetSettingsCache } from '../settings/settingsCache.js'
+import {
+  addPluginInstallation,
+  clearInstalledPluginsCache,
+  loadInstalledPluginsV2,
+} from './installedPluginsManager.js'
 
 import type { MarketplaceSource } from './schemas.js'
 
 // @ts-expect-error -- query-string cache-buster: the import specifier ends with `?bust=...`
 // so TypeScript cannot resolve the bare path. The runtime import works under Bun (treats the
 // query string as a distinct module id that bypasses other test files' mock.module registrations).
-import { _test, removeMarketplaceSource, getMarketplaceCacheOnly, getPluginByIdCacheOnly } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
+import { _test, loadKnownMarketplacesConfig, removeMarketplaceSource, saveKnownMarketplacesConfig, getMarketplaceCacheOnly, getPluginByIdCacheOnly } from './marketplaceManager.js?bust=this-test-needs-the-real-module'
 
 const { loadAndCacheMarketplace } = _test
+const symlinkTest = process.platform === 'win32' ? test.skip : test
+
+test.each(['link/market', 'nested\\market', '..', '.'])(
+  'marketplace removal rejects unsafe persisted name %p before cleanup',
+  async name => {
+    await expect(removeMarketplaceSource(name)).rejects.toThrow(
+      'Invalid marketplace name',
+    )
+  },
+)
+
+symlinkTest('marketplace removal cannot follow a persisted name through a symlinked cache parent', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-removal-name-link-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const cacheDir = join(pluginsDir, 'marketplaces')
+  const outsideDir = join(tempRoot, 'outside')
+  const outsideManifest = join(outsideDir, 'market.json')
+  const localSource = join(tempRoot, 'local-source')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+
+  try {
+    process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+    setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+    mkdirSync(cacheDir, { recursive: true })
+    mkdirSync(outsideDir)
+    mkdirSync(localSource)
+    writeFileSync(outsideManifest, 'outside sentinel', 'utf8')
+    symlinkSync(outsideDir, join(cacheDir, 'link'))
+    writeFileSync(
+      join(pluginsDir, 'known_marketplaces.json'),
+      JSON.stringify({
+        'link/market': {
+          source: { source: 'directory', path: localSource },
+          installLocation: localSource,
+          lastUpdated: '2026-08-12T00:00:00.000Z',
+        },
+      }),
+      'utf8',
+    )
+
+    await expect(
+      removeMarketplaceSource('link/market', {
+        getCleanupSnapshot: () => ({ pluginIds: [], orphanedPaths: [] }),
+      }),
+    ).rejects.toThrow('Invalid marketplace name')
+    expect(existsSync(outsideManifest)).toBe(true)
+  } finally {
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('marketplace removal rejects the marketplace cache root as an install location', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-removal-cache-root-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const cacheDir = join(pluginsDir, 'marketplaces')
+  const siblingCache = join(cacheDir, 'keep-me')
+  const sentinel = join(siblingCache, 'sentinel')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+
+  try {
+    process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+    setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+    mkdirSync(siblingCache, { recursive: true })
+    writeFileSync(sentinel, 'keep', 'utf8')
+    await saveKnownMarketplacesConfig({
+      unsafe: {
+        source: { source: 'github', repo: 'example/unsafe' },
+        installLocation: cacheDir,
+        lastUpdated: '2026-08-16T00:00:00.000Z',
+      },
+    })
+
+    await expect(
+      removeMarketplaceSource('unsafe', {
+        getCleanupSnapshot: () => ({ pluginIds: [], orphanedPaths: [] }),
+      }),
+    ).rejects.toThrow('Path traversal detected')
+    expect(existsSync(sentinel)).toBe(true)
+  } finally {
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('marketplace removal preserves an out-of-cache install location', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-outside-cache-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const outsideCache = join(tempRoot, 'legacy-cache')
+  const sentinel = join(outsideCache, 'sentinel')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+
+  try {
+    process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+    setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+    resetSettingsCache()
+    mkdirSync(outsideCache, { recursive: true })
+    writeFileSync(sentinel, 'keep', 'utf8')
+    await saveKnownMarketplacesConfig({
+      legacy: {
+        source: { source: 'github', repo: 'example/legacy' },
+        installLocation: outsideCache,
+        lastUpdated: '2026-08-16T00:00:00.000Z',
+      },
+    })
+
+    await removeMarketplaceSource('legacy', {
+      getCleanupSnapshot: () => ({ pluginIds: [], orphanedPaths: [] }),
+    })
+
+    expect(existsSync(sentinel)).toBe(true)
+    expect((await loadKnownMarketplacesConfig()).legacy).toBeUndefined()
+  } finally {
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('failed known-marketplace save keeps its exact config entry for retry', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-removal-retry-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  clearInstalledPluginsCache()
+  resetSettingsCache()
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'github', repo: 'example/retryable' },
+        installLocation: join(pluginsDir, 'marketplaces', 'retryable'),
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+    addPluginInstallation(
+      'demo@retryable',
+      'user',
+      join(pluginsDir, 'cache', 'retryable', 'demo', '1.0.0'),
+      { version: '1.0.0' },
+    )
+
+    await expect(
+      removeMarketplaceSource('retryable', {
+        saveConfig: () => {
+          throw new Error('known marketplace save unavailable')
+        },
+      }),
+    ).rejects.toThrow('known marketplace save unavailable')
+
+    clearInstalledPluginsCache()
+    expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
+    expect((await loadKnownMarketplacesConfig()).retryable).toBeDefined()
+
+    await removeMarketplaceSource('retryable')
+    clearInstalledPluginsCache()
+    expect(loadInstalledPluginsV2().plugins['demo@retryable']).toBeUndefined()
+  } finally {
+    clearInstalledPluginsCache()
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('failed custom cache cleanup retains the exact marketplace path for retry', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-cache-retry-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const customCachePath = join(pluginsDir, 'marketplaces', 'Custom-Mixed-Cache')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  const originalFs = getFsImplementation()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  clearInstalledPluginsCache()
+  resetSettingsCache()
+  mkdirSync(customCachePath, { recursive: true })
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'github', repo: 'example/retryable' },
+        installLocation: customCachePath,
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+    addPluginInstallation(
+      'demo@retryable',
+      'user',
+      join(pluginsDir, 'cache', 'retryable', 'demo', '1.0.0'),
+      { version: '1.0.0' },
+    )
+
+    setFsImplementation({
+      ...originalFs,
+      rmSync: (path, options) => {
+        if (String(path) === customCachePath) {
+          throw new Error('custom cache unavailable')
+        }
+        return originalFs.rmSync(path, options)
+      },
+    })
+    await expect(removeMarketplaceSource('retryable')).rejects.toThrow(
+      'custom cache unavailable',
+    )
+    expect((await loadKnownMarketplacesConfig()).retryable?.installLocation).toBe(
+      customCachePath,
+    )
+
+    setFsImplementation(originalFs)
+    await removeMarketplaceSource('retryable')
+    expect(existsSync(customCachePath)).toBe(false)
+  } finally {
+    setFsImplementation(originalFs)
+    clearInstalledPluginsCache()
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('marketplace removal rejects a no-progress registry snapshot', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-no-progress-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const localSource = join(tempRoot, 'local-source')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  resetSettingsCache()
+  mkdirSync(localSource, { recursive: true })
+  const snapshots = [
+    { pluginIds: ['demo@retryable'], orphanedPaths: [] },
+    { pluginIds: ['peer@retryable'], orphanedPaths: [] },
+  ]
+  let lastSnapshot = snapshots[0]!
+  const nextSnapshot = () => {
+    lastSnapshot = snapshots.shift() ?? lastSnapshot
+    return lastSnapshot
+  }
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'directory', path: localSource },
+        installLocation: localSource,
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+
+    await expect(
+      removeMarketplaceSource('retryable', {
+        getCleanupSnapshot: nextSnapshot,
+        finalizeRemoval: () => ({
+          finalized: false,
+          snapshot: nextSnapshot(),
+        }),
+        deleteOptions: () => ({ success: true }),
+        orphanVersion: async () => undefined,
+        deleteData: async () => undefined,
+        removePlugins: () => ({ orphanedPaths: [], removedPluginIds: [] }),
+      }),
+    ).rejects.toThrow('made no progress')
+    expect((await loadKnownMarketplacesConfig()).retryable).toBeDefined()
+  } finally {
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('marketplace removal rejects an empty nonfinalized registry snapshot', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-empty-no-progress-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const localSource = join(tempRoot, 'local-source')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  resetSettingsCache()
+  mkdirSync(localSource, { recursive: true })
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'directory', path: localSource },
+        installLocation: localSource,
+        lastUpdated: '2026-08-16T00:00:00.000Z',
+      },
+    })
+
+    await expect(
+      removeMarketplaceSource('retryable', {
+        getCleanupSnapshot: () => ({ pluginIds: [], orphanedPaths: [] }),
+        finalizeRemoval: () => ({
+          finalized: false,
+          snapshot: { pluginIds: [], orphanedPaths: [] },
+        }),
+      }),
+    ).rejects.toThrow('could not be finalized')
+    expect((await loadKnownMarketplacesConfig()).retryable).toBeDefined()
+  } finally {
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('marketplace removal cleans a registration that appears before finalization', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-finalization-race-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const localSource = join(tempRoot, 'local-source')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  resetSettingsCache()
+  mkdirSync(localSource, { recursive: true })
+  const removedSnapshots: string[][] = []
+  let finalizationCalls = 0
+
+  try {
+    await saveKnownMarketplacesConfig({
+      retryable: {
+        source: { source: 'directory', path: localSource },
+        installLocation: localSource,
+        lastUpdated: '2026-08-16T00:00:00.000Z',
+      },
+    })
+
+    await removeMarketplaceSource('retryable', {
+      getCleanupSnapshot: () => ({ pluginIds: [], orphanedPaths: [] }),
+      finalizeRemoval: (_name, finalize) => {
+        finalizationCalls++
+        if (finalizationCalls === 1) {
+          return {
+            finalized: false,
+            snapshot: {
+              pluginIds: ['late@retryable'],
+              orphanedPaths: [],
+            },
+          }
+        }
+        finalize()
+        return { finalized: true }
+      },
+      deleteOptions: () => ({ success: true }),
+      orphanVersion: async () => undefined,
+      deleteData: async () => undefined,
+      removePlugins: (_name, options) => {
+        removedSnapshots.push([...(options?.pluginIds ?? [])])
+        return {
+          orphanedPaths: [],
+          removedPluginIds: [...(options?.pluginIds ?? [])],
+        }
+      },
+    })
+
+    expect(finalizationCalls).toBe(2)
+    expect(removedSnapshots).toEqual([['late@retryable']])
+    expect((await loadKnownMarketplacesConfig()).retryable).toBeUndefined()
+  } finally {
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('removing a local directory marketplace preserves the user-owned source', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'marketplace-local-remove-'))
+  const pluginsDir = join(tempRoot, 'plugins')
+  const localSource = join(tempRoot, 'user-marketplace')
+  const originalPluginCacheDir = process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+  const originalConfigOverride = getClaudeConfigHomeDirOverrideForTesting()
+  process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = pluginsDir
+  setClaudeConfigHomeDirForTesting(join(tempRoot, 'config'))
+  clearInstalledPluginsCache()
+  resetSettingsCache()
+  mkdirSync(localSource, { recursive: true })
+
+  try {
+    await saveKnownMarketplacesConfig({
+      local: {
+        source: { source: 'directory', path: localSource },
+        installLocation: localSource,
+        lastUpdated: '2026-08-11T00:00:00.000Z',
+      },
+    })
+
+    await removeMarketplaceSource('local')
+
+    expect(existsSync(localSource)).toBe(true)
+    expect((await loadKnownMarketplacesConfig()).local).toBeUndefined()
+  } finally {
+    clearInstalledPluginsCache()
+    resetSettingsCache()
+    setClaudeConfigHomeDirForTesting(originalConfigOverride)
+    if (originalPluginCacheDir === undefined) {
+      delete process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR
+    } else {
+      process.env.CLAUDE_CODE_PLUGIN_CACHE_DIR = originalPluginCacheDir
+    }
+    rmSync(tempRoot, { recursive: true, force: true })
+  }
+})
+
+describe('marketplace auto-update settings transaction', () => {
+  test('preserves a declaration changed by another writer before the lock-scoped update', () => {
+    expect(
+      _test.buildMarketplaceAutoUpdatePatch(
+        {
+          extraKnownMarketplaces: {
+            community: {
+              source: { url: 'https://fresh.example/marketplace.json' },
+              autoUpdate: false,
+            },
+          },
+        },
+        'community',
+        true,
+        'userSettings',
+      ),
+    ).toEqual({
+      extraKnownMarketplaces: {
+        community: {
+          source: { url: 'https://fresh.example/marketplace.json' },
+          autoUpdate: true,
+        },
+      },
+    })
+  })
+
+  test('refuses to recreate a marketplace removed before the lock-scoped update', () => {
+    expect(() =>
+      _test.buildMarketplaceAutoUpdatePatch(
+        {},
+        'community',
+        true,
+        'userSettings',
+      ),
+    ).toThrow("Marketplace 'community' is no longer declared in userSettings")
+  })
+})
 
 /**
  * The static import above uses a query-string suffix to bypass Bun's

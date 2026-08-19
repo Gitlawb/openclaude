@@ -18,8 +18,8 @@ import { toError } from '../errors.js'
 import { getFsImplementation } from '../fsOperations.js'
 import { logError } from '../log.js'
 import {
-  getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithFreshSettings,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { buildPluginTelemetryFields } from '../telemetry/pluginTelemetry.js'
 import { clearAllCaches } from './cacheUtils.js'
@@ -31,10 +31,13 @@ import {
 } from './dependencyResolver.js'
 import {
   addInstalledPlugin,
+  compareAndSwapPluginInstallation,
   getGitCommitSha,
+  type PluginInstallationMutation,
 } from './installedPluginsManager.js'
 import { getManagedPluginNames } from './managedPlugins.js'
 import { getMarketplaceCacheOnly, getPluginById } from './marketplaceManager.js'
+import { validatePathWithinBase } from './pathConfinement.js'
 import {
   isOfficialMarketplaceName,
   parsePluginIdentifier,
@@ -84,26 +87,19 @@ export function getCurrentTimestamp(): string {
  * @returns The validated absolute path
  * @throws Error if the path would escape the base directory
  */
-export function validatePathWithinBase(
-  basePath: string,
-  relativePath: string,
+export { validatePathWithinBase } from './pathConfinement.js'
+
+/** Return the directory local plugin sources are relative to. */
+export function getMarketplaceSourceBasePath(
+  marketplaceInstallLocation: string,
 ): string {
-  const resolvedPath = resolve(basePath, relativePath)
-  const normalizedBase = resolve(basePath) + sep
-
-  // Check if the resolved path starts with the base path
-  // Adding sep ensures we don't match partial directory names
-  // e.g., /foo/bar should not match /foo/barbaz
-  if (
-    !resolvedPath.startsWith(normalizedBase) &&
-    resolvedPath !== resolve(basePath)
-  ) {
-    throw new Error(
-      `Path traversal detected: "${relativePath}" would escape the base directory`,
-    )
+  try {
+    return getFsImplementation().statSync(marketplaceInstallLocation).isFile()
+      ? dirname(marketplaceInstallLocation)
+      : marketplaceInstallLocation
+  } catch {
+    return marketplaceInstallLocation
   }
-
-  return resolvedPath
 }
 
 /**
@@ -123,7 +119,8 @@ export function validatePathWithinBase(
  *                'managed' scope is used for plugins installed automatically from managed settings.
  * @param projectPath - Project path (required for project/local scopes)
  * @param localSourcePath - For local plugins, the resolved absolute path to the source directory
- * @returns The installation path
+ * @param localSourceBasePath - Marketplace root used to validate local sources
+ * @returns The installation path and exact lock-scoped registry mutation
  */
 export async function cacheAndRegisterPlugin(
   pluginId: string,
@@ -131,12 +128,30 @@ export async function cacheAndRegisterPlugin(
   scope: PluginScope = 'user',
   projectPath?: string,
   localSourcePath?: string,
-): Promise<string> {
+  localSourceBasePath?: string,
+): Promise<{
+  installPath: string
+  registration: PluginInstallationMutation
+}> {
+  let validatedLocalSourcePath: string | undefined
+  if (typeof entry.source === 'string') {
+    if (!localSourceBasePath) {
+      throw new Error(`Missing marketplace root for local plugin ${pluginId}`)
+    }
+    const marketplaceBase = getMarketplaceSourceBasePath(localSourceBasePath)
+    validatedLocalSourcePath = validatePathWithinBase(marketplaceBase, entry.source)
+    if (
+      localSourcePath !== undefined &&
+      resolve(localSourcePath) !== validatedLocalSourcePath
+    ) {
+      throw new Error(`Local source path mismatch for plugin ${pluginId}`)
+    }
+  }
   // For local plugins, we need the resolved absolute path
   // Cast to PluginSource since cachePlugin handles any string path at runtime
   const source: PluginSource =
-    typeof entry.source === 'string' && localSourcePath
-      ? (localSourcePath as PluginSource)
+    typeof entry.source === 'string' && validatedLocalSourcePath
+      ? (validatedLocalSourcePath as PluginSource)
       : entry.source
 
   const cacheResult = await cachePlugin(source, {
@@ -148,7 +163,7 @@ export async function cacheAndRegisterPlugin(
   // subdirectory of the marketplace git repo). For external plugins, use the
   // cached path. For git-subdir sources, cachePlugin already captured the SHA
   // before discarding the ephemeral clone (the extracted subdir has no .git).
-  const pathForGitSha = localSourcePath || cacheResult.path
+  const pathForGitSha = validatedLocalSourcePath || cacheResult.path
   const gitCommitSha =
     cacheResult.gitCommitSha ?? (await getGitCommitSha(pathForGitSha))
 
@@ -209,7 +224,7 @@ export async function cacheAndRegisterPlugin(
   }
 
   // Add to both V1 and V2 installed_plugins files with correct scope
-  addInstalledPlugin(
+  const registration = addInstalledPlugin(
     pluginId,
     {
       version,
@@ -222,7 +237,7 @@ export async function cacheAndRegisterPlugin(
     projectPath,
   )
 
-  return finalPath
+  return { installPath: finalPath, registration }
 }
 
 /**
@@ -240,9 +255,9 @@ export function registerPluginInstallation(
   info: PluginInstallationInfo,
   scope: PluginScope = 'user',
   projectPath?: string,
-): void {
+): PluginInstallationMutation {
   const now = getCurrentTimestamp()
-  addInstalledPlugin(
+  return addInstalledPlugin(
     info.pluginId,
     {
       version: info.version || 'unknown',
@@ -350,11 +365,18 @@ export async function installResolvedPlugin({
   entry,
   scope,
   marketplaceInstallLocation,
+  dependencies = {},
 }: {
   pluginId: string
   entry: PluginMarketplaceEntry
   scope: 'user' | 'project' | 'local'
   marketplaceInstallLocation?: string
+  dependencies?: {
+    cacheAndRegisterPlugin?: typeof cacheAndRegisterPlugin
+    updateFresh?: typeof updateSettingsForSourceWithFreshSettings
+    compareAndSwap?: typeof compareAndSwapPluginInstallation
+    reportError?: typeof logError
+  }
 }): Promise<InstallCoreResult> {
   const settingSource = scopeToSettingSource(scope)
 
@@ -426,50 +448,110 @@ export async function installResolvedPlugin({
     }
   }
 
-  // ── ACTION: write entire closure to settings in one call ──
-  const closureEnabled: Record<string, true> = {}
-  for (const id of resolution.closure) closureEnabled[id] = true
-  const { error } = updateSettingsForSource(settingSource, {
-    enabledPlugins: {
-      ...getSettingsForSource(settingSource)?.enabledPlugins,
-      ...closureEnabled,
-    },
-  })
-  if (error) {
-    return {
-      ok: false,
-      reason: 'settings-write-failed',
-      message: error.message,
+  // Resolve and validate every local source before committing enabledPlugins.
+  // A bad dependency path must not leave settings enabled for an installation
+  // that can never be materialized.
+  const materializationPlan: Array<{
+    id: string
+    info: {
+      entry: PluginMarketplaceEntry
+      marketplaceInstallLocation?: string
     }
-  }
-
-  // ── Materialize: cache each closure member ──
-  const projectPath = scope !== 'user' ? getCwd() : undefined
+    localSourcePath?: string
+  }> = []
   for (const id of resolution.closure) {
-    let info = depInfo.get(id)
-    // Root wasn't pre-seeded (caller didn't pass marketplaceInstallLocation
-    // for a non-local source). Fetch now; it's needed for the cache write.
+    let info:
+      | {
+          entry: PluginMarketplaceEntry
+          marketplaceInstallLocation?: string
+        }
+      | undefined = depInfo.get(id)
     if (!info && id === pluginId) {
-      const mktLocation = (await getPluginById(id))?.marketplaceInstallLocation
-      if (mktLocation) info = { entry, marketplaceInstallLocation: mktLocation }
+      const located = await getPluginById(id)
+      info = located
+        ? {
+            entry,
+            marketplaceInstallLocation: located.marketplaceInstallLocation,
+          }
+        : { entry }
     }
     if (!info) continue
 
     let localSourcePath: string | undefined
-    const { source } = info.entry
-    if (isLocalPluginSource(source)) {
+    if (isLocalPluginSource(info.entry.source)) {
+      if (!info.marketplaceInstallLocation) {
+        return {
+          ok: false,
+          reason: 'local-source-no-location',
+          pluginName: info.entry.name,
+        }
+      }
       localSourcePath = validatePathWithinBase(
-        info.marketplaceInstallLocation,
-        source,
+        getMarketplaceSourceBasePath(info.marketplaceInstallLocation),
+        info.entry.source,
       )
     }
-    await cacheAndRegisterPlugin(
-      id,
-      info.entry,
+    materializationPlan.push({ id, info, localSourcePath })
+  }
+
+  // ── Materialize before publishing enabled state ──
+  // A source can disappear or change after prevalidation. Do not claim the
+  // closure is enabled until every member has a registered installation.
+  const projectPath = scope !== 'user' ? getCwd() : undefined
+  const registrations: Array<{
+    id: string
+    mutation: PluginInstallationMutation
+  }> = []
+  try {
+    for (const { id, info, localSourcePath } of materializationPlan) {
+      const { registration } = await (
+        dependencies.cacheAndRegisterPlugin ?? cacheAndRegisterPlugin
+      )(
+        id,
+        info.entry,
+        scope,
+        projectPath,
+        localSourcePath,
+        info.marketplaceInstallLocation,
+      )
+      registrations.push({ id, mutation: registration })
+    }
+  } catch (error) {
+    rollbackPluginRegistrations(
+      registrations,
       scope,
       projectPath,
-      localSourcePath,
+      dependencies,
     )
+    throw error
+  }
+
+  // ── ACTION: publish the entire closure to settings in one call ──
+  const closureEnabled: Record<string, true> = {}
+  for (const id of resolution.closure) closureEnabled[id] = true
+  const result = (
+    dependencies.updateFresh ?? updateSettingsForSourceWithFreshSettings
+  )(
+    settingSource,
+    freshSettings => ({
+      enabledPlugins: {
+        ...freshSettings.enabledPlugins,
+        ...closureEnabled,
+      },
+    }),
+  )
+  if (!wasSettingsUpdateCommitted(result)) {
+    rollbackPluginRegistrations(
+      registrations,
+      scope,
+      projectPath,
+      dependencies,
+    )
+    return {
+      ok: false,
+      reason: 'settings-write-failed',
+      message: result.error?.message ?? 'Settings update was not written',
+    }
   }
 
   clearAllCaches()
@@ -478,6 +560,47 @@ export async function installResolvedPlugin({
     resolution.closure.filter(id => id !== pluginId),
   )
   return { ok: true, closure: resolution.closure, depNote }
+}
+
+function rollbackPluginRegistrations(
+  registrations: Array<{
+    id: string
+    mutation: PluginInstallationMutation
+  }>,
+  scope: PluginScope,
+  projectPath?: string,
+  dependencies: {
+    compareAndSwap?: typeof compareAndSwapPluginInstallation
+    reportError?: typeof logError
+  } = {},
+): void {
+  const compareAndSwap =
+    dependencies.compareAndSwap ?? compareAndSwapPluginInstallation
+  const reportError = dependencies.reportError ?? logError
+  for (const { id, mutation } of [...registrations].reverse()) {
+    try {
+      const restored = compareAndSwap(
+        id,
+        scope,
+        projectPath,
+        mutation.current,
+        mutation.previous,
+      )
+      if (!restored) {
+        reportError(
+          new Error(
+            `Plugin registration rollback for '${id}' was skipped because the installation changed concurrently`,
+          ),
+        )
+      }
+    } catch (error) {
+      reportError(
+        new Error(`Plugin registration rollback for '${id}' failed`, {
+          cause: toError(error),
+        }),
+      )
+    }
+  }
 }
 
 /**

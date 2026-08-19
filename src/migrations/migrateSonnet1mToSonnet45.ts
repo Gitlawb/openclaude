@@ -3,12 +3,14 @@ import {
   setMainLoopModelOverride,
 } from '../bootstrap/state.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
+import { logForDebugging } from '../utils/debug.js'
 import {
   isFirstPartyAnthropicProvider,
 } from '../utils/model/providers.js'
 import {
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../utils/settings/settings.js'
 
 /**
@@ -37,9 +39,16 @@ export function migrateSonnet1mToSonnet45(): void {
 
   const model = getSettingsForSource('userSettings')?.model
   if (model === 'sonnet[1m]') {
-    updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       model: 'sonnet-4-5-20250929[1m]',
     })
+    if (!wasSettingsUpdateCommitted(result)) {
+      logForDebugging(
+        `migrateSonnet1mToSonnet45: settings write not committed, retrying next launch: ${result.error?.message ?? 'settings were not written'}`,
+        { level: 'warn' },
+      )
+      return
+    }
   }
 
   // Also migrate the in-memory override if already set

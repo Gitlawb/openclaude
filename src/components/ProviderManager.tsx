@@ -115,7 +115,10 @@ import {
 import { clearStartupProviderOverrides } from '../utils/providerStartupOverrides.js'
 import { redactSensitiveInfo, redactUrlForDisplay } from '../utils/redaction.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
-import { updateSettingsForSource } from '../utils/settings/settings.js'
+import {
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
+} from '../utils/settings/settings.js'
 import {
   type OptionWithDescription,
   Select,
@@ -1704,6 +1707,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     setScreen('menu')
   }
 
+  function deleteSavedProviderProfile(
+    profileId: string,
+  ): ReturnType<typeof deleteProviderProfile> | null {
+    try {
+      return deleteProviderProfile(profileId)
+    } catch (error) {
+      setErrorMessage(
+        `Could not delete provider: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return null
+    }
+  }
+
   function closeWithCancelled(message: string): void {
     aimlapiAbortRef.current?.abort()
     aimlapiAbortRef.current = null
@@ -1717,7 +1733,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function activateGithubProvider(): string | null {
-    const { error } = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
@@ -1735,8 +1751,14 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         CLAUDE_CODE_USE_FOUNDRY: undefined as any,
       },
     })
-    if (error) {
-      return error.message
+    if (!wasSettingsUpdateCommitted(result)) {
+      return result.error?.message ?? 'GitHub provider settings were not written'
+    }
+    if (result.error) {
+      logForDebugging(
+        `GitHub provider settings committed with a cleanup warning: ${result.error.message}`,
+        { level: 'warn' },
+      )
     }
 
     process.env.CLAUDE_CODE_USE_GITHUB = '1'
@@ -1763,12 +1785,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
   function deleteGithubProvider(): string | null {
     const storedTokenBeforeClear = readGithubModelsToken()?.trim()
-    const cleared = clearGithubModelsToken()
-    if (!cleared.success) {
-      return cleared.warning ?? 'Could not clear GitHub credentials.'
-    }
-
-    const { error } = updateSettingsForSource('userSettings', {
+    const result = updateSettingsForSourceWithResult('userSettings', {
       env: {
         CLAUDE_CODE_USE_GITHUB: undefined as any,
         OPENAI_MODEL: undefined as any,
@@ -1776,8 +1793,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         OPENAI_API_BASE: undefined as any,
       },
     })
-    if (error) {
-      return error.message
+    if (!wasSettingsUpdateCommitted(result)) {
+      return result.error?.message ?? 'GitHub provider settings were not written'
+    }
+    if (result.error) {
+      logForDebugging(
+        `GitHub provider settings removal committed with a cleanup warning: ${result.error.message}`,
+        { level: 'warn' },
+      )
+    }
+
+    const cleared = clearGithubModelsToken()
+    if (!cleared.success) {
+      return cleared.warning ?? 'Could not clear GitHub credentials.'
     }
 
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -1972,9 +2000,17 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           : undefined,
     }
 
-    const saved = profileId
-      ? updateProviderProfile(profileId, payload)
-      : addProviderProfile(payload, { makeActive: true })
+    let saved: ProviderProfile | null
+    try {
+      saved = profileId
+        ? updateProviderProfile(profileId, payload)
+        : addProviderProfile(payload, { makeActive: true })
+    } catch (error) {
+      setErrorMessage(
+        `Could not save provider: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return
+    }
 
     if (!saved) {
       setErrorMessage('Could not save provider. Fill all required fields.')
@@ -3972,6 +4008,7 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
           Active profile controls base URL, model, and API key used by this session.
         </Text>
         {statusMessage && <Text>{statusMessage}</Text>}
+        {errorMessage && <Text color="error">{errorMessage}</Text>}
         <Box flexDirection="column">
           {profiles.length === 0 && !githubProviderAvailable ? (
             isGithubCredentialSourceResolved ? (
@@ -4022,36 +4059,44 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 }
                 break
               case 'logout-codex-oauth': {
-                const cleared = clearCodexCredentials()
-                if (!cleared.success) {
-                  setErrorMessage(
-                    cleared.warning ??
-                      'Could not clear Codex OAuth credentials.',
-                  )
-                  break
-                }
-
-                setHasStoredCodexOAuthCredentials(false)
-                setStoredCodexOAuthProfileId(undefined)
                 const codexProfile = findCodexOAuthProfile(
                   getProviderProfiles(),
                   storedCodexOAuthProfileId,
                 )
                 let settingsOverrideError: string | null = null
                 if (codexProfile) {
-                  const result = deleteProviderProfile(codexProfile.id)
+                  const result = deleteSavedProviderProfile(codexProfile.id)
+                  if (!result) {
+                    refreshProfiles()
+                    break
+                  }
                   if (!result.removed) {
                     setErrorMessage(
-                      'Codex OAuth credentials were cleared, but the Codex profile could not be removed.',
+                      'The Codex OAuth profile could not be removed, so its credentials were not cleared.',
                     )
                     refreshProfiles()
                     break
                   }
 
-                  clearPersistedCodexOAuthProfile()
                   settingsOverrideError = result.activeProfileId
                     ? clearStartupProviderOverrideFromUserSettings()
                     : null
+                }
+
+                const cleared = clearCodexCredentials()
+                if (!cleared.success) {
+                  setErrorMessage(
+                    cleared.warning ??
+                      'Could not clear Codex OAuth credentials.',
+                  )
+                  refreshProfiles()
+                  break
+                }
+
+                setHasStoredCodexOAuthCredentials(false)
+                setStoredCodexOAuthProfileId(undefined)
+                if (codexProfile) {
+                  clearPersistedCodexOAuthProfile()
                 }
 
                 refreshProfiles()
@@ -4063,36 +4108,44 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
                 break
               }
               case 'logout-xai-oauth': {
-                const cleared = clearXaiCredentials()
-                if (!cleared.success) {
-                  setErrorMessage(
-                    cleared.warning ??
-                      'Could not clear xAI OAuth credentials.',
-                  )
-                  break
-                }
-
-                setHasStoredXaiOAuthCredentials(false)
-                setStoredXaiOAuthProfileId(undefined)
                 const xaiProfile = findXaiOAuthProfile(
                   getProviderProfiles(),
                   storedXaiOAuthProfileId,
                 )
                 let settingsOverrideError: string | null = null
                 if (xaiProfile) {
-                  const result = deleteProviderProfile(xaiProfile.id)
+                  const result = deleteSavedProviderProfile(xaiProfile.id)
+                  if (!result) {
+                    refreshProfiles()
+                    break
+                  }
                   if (!result.removed) {
                     setErrorMessage(
-                      'xAI OAuth credentials were cleared, but the xAI profile could not be removed.',
+                      'The xAI OAuth profile could not be removed, so its credentials were not cleared.',
                     )
                     refreshProfiles()
                     break
                   }
 
-                  clearPersistedXaiOAuthProfile()
                   settingsOverrideError = result.activeProfileId
                     ? clearStartupProviderOverrideFromUserSettings()
                     : null
+                }
+
+                const cleared = clearXaiCredentials()
+                if (!cleared.success) {
+                  setErrorMessage(
+                    cleared.warning ??
+                      'Could not clear xAI OAuth credentials.',
+                  )
+                  refreshProfiles()
+                  break
+                }
+
+                setHasStoredXaiOAuthCredentials(false)
+                setStoredXaiOAuthProfileId(undefined)
+                if (xaiProfile) {
+                  clearPersistedXaiOAuthProfile()
                 }
 
                 refreshProfiles()
@@ -4222,9 +4275,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               getProviderProfiles(),
               storedXaiOAuthProfileId,
             )
-            const saved = existing
-              ? updateProviderProfile(existing.id, payload)
-              : addProviderProfile(payload, { makeActive: false })
+            let saved: ProviderProfile | null
+            try {
+              saved = existing
+                ? updateProviderProfile(existing.id, payload)
+                : addProviderProfile(payload, { makeActive: false })
+            } catch (error) {
+              setErrorMessage(
+                `xAI OAuth login finished, but the provider profile could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              returnToMenu()
+              return
+            }
 
             if (!saved) {
               setErrorMessage(
@@ -4234,10 +4296,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            const active =
-              activeProfileId === saved.id
-                ? saved
-                : setActiveProviderProfile(saved.id)
+            let active: ProviderProfile | null
+            try {
+              active =
+                activeProfileId === saved.id
+                  ? saved
+                  : setActiveProviderProfile(saved.id)
+            } catch (error) {
+              setErrorMessage(
+                `xAI OAuth login finished, but the provider could not be set as the startup provider: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              returnToMenu()
+              return
+            }
 
             if (!active) {
               setErrorMessage(
@@ -4311,9 +4382,18 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               getProviderProfiles(),
               storedCodexOAuthProfileId,
             )
-            const saved = existing
-              ? updateProviderProfile(existing.id, payload)
-              : addProviderProfile(payload, { makeActive: false })
+            let saved: ProviderProfile | null
+            try {
+              saved = existing
+                ? updateProviderProfile(existing.id, payload)
+                : addProviderProfile(payload, { makeActive: false })
+            } catch (error) {
+              setErrorMessage(
+                `Codex OAuth login finished, but the provider profile could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              returnToMenu()
+              return
+            }
 
             if (!saved) {
               setErrorMessage(
@@ -4323,10 +4403,19 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               return
             }
 
-            const active =
-              activeProfileId === saved.id
-                ? saved
-                : setActiveProviderProfile(saved.id)
+            let active: ProviderProfile | null
+            try {
+              active =
+                activeProfileId === saved.id
+                  ? saved
+                  : setActiveProviderProfile(saved.id)
+            } catch (error) {
+              setErrorMessage(
+                `Codex OAuth login finished, but the provider could not be set as the startup provider: ${error instanceof Error ? error.message : String(error)}`,
+              )
+              returnToMenu()
+              return
+            }
             if (!active) {
               setErrorMessage(
                 'Codex OAuth login finished, but the provider could not be set as the startup provider.',
@@ -4456,7 +4545,12 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
               profiles,
               storedXaiOAuthProfileId,
             )?.id === profileId
-          const result = deleteProviderProfile(profileId)
+          const result = deleteSavedProviderProfile(profileId)
+          if (!result) {
+            refreshProfiles()
+            returnToMenu()
+            return
+          }
           if (!result.removed) {
             setErrorMessage('Could not delete provider.')
           } else {

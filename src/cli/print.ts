@@ -3,8 +3,12 @@ import { feature } from 'bun:bundle'
 import { readFile, stat } from 'fs/promises'
 import { dirname } from 'path'
 import {
+  assertHeadlessPluginPreparationReady,
   downloadUserSettings,
+  handleReloadSettingsDownloadResult,
+  prepareHeadlessPluginsAfterSettingsDownload,
   redownloadUserSettings,
+  type HeadlessPluginPreparationResult,
 } from 'src/services/settingsSync/index.js'
 import { waitForRemoteManagedSettingsToLoad } from 'src/services/remoteManagedSettings/index.js'
 import { StructuredIO } from 'src/cli/structuredIO.js'
@@ -1900,30 +1904,35 @@ function runHeadlessStreaming(
   }
 
   // NOTE: Nested function required - needs closure access to applyMcpServerChanges and updateSdkMcp
-  async function installPluginsAndApplyMcpInBackground(): Promise<void> {
+  async function installPluginsAndApplyMcpInBackground(): Promise<HeadlessPluginPreparationResult> {
     try {
       // Join point for user settings (fired at runHeadless entry) and managed
       // settings (fired in main.tsx preAction). downloadUserSettings() caches
       // its promise so this awaits the same in-flight request.
-      await Promise.all([
-        feature('DOWNLOAD_USER_SETTINGS') &&
-        (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
-          ? withDiagnosticsTiming('headless_user_settings_download', () =>
-              downloadUserSettings(),
-            )
-          : Promise.resolve(),
-        withDiagnosticsTiming('headless_managed_settings_wait', () =>
-          waitForRemoteManagedSettingsToLoad(),
-        ),
-      ])
-
-      const pluginsInstalled = await installPluginsForHeadless()
-
-      if (pluginsInstalled) {
-        await applyPluginMcpDiff()
+      const result = await prepareHeadlessPluginsAfterSettingsDownload({
+        downloadSettings: () =>
+          feature('DOWNLOAD_USER_SETTINGS') &&
+          (isEnvTruthy(process.env.CLAUDE_CODE_REMOTE) || getIsRemoteMode())
+            ? withDiagnosticsTiming('headless_user_settings_download', () =>
+                downloadUserSettings(),
+              )
+            : Promise.resolve(null),
+        waitForManagedSettings: () =>
+          withDiagnosticsTiming('headless_managed_settings_wait', () =>
+            waitForRemoteManagedSettingsToLoad(),
+          ),
+        notify: source => settingsChangeDetector.notifyChange(source),
+        installPlugins: installPluginsForHeadless,
+        applyPluginMcp: applyPluginMcpDiff,
+      })
+      if (!result.ready) {
+        logError(result.error)
       }
+      return result
     } catch (error) {
-      logError(error)
+      const normalizedError = toError(error)
+      logError(normalizedError)
+      return { ready: false, error: normalizedError }
     }
   }
 
@@ -1931,7 +1940,8 @@ function runHeadlessStreaming(
   // Installs marketplaces from extraKnownMarketplaces and missing enabled plugins
   // CLAUDE_CODE_SYNC_PLUGIN_INSTALL=true: resolved in run() before the first
   // query so plugins are guaranteed available on the first ask().
-  let pluginInstallPromise: Promise<void> | null = null
+  let pluginInstallPromise: Promise<HeadlessPluginPreparationResult> | null =
+    null
   // --bare / SIMPLE: skip plugin install. Scripted calls don't add plugins
   // mid-session; the next interactive run reconciles.
   if (!isBareMode()) {
@@ -2072,51 +2082,6 @@ function runHeadlessStreaming(
     notifySessionStateChanged('running')
     idleTimeout.stop()
 
-    headlessProfilerCheckpoint('run_entry')
-    // TODO(custom-tool-refactor): Should move to the init message, like browser
-
-    await updateSdkMcp()
-    headlessProfilerCheckpoint('after_updateSdkMcp')
-
-    // Resolve deferred plugin installation (CLAUDE_CODE_SYNC_PLUGIN_INSTALL).
-    // The promise was started eagerly so installation overlaps with other init.
-    // Awaiting here guarantees plugins are available before the first ask().
-    // If CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS is set, races against that
-    // deadline and proceeds without plugins on timeout (logging an error).
-    if (pluginInstallPromise) {
-      const timeoutMs = parseInt(
-        process.env.CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS || '',
-        10,
-      )
-      if (timeoutMs > 0) {
-        const timeout = sleep(timeoutMs).then(() => 'timeout' as const)
-        const result = await Promise.race([pluginInstallPromise, timeout])
-        if (result === 'timeout') {
-          logError(
-            new Error(
-              `CLAUDE_CODE_SYNC_PLUGIN_INSTALL: plugin installation timed out after ${timeoutMs}ms`,
-            ),
-          )
-          logEvent('tengu_sync_plugin_install_timeout', {
-            timeout_ms: timeoutMs,
-          })
-        }
-      } else {
-        await pluginInstallPromise
-      }
-      pluginInstallPromise = null
-
-      // Refresh commands, agents, and hooks now that plugins are installed
-      await refreshPluginState()
-
-      // Set up hot-reload for plugin hooks now that the initial install is done.
-      // In sync-install mode, setup.ts skips this to avoid racing with the install.
-      const { setupPluginHookHotReload } = await import(
-        '../utils/plugins/loadPluginHooks.js'
-      )
-      setupPluginHookHotReload()
-    }
-
     // Only main-thread commands (agentId===undefined) — subagent
     // notifications are drained by the subagent's mid-turn gate in query.ts.
     // Defined outside the try block so it's accessible in the post-finally
@@ -2124,6 +2089,57 @@ function runHeadlessStreaming(
     const isMainThread = (cmd: QueuedCommand) => cmd.agentId === undefined
 
     try {
+      headlessProfilerCheckpoint('run_entry')
+      // TODO(custom-tool-refactor): Should move to the init message, like browser
+
+      await updateSdkMcp()
+      headlessProfilerCheckpoint('after_updateSdkMcp')
+
+      // Resolve deferred plugin installation (CLAUDE_CODE_SYNC_PLUGIN_INSTALL).
+      // The promise was started eagerly so installation overlaps with other init.
+      // Awaiting here guarantees plugins are available before the first ask().
+      // If CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS is set, races against that
+      // deadline and proceeds without plugins on timeout (logging an error).
+      if (pluginInstallPromise) {
+        // Detach the cache before any await/assertion can throw. A failed
+        // preparation must never leave a stale rejected promise installed.
+        const pendingPluginInstall = pluginInstallPromise
+        pluginInstallPromise = null
+        const timeoutMs = parseInt(
+          process.env.CLAUDE_CODE_SYNC_PLUGIN_INSTALL_TIMEOUT_MS || '',
+          10,
+        )
+        if (timeoutMs > 0) {
+          const timeout = sleep(timeoutMs).then(() => 'timeout' as const)
+          const result = await Promise.race([pendingPluginInstall, timeout])
+          if (result === 'timeout') {
+            logError(
+              new Error(
+                `CLAUDE_CODE_SYNC_PLUGIN_INSTALL: plugin installation timed out after ${timeoutMs}ms`,
+              ),
+            )
+            logEvent('tengu_sync_plugin_install_timeout', {
+              timeout_ms: timeoutMs,
+            })
+          } else {
+            assertHeadlessPluginPreparationReady(result)
+          }
+        } else {
+          const result = await pendingPluginInstall
+          assertHeadlessPluginPreparationReady(result)
+        }
+
+        // Refresh commands, agents, and hooks now that plugins are installed
+        await refreshPluginState()
+
+        // Set up hot-reload for plugin hooks now that the initial install is done.
+        // In sync-install mode, setup.ts skips this to avoid racing with the install.
+        const { setupPluginHookHotReload } = await import(
+          '../utils/plugins/loadPluginHooks.js'
+        )
+        setupPluginHookHotReload()
+      }
+
       let command: QueuedCommand | undefined
       let waitingForAgents = false
 
@@ -3282,9 +3298,13 @@ function runHeadlessStreaming(
             ) {
               // Re-pull user settings so enabledPlugins pushed from the
               // user's local CLI take effect before the cache sweep.
-              const applied = await redownloadUserSettings()
-              if (applied) {
-                settingsChangeDetector.notifyChange('userSettings')
+              const result = await redownloadUserSettings()
+              const decision = handleReloadSettingsDownloadResult(
+                result,
+                source => settingsChangeDetector.notifyChange(source),
+              )
+              if (!decision.proceed) {
+                throw decision.error
               }
             }
 

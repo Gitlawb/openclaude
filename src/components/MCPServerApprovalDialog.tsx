@@ -1,8 +1,11 @@
 import { c as _c } from "react-compiler-runtime";
 import React from 'react';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
-import { getSettings_DEPRECATED, updateSettingsForSource } from '../utils/settings/settings.js';
+import { deduplicateServerNames, normalizeNameForMCP } from '../services/mcp/normalization.js';
+import { logError } from '../utils/log.js';
+import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { Select } from './CustomSelect/index.js';
+import { Text } from '../ink.js';
 import { Dialog } from './design-system/Dialog.js';
 import { MCPServerDialogCopy } from './MCPServerDialogCopy.js';
 type Props = {
@@ -10,11 +13,12 @@ type Props = {
   onDone(): void;
 };
 export function MCPServerApprovalDialog(t0) {
-  const $ = _c(13);
+  const $ = _c(14);
   const {
     serverName,
     onDone
   } = t0;
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   let t1;
   if ($[0] !== onDone || $[1] !== serverName) {
     t1 = function onChange(value) {
@@ -25,31 +29,35 @@ export function MCPServerApprovalDialog(t0) {
         case "yes":
         case "yes_all":
           {
-            const currentSettings_0 = getSettings_DEPRECATED() || {};
-            const enabledServers = currentSettings_0.enabledMcpjsonServers || [];
-            if (!enabledServers.includes(serverName)) {
-              updateSettingsForSource("localSettings", {
-                enabledMcpjsonServers: [...enabledServers, serverName]
-              });
-            }
-            if (value === "yes_all") {
-              updateSettingsForSource("localSettings", {
+            const result = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings => ({
+              enabledMcpjsonServers: deduplicateServerNames([...(freshSettings.enabledMcpjsonServers ?? []), serverName]),
+              disabledMcpjsonServers: (freshSettings.disabledMcpjsonServers ?? []).filter(disabledServer => normalizeNameForMCP(disabledServer) !== normalizeNameForMCP(serverName)),
+              ...(value === "yes_all" ? {
                 enableAllProjectMcpServers: true
-              });
+              } : {})
+            }));
+            if (wasSettingsUpdateCommitted(result)) {
+              onDone();
+            } else {
+              setSaveError(`Could not save MCP server preference: ${result.error?.message ?? "settings were not written"}`);
             }
-            onDone();
             break bb2;
           }
         case "no":
           {
-            const currentSettings = getSettings_DEPRECATED() || {};
-            const disabledServers = currentSettings.disabledMcpjsonServers || [];
-            if (!disabledServers.includes(serverName)) {
-              updateSettingsForSource("localSettings", {
-                disabledMcpjsonServers: [...disabledServers, serverName]
-              });
+            const result_0 = updateSettingsForSourceWithFreshSettings("localSettings", freshSettings_0 => {
+              const normalizedServerName = normalizeNameForMCP(serverName);
+              return {
+                enabledMcpjsonServers: (freshSettings_0.enabledMcpjsonServers ?? []).filter(enabledServer => normalizeNameForMCP(enabledServer) !== normalizedServerName),
+                disabledMcpjsonServers: deduplicateServerNames([...(freshSettings_0.disabledMcpjsonServers ?? []), serverName])
+              };
+            });
+            if (wasSettingsUpdateCommitted(result_0)) {
+              onDone();
+            } else {
+              logError(new Error(`Could not save MCP server decline for ${serverName}: ${result_0.error?.message ?? "settings were not written"}`));
+              onDone();
             }
-            onDone();
           }
       }
     };
@@ -101,14 +109,15 @@ export function MCPServerApprovalDialog(t0) {
     t6 = $[8];
   }
   let t7;
-  if ($[9] !== t2 || $[10] !== t3 || $[11] !== t6) {
-    t7 = <Dialog title={t2} color="warning" onCancel={t3}>{t4}{t6}</Dialog>;
-    $[9] = t2;
-    $[10] = t3;
-    $[11] = t6;
-    $[12] = t7;
+  if ($[9] !== saveError || $[10] !== t2 || $[11] !== t3 || $[12] !== t6) {
+    t7 = <Dialog title={t2} color="warning" onCancel={t3}>{t4}{saveError ? <Text color="error">{saveError}</Text> : null}{t6}</Dialog>;
+    $[9] = saveError;
+    $[10] = t2;
+    $[11] = t3;
+    $[12] = t6;
+    $[13] = t7;
   } else {
-    t7 = $[12];
+    t7 = $[13];
   }
   return t7;
 }

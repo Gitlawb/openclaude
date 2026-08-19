@@ -1,4 +1,3 @@
-import { join } from 'path'
 import { getCwd } from '../cwd.js'
 import { logForDebugging } from '../debug.js'
 import { logError } from '../log.js'
@@ -6,10 +5,12 @@ import type { SettingSource } from '../settings/constants.js'
 import {
   getInitialSettings,
   getSettingsForSource,
-  updateSettingsForSource,
+  updateSettingsForSourceWithResult,
+  wasSettingsUpdateCommitted,
 } from '../settings/settings.js'
 import { getAddDirEnabledPlugins } from './addDirPluginSettings.js'
 import {
+  compareAndSwapPluginInstallation,
   getInMemoryInstalledPlugins,
   migrateFromEnabledPlugins,
 } from './installedPluginsManager.js'
@@ -22,9 +23,15 @@ import {
 } from './pluginIdentifier.js'
 import {
   cacheAndRegisterPlugin,
+  getMarketplaceSourceBasePath,
   registerPluginInstallation,
+  validatePathWithinBase,
 } from './pluginInstallationHelpers.js'
-import { isLocalPluginSource, type PluginScope } from './schemas.js'
+import {
+  isLocalPluginSource,
+  type PluginInstallationEntry,
+  type PluginScope,
+} from './schemas.js'
 
 /**
  * Checks for enabled plugins across all settings sources, including --add-dir.
@@ -262,6 +269,15 @@ export type PluginInstallResult = {
  */
 type InstallableScope = Exclude<PluginScope, 'managed'>
 
+type InstallSelectedPluginsDependencies = {
+  getPluginById: typeof getPluginById
+  cacheAndRegisterPlugin: typeof cacheAndRegisterPlugin
+  registerPluginInstallation: typeof registerPluginInstallation
+  validatePathWithinBase: typeof validatePathWithinBase
+  updateSettingsForSource: typeof updateSettingsForSourceWithResult
+  compareAndSwapPluginInstallation: typeof compareAndSwapPluginInstallation
+}
+
 /**
  * Installs the selected plugins
  * @param pluginsToInstall Array of plugin IDs to install
@@ -273,16 +289,30 @@ export async function installSelectedPlugins(
   pluginsToInstall: string[],
   onProgress?: (name: string, index: number, total: number) => void,
   scope: InstallableScope = 'user',
+  dependencies: InstallSelectedPluginsDependencies = {
+    getPluginById,
+    cacheAndRegisterPlugin,
+    registerPluginInstallation,
+    validatePathWithinBase,
+    updateSettingsForSource: updateSettingsForSourceWithResult,
+    compareAndSwapPluginInstallation,
+  },
 ): Promise<PluginInstallResult> {
   // Get projectPath for non-user scopes
   const projectPath = scope !== 'user' ? getCwd() : undefined
 
   // Get the correct settings source for this scope
   const settingSource = scopeToSettingSource(scope)
-  const settings = getSettingsForSource(settingSource)
-  const updatedEnabledPlugins = { ...settings?.enabledPlugins }
+  const newlyEnabledPlugins: Record<string, true> = {}
   const installed: string[] = []
   const failed: Array<{ name: string; error: string }> = []
+  const installationSnapshots = new Map<
+    string,
+    {
+      before: PluginInstallationEntry | undefined
+      registered: PluginInstallationEntry | undefined
+    }
+  >()
 
   for (let i = 0; i < pluginsToInstall.length; i++) {
     const pluginId = pluginsToInstall[i]
@@ -293,7 +323,7 @@ export async function installSelectedPlugins(
     }
 
     try {
-      const pluginInfo = await getPluginById(pluginId)
+      const pluginInfo = await dependencies.getPluginById(pluginId)
       if (!pluginInfo) {
         failed.push({
           name: pluginId,
@@ -304,24 +334,42 @@ export async function installSelectedPlugins(
 
       // Cache the plugin if it's from an external source
       const { entry, marketplaceInstallLocation } = pluginInfo
+      let registration: {
+        previous: PluginInstallationEntry | undefined
+        current: PluginInstallationEntry
+      }
       if (!isLocalPluginSource(entry.source)) {
         // External plugin - cache and register it with scope
-        await cacheAndRegisterPlugin(pluginId, entry, scope, projectPath)
+        registration = (
+          await dependencies.cacheAndRegisterPlugin(
+            pluginId,
+            entry,
+            scope,
+            projectPath,
+          )
+        ).registration
       } else {
         // Local plugin - just register it with the install path and scope
-        registerPluginInstallation(
+        registration = dependencies.registerPluginInstallation(
           {
             pluginId,
-            installPath: join(marketplaceInstallLocation, entry.source),
+            installPath: dependencies.validatePathWithinBase(
+              getMarketplaceSourceBasePath(marketplaceInstallLocation),
+              entry.source,
+            ),
             version: entry.version,
           },
           scope,
           projectPath,
         )
       }
+      installationSnapshots.set(pluginId, {
+        before: registration.previous,
+        registered: registration.current,
+      })
 
       // Mark as enabled in settings
-      updatedEnabledPlugins[pluginId] = true
+      newlyEnabledPlugins[pluginId] = true
       installed.push(pluginId)
     } catch (error) {
       const errorMessage =
@@ -332,10 +380,51 @@ export async function installSelectedPlugins(
   }
 
   // Update settings with newly enabled plugins using the correct settings source
-  updateSettingsForSource(settingSource, {
-    ...settings,
-    enabledPlugins: updatedEnabledPlugins,
-  })
+  if (installed.length > 0) {
+    const result = dependencies.updateSettingsForSource(settingSource, {
+      enabledPlugins: newlyEnabledPlugins,
+    })
+    if (!wasSettingsUpdateCommitted(result)) {
+      const message = result.error?.message ?? 'Settings update was not written'
+      failed.push(...installed.map(name => ({ name, error: message })))
+      for (const pluginId of installed) {
+        try {
+          const snapshot = installationSnapshots.get(pluginId)
+          if (!snapshot) {
+            continue
+          }
+          // Compare and restore under the installed-plugins file lock. A peer
+          // replacement that lands after our registration is preserved.
+          const restored = dependencies.compareAndSwapPluginInstallation(
+            pluginId,
+            scope,
+            projectPath,
+            snapshot.registered,
+            snapshot.before,
+          )
+          if (!restored) {
+            const rollbackError = new Error(
+              `Plugin registration rollback for '${pluginId}' was skipped because the installation changed concurrently`,
+            )
+            const failure = failed.find(entry => entry.name === pluginId)
+            if (failure) {
+              failure.error += `; ${rollbackError.message}`
+            }
+            logError(rollbackError)
+          }
+        } catch (error) {
+          const rollbackMessage =
+            error instanceof Error ? error.message : String(error)
+          const failure = failed.find(entry => entry.name === pluginId)
+          if (failure) {
+            failure.error += `; plugin registration rollback failed: ${rollbackMessage}`
+          }
+          logError(error)
+        }
+      }
+      installed.length = 0
+    }
+  }
 
   return { installed, failed }
 }

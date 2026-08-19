@@ -8,7 +8,7 @@ import { useKeybinding } from '../keybindings/useKeybinding.js';
 import { toError } from '../utils/errors.js';
 import { logError } from '../utils/log.js';
 import { getSettingSourceName, type SettingSource } from '../utils/settings/constants.js';
-import { updateSettingsForSource } from '../utils/settings/settings.js';
+import { updateSettingsForSourceWithResult, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { getEnvironmentSelectionInfo } from '../utils/teleport/environmentSelection.js';
 import type { EnvironmentResource } from '../utils/teleport/environments.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -93,11 +93,15 @@ export function RemoteEnvironmentDialog(t0) {
         onDone("Error: Selected environment not found");
         return;
       }
-      updateSettingsForSource("localSettings", {
+      const result = updateSettingsForSourceWithResult("localSettings", {
         remote: {
           defaultEnvironmentId: selectedEnv.environment_id
         }
       });
+      if (!wasSettingsUpdateCommitted(result)) {
+        onDone(`Error: Failed to save the default remote environment: ${result.error?.message ?? "settings were not written"}`);
+        return;
+      }
       onDone(`Set default remote environment to ${chalk.bold(selectedEnv.name)} (${selectedEnv.environment_id})`);
     };
     $[3] = environments;

@@ -9,11 +9,13 @@ import {
 export function useDangerousModeConfirmation() {
   const [pendingMode, setPendingMode] =
     React.useState<DangerousPermissionMode | null>(null)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
   const continuationRef = React.useRef<(() => void) | null>(null)
 
   const requestDangerousModeConfirmation = React.useCallback(
     (mode: DangerousPermissionMode, onConfirm: () => void) => {
       continuationRef.current = onConfirm
+      setSaveError(null)
       setPendingMode(mode)
     },
     [],
@@ -21,6 +23,7 @@ export function useDangerousModeConfirmation() {
 
   const clearPendingDangerousMode = React.useCallback(() => {
     continuationRef.current = null
+    setSaveError(null)
     setPendingMode(null)
   }, [])
 
@@ -43,10 +46,14 @@ export function useDangerousModeConfirmation() {
 
   const handleDangerousModeAccept = React.useCallback(() => {
     const continuation = continuationRef.current
-    continuationRef.current = null
     if (pendingMode) {
-      persistDangerousModeAcceptance(pendingMode)
+      const error = persistDangerousModeAcceptance(pendingMode)
+      if (error) {
+        setSaveError(error)
+        return
+      }
     }
+    continuationRef.current = null
     setPendingMode(null)
     continuation?.()
   }, [pendingMode])
@@ -54,6 +61,7 @@ export function useDangerousModeConfirmation() {
   const dangerousModeDialog = pendingMode ? (
     <BypassPermissionsModeDialog
       mode={pendingMode}
+      saveError={saveError}
       onAccept={handleDangerousModeAccept}
       onDecline={clearPendingDangerousMode}
       onCancel={clearPendingDangerousMode}

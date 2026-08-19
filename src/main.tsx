@@ -235,7 +235,6 @@ function logManagedSettings(): void {
     logForDebugging(`[main] logManagedSettings failed: ${errorMessage(error)}`, { level: 'debug' })
   }
 }
-
 // Check if running in debug/inspection mode
 function isBeingDebugged() {
   const isBun = isRunningWithBun();
@@ -2467,9 +2466,13 @@ async function run(): Promise<CommanderCommand> {
       // skip — no-op
     } else if (isNonInteractiveSession) {
       // In headless mode, await to ensure plugin sync completes before CLI exits
-      await initializeVersionedPlugins();
-      profileCheckpoint('action_after_plugins_init');
-      void cleanupOrphanedPluginVersionsInBackground().then(() => getGlobExclusionsForPluginCache());
+      try {
+        await initializeVersionedPlugins();
+        profileCheckpoint('action_after_plugins_init');
+        void cleanupOrphanedPluginVersionsInBackground().then(() => getGlobExclusionsForPluginCache()).catch(error => logError(error));
+      } catch (error) {
+        logError(error);
+      }
     } else {
       // In interactive mode, fire-and-forget — this is purely bookkeeping
       // that doesn't affect runtime behavior of the current session
@@ -2477,7 +2480,7 @@ async function run(): Promise<CommanderCommand> {
         profileCheckpoint('action_after_plugins_init');
         await cleanupOrphanedPluginVersionsInBackground();
         void getGlobExclusionsForPluginCache();
-      });
+      }).catch(error => logError(error));
     }
     const setupTrigger = initOnly || init ? 'init' : maintenance ? 'maintenance' : null;
     if (initOnly) {

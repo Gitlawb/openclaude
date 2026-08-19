@@ -11,7 +11,7 @@ import { c as _c } from "react-compiler-runtime";
  * Only shows one recommendation per session.
  */
 
-import { extname, join } from 'path';
+import { extname } from 'path';
 import * as React from 'react';
 import { hasShownLspRecommendationThisSession, setLspRecommendationShownThisSession } from '../bootstrap/state.js';
 import { useNotifications } from '../context/notifications.js';
@@ -20,8 +20,14 @@ import { saveGlobalConfig } from '../utils/config.js';
 import { logForDebugging } from '../utils/debug.js';
 import { logError } from '../utils/log.js';
 import { addToNeverSuggest, getMatchingLspPlugins, incrementIgnoredCount } from '../utils/plugins/lspRecommendation.js';
-import { cacheAndRegisterPlugin } from '../utils/plugins/pluginInstallationHelpers.js';
-import { getSettingsForSource, updateSettingsForSource } from '../utils/settings/settings.js';
+import { cacheAndRegisterPlugin, validatePathWithinBase } from '../utils/plugins/pluginInstallationHelpers.js';
+import {
+  compareAndSwapPluginInstallation,
+} from '../utils/plugins/installedPluginsManager.js';
+import type {
+  PluginMarketplaceEntry,
+} from '../utils/plugins/schemas.js';
+import { updateSettingsForSourceWithFreshSettings, wasSettingsUpdateCommitted } from '../utils/settings/settings.js';
 import { installPluginAndNotify, usePluginRecommendationBase } from './usePluginRecommendationBase.js';
 
 // Threshold for detecting timeout vs explicit dismiss (ms)
@@ -38,6 +44,37 @@ type UseLspPluginRecommendationResult = {
   recommendation: LspRecommendationState;
   handleResponse: (response: 'yes' | 'no' | 'never' | 'disable') => void;
 };
+export async function installRecommendedLspPlugin(pluginId: string, pluginData: {
+  entry: PluginMarketplaceEntry;
+  marketplaceInstallLocation: string;
+}): Promise<void> {
+  logForDebugging(`[useLspPluginRecommendation] Installing plugin: ${pluginId}`);
+  const localSourcePath = typeof pluginData.entry.source === "string" ? validatePathWithinBase(pluginData.marketplaceInstallLocation, pluginData.entry.source) : undefined;
+  const { registration } = await cacheAndRegisterPlugin(pluginId, pluginData.entry, "user", undefined, localSourcePath, pluginData.marketplaceInstallLocation);
+  const result = updateSettingsForSourceWithFreshSettings("userSettings", freshSettings => ({
+    enabledPlugins: {
+      ...freshSettings.enabledPlugins,
+      [pluginId]: true
+    }
+  }));
+  if (!wasSettingsUpdateCommitted(result)) {
+    try {
+      // Preserve a pre-existing installation and avoid deleting a concurrent
+      // replacement that landed after this recommendation registered itself.
+      compareAndSwapPluginInstallation(
+        pluginId,
+        'user',
+        undefined,
+        registration.current,
+        registration.previous,
+      );
+    } catch (rollbackError) {
+      throw new Error(`Settings update was not written and plugin registration rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+    }
+    throw result.error ?? new Error('Settings update was not written');
+  }
+  logForDebugging(`[useLspPluginRecommendation] Plugin installed: ${pluginId}`);
+}
 export function useLspPluginRecommendation() {
   const $ = _c(12);
   const trackedFiles = useAppState(_temp);
@@ -122,17 +159,7 @@ export function useLspPluginRecommendation() {
         case "yes":
           {
             installPluginAndNotify(pluginId, pluginName, "lsp-plugin", addNotification, async pluginData => {
-              logForDebugging(`[useLspPluginRecommendation] Installing plugin: ${pluginId}`);
-              const localSourcePath = typeof pluginData.entry.source === "string" ? join(pluginData.marketplaceInstallLocation, pluginData.entry.source) : undefined;
-              await cacheAndRegisterPlugin(pluginId, pluginData.entry, "user", undefined, localSourcePath);
-              const settings = getSettingsForSource("userSettings");
-              updateSettingsForSource("userSettings", {
-                enabledPlugins: {
-                  ...settings?.enabledPlugins,
-                  [pluginId]: true
-                }
-              });
-              logForDebugging(`[useLspPluginRecommendation] Plugin installed: ${pluginId}`);
+              await installRecommendedLspPlugin(pluginId, pluginData);
             });
             break bb60;
           }

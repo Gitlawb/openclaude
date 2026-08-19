@@ -41,6 +41,7 @@ import {
 import {
   applyPermissionUpdate,
   filterPermissionRequestHookUpdates,
+  permissionPersistenceFailureMessage,
   persistPermissionUpdates,
   supportsPersistence,
 } from '../../utils/permissions/PermissionUpdate.js'
@@ -152,8 +153,11 @@ function createPermissionContext(
     async persistPermissions(
       updates: PermissionUpdate[],
       hookPlanModeWasActive?: boolean,
-    ) {
-      if (updates.length === 0) return false
+    ): Promise<{
+      acceptedPermanentUpdates: boolean
+      failureMessage?: string
+    }> {
+      if (updates.length === 0) return { acceptedPermanentUpdates: false }
       const appState = toolUseContext.getAppState()
       const validatedUpdates: PermissionUpdate[] = []
       let nextContextForValidation = appState.toolPermissionContext
@@ -180,7 +184,9 @@ function createPermissionContext(
           update,
         )
       }
-      if (validatedUpdates.length === 0) return false
+      if (validatedUpdates.length === 0) {
+        return { acceptedPermanentUpdates: false }
+      }
       const latestAppState = toolUseContext.getAppState()
       const updatesToApply =
         hookPlanModeWasActive === undefined
@@ -190,16 +196,30 @@ function createPermissionContext(
               hookPlanModeWasActive ||
                 latestAppState.toolPermissionContext.mode === 'plan',
             )
-      if (updatesToApply.length === 0) return false
-      const updatedContext = applyPermissionUpdatesToLiveContext(
-        latestAppState.toolPermissionContext,
-        updatesToApply,
-      )
-      persistPermissionUpdates(updatesToApply)
-      setToolPermissionContext(updatedContext)
-      return updatesToApply.some(update =>
-        supportsPersistence(update.destination),
-      )
+      if (updatesToApply.length === 0) {
+        return { acceptedPermanentUpdates: false }
+      }
+      const persistence = persistPermissionUpdates(updatesToApply)
+      if (persistence.appliedUpdates.length > 0) {
+        const updatedContext = applyPermissionUpdatesToLiveContext(
+          latestAppState.toolPermissionContext,
+          persistence.appliedUpdates,
+        )
+        setToolPermissionContext(updatedContext)
+      }
+      if (persistence.failedUpdates.length > 0) {
+        return {
+          acceptedPermanentUpdates: false,
+          failureMessage: permissionPersistenceFailureMessage(
+            persistence.failedUpdates,
+          ),
+        }
+      }
+      return {
+        acceptedPermanentUpdates: persistence.appliedUpdates.some(update =>
+          supportsPersistence(update.destination),
+        ),
+      }
     },
     resolveIfAborted(resolve: (decision: PermissionDecision) => void) {
       if (!toolUseContext.abortController.signal.aborted) return false
@@ -441,8 +461,21 @@ function createPermissionContext(
       if (revalidation) {
         return revalidation
       }
-      const acceptedPermanentUpdates =
+      const persistence =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
+      if (persistence.failureMessage) {
+        this.logDecision(
+          {
+            decision: 'reject',
+            source: { type: 'user_reject', hasFeedback: false },
+          },
+          { input: updatedInput, permissionPromptStartTimeMs },
+        )
+        return this.buildDeny(persistence.failureMessage, {
+          type: 'other',
+          reason: persistence.failureMessage,
+        })
+      }
       const finalRevalidation =
         await revalidatePlanModePermissionAllowWithRaceGuard(
           tool,
@@ -457,7 +490,10 @@ function createPermissionContext(
       this.logDecision(
         {
           decision: 'accept',
-          source: { type: 'user', permanent: acceptedPermanentUpdates },
+          source: {
+            type: 'user',
+            permanent: persistence.acceptedPermanentUpdates,
+          },
         },
         { input: updatedInput, permissionPromptStartTimeMs },
       )
@@ -478,8 +514,15 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
     ): Promise<PermissionDecision> {
-      const acceptedPermanentUpdates =
+      const persistence =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
+      if (persistence.failureMessage) {
+        return this.buildDeny(persistence.failureMessage, {
+          type: 'hook',
+          hookName: 'PermissionRequest',
+          reason: persistence.failureMessage,
+        })
+      }
       const postUpdatePlanModeDecision =
         await revalidatePlanModePermissionAllowWithRaceGuard(
           tool,
@@ -495,7 +538,10 @@ function createPermissionContext(
       this.logDecision(
         {
           decision: 'accept',
-          source: { type: 'hook', permanent: acceptedPermanentUpdates },
+          source: {
+            type: 'hook',
+            permanent: persistence.acceptedPermanentUpdates,
+          },
         },
         { input: finalInput, permissionPromptStartTimeMs },
       )
