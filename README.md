@@ -88,11 +88,29 @@ OpenClaude is also mirrored to GitLawb:
         </picture>
       </a>
     </td>
+    <td align="center" width="150" height="80">
+      <a href="https://concentrate.ai/">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/concentrate-logo-dark.svg">
+          <img src="docs/assets/concentrate-logo.svg" alt="Concentrate logo" width="64">
+        </picture>
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://exa.ai/">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/exa-logo-dark.svg">
+          <img src="docs/assets/exa-logo.svg" alt="Exa logo" width="110">
+        </picture>
+      </a>
+    </td>
   </tr>
   <tr>
     <td align="center"><a href="https://aimlapi.com/"><strong>AI/ML API</strong></a></td>
     <td align="center"><a href="https://novita.ai/"><strong>Novita AI</strong></a></td>
     <td align="center"><a href="https://www.apismart.ai"><strong>ApiSmart</strong></a></td>
+    <td align="center"><a href="https://concentrate.ai/"><strong>Concentrate</strong></a></td>
+    <td align="center"><a href="https://exa.ai/"><strong>Exa</strong></a></td>
   </tr>
 </table>
 

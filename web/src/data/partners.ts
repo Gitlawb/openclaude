@@ -38,6 +38,20 @@ export const partners: Partner[] = [
     logoDark: '/partners/apismart-logo-dark.png',
     height: 30,
   },
+  {
+    name: 'Concentrate',
+    url: 'https://concentrate.ai/',
+    logo: '/partners/concentrate-logo.svg',
+    logoDark: '/partners/concentrate-logo-dark.svg',
+    height: 36,
+  },
+  {
+    name: 'Exa',
+    url: 'https://exa.ai/',
+    logo: '/partners/exa-logo.svg',
+    logoDark: '/partners/exa-logo-dark.svg',
+    height: 28,
+  },
 ]
 
 export const community = [
