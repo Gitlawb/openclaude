@@ -2035,7 +2035,7 @@ class Project {
             // participant is withheld, record it in remoteEgressOmittedParents
             // and reparent the next remote entry so hydrateRemoteSession /
             // buildConversationChain do not stop at a missing parentUuid.
-            if (isTranscriptMessage(entry)) {
+            if (isTranscriptMessage(entry) && this.hasActiveRemoteEgressSink()) {
               if (!shouldOmitFromExternalEgress(entry)) {
                 const originalParentUuid = entry.parentUuid ?? null
                 let remoteEntry = projectTranscriptParentForExternalEgress(
@@ -2125,11 +2125,7 @@ class Project {
                   )
                   if (delivered && remoteEntry.uuid) {
                     this.lastRemoteEgressUuid = remoteEntry.uuid
-                  } else if (
-                    !delivered &&
-                    this.hasActiveRemoteEgressSink() &&
-                    entry.uuid
-                  ) {
+                  } else if (!delivered && entry.uuid) {
                     this.remoteEgressOmittedParents.set(
                       entry.uuid,
                       this.lastRemoteEgressUuid,
@@ -2159,7 +2155,7 @@ class Project {
                 // Keep omitted parents in the bounded map so a second branch
                 // child of the same withheld UUID can still reparent. Size is
                 // enforced by boundRemoteEgressOmissionMap on the omit path.
-              } else if (this.hasActiveRemoteEgressSink()) {
+              } else {
                 // Only grow the map when a remote sink can consume reparents.
                 // Resume rebuild (adoptResumedSessionFile) still hydrates from
                 // disk before the sink is registered.

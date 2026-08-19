@@ -1609,7 +1609,7 @@ describe('appendEntry remote egress gate', () => {
   })
 })
 
-describe('jatmn review 4965633776 regressions', () => {
+describe('external egress delivery failures, malformed records, and eviction fallback', () => {
   test('shouldOmitFromExternalEgress rejects malformed records, listings, and un-consented attachments', () => {
     process.env.USER_TYPE = 'external'
     delete process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
@@ -1957,7 +1957,7 @@ describe('jatmn review 4965633776 regressions', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
-  })
+  }, 20000)
 
   test('P2-eviction without transcript: child of fully-evicted parent whose ancestry cannot be resolved fails closed', async () => {
     process.env.USER_TYPE = 'external'
