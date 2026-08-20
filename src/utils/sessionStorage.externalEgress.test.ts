@@ -107,17 +107,15 @@ afterEach(() => {
 })
 
 describe('sessionPersistenceDisabled suite isolation', () => {
+  const suiteBaseline = isSessionPersistenceDisabled()
+
   test('step1: append-style mutation leaves flag away from suite snapshot', () => {
-    setSessionPersistenceDisabled(!snapshotSessionPersistenceDisabled)
-    expect(isSessionPersistenceDisabled()).not.toBe(
-      snapshotSessionPersistenceDisabled,
-    )
+    setSessionPersistenceDisabled(!suiteBaseline)
+    expect(isSessionPersistenceDisabled()).not.toBe(suiteBaseline)
   })
 
   test('step2: afterEach restored the suite snapshot from step1', () => {
-    expect(isSessionPersistenceDisabled()).toBe(
-      snapshotSessionPersistenceDisabled,
-    )
+    expect(isSessionPersistenceDisabled()).toBe(suiteBaseline)
   })
 })
 

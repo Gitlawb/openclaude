@@ -25,6 +25,7 @@ let originalMacro: unknown
 let tempDir: string | undefined
 let transcriptPath: string | undefined
 let postedBodies: Array<{ content?: string }> = []
+let ownsSharedMutationLock = false
 
 function buildAxiosModuleStub(
   post: (...args: unknown[]) => Promise<unknown>,
@@ -44,7 +45,9 @@ function buildAxiosModuleStub(
 }
 
 beforeAll(async () => {
+  ownsSharedMutationLock = false
   await acquireSharedMutationLock('Feedback.egress')
+  ownsSharedMutationLock = true
   originalAxiosModule = await import('axios')
   originalUserType = process.env.USER_TYPE
   hadMacro = Object.prototype.hasOwnProperty.call(globalThis, 'MACRO')
@@ -154,7 +157,10 @@ afterAll(async () => {
       await rm(tempDir, { recursive: true, force: true })
     }
   } finally {
-    releaseSharedMutationLock()
+    if (ownsSharedMutationLock) {
+      ownsSharedMutationLock = false
+      releaseSharedMutationLock()
+    }
   }
 })
 

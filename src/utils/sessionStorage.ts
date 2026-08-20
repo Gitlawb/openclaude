@@ -964,9 +964,10 @@ class Project {
   // UUIDs dropped from both bounded maps. Scan-gate only — not an ancestor
   // source. Keeps on-demand walks off parents that were never omitted.
   private remoteEgressKnownOmitted = new Set<UUID>()
-  // Negative cache for on-demand walks that returned { found: false }.
+  // Negative cache for on-demand walks that returned { status: 'not_found' }.
   private remoteEgressResolvedMisses = new Set<UUID>()
-  // Positive cache: parent_safe walk results. Distinct from misses so a
+  // Positive cache: locally safe ancestors confirmed via on-demand scan.
+  private remoteEgressSafeLocalParents = new Set<UUID>()
   // Confirmed remote delivery witnesses: UUIDs verified to exist on remote
   // via successful persistToRemote or verified remote hydration.
   private remoteEgressDeliveredParents = new Set<UUID>()
@@ -990,6 +991,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
@@ -1335,6 +1337,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     const path = this.sessionFile
@@ -1360,6 +1363,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
@@ -2058,6 +2062,22 @@ class Project {
                     parentConfirmedSafe = true
                     break
                   }
+                  if (this.remoteEgressSafeLocalParents.has(targetParentUuid)) {
+                    if (
+                      targetParentUuid === this.lastRemoteEgressUuid ||
+                      this.remoteEgressDeliveredParents.has(targetParentUuid)
+                    ) {
+                      parentConfirmedSafe = true
+                    } else {
+                      targetParentUuid = this.lastRemoteEgressUuid ?? null
+                      remoteEntry = {
+                        ...entry,
+                        parentUuid: targetParentUuid,
+                      }
+                      parentConfirmedSafe = true
+                    }
+                    break
+                  }
                   if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
                     targetParentUuid =
                       this.remoteEgressOmittedParents.get(targetParentUuid) ??
@@ -2108,6 +2128,11 @@ class Project {
                       continue
                     }
                     if (resolved.status === 'parent_safe') {
+                      this.remoteEgressSafeLocalParents.add(targetParentUuid)
+                      boundUuidSet(
+                        this.remoteEgressSafeLocalParents,
+                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                      )
                       if (
                         targetParentUuid === this.lastRemoteEgressUuid ||
                         this.remoteEgressDeliveredParents.has(targetParentUuid)
@@ -4275,6 +4300,7 @@ function resolveCompactOmissionAncestorFromLocalTranscript(
   sessionFile: string | null,
   omittedUuid: UUID,
   queue?: TranscriptWriteOperation[],
+  scanBudget: number = MAX_TRANSCRIPT_READ_BYTES,
 ): CompactOmissionResolveResult {
   const byUuid = new Map<UUID, { parentUuid: UUID | null; safe: boolean }>()
   ingestCompactAncestryNodesFromWriteQueue(queue, byUuid)
@@ -4292,9 +4318,10 @@ function resolveCompactOmissionAncestorFromLocalTranscript(
     if (size === 0) {
       return { status: 'not_found' }
     }
+    const budget = Math.max(1, scanBudget)
     let cursor = size
     let scanned = 0
-    while (cursor > 0 && scanned < MAX_TRANSCRIPT_READ_BYTES) {
+    while (cursor > 0 && scanned < budget) {
       const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
       const { content, nextEnd } = readTranscriptRangeForOmissionRebuild(
         fd,
