@@ -1933,23 +1933,32 @@ function triggerStartupDiscoveryRefreshForProfile(
   if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
     return
   }
-  // A retargeted LLMTR profile must not run startup discovery either: the
-  // refresh carries the profile's own apiKey, so it would reach the very
-  // endpoint the credential contract withheld it from.
-  // Resolved from provider and base URL together, so a generic `openai`
-  // profile at the canonical LLMTR endpoint is held to the same contract.
-  const isLlmtrRoute =
+  // Two boundaries here, and they are deliberately not the same one.
+  //
+  // Which catalog to populate is the canonical question: a generic `openai`
+  // profile at the canonical LLMTR endpoint must refresh the `llmtr` catalog,
+  // the route its requests and capability lookups already use, and a
+  // non-canonical host must never select it.
+  const llmtrCatalogRouteId =
     resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl) ===
     'llmtr'
-  if (isLlmtrRoute && !isLlmtrProfile(profile)) {
+      ? 'llmtr'
+      : null
+  // Whether to refresh at all is the host question, and it has to match the
+  // credential-withholding gates above, which are host-scoped on purpose. The
+  // canonical resolution alone would leave a gap: a profile saved under a
+  // provider whose own route refreshes at startup (`custom` does) but pointed
+  // at a non-canonical llmtr.com URL resolves away from `llmtr`, so the guard
+  // would not fire — and the refresh carries profile.apiKey to the very
+  // endpoint the session was just denied it for, over plaintext in the
+  // `http://` case.
+  const targetsLlmtrHost =
+    llmtrCatalogRouteId !== null || isLlmtrBaseUrl(profile.baseUrl)
+  if (targetsLlmtrHost && !isLlmtrProfile(profile)) {
     return
   }
 
-  // Discover against the resolved identity, not the saved provider string: a
-  // generic `openai` profile at the canonical LLMTR endpoint must populate the
-  // `llmtr` catalog, the route its requests and capability lookups already
-  // use. Scoped to LLMTR so every other route keeps its current target.
-  const discoveryRouteId = isLlmtrRoute ? 'llmtr' : route.routeId
+  const discoveryRouteId = llmtrCatalogRouteId ?? route.routeId
   void refreshStartupDiscoveryForRoute(discoveryRouteId, {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,

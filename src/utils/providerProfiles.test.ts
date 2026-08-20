@@ -3387,6 +3387,63 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  // Startup discovery carries the profile's own apiKey, so its guard has to
+  // use the same host-scoped boundary the credential withholding uses. The
+  // canonical resolution alone is not enough: a profile saved under a provider
+  // whose route *does* refresh at startup — 'custom' is one — pointed at a
+  // non-canonical llmtr.com URL resolves away from 'llmtr', so the guard would
+  // not fire. The session is then denied the credential while startup still
+  // makes one authenticated request to that endpoint, in plaintext.
+  test('does not run startup discovery against a non-canonical llmtr.com host', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    const requestedUrls: string[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: unknown) => {
+      requestedUrls.push(String((input as { url?: string })?.url ?? input))
+      return new Response('{"data":[]}', {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof globalThis.fetch
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const plaintextProfile = buildProfile({
+        id: 'custom_at_llmtr_plaintext',
+        name: 'LLMTR over plaintext',
+        provider: 'custom',
+        baseUrl: 'http://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [plaintextProfile],
+      }))
+
+      setActiveProviderProfile('custom_at_llmtr_plaintext', { configDir })
+      // The refresh is fire-and-forget; give it a turn to reach fetch.
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(
+        requestedUrls.filter(url => url.includes('llmtr.com')),
+      ).toEqual([])
+      // The credential is withheld from the session, so no request may carry it.
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+      expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    } finally {
+      globalThis.fetch = originalFetch
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  }, 20000)
+
   // xAI OAuth profile (provider='xai', no API key) must persist the
   // startup file as profile='xai' with XAI_CREDENTIAL_SOURCE='oauth' so
   // (a) startup validation accepts it without XAI_API_KEY, and (b)
