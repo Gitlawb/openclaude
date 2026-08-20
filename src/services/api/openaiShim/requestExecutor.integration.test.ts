@@ -792,6 +792,90 @@ test.each([
     expectedAuthValue: 'llmtr-profile-header-secret',
     absentAuthHeader: 'authorization',
   },
+  {
+    // Same deployment, saved as a generic 'openai' profile rather than the
+    // named preset. Route identity is derived from the base URL at request
+    // time, so this has to reach the executor with the same route-scoped
+    // identity as the case above, or the dedicated-credential route refuses
+    // profile auth and the configured header is silently replaced by Bearer.
+    name: 'generic OpenAI profile at the canonical LLMTR endpoint',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    setup: () => {
+      applyProviderProfileToProcessEnv({
+        id: 'llmtr-generic-openai-profile',
+        provider: 'openai',
+        name: 'LLMTR via generic OpenAI profile',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+        authHeader: 'X-LLMTR-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'llmtr-generic-header-secret',
+      })
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'x-llmtr-key',
+    expectedAuthValue: 'llmtr-generic-header-secret',
+    absentAuthHeader: 'authorization',
+  },
+  {
+    // Negative companion: the generic profile carries no custom auth of its
+    // own, and a stale process-level OPENAI_AUTH_* pair is left over from an
+    // earlier session. Honouring the profile's route identity must not turn
+    // into honouring whatever ambient custom auth happens to be in the
+    // environment — the profile is authenticated by its dedicated credential.
+    name: 'generic OpenAI profile at LLMTR ignores stale process-level custom auth',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    setup: () => {
+      process.env.OPENAI_AUTH_HEADER = 'X-Previous-Key'
+      process.env.OPENAI_AUTH_SCHEME = 'raw'
+      process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-secret'
+      applyProviderProfileToProcessEnv({
+        id: 'llmtr-generic-openai-profile-no-auth',
+        provider: 'openai',
+        name: 'LLMTR via generic OpenAI profile',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+      })
+    },
+    expectedRouteId: 'llmtr',
+    expectedUrl: 'https://llmtr.com/v1/chat/completions',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-generic-key',
+    absentAuthHeader: 'x-previous-key',
+  },
+  {
+    // Negative companion: a generic profile is only the LLMTR route on the
+    // canonical origin. A non-default port is a different service that merely
+    // shares the hostname, so this must run as a plain OpenAI-compatible
+    // session — and the dedicated-credential contract still withholds the key,
+    // leaving the profile's own custom header as the only auth on the wire.
+    name: 'generic OpenAI profile on a non-canonical llmtr.com port stays generic',
+    clientKind: 'shim' as const,
+    model: 'anthropic/claude-sonnet-4.6',
+    setup: () => {
+      applyProviderProfileToProcessEnv({
+        id: 'llmtr-generic-openai-profile-retargeted',
+        provider: 'openai',
+        name: 'LLMTR via generic OpenAI profile',
+        baseUrl: 'https://llmtr.com:8443/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+        authHeader: 'X-LLMTR-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'llmtr-generic-header-secret',
+      })
+    },
+    expectedRouteId: 'custom',
+    expectedUrl: 'https://llmtr.com:8443/v1/chat/completions',
+    expectedAuthHeader: 'x-llmtr-key',
+    expectedAuthValue: 'llmtr-generic-header-secret',
+    absentAuthHeader: 'authorization',
+  },
 ])(
   'provider transition contract: $name',
   async scenario => {

@@ -877,6 +877,93 @@ describe('applyProviderProfileToProcessEnv', () => {
     }
   })
 
+  // A saved profile may target LLMTR without naming it: the guided flow writes
+  // provider 'llmtr', but a hand-written or imported profile can be a generic
+  // 'openai' one whose base URL is the canonical LLMTR endpoint. Route identity
+  // has to come out the same either way, because request-time resolution derives
+  // it from that base URL. When the two disagree the applied-profile marker no
+  // longer matches the runtime route, the dedicated-credential route refuses
+  // profile-scoped custom auth, and the profile's own header is dropped.
+  test('generic openai profile at the canonical LLMTR endpoint resolves as the LLMTR route', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'generic_openai_at_llmtr',
+        provider: 'openai',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+        authHeader: 'X-LLMTR-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'llmtr-generic-header-secret',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-generic-key')
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-generic-key')
+    // The route marker is what lets the executor honour these at request time.
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-LLMTR-Key')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+      'llmtr-generic-header-secret',
+    )
+  })
+
+  test('generic openai profile on a non-canonical llmtr.com URL stays a plain OpenAI session', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // The negative companion to the case above. A generic profile only becomes
+    // the LLMTR route on the canonical origin — the same boundary
+    // resolveRouteIdFromBaseUrl applies. Stamping 'llmtr' on a plaintext or
+    // non-default-port URL would name a dedicated-credential route whose key is
+    // then withheld, which surfaces as an unexplained auth failure instead of a
+    // generic session. Unlike a saved 'llmtr' preset, there is no LLMTR intent
+    // in the provider string to preserve here.
+    for (const baseUrl of [
+      'http://llmtr.com/v1',
+      'https://llmtr.com:8443/v1',
+    ]) {
+      applyProviderProfileToProcessEnv(
+        buildProfile({
+          id: 'generic_openai_retargeted',
+          provider: 'openai',
+          baseUrl,
+          model: 'anthropic/claude-sonnet-4.6',
+          apiKey: 'llmtr-generic-key',
+        }),
+      )
+
+      expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBeUndefined()
+      // Still an llmtr.com host, so the dedicated-credential contract applies:
+      // neither the dedicated nor the mirrored generic key may be persisted.
+      expect(process.env.LLMTR_API_KEY).toBeUndefined()
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    }
+  })
+
+  test('generic openai profile at an unrelated host is untouched by the LLMTR contract', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        id: 'generic_openai_elsewhere',
+        provider: 'openai',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'gpt-4o',
+        apiKey: 'proxy-key',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('proxy-key')
+  })
+
   test('keyless canonical LLMTR profile never promotes a placeholder credential', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -3200,6 +3287,102 @@ describe('setActiveProviderProfile', () => {
         'openai_prof',
       )
     } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  // The persisted startup env has to reproduce the applied route identity, or
+  // the next launch reads back a profile that authenticates differently from the
+  // one that was saved: request-time resolution still derives 'llmtr' from the
+  // base URL, but without the marker the dedicated-credential route refuses the
+  // profile's own auth header.
+  test('persists the LLMTR route marker for a generic openai profile at the canonical endpoint', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const genericProfile = buildProfile({
+        id: 'generic_openai_at_llmtr',
+        name: 'LLMTR via generic OpenAI profile',
+        provider: 'openai',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+        authHeader: 'X-LLMTR-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'llmtr-generic-header-secret',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [genericProfile],
+      }))
+
+      const result = setActiveProviderProfile('generic_openai_at_llmtr', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('generic_openai_at_llmtr')
+      expect(persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+      expect(persisted.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+      expect(persisted.env.LLMTR_API_KEY).toBe('llmtr-generic-key')
+      expect(persisted.env.OPENAI_AUTH_HEADER).toBe('X-LLMTR-Key')
+      expect(persisted.env.OPENAI_AUTH_HEADER_VALUE).toBe(
+        'llmtr-generic-header-secret',
+      )
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does not persist the LLMTR route marker for a generic profile on a non-canonical llmtr.com URL', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const retargetedProfile = buildProfile({
+        id: 'generic_openai_at_llmtr_plaintext',
+        name: 'LLMTR via generic OpenAI profile',
+        provider: 'openai',
+        baseUrl: 'http://llmtr.com/v1',
+        model: 'anthropic/claude-sonnet-4.6',
+        apiKey: 'llmtr-generic-key',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [retargetedProfile],
+      }))
+
+      const result = setActiveProviderProfile(
+        'generic_openai_at_llmtr_plaintext',
+        { configDir },
+      )
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('generic_openai_at_llmtr_plaintext')
+      expect(persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBeUndefined()
+      // Still an llmtr.com host, so no credential may be persisted for it.
+      expect(persisted.env.LLMTR_API_KEY).toBeUndefined()
+      expect(persisted.env.OPENAI_API_KEY).toBeUndefined()
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
       rmSync(configDir, { recursive: true, force: true })
     }
   })

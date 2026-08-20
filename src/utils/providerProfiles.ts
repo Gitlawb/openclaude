@@ -1186,7 +1186,18 @@ export function applyProviderProfileToProcessEnv(
     // buildLaunchEnv can recognise the session and refuse ambient dedicated /
     // mirrored credentials on relaunch, while the ambient key itself is only
     // resolved for a profile that still points at the canonical endpoint.
-    if (route.gatewayId === 'llmtr') {
+    //
+    // Keyed off `capabilityRouteId` — the identity this function already
+    // resolved from the provider *and* the base URL — not off the provider
+    // alone. A saved `openai` profile whose base URL is the canonical LLMTR
+    // endpoint is an LLMTR route: request-time resolution derives `llmtr`
+    // from that URL, so without the stamp the applied-profile marker and the
+    // runtime route disagree and resolveOpenAIShimRuntimeContext downgrades
+    // `customAuthSource` to `none`, silently dropping the profile's own auth
+    // header. The same resolver keeps the stamp on a retargeted `llmtr`
+    // preset and withholds it from a generic profile on a non-canonical
+    // llmtr.com URL, which runs as a plain OpenAI-compatible session.
+    if (capabilityRouteId === 'llmtr') {
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
       if (isLlmtrProfile(profile)) {
         const ambientLlmtrKey = sanitizeApiKey(process.env.LLMTR_API_KEY)
@@ -1485,6 +1496,14 @@ function buildOpenAICompatibleStartupEnv(
   }
   const startupRoute = resolveProfileRoute(activeProfile.provider)
   const activeProfileRouteId = startupRoute.routeId
+  // Same authoritative identity the process env uses: provider *and* canonical
+  // base URL. The persisted startup env has to reproduce the applied route
+  // marker exactly, or a relaunch of a generic `openai` profile at the
+  // canonical LLMTR endpoint comes back without it.
+  const startupCapabilityRouteId = resolveProfileCapabilityRouteId(
+    activeProfile.provider,
+    activeProfile.baseUrl,
+  )
   const withholdRetargetedApismartCredential =
     startupRoute.routeId === 'apismart' && !isApismartProfile(activeProfile)
   // Mirrors the applyProviderProfileToProcessEnv gate: a retargeted LLMTR
@@ -1532,6 +1551,16 @@ function buildOpenAICompatibleStartupEnv(
       }
       if (isLlmtrProfile(activeProfile)) {
         strictEnv.LLMTR_API_KEY = activeProfile.apiKey
+        // Stamp the resolved identity beside the dedicated mirror, the way
+        // AIMLAPI does above. Only a generic `openai` profile at the canonical
+        // LLMTR endpoint reaches this branch — a named `llmtr` preset is built
+        // by buildLlmtrProfileEnv, which stamps itself — and without the marker
+        // it relaunches carrying a saved LLMTR credential but no LLMTR
+        // identity, so request-time resolution and the applied-profile marker
+        // disagree and the profile's own auth header is dropped.
+        if (startupCapabilityRouteId === 'llmtr') {
+          strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+        }
       }
       if (isApismartProfile(activeProfile)) {
         strictEnv.APISMART_API_KEY = activeProfile.apiKey
@@ -1594,7 +1623,7 @@ function buildOpenAICompatibleStartupEnv(
   // Same reason for LLMTR: without the stamp a retargeted profile relaunches as
   // an anonymous OpenAI-compatible session and buildLaunchEnv can no longer tell
   // that ambient LLMTR_API_KEY must stay out of it.
-  if (startupRoute.gatewayId === 'llmtr') {
+  if (startupCapabilityRouteId === 'llmtr') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
   }
   // Preserve Concentrate identity for retargeted profiles too, so a later
@@ -1907,18 +1936,28 @@ function triggerStartupDiscoveryRefreshForProfile(
   // A retargeted LLMTR profile must not run startup discovery either: the
   // refresh carries the profile's own apiKey, so it would reach the very
   // endpoint the credential contract withheld it from.
-  if (route.gatewayId === 'llmtr' && !isLlmtrProfile(profile)) {
+  // Resolved from provider and base URL together, so a generic `openai`
+  // profile at the canonical LLMTR endpoint is held to the same contract.
+  const isLlmtrRoute =
+    resolveProfileCapabilityRouteId(profile.provider, profile.baseUrl) ===
+    'llmtr'
+  if (isLlmtrRoute && !isLlmtrProfile(profile)) {
     return
   }
 
-  void refreshStartupDiscoveryForRoute(route.routeId, {
+  // Discover against the resolved identity, not the saved provider string: a
+  // generic `openai` profile at the canonical LLMTR endpoint must populate the
+  // `llmtr` catalog, the route its requests and capability lookups already
+  // use. Scoped to LLMTR so every other route keeps its current target.
+  const discoveryRouteId = isLlmtrRoute ? 'llmtr' : route.routeId
+  void refreshStartupDiscoveryForRoute(discoveryRouteId, {
     baseUrl: profile.baseUrl,
     apiKey: profile.apiKey,
     headers: sanitizeProfileCustomHeaders(profile.customHeaders),
   }).catch(error => {
     const detail = error instanceof Error ? error.message : String(error)
     logForDebugging(
-      `[providerProfiles] Startup discovery refresh failed for ${route.routeId}: ${detail}`,
+      `[providerProfiles] Startup discovery refresh failed for ${discoveryRouteId}: ${detail}`,
     )
   })
 }
