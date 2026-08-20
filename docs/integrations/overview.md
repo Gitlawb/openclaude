@@ -118,6 +118,13 @@ routes. Fixed direct vendors usually set both to `false`; broad custom routes
 or gateways that intentionally accept user-supplied auth/header details set the
 relevant flag to `true`.
 
+OpenAI-compatible streaming chat-completions routes request a terminal usage
+chunk with `stream_options: { include_usage: true }` by default. Network
+location does not change that protocol behavior. If a route rejects
+`stream_options`, declare `removeBodyFields: ['stream_options']` in its
+`transportConfig.openaiShim`. Native transports such as direct Ollama build
+their own request payloads and are unaffected.
+
 ### Reasoning support is per model and per route
 
 `capabilities.supportsReasoning` is descriptive. It says the model is known to

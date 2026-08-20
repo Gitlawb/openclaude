@@ -1255,6 +1255,7 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
           prompt_tokens: 123,
           completion_tokens: 45,
           total_tokens: 168,
+          prompt_tokens_details: { cached_tokens: 23 },
         },
       },
     ])
@@ -1281,11 +1282,18 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
 
   const usageEvents = events.filter(
     event => event.type === 'message_delta' && typeof event.usage === 'object' && event.usage !== null,
-  ) as Array<{ usage?: { input_tokens?: number; output_tokens?: number } }>
+  ) as Array<{
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+    }
+  }>
 
   expect(usageEvents).toHaveLength(1)
-  expect(usageEvents[0]?.usage?.input_tokens).toBe(123)
+  expect(usageEvents[0]?.usage?.input_tokens).toBe(100)
   expect(usageEvents[0]?.usage?.output_tokens).toBe(45)
+  expect(usageEvents[0]?.usage?.cache_read_input_tokens).toBe(23)
 
   let currentUsage = EMPTY_USAGE
   let totalUsage = EMPTY_USAGE
@@ -1307,10 +1315,10 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
 
   expect(events.filter(event => event.type === 'message_stop')).toHaveLength(1)
   expect(totalUsage).toMatchObject({
-    input_tokens: 123,
+    input_tokens: 100,
     output_tokens: 45,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: 0,
+    cache_read_input_tokens: 23,
   })
 
   const accountedMessage = {
