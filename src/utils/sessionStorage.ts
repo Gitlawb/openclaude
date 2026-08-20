@@ -967,9 +967,9 @@ class Project {
   // Negative cache for on-demand walks that returned { found: false }.
   private remoteEgressResolvedMisses = new Set<UUID>()
   // Positive cache: parent_safe walk results. Distinct from misses so a
-  // later true miss cannot inherit a prior safe verdict, and so incomplete
-  // rebuilds do not re-scan the same safe parent on every append.
-  private remoteEgressConfirmedSafeParents = new Set<UUID>()
+  // Confirmed remote delivery witnesses: UUIDs verified to exist on remote
+  // via successful persistToRemote or verified remote hydration.
+  private remoteEgressDeliveredParents = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
   // True when rebuild could not establish complete ancestor closure
   // (oversized mid-line skip, scan budget exhausted, unresolved tips).
@@ -990,7 +990,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
-    this.remoteEgressConfirmedSafeParents.clear()
+    this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
@@ -1335,7 +1335,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
-    this.remoteEgressConfirmedSafeParents.clear()
+    this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     const path = this.sessionFile
     if (!path) return
@@ -1360,7 +1360,7 @@ class Project {
     this.remoteEgressCompactAncestry.clear()
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
-    this.remoteEgressConfirmedSafeParents.clear()
+    this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.lastRemoteEgressUuid = null
   }
@@ -2051,12 +2051,9 @@ class Project {
                   !seenAncestors.has(targetParentUuid)
                 ) {
                   seenAncestors.add(targetParentUuid)
-                  if (targetParentUuid === this.lastRemoteEgressUuid) {
-                    parentConfirmedSafe = true
-                    break
-                  }
                   if (
-                    this.remoteEgressConfirmedSafeParents.has(targetParentUuid)
+                    targetParentUuid === this.lastRemoteEgressUuid ||
+                    this.remoteEgressDeliveredParents.has(targetParentUuid)
                   ) {
                     parentConfirmedSafe = true
                     break
@@ -2111,16 +2108,27 @@ class Project {
                       continue
                     }
                     if (resolved.status === 'parent_safe') {
-                      parentConfirmedSafe = true
-                      this.evictedRemoteEgressOmissions.delete(targetParentUuid)
-                      this.remoteEgressKnownOmitted.delete(targetParentUuid)
-                      this.remoteEgressConfirmedSafeParents.add(
-                        targetParentUuid,
-                      )
-                      boundUuidSet(
-                        this.remoteEgressConfirmedSafeParents,
-                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                      )
+                      if (
+                        targetParentUuid === this.lastRemoteEgressUuid ||
+                        this.remoteEgressDeliveredParents.has(targetParentUuid)
+                      ) {
+                        parentConfirmedSafe = true
+                      } else {
+                        // Parent is safe in local transcript, but lacks a remote delivery witness
+                        // (e.g. written before sink installation, or unconfirmed delivery).
+                        // Project child to the confirmed remote tip or null root so no
+                        // undelivered parent UUID is emitted to the remote sink.
+                        targetParentUuid = this.lastRemoteEgressUuid ?? null
+                        remoteEntry = {
+                          ...entry,
+                          parentUuid: targetParentUuid,
+                        }
+                        parentConfirmedSafe = true
+                      }
+                      if (targetParentUuid) {
+                        this.evictedRemoteEgressOmissions.delete(targetParentUuid)
+                        this.remoteEgressKnownOmitted.delete(targetParentUuid)
+                      }
                       break
                     }
                     if (!queueHasPendingTranscriptAppends(queue)) {
@@ -2148,6 +2156,11 @@ class Project {
                   )
                   if (delivered && remoteEntry.uuid) {
                     this.lastRemoteEgressUuid = remoteEntry.uuid
+                    this.remoteEgressDeliveredParents.add(remoteEntry.uuid)
+                    boundUuidSet(
+                      this.remoteEgressDeliveredParents,
+                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                    )
                   } else if (!delivered && entry.uuid) {
                     this.remoteEgressOmittedParents.set(
                       entry.uuid,
@@ -6143,7 +6156,7 @@ function attachmentTypeOf(m: {
   if (m.type !== 'attachment') return null
   if (!m.attachment || typeof m.attachment !== 'object') return null
   const t = (m.attachment as { type?: unknown }).type
-  return typeof t === 'string' ? t : null
+  return typeof t === 'string' && t.trim().length > 0 ? t : null
 }
 
 /**
@@ -6237,21 +6250,23 @@ export function isSafeForExternalEgress(entry: {
   if (isMalformedAttachmentBearingEgressRecord(entry)) {
     return false
   }
+  if (entry.type === 'progress') {
+    return false
+  }
   // Listings must never cross remote / share / feedback — including ant.
   if (isExternalEgressListingAttachment(entry)) {
     return false
   }
   if (getUserType() === 'ant') {
-    // Ant keeps non-listing attachments (incl. hook_additional_context) on
+    // Ant keeps valid non-listing attachments (incl. hook_additional_context) on
     // remote for internal tooling. Progress stays out of the chain.
-    return entry.type !== 'progress'
+    return true
   }
   // External: never allow hook_additional_context even when the local-save
   // env flag is on.
   if (attachmentTypeOf(entry) === 'hook_additional_context') {
     return false
   }
-  if (entry.type === 'progress') return false
   if (entry.type !== 'attachment') return true
   // Every remaining attachment type is blocked on egress for external users.
   return false
@@ -6289,10 +6304,16 @@ export function isMalformedAttachmentBearingEgressRecord(entry: {
   type?: string
   attachment?: unknown
 }): boolean {
-  if (entry.attachment === undefined || entry.attachment === null) {
-    return false
+  if (entry.attachment !== undefined && entry.attachment !== null) {
+    if (entry.type !== 'attachment') {
+      return true
+    }
+    return attachmentTypeOf(entry) === null
   }
-  return entry.type !== 'attachment'
+  if (entry.type === 'attachment') {
+    return true
+  }
+  return false
 }
 
 /**

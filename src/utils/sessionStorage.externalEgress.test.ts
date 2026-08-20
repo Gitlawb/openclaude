@@ -39,58 +39,65 @@ import {
   setSessionFileForTesting,
 } from './sessionStorage.js'
 
-const originalUserType = process.env.USER_TYPE
-const originalHookSave = process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
-const originalEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
-const originalTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
-const originalNodeEnv = process.env.NODE_ENV
-const originalSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-// Snapshot/restore sessionPersistenceDisabled so append tests that force
-// persistence on cannot leak enabled writes into later suites (order-safe).
-const originalSessionPersistenceDisabled = isSessionPersistenceDisabled()
+let snapshotUserType: string | undefined
+let snapshotHookSave: string | undefined
+let snapshotEnablePersist: string | undefined
+let snapshotTestPersist: string | undefined
+let snapshotNodeEnv: string | undefined
+let snapshotSkipHistory: string | undefined
+let snapshotSessionPersistenceDisabled: boolean
 let ownsSharedMutationLock = false
 
 beforeEach(async () => {
   ownsSharedMutationLock = false
   await acquireSharedMutationLock('utils/sessionStorage.externalEgress.test.ts')
   ownsSharedMutationLock = true
+
+  // Capture mutable baseline only after acquiring the shared mutation lock
+  snapshotUserType = process.env.USER_TYPE
+  snapshotHookSave = process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+  snapshotEnablePersist = process.env.ENABLE_SESSION_PERSISTENCE
+  snapshotTestPersist = process.env.TEST_ENABLE_SESSION_PERSISTENCE
+  snapshotNodeEnv = process.env.NODE_ENV
+  snapshotSkipHistory = process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  snapshotSessionPersistenceDisabled = isSessionPersistenceDisabled()
 })
 
 afterEach(() => {
   try {
-  if (originalUserType === undefined) {
-    delete process.env.USER_TYPE
-  } else {
-    process.env.USER_TYPE = originalUserType
-  }
-  if (originalHookSave === undefined) {
-    delete process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
-  } else {
-    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = originalHookSave
-  }
-  if (originalEnablePersist === undefined) {
-    delete process.env.ENABLE_SESSION_PERSISTENCE
-  } else {
-    process.env.ENABLE_SESSION_PERSISTENCE = originalEnablePersist
-  }
-  if (originalTestPersist === undefined) {
-    delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
-  } else {
-    process.env.TEST_ENABLE_SESSION_PERSISTENCE = originalTestPersist
-  }
-  if (originalNodeEnv === undefined) {
-    delete process.env.NODE_ENV
-  } else {
-    process.env.NODE_ENV = originalNodeEnv
-  }
-  if (originalSkipHistory === undefined) {
-    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
-  } else {
-    process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = originalSkipHistory
-  }
-  setSessionPersistenceDisabled(originalSessionPersistenceDisabled)
-  resetProjectForTesting()
-  clearSessionMessagesCache()
+    if (snapshotUserType === undefined) {
+      delete process.env.USER_TYPE
+    } else {
+      process.env.USER_TYPE = snapshotUserType
+    }
+    if (snapshotHookSave === undefined) {
+      delete process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+    } else {
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = snapshotHookSave
+    }
+    if (snapshotEnablePersist === undefined) {
+      delete process.env.ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.ENABLE_SESSION_PERSISTENCE = snapshotEnablePersist
+    }
+    if (snapshotTestPersist === undefined) {
+      delete process.env.TEST_ENABLE_SESSION_PERSISTENCE
+    } else {
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = snapshotTestPersist
+    }
+    if (snapshotNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = snapshotNodeEnv
+    }
+    if (snapshotSkipHistory === undefined) {
+      delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    } else {
+      process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY = snapshotSkipHistory
+    }
+    setSessionPersistenceDisabled(snapshotSessionPersistenceDisabled)
+    resetProjectForTesting()
+    clearSessionMessagesCache()
   } finally {
     if (ownsSharedMutationLock) {
       ownsSharedMutationLock = false
@@ -101,15 +108,15 @@ afterEach(() => {
 
 describe('sessionPersistenceDisabled suite isolation', () => {
   test('step1: append-style mutation leaves flag away from suite snapshot', () => {
-    setSessionPersistenceDisabled(!originalSessionPersistenceDisabled)
+    setSessionPersistenceDisabled(!snapshotSessionPersistenceDisabled)
     expect(isSessionPersistenceDisabled()).not.toBe(
-      originalSessionPersistenceDisabled,
+      snapshotSessionPersistenceDisabled,
     )
   })
 
   test('step2: afterEach restored the suite snapshot from step1', () => {
     expect(isSessionPersistenceDisabled()).toBe(
-      originalSessionPersistenceDisabled,
+      snapshotSessionPersistenceDisabled,
     )
   })
 })
@@ -646,7 +653,10 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
 
       const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
       expect(remoteAfter).toBeDefined()
-      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      // Assert: because userUuid was not delivered to the remote sink (no remote delivery witness),
+      // afterMsg projects to the confirmed remote root (null), avoiding dangling pointers.
+      expect(remoteAfter?.parentUuid).toBeNull()
+      expect(remoteAfter?.parentUuid).not.toBe(listingUuid)
       expect(JSON.stringify(remotePayloads)).not.toContain('ANCESTRY-LEAK')
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -722,7 +732,10 @@ describe('rebuildRemoteEgressOmittedParentsFromLocalTranscript', () => {
 
       const remoteAfter = remotePayloads.find(p => p.uuid === afterUuid)
       expect(remoteAfter).toBeDefined()
-      expect(remoteAfter?.parentUuid).toBe(userUuid)
+      // Assert: because userUuid was not delivered to the remote sink (no remote delivery witness),
+      // afterMsg projects to the confirmed remote root (null), avoiding dangling pointers.
+      expect(remoteAfter?.parentUuid).toBeNull()
+      expect(remoteAfter?.parentUuid).not.toBe(listingO2)
       const dumped = JSON.stringify(remotePayloads)
       expect(dumped).not.toContain('O1-LEAK')
       expect(dumped).not.toContain('O2-LEAK')
@@ -2302,6 +2315,214 @@ describe('external egress delivery failures, malformed records, and eviction fal
       const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
       expect(remoteChild).toBeDefined()
       expect(remoteChild?.parentUuid).toBeNull()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('no-sink-to-sink: safe parent written before sink is not a remote delivery witness', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-no-sink-'))
+    const path = join(dir, 'session.jsonl')
+    const preSinkSafeUuid = id(1401)
+    const omittedUuid = id(1402)
+    const postSinkSafeUuid = id(1403)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      // 1. Record safe A with NO remote sink registered
+      const preSinkSafe = {
+        type: 'user',
+        uuid: preSinkSafeUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'written before sink installed' },
+      } as unknown as Message
+      await recordTranscript([preSinkSafe])
+      await flushSessionStorage()
+
+      // 2. Install remote sink
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 3. Record omitted L (parented to preSinkSafeUuid)
+      const omitted = {
+        type: 'attachment',
+        uuid: omittedUuid,
+        parentUuid: preSinkSafeUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'WITHHELD',
+          hookName: 'SessionStart',
+          toolName: 'SessionStart',
+          hookEvent: 'SessionStart',
+          stdout: 'WITHHELD',
+          stderr: '',
+          exitCode: 0,
+        },
+      } as unknown as Message
+      await recordTranscript([omitted], undefined, preSinkSafeUuid)
+      await flushSessionStorage()
+
+      // 4. Record safe C (parented to omittedUuid)
+      const postSinkSafe = {
+        type: 'user',
+        uuid: postSinkSafeUuid,
+        parentUuid: omittedUuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        message: { role: 'user', content: 'first safe entry after sink' },
+      } as unknown as Message
+      await recordTranscript([postSinkSafe], undefined, omittedUuid)
+      await flushSessionStorage()
+
+      // Assert: C was delivered
+      const remoteC = remotePayloads.find(p => p.uuid === postSinkSafeUuid)
+      expect(remoteC).toBeDefined()
+      // Assert: C was projected to null root (because preSinkSafeUuid was never delivered remotely!)
+      expect(remoteC?.parentUuid).toBeNull()
+      expect(remoteC?.parentUuid).not.toBe(preSinkSafeUuid)
+      expect(remoteC?.parentUuid).not.toBe(omittedUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('malformed attachment envelope on ant path is fail-closed', async () => {
+    process.env.USER_TYPE = 'ant'
+    delete process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+
+    // Schema checks: non-object attachment, null type, missing type, non-string type, empty type
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: { type: null, content: 'malformed-ant-leak' },
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: {},
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: { type: 42 },
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: { type: '' },
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: null,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+      }),
+    ).toBe(true)
+
+    // Valid attachment for ant is allowed
+    expect(
+      shouldOmitFromExternalEgress({
+        type: 'attachment',
+        attachment: {
+          type: 'hook_additional_context',
+          content: 'valid-ant-hook',
+        },
+      }),
+    ).toBe(false)
+
+    // In live CCR persistence: malformed attachment under ant is blocked
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-ant-malformed-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(1501)
+    const malformedUuid = id(1502)
+    const childUuid = id(1503)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // 1. Deliver seed
+      const seed = {
+        type: 'user',
+        uuid: seedUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:05:00.000Z',
+        message: { role: 'user', content: 'seed' },
+      } as unknown as Message
+      await recordTranscript([seed])
+      await flushSessionStorage()
+
+      // 2. Deliver malformed attachment under ant
+      const malformed = {
+        type: 'attachment',
+        uuid: malformedUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:05:01.000Z',
+        attachment: {
+          type: null,
+          content: 'ANT-LEAK',
+        },
+      } as unknown as Message
+      await recordTranscript([malformed], undefined, seedUuid)
+      await flushSessionStorage()
+
+      // Assert malformed entry was omitted from remote
+      expect(remotePayloads.find(p => p.uuid === malformedUuid)).toBeUndefined()
+      expect(JSON.stringify(remotePayloads)).not.toContain('ANT-LEAK')
+
+      // 3. Child reparents past malformed entry to seed
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: malformedUuid,
+        timestamp: '2026-08-11T00:05:02.000Z',
+        message: { role: 'user', content: 'child of malformed' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, malformedUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
