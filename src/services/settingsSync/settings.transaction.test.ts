@@ -17,7 +17,12 @@ import {
   setClaudeConfigHomeDirForTesting,
 } from '../../utils/envUtils.js'
 import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
-import { _applyRemoteEntriesToLocalForTesting } from './index.js'
+import {
+  _applyRemoteEntriesToLocalForTesting,
+  _setDownloadedEntriesForTesting,
+  downloadUserSettings,
+  redownloadUserSettings,
+} from './index.js'
 import { SYNC_KEYS } from './types.js'
 
 const fixturePath = resolve(
@@ -185,6 +190,7 @@ test(
         expect(result).toEqual({
           appliedCount: 1,
           settingsFilesWritten: 1,
+          settingsFilesFailed: 0,
           memoryFilesWritten: 0,
         })
         expect(elapsedMs).toBeGreaterThanOrEqual(500)
@@ -223,6 +229,7 @@ test(
         expect(result).toEqual({
           appliedCount: 1,
           settingsFilesWritten: 1,
+          settingsFilesFailed: 0,
           memoryFilesWritten: 0,
         })
         expect(JSON.parse(readFileSync(localSettings, 'utf8')).env).toEqual({
@@ -259,6 +266,7 @@ test(
         expect(result).toEqual({
           appliedCount: 1,
           settingsFilesWritten: 0,
+          settingsFilesFailed: 1,
           memoryFilesWritten: 1,
         })
         expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
@@ -277,6 +285,7 @@ test(
         ).toEqual({
           appliedCount: 1,
           settingsFilesWritten: 1,
+          settingsFilesFailed: 0,
           memoryFilesWritten: 0,
         })
         expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
@@ -284,6 +293,44 @@ test(
         })
         expect(existsSync(`${userSettings}.lock`)).toBe(false)
       } finally {
+        await terminateHolder(holder)
+      }
+    })
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'startup and reload downloads return false after a timed-out settings apply',
+  async () => {
+    await withSyncEnvironment(async ({ root, userMemory, userSettings }) => {
+      writeFileSync(userSettings, '{"env":{"ORIGINAL":"yes"}}\n')
+      const entered = join(root, 'download-holder-entered')
+      const completed = join(root, 'download-holder-completed')
+      const holder = startHolder(userSettings, 5_000, entered, completed)
+      try {
+        await waitForHolder(entered, holder)
+        _setDownloadedEntriesForTesting({
+          entries: {
+            [SYNC_KEYS.USER_SETTINGS]: '{"env":{"REPLACED":"no"}}\n',
+            [SYNC_KEYS.USER_MEMORY]: 'best-effort memory\n',
+          },
+          projectId: null,
+        })
+
+        const startupDownload = downloadUserSettings()
+        expect(downloadUserSettings()).toBe(startupDownload)
+        expect(await startupDownload).toBe(false)
+        expect(await redownloadUserSettings()).toBe(false)
+
+        expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
+          ORIGINAL: 'yes',
+        })
+        expect(readFileSync(userMemory, 'utf8')).toBe('best-effort memory\n')
+        await finishHolder(holder)
+        expect(existsSync(`${userSettings}.lock`)).toBe(false)
+      } finally {
+        _setDownloadedEntriesForTesting(null)
         await terminateHolder(holder)
       }
     })

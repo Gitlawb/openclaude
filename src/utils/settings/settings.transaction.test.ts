@@ -4,9 +4,11 @@ import {
   lstatSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,6 +20,10 @@ import {
   getClaudeConfigHomeDirOverrideForTesting,
   setClaudeConfigHomeDirForTesting,
 } from '../envUtils.js'
+import {
+  getFsImplementation,
+  setFsImplementation,
+} from '../fsOperations.js'
 import * as gitignore from '../git/gitignore.js'
 import {
   getSettingsForSource,
@@ -422,6 +428,32 @@ test('does not retry unrelated filesystem errors', async () => {
   }
 })
 
+test('does not require hard-link support from the settings filesystem', async () => {
+  await withIsolatedUserSettings((_root, settingsPath) => {
+    const originalFs = getFsImplementation()
+    setFsImplementation({
+      ...originalFs,
+      linkSync() {
+        throw Object.assign(new Error('Hard links are unavailable'), {
+          code: 'ENOTSUP',
+        })
+      },
+    })
+    try {
+      expect(
+        updateSettingsForSource('userSettings', {
+          env: { NO_HARD_LINK: 'yes' },
+        }),
+      ).toEqual({ error: null })
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+        NO_HARD_LINK: 'yes',
+      })
+    } finally {
+      setFsImplementation(originalFs)
+    }
+  })
+})
+
 test('reports transaction failures with operation-neutral context', async () => {
   await withIsolatedUserSettings((_root, settingsPath) => {
     mkdirSync(settingsPath)
@@ -563,6 +595,189 @@ test(
 )
 
 test(
+  'does not expire a live synchronous owner when its lock entry is old',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-live-owner-'))
+    const settingsPath = join(root, 'settings.json')
+    const holderEntered = join(root, 'holder-entered')
+    const holderCompleted = join(root, 'holder-completed')
+    const releaseHolder = join(root, 'release-holder')
+    const writerEntered = join(root, 'writer-entered')
+    const writerCompleted = join(root, 'writer-completed')
+    const children: CapturedChild[] = []
+    try {
+      writeFileSync(settingsPath, '{}\n')
+      const holder = startWriter([
+        'hold-lock',
+        root,
+        'unused',
+        'unused',
+        holderEntered,
+        holderCompleted,
+        'unused',
+        releaseHolder,
+      ])
+      children.push(holder)
+      await waitForMarker(holderEntered, holder, 'holder')
+
+      const olderThanPreviousLease = new Date(Date.now() - 31_000)
+      utimesSync(
+        `${settingsPath}.lock`,
+        olderThanPreviousLease,
+        olderThanPreviousLease,
+      )
+
+      const writer = startWriter([
+        'normal',
+        root,
+        'MUST_NOT_APPLY',
+        'no',
+        writerEntered,
+        writerCompleted,
+      ])
+      children.push(writer)
+      await waitForMarker(writerEntered, writer, 'waiting writer')
+      const writerResult = await finishWriter(writer, 'waiting writer')
+
+      expect(writerResult.ok).toBe(false)
+      expect(writerResult.error).toContain('Timed out after 2000ms')
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({})
+
+      writeFileSync(releaseHolder, '')
+      expect(await finishWriter(holder, 'holder')).toEqual({ ok: true })
+      expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+    } finally {
+      await Promise.all(children.map(terminateChild))
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'a waiting process can exit without leaving lock identity files',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-dead-waiter-'))
+    const settingsPath = join(root, 'settings.json')
+    const holderEntered = join(root, 'holder-entered')
+    const holderCompleted = join(root, 'holder-completed')
+    const releaseHolder = join(root, 'release-holder')
+    const writerEntered = join(root, 'writer-entered')
+    const writerCompleted = join(root, 'writer-completed')
+    const children: CapturedChild[] = []
+    try {
+      writeFileSync(settingsPath, '{}\n')
+      const holder = startWriter([
+        'hold-lock',
+        root,
+        'unused',
+        'unused',
+        holderEntered,
+        holderCompleted,
+        'unused',
+        releaseHolder,
+      ])
+      children.push(holder)
+      await waitForMarker(holderEntered, holder, 'holder')
+
+      const writer = startWriter([
+        'normal',
+        root,
+        'MUST_NOT_APPLY',
+        'no',
+        writerEntered,
+        writerCompleted,
+      ])
+      children.push(writer)
+      await waitForMarker(writerEntered, writer, 'waiting writer')
+      expect(await markerAppearsWithin(writerCompleted, writer, 200)).toBe(false)
+      writer.process.kill('SIGKILL')
+      await writer.exited
+
+      writeFileSync(releaseHolder, '')
+      expect(await finishWriter(holder, 'holder')).toEqual({ ok: true })
+      expect(
+        readdirSync(root).filter(name => name.startsWith('settings.json.lock')),
+      ).toEqual([])
+    } finally {
+      await Promise.all(children.map(terminateChild))
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'serializes competing recoveries after the recorded holder process exits',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-dead-owner-'))
+    const settingsPath = join(root, 'settings.json')
+    const holderEntered = join(root, 'holder-entered')
+    const holderCompleted = join(root, 'holder-completed')
+    const releaseHolder = join(root, 'release-holder')
+    const writerAEntered = join(root, 'writer-a-entered')
+    const writerACompleted = join(root, 'writer-a-completed')
+    const writerBEntered = join(root, 'writer-b-entered')
+    const writerBCompleted = join(root, 'writer-b-completed')
+    const children: CapturedChild[] = []
+    try {
+      writeFileSync(settingsPath, '{}\n')
+      const holder = startWriter([
+        'hold-lock',
+        root,
+        'unused',
+        'unused',
+        holderEntered,
+        holderCompleted,
+        'unused',
+        releaseHolder,
+      ])
+      children.push(holder)
+      await waitForMarker(holderEntered, holder, 'holder')
+      holder.process.kill('SIGKILL')
+      await holder.exited
+
+      const writerA = startWriter([
+        'normal',
+        root,
+        'RECOVERED_A',
+        'a',
+        writerAEntered,
+        writerACompleted,
+      ])
+      const writerB = startWriter([
+        'normal',
+        root,
+        'RECOVERED_B',
+        'b',
+        writerBEntered,
+        writerBCompleted,
+      ])
+      children.push(writerA, writerB)
+      expect(
+        await Promise.all([
+          finishWriter(writerA, 'recovery writer A'),
+          finishWriter(writerB, 'recovery writer B'),
+        ]),
+      ).toEqual([{ ok: true }, { ok: true }])
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+        RECOVERED_A: 'a',
+        RECOVERED_B: 'b',
+      })
+      expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+      const recoveryGuards = readdirSync(root).filter(name =>
+        name.startsWith('settings.json.lock.recovered.'),
+      )
+      expect(recoveryGuards).toHaveLength(1)
+    } finally {
+      await Promise.all(children.map(terminateChild))
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
   'symlinked parent and direct-file aliases share a lock and preserve the links',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-alias-'))
@@ -684,6 +899,10 @@ test('local settings still arrange the existing global gitignore rule', () => {
     ).toEqual({ error: null })
     expect(addRule).toHaveBeenCalledWith(
       '.openclaude/settings.local.json',
+      project,
+    )
+    expect(addRule).toHaveBeenCalledWith(
+      '.openclaude/settings.local.json.lock*',
       project,
     )
   } finally {
