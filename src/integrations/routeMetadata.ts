@@ -406,7 +406,8 @@ export function isLlmtrBaseUrl(value: string | undefined): boolean {
   }
 }
 
-const LLMTR_CANONICAL_ORIGIN = 'https://llmtr.com'
+const LLMTR_CANONICAL_INFERENCE_BASE_URL = new URL('https://llmtr.com/v1')
+const LLMTR_CANONICAL_INFERENCE_BASE_PATH = /^\/v1\/?$/
 
 /**
  * Credential-forwarding gate for LLMTR — the counterpart to the host-scoped
@@ -419,13 +420,11 @@ const LLMTR_CANONICAL_ORIGIN = 'https://llmtr.com'
  * which is a different service that merely shares the hostname — so route
  * identity cannot be reused as the forwarding check.
  *
- * The comparison is on the parsed origin rather than on strings: that makes
- * `https://llmtr.com`, `https://llmtr.com:443` and `https://llmtr.com/v1` the
- * same endpoint, since URL parsing normalises the default port away. Rejecting
- * an explicit `:443` would be a false positive. The path is deliberately not
- * constrained — unlike ApiSmart's single documented `/v1` URL, LLMTR is reached
- * both at the host root and under `/v1`, and any path on this origin still
- * terminates at LLMTR.
+ * The endpoint includes the API path, not only the origin. The shared OpenAI
+ * shim appends `/chat/completions` to this value, so accepting the host root or
+ * an arbitrary path would create a different authenticated request URL. Parse
+ * rather than compare strings so the default HTTPS port and host case are
+ * normalized, while `/v1` and `/v1/` remain the only supported base paths.
  */
 export function isCanonicalLlmtrInferenceBaseUrl(
   value: string | undefined,
@@ -436,7 +435,13 @@ export function isCanonicalLlmtrInferenceBaseUrl(
   }
 
   try {
-    return new URL(trimmed).origin === LLMTR_CANONICAL_ORIGIN
+    const parsed = new URL(trimmed)
+    return (
+      parsed.origin === LLMTR_CANONICAL_INFERENCE_BASE_URL.origin &&
+      LLMTR_CANONICAL_INFERENCE_BASE_PATH.test(parsed.pathname) &&
+      !parsed.search &&
+      !parsed.hash
+    )
   } catch {
     return false
   }

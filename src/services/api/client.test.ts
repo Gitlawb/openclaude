@@ -862,6 +862,8 @@ test('noncanonical and retargeted LLMTR endpoints never receive the dedicated ke
   for (const baseUrl of [
     'http://llmtr.com/v1',
     'https://llmtr.com:8443/v1',
+    'https://llmtr.com',
+    'https://llmtr.com/anything',
     'https://proxy.example/v1',
   ]) {
     let capturedUrl: string | undefined

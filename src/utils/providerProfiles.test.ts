@@ -926,6 +926,8 @@ describe('applyProviderProfileToProcessEnv', () => {
     for (const baseUrl of [
       'http://llmtr.com/v1',
       'https://llmtr.com:8443/v1',
+      'https://llmtr.com',
+      'https://llmtr.com/anything',
     ]) {
       applyProviderProfileToProcessEnv(
         buildProfile({
@@ -1020,11 +1022,12 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
     expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
 
-    // The host root is also canonical.
+    // The root is not an API base and must not receive the dedicated key.
     applyProviderProfileToProcessEnv(
       buildLlmtrProfile({ baseUrl: 'https://llmtr.com' }),
     )
-    expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
 
   test('generic openai profile on an llmtr.com lookalike host does NOT mirror LLMTR_API_KEY', async () => {

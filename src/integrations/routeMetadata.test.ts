@@ -118,13 +118,20 @@ test('isLlmtrBaseUrl matches the exact llmtr.com host, not substring or subdomai
 })
 
 test('isCanonicalLlmtrInferenceBaseUrl gates the dedicated key on the real endpoint', () => {
-  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com')).toBe(true)
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1')).toBe(true)
-  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/')).toBe(true)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1/')).toBe(true)
   // An explicit default port is the same endpoint, so rejecting it would be a
-  // false positive — origin comparison normalises it away.
+  // false positive — URL parsing normalises it away.
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com:443/v1')).toBe(true)
   expect(isCanonicalLlmtrInferenceBaseUrl('https://LLMTR.COM/v1')).toBe(true)
+
+  // The OpenAI shim appends `/chat/completions`, so the bare host and arbitrary
+  // paths are not interchangeable with the documented `/v1` API base.
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/anything')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1?query=value')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1#fragment')).toBe(false)
 
   // Plaintext would put LLMTR_API_KEY on the wire unencrypted.
   expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
@@ -411,14 +418,14 @@ test('ApiSmart dedicated credential is limited to the canonical inference base U
   ).toBeUndefined()
 })
 
-test('LLMTR dedicated credential is limited to the canonical inference origin', () => {
+test('LLMTR dedicated credential is limited to the canonical inference base', () => {
   const processEnv = { LLMTR_API_KEY: 'llmtr-secret' }
 
-  // Canonical: the documented origin, with or without the /v1 path, with an
-  // explicit default port, and case-insensitively on the host.
+  // Canonical: documented `/v1` API base, with an explicit default port and
+  // case-insensitively on the host.
   for (const baseUrl of [
-    'https://llmtr.com',
     'https://llmtr.com/v1',
+    'https://llmtr.com/v1/',
     'https://llmtr.com:443/v1',
     'https://LLMTR.COM/v1',
   ]) {
@@ -433,6 +440,9 @@ test('LLMTR dedicated credential is limited to the canonical inference origin', 
   for (const baseUrl of [
     'http://llmtr.com/v1',
     'https://llmtr.com:8443/v1',
+    'https://llmtr.com',
+    'https://llmtr.com/anything',
+    'https://llmtr.com/v1?query=value',
     'https://proxy.example/v1',
   ]) {
     expect(
@@ -584,6 +594,9 @@ test('resolveRouteIdFromBaseUrl rejects non-canonical llmtr.com endpoints', () =
   // boundary lives here: an env-only plaintext or off-port URL becomes a
   // generic custom endpoint rather than a dedicated route with a withheld key.
   expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1/')).toBe('llmtr')
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com')).toBe(null)
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/anything')).toBe(null)
   expect(resolveRouteIdFromBaseUrl('http://llmtr.com/v1')).toBe(null)
   expect(resolveRouteIdFromBaseUrl('https://llmtr.com:8443/v1')).toBe(null)
 })
