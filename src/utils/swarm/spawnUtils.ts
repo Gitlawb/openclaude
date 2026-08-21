@@ -9,6 +9,10 @@ import {
   getMainLoopModelOverride,
   getSessionBypassPermissionsMode,
 } from '../../bootstrap/state.js'
+import {
+  getRouteCredentialEnvVars,
+  resolveActiveRouteIdFromEnv,
+} from '../../integrations/routeMetadata.js'
 import { quote } from '../bash/shellQuote.js'
 import { isInBundledMode } from '../bundledMode.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
@@ -164,7 +168,25 @@ export function buildInheritedEnvVars(): string {
     'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1',
   ]
 
-  for (const key of TEAMMATE_ENV_VARS) {
+  // Resolve the provider once from the leader's complete runtime environment.
+  // The child is host-managed, so propagate that identity explicitly instead
+  // of asking a fresh login shell to infer it again from a partial env.
+  const routeId = resolveActiveRouteIdFromEnv(process.env)
+  if (routeId) {
+    envVars.push(`CLAUDE_CODE_PROVIDER_ROUTE_ID=${quote([routeId])}`)
+  }
+
+  // Credential ownership lives in route metadata. Derive the active route's
+  // keys here so dedicatedCredentialsOnly providers work in teammates without
+  // teaching this spawn layer about every current and future provider.
+  const inheritedEnvKeys = new Set<string>(TEAMMATE_ENV_VARS)
+  if (routeId) {
+    for (const key of getRouteCredentialEnvVars(routeId)) {
+      inheritedEnvKeys.add(key)
+    }
+  }
+
+  for (const key of inheritedEnvKeys) {
     const value = process.env[key]
     if (value !== undefined && value !== '') {
       envVars.push(`${key}=${quote([value])}`)
