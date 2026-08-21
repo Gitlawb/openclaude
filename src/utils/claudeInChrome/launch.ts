@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { resolveCurrentCliEntrypoint } from '../cliEntrypoint.js'
 import { logForDebugging } from '../debug.js'
@@ -80,6 +80,12 @@ export async function createWrapperScript(
 
   const existingContent = await readFile(wrapperPath, 'utf-8').catch(() => null)
   if (existingContent === scriptContent) {
+    if (platform !== 'windows') {
+      const existingMode = (await stat(wrapperPath)).mode & 0o777
+      if (existingMode !== 0o755) {
+        await chmod(wrapperPath, 0o755)
+      }
+    }
     return wrapperPath
   }
 

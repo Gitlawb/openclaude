@@ -79,14 +79,13 @@ test('isolated Claude-in-Chrome setup', async () => {
   const wrapper = await Bun.file(wrapperPath).text()
   expect(wrapper).toContain(resolvedTarget!)
   expect(wrapper).toContain('--chrome-native-host')
-
-  await Bun.sleep(50)
 })
 `,
     )
 
     const result = spawnSync(process.execPath, ['test', fixturePath], {
       encoding: 'utf8',
+      timeout: 60_000,
       env: {
         ...process.env,
         CI: '1',
@@ -105,7 +104,7 @@ test('isolated Claude-in-Chrome setup', async () => {
     })
     if (result.status !== 0) {
       throw new Error(
-        `Isolated setup fixture failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+        `Isolated setup fixture failed (status=${result.status ?? 'none'}, signal=${result.signal ?? 'none'}, error=${result.error?.message ?? 'none'}):\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
       )
     }
   } finally {

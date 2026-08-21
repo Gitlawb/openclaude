@@ -45,7 +45,8 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # The verify script only uses node builtins + scripts/externalsValidation
-      # (relative import) — no bun install needed, keeping the matrix cheap.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
       - name: Verify published package installs clean
         run: bun run scripts/verify-clean-install.ts --published
