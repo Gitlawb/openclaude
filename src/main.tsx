@@ -153,6 +153,8 @@ import { registerMcpXaaIdpCommand } from 'src/commands/mcp/xaaIdpCommand.js';
 import { fetchClaudeAIMcpConfigsIfEligible } from 'src/services/mcp/claudeai.js';
 import { clearServerCache } from 'src/services/mcp/client.js';
 import { areMcpConfigsAllowedWithEnterpriseMcpConfig, dedupClaudeAiMcpServers, doesEnterpriseMcpConfigExist, filterMcpServersByPolicy, getClaudeCodeMcpConfigs, getMcpServerSignature, parseMcpConfig, parseMcpConfigFromFilePath } from 'src/services/mcp/config.js';
+import { getHeadlessMcpConfigWarnings } from 'src/services/mcp/headlessErrors.js';
+import type { PluginError } from 'src/types/plugin.js';
 import { excludeCommandsByServer, excludeResourcesByServer } from 'src/services/mcp/utils.js';
 import { isXaaEnabled } from 'src/services/mcp/xaaIdpLogin.js';
 import { getRelevantTips } from 'src/services/tips/tipRegistry.js';
@@ -1736,7 +1738,8 @@ async function run(): Promise<CommanderCommand> {
     // only explicit --mcp-config works. dynamicMcpConfig is spread onto
     // allMcpConfigs downstream so it survives this skip.
     const mcpConfigPromise = (strictMcpConfig || isBareMode() ? Promise.resolve({
-      servers: {} as Record<string, ScopedMcpServerConfig>
+      servers: {} as Record<string, ScopedMcpServerConfig>,
+      errors: [] as PluginError[]
     }) : getClaudeCodeMcpConfigs(dynamicMcpConfig)).then(result => {
       mcpConfigResolvedMs = Date.now() - mcpConfigStart;
       return result;
@@ -2292,8 +2295,16 @@ async function run(): Promise<CommanderCommand> {
     }
 
     const {
-      servers: existingMcpConfigs
+      servers: existingMcpConfigs,
+      errors: mcpConfigErrors = []
     } = await mcpConfigPromise;
+    // Headless (-p) has no MCP-error UI, so a fatal managed-mcp.json fail-closes
+    // every file-based source with no diagnostic — indistinguishable from an
+    // intentionally empty config. Surface those errors on stderr so scripted
+    // users see why nothing loaded. Interactive surfaces them via the MCP UI.
+    for (const line of getHeadlessMcpConfigWarnings(isNonInteractiveSession, mcpConfigErrors)) {
+      process.stderr.write(`${line}\n`);
+    }
     // CLI flag (--mcp-config) should override file-based configs, matching settings precedence
     const allMcpConfigs = {
       ...existingMcpConfigs,
