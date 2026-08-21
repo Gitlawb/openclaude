@@ -20,6 +20,7 @@ import {
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
 import gatewayLlmtr from './gateways/llmtr.js'
+import openAICompatibleAliasModels from './models/openai-compatible-alias.js'
 import { ensureIntegrationsLoaded } from './index.js'
 import { _clearRegistryForTesting, registerGateway } from './registry.js'
 import {
@@ -169,6 +170,9 @@ test('llmtr seed catalog covers passthrough routes and drops retired model ids',
   // OpenClaude coding-agent session and must not be offered by the route.
   expect(apiNames).not.toContain('llmtr/trendyol-asure-12b')
   expect(apiNames).not.toContain('llmtr/magibu-11b-v8')
+  const aliasIds = openAICompatibleAliasModels.map(model => model.id)
+  expect(aliasIds).not.toContain('llmtr/trendyol-asure-12b')
+  expect(aliasIds).not.toContain('llmtr/magibu-11b-v8')
 
   // The default must be a route the catalog actually offers.
   expect(gatewayLlmtr.defaultModel).toBeDefined()

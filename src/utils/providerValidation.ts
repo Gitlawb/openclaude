@@ -287,14 +287,22 @@ function getRuntimeValidationTarget(
     }
   }
 
-  const dedicatedCredentialTargets = !useOpenAI
+  const hasPinnedRoute = Boolean(env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim())
+  const hasExplicitOpenAIConfig = Boolean(
+    env.OPENAI_BASE_URL?.trim() ||
+      env.OPENAI_MODEL?.trim() ||
+      hasOpenAICredential(env),
+  )
+  const canInferKeyOnlyRoute =
+    !hasPinnedRoute && (!useOpenAI || !hasExplicitOpenAIConfig)
+  const dedicatedCredentialTargets = canInferKeyOnlyRoute
     ? validationTargets.filter(target => {
-    const validation = target.descriptor.validation
-    return (
-      target.descriptor.setup.dedicatedCredentialsOnly === true &&
-      validation?.kind === 'credential-env' &&
-      validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
-    )
+        const validation = target.descriptor.validation
+        return (
+          target.descriptor.setup.dedicatedCredentialsOnly === true &&
+          validation?.kind === 'credential-env' &&
+          validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+        )
       })
     : []
   if (dedicatedCredentialTargets.length === 1) {

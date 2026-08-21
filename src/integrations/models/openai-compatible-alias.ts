@@ -136,9 +136,7 @@ const aliasModels: readonly AliasModel[] = [
   // vendors; those routes reuse the existing per-vendor model descriptors and
   // are declared in the gateway catalog rather than aliased here.
   ['llmtr/gemma-4', 'Gemma 4 (Turkey-hosted)', 131_072, 131_072],
-  ['llmtr/trendyol-asure-12b', 'Trendyol Asure 12B (Turkey-hosted)', 40_960, 40_960],
   ['llmtr/muse-glimmer-30b-tr', 'Muse Glimmer 30B (Turkey-hosted)', 131_072, 131_072],
-  ['llmtr/magibu-11b-v8', 'Magibu 11B v8 (Turkey-hosted)', 8_192, 8_192],
 ]
 
 export default aliasModels.map(([id, label, contextWindow, maxOutputTokens]) =>
