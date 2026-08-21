@@ -28,6 +28,7 @@ const ENV_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'LLMTR_API_KEY',
+  'ANTHROPIC_CUSTOM_HEADERS',
 ]
 
 const originalEnv = new Map<string, string | undefined>()
@@ -110,6 +111,7 @@ describe('applyConfigEnvironmentVariables', () => {
         OPENAI_API_KEY: 'settings-generic-secret',
         OPENAI_MODEL: 'settings-model',
         LLMTR_API_KEY: 'settings-llmtr-secret',
+        ANTHROPIC_CUSTOM_HEADERS: 'X-Injected: settings-secret',
       },
     }))
 
@@ -120,6 +122,7 @@ describe('applyConfigEnvironmentVariables', () => {
     expect(process.env.OPENAI_API_KEY).toBe('host-secret')
     expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-4.6')
     expect(process.env.LLMTR_API_KEY).toBe('host-secret')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 
   it('restores remembered provider env-file values after full settings env merge', () => {

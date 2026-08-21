@@ -52,6 +52,9 @@ test('buildInheritedEnvVars forwards complete custom OpenAI profile routing', ()
   process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
   process.env.OPENAI_AUTH_SCHEME = 'raw'
   process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Profile: profile-secret'
+  process.env.OPENAI_AZURE_STYLE = '1'
+  process.env.AZURE_OPENAI_API_VERSION = '2024-12-01-preview'
 
   const envVars = buildInheritedEnvVars()
 
@@ -66,6 +69,11 @@ test('buildInheritedEnvVars forwards complete custom OpenAI profile routing', ()
   expect(envVars).toContain('OPENAI_AUTH_HEADER=X-Proxy-Key')
   expect(envVars).toContain('OPENAI_AUTH_SCHEME=raw')
   expect(envVars).toContain('OPENAI_AUTH_HEADER_VALUE=proxy-secret')
+  expect(envVars).toContain(
+    "ANTHROPIC_CUSTOM_HEADERS='X-Profile: profile-secret'",
+  )
+  expect(envVars).toContain('OPENAI_AZURE_STYLE=1')
+  expect(envVars).toContain('AZURE_OPENAI_API_VERSION=2024-12-01-preview')
 })
 
 test.each([
