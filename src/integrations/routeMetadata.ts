@@ -1142,6 +1142,17 @@ export function resolveEnvOnlyProviderRouteId(
     return 'apismart'
   }
 
+  // A provider-specific base/model is stronger intent than another route's
+  // ambient key. Preserve the historical key-only ordering below, but let an
+  // explicitly configured Concentrate session outrank a leftover LLMTR key.
+  if (
+    (processEnv.CONCENTRATE_BASE_URL?.trim() ||
+      processEnv.CONCENTRATE_MODEL?.trim()) &&
+    hasConcentrateEnvOnlyProviderIntent(processEnv)
+  ) {
+    return 'concentrate'
+  }
+
   if (hasLlmtrEnvOnlyProviderIntent(processEnv)) {
     return 'llmtr'
   }

@@ -1357,6 +1357,17 @@ test('resolveActiveRouteIdFromEnv prefers Concentrate dedicated key over ambient
   ).toBe('concentrate')
 })
 
+test('explicit Concentrate config outranks an ambient LLMTR key', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      LLMTR_API_KEY: 'ambient-llmtr-key',
+      CONCENTRATE_API_KEY: 'concentrate-key',
+      CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
+      CONCENTRATE_MODEL: 'anthropic/claude-sonnet-4.6',
+    }),
+  ).toBe('concentrate')
+})
+
 test('resolveActiveRouteIdFromEnv does not infer Concentrate with a conflicting OpenAI base URL', () => {
   expect(
     resolveActiveRouteIdFromEnv({

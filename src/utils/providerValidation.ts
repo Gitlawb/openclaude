@@ -23,6 +23,7 @@ import {
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
   resolveActiveRouteIdFromEnv,
+  resolveEnvOnlyProviderRouteId,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
@@ -266,12 +267,38 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
-  // The documented CONCENTRATE_API_KEY-only setup is routed before the client
-  // applies its default base URL. Select its descriptor directly so startup
-  // validates the dedicated credential, including a noncanonical dedicated
-  // base URL, instead of returning early for an unset OpenAI mode.
-  if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
-    return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  // Dedicated-key routes can be selected before the client applies OpenAI mode
+  // or its default base URL. Validate the resolved route first, and if an
+  // invalid/placeholder key prevented runtime resolution, retain a unique
+  // dedicated credential variable as validation intent so the user receives
+  // that provider's actionable error instead of no validation at all.
+  const startupRouteId = resolveActiveRouteIdFromEnv(env)
+  const envOnlyRouteId = !useOpenAI
+    ? resolveEnvOnlyProviderRouteId(env)
+    : startupRouteId === 'llmtr' || startupRouteId === 'concentrate'
+      ? startupRouteId
+      : null
+  if (envOnlyRouteId) {
+    const envOnlyTarget = validationTargets.find(
+      target => target.descriptor.id === envOnlyRouteId,
+    )
+    if (envOnlyTarget) {
+      return envOnlyTarget
+    }
+  }
+
+  const dedicatedCredentialTargets = !useOpenAI
+    ? validationTargets.filter(target => {
+    const validation = target.descriptor.validation
+    return (
+      target.descriptor.setup.dedicatedCredentialsOnly === true &&
+      validation?.kind === 'credential-env' &&
+      validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+    )
+      })
+    : []
+  if (dedicatedCredentialTargets.length === 1) {
+    return dedicatedCredentialTargets[0]
   }
 
   if (!useOpenAI) {

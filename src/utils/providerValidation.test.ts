@@ -292,6 +292,18 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   },
 )
 
+test('key-only LLMTR placeholder validates before OpenAI mode is enabled', async () => {
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Set LLMTR_API_KEY for the LLMTR provider. Get a key at https://llmtr.com.',
+  )
+})
+
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'Concentrate validation rejects placeholder CONCENTRATE_API_KEY %s',
   async placeholder => {
