@@ -3040,7 +3040,7 @@ test('Local provider (vLLM/Ollama/etc.): strips unsupported store on chat_comple
   expect(requestBody?.store).toBeUndefined()
 })
 
-test('does not send stream_options to local OpenAI-compatible servers', async () => {
+test('requests streaming usage from local OpenAI-compatible servers', async () => {
   process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
 
   let requestBody: Record<string, unknown> | undefined
@@ -3060,7 +3060,195 @@ test('does not send stream_options to local OpenAI-compatible servers', async ()
   })
 
   expect(requestBody?.stream).toBe(true)
-  expect(requestBody).not.toHaveProperty('stream_options')
+  expect(requestBody?.stream_options).toEqual({ include_usage: true })
+})
+
+test('retries a strict custom local stream once without rejected stream_options', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+  process.env.OPENAI_API_KEY = 'strict-local-key'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  const authorizations: Array<string | null> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    const headers = init?.headers as Record<string, string> | undefined
+    authorizations.push(headers?.Authorization ?? headers?.authorization ?? null)
+    if (requestBodies.length === 1) {
+      return new Response(
+        '{"error":{"message":"Unsupported parameter: stream_options","param":"stream_options"}}',
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return makeSseResponse(makeStreamChunks([
+      {
+        id: 'chatcmpl-strict-local',
+        object: 'chat.completion.chunk',
+        model: 'strict-local-model',
+        choices: [{ index: 0, delta: { content: 'fallback works' }, finish_reason: null }],
+      },
+      {
+        id: 'chatcmpl-strict-local',
+        object: 'chat.completion.chunk',
+        model: 'strict-local-model',
+        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      },
+    ]))
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const result = await client.beta.messages
+    .create({
+      model: 'strict-local-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [{
+        name: 'Read',
+        description: 'Read a file',
+        input_schema: {
+          type: 'object',
+          properties: { filePath: { type: 'string' } },
+          required: ['filePath'],
+        },
+      }],
+      max_tokens: 64,
+      stream: true,
+    })
+    .withResponse()
+
+  const textDeltas: string[] = []
+  for await (const event of result.data) {
+    const delta = event.delta as { type?: string; text?: string } | undefined
+    if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      textDeltas.push(delta.text)
+    }
+  }
+
+  expect(requestBodies).toHaveLength(2)
+  expect(requestBodies[0]?.stream_options).toEqual({ include_usage: true })
+  expect(requestBodies[1]).not.toHaveProperty('stream_options')
+  expect(requestBodies[1]?.tools).toEqual(requestBodies[0]?.tools)
+  expect(authorizations).toEqual(['Bearer strict-local-key', 'Bearer strict-local-key'])
+  expect(textDeltas.join('')).toBe('fallback works')
+})
+
+test('stops after one stream_options compatibility retry', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response('Unsupported parameter: stream_options', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'strict-local-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(2)
+  expect(requestBodies[0]?.stream_options).toEqual({ include_usage: true })
+  expect(requestBodies[1]).not.toHaveProperty('stream_options')
+})
+
+test('does not remove stream_options or retry an unrelated custom-provider 400', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response(
+      '{"error":{"message":"Invalid request for model; received stream_options in the request body"}}',
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'strict-local-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(1)
+  expect(requestBodies[0]?.stream_options).toEqual({ include_usage: true })
+})
+
+test('does not retry a nested stream_options validation failure', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response(
+      'Invalid parameter: stream_options.include_usage must be a boolean',
+      { status: 400, headers: { 'Content-Type': 'text/plain' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await expect(
+    client.beta.messages.create({
+      model: 'strict-local-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    }),
+  ).rejects.toThrow()
+
+  expect(requestBodies).toHaveLength(1)
+  expect(requestBodies[0]?.stream_options).toEqual({ include_usage: true })
+})
+
+test('does not retry a stream_options rejection after user cancellation', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
+
+  const controller = new AbortController()
+  const abortReason = new DOMException('The operation was aborted.', 'AbortError')
+  const requestBodies: Array<Record<string, unknown>> = []
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    const response = new Response(null, {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain' },
+    })
+    Object.defineProperty(response, 'text', {
+      value: async () => {
+        controller.abort(abortReason)
+        return 'Unsupported parameter: stream_options'
+      },
+      configurable: true,
+    })
+    return response
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  let caught: unknown
+  try {
+    await client.beta.messages.create(
+      {
+        model: 'strict-local-model',
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+        stream: true,
+      },
+      { signal: controller.signal },
+    )
+  } catch (error) {
+    caught = error
+  }
+
+  expect(requestBodies).toHaveLength(1)
+  expect(caught).toBe(abortReason)
 })
 
 test('Mistral: strips unsupported store on chat_completions (#739)', async () => {
