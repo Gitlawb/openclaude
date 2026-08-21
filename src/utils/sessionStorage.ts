@@ -2212,12 +2212,9 @@ class Project {
             // buildConversationChain do not stop at a missing parentUuid.
             if (isTranscriptMessage(entry) && this.hasActiveRemoteEgressSink()) {
               if (!shouldOmitFromExternalEgress(entry)) {
-                const originalParentUuid = entry.parentUuid ?? null
-                const { remoteEntry, parentConfirmedSafe } =
-                  this.resolveRemoteEgressParentProjection(entry)
                 // Bounded rebuild retry: if a prior resume rebuild was left
-                // incomplete, attempt bounded retries before suppressing
-                // this entry. When reconstruction succeeds the session resumes
+                // incomplete, attempt bounded retries before resolving ancestry
+                // for this entry. When reconstruction succeeds the session resumes
                 // remote persistence instead of latching fail-closed for life.
                 if (
                   this.remoteEgressOmissionRebuildIncomplete &&
@@ -2246,6 +2243,7 @@ class Project {
                     this.remoteEgressOmissionRebuildIncomplete = false
                     this.remoteEgressRebuildIncompleteWarned = false
                     this.remoteEgressRebuildRetryCount = 0
+                    this.remoteEgressResolvedMisses.clear()
                     for (const [k, v] of retryOmitted) {
                       this.remoteEgressOmittedParents.set(k, v)
                     }
@@ -2282,6 +2280,10 @@ class Project {
                     )
                   }
                 }
+
+                const originalParentUuid = entry.parentUuid ?? null
+                const { remoteEntry, parentConfirmedSafe } =
+                  this.resolveRemoteEgressParentProjection(entry)
                 // Fail closed: do not emit a remote child whose target parent
                 // cannot be confirmed safe, or under an incomplete rebuild.
                 const parentStillUnresolved =

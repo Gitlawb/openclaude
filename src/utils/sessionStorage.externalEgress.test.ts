@@ -1449,6 +1449,77 @@ describe('appendEntry remote egress gate', () => {
     }
   })
 
+  test('cached miss followed by successful retry rebuild resolves and reparents entry', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-retry-success-'))
+    const path = join(dir, 'session.jsonl')
+    const userUuid = id(440)
+    const listingUuid = id(441)
+    const suppressedUuid = id(442)
+    const resumedUuid = id(443)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      // Start with unrecoverable content to trigger incomplete rebuild
+      await writeFile(path, Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 4096, 0x78))
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      await rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // First append: suppressed under incomplete rebuild
+      const suppressedMsg = {
+        type: 'user',
+        uuid: suppressedUuid,
+        parentUuid: listingUuid,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'suppressed before fix' },
+      } as unknown as Message
+      await recordTranscript([suppressedMsg], undefined, listingUuid)
+      await flushSessionStorage()
+      expect(remotePayloads.find(p => p.uuid === suppressedUuid)).toBeUndefined()
+
+      // Now rewrite transcript with valid closed JSONL (user -> listing)
+      const validTranscript = [
+        JSON.stringify(user(userUuid, null, 'safe root')),
+        JSON.stringify(listing(listingUuid, userUuid, 'skill_listing', 'RETRY-LEAK')),
+      ].join('\n') + '\n'
+      await writeFile(path, validTranscript)
+
+      // Second append: retry rebuild succeeds, clears cached misses, and reparents child
+      const resumedMsg = {
+        type: 'user',
+        uuid: resumedUuid,
+        parentUuid: listingUuid,
+        timestamp: '2026-08-11T00:00:01.000Z',
+        message: { role: 'user', content: 'resumed after fix' },
+      } as unknown as Message
+      await recordTranscript([resumedMsg], undefined, listingUuid)
+      await flushSessionStorage()
+
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(false)
+      const remoteResumed = remotePayloads.find(p => p.uuid === resumedUuid)
+      expect(remoteResumed).toBeDefined()
+      // userUuid was not remote-delivered, so projects to null root safely
+      expect(remoteResumed?.parentUuid).toBeNull()
+      expect(JSON.stringify(remotePayloads)).not.toContain('RETRY-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('incomplete persist skip records suppressed UUID so grandchildren rematch', async () => {
     process.env.USER_TYPE = 'external'
     process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
