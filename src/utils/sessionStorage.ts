@@ -866,6 +866,13 @@ export function getRemoteEgressOmissionRebuildIncompleteForTesting(): boolean {
   return getProject()._getRemoteEgressOmissionRebuildIncompleteForTesting()
 }
 
+/** \@internal Register verified-remote hydration delivery witnesses (tests). */
+export function markRemoteEgressHydratedForTesting(
+  entries: readonly unknown[],
+): void {
+  getProject().markRemoteEgressHydrated(entries)
+}
+
 type InternalEventWriter = (
   eventType: string,
   payload: Record<string, unknown>,
@@ -1304,6 +1311,157 @@ class Project {
       (!!this.remoteIngressUrl &&
         isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE))
     )
+  }
+
+  /**
+   * Single authoritative external-projection parent contract. Given a policy-safe
+   * transcript entry, resolve the parentUuid that the remote projection should
+   * carry, separating five facts that must not be conflated: locally persisted,
+   * policy safe, intentionally omitted, delivered to the remote sink, and
+   * recovered via a verified remote baseline (hydration).
+   *
+   * A parent is used remotely only when it is a confirmed remote tip/delivery
+   * witness, a verified hydrated parent, or an explicit projected root. Omitted
+   * parents are reparented across the omission chain to their nearest egressed
+   * ancestor. A locally safe parent WITHOUT a delivery witness is projected to
+   * the confirmed remote tip or null root (never emitted as if delivered).
+   * Unknown ancestry is resolved on-demand from the local transcript within the
+   * resolver's bounded scan; when it cannot be established, parentConfirmedSafe
+   * stays false and the caller fails closed (withholds the child).
+   *
+   * Returns the entry to persist (parentUuid possibly rewritten) and whether
+   * the projected parent is confirmed safe to emit.
+   */
+  private resolveRemoteEgressParentProjection(
+    entry: TranscriptMessage,
+  ): { remoteEntry: TranscriptMessage; parentConfirmedSafe: boolean } {
+    let remoteEntry = projectTranscriptParentForExternalEgress(
+      entry,
+      this.remoteEgressOmittedParents,
+    )
+    let targetParentUuid = remoteEntry.parentUuid
+    let parentConfirmedSafe = targetParentUuid === null
+    const seenAncestors = new Set<UUID>()
+    while (
+      targetParentUuid &&
+      !parentConfirmedSafe &&
+      !seenAncestors.has(targetParentUuid)
+    ) {
+      seenAncestors.add(targetParentUuid)
+      if (
+        targetParentUuid === this.lastRemoteEgressUuid ||
+        this.remoteEgressDeliveredParents.has(targetParentUuid)
+      ) {
+        parentConfirmedSafe = true
+        break
+      }
+      if (this.remoteEgressSafeLocalParents.has(targetParentUuid)) {
+        if (
+          targetParentUuid === this.lastRemoteEgressUuid ||
+          this.remoteEgressDeliveredParents.has(targetParentUuid)
+        ) {
+          parentConfirmedSafe = true
+        } else {
+          targetParentUuid = this.lastRemoteEgressUuid ?? null
+          remoteEntry = {
+            ...entry,
+            parentUuid: targetParentUuid,
+          }
+          parentConfirmedSafe = true
+        }
+        break
+      }
+      if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
+        targetParentUuid =
+          this.remoteEgressOmittedParents.get(targetParentUuid) ??
+          null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        if (targetParentUuid === null) {
+          parentConfirmedSafe = true
+          break
+        }
+        continue
+      }
+      if (this.remoteEgressCompactAncestry.has(targetParentUuid)) {
+        targetParentUuid =
+          this.remoteEgressCompactAncestry.get(targetParentUuid) ??
+          null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        if (targetParentUuid === null) {
+          parentConfirmedSafe = true
+          break
+        }
+        continue
+      }
+      if (!this.remoteEgressResolvedMisses.has(targetParentUuid)) {
+        const queue = this.sessionFile
+          ? this.writeQueues.get(this.sessionFile)
+          : undefined
+        const resolved =
+          resolveCompactOmissionAncestorFromLocalTranscript(
+            this.sessionFile,
+            targetParentUuid,
+            queue,
+          )
+        if (resolved.status === 'resolved') {
+          this.remoteEgressCompactAncestry.set(
+            targetParentUuid,
+            resolved.ancestor,
+          )
+          boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+          targetParentUuid = resolved.ancestor
+          remoteEntry = {
+            ...entry,
+            parentUuid: targetParentUuid,
+          }
+          if (targetParentUuid === null) {
+            parentConfirmedSafe = true
+            break
+          }
+          continue
+        }
+        if (resolved.status === 'parent_safe') {
+          this.remoteEgressSafeLocalParents.add(targetParentUuid)
+          boundUuidSet(
+            this.remoteEgressSafeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          if (
+            targetParentUuid === this.lastRemoteEgressUuid ||
+            this.remoteEgressDeliveredParents.has(targetParentUuid)
+          ) {
+            parentConfirmedSafe = true
+          } else {
+            // Parent is safe in local transcript, but lacks a remote delivery witness
+            // (e.g. written before sink installation, or unconfirmed delivery).
+            // Project child to the confirmed remote tip or null root so no
+            // undelivered parent UUID is emitted to the remote sink.
+            targetParentUuid = this.lastRemoteEgressUuid ?? null
+            remoteEntry = {
+              ...entry,
+              parentUuid: targetParentUuid,
+            }
+            parentConfirmedSafe = true
+          }
+          if (targetParentUuid) {
+            this.evictedRemoteEgressOmissions.delete(targetParentUuid)
+            this.remoteEgressKnownOmitted.delete(targetParentUuid)
+          }
+          break
+        }
+        if (!queueHasPendingTranscriptAppends(queue)) {
+          // Only cache durable misses — queued parents may land soon.
+          this.remoteEgressResolvedMisses.add(targetParentUuid)
+          boundUuidSet(
+            this.remoteEgressResolvedMisses,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
+      }
+      // Target ancestor could not be confirmed safe or resolved
+      break
+    }
+    return { remoteEntry, parentConfirmedSafe }
   }
 
   /** @internal Expose omission map size/contents for egress regression tests. */
@@ -2042,132 +2200,8 @@ class Project {
             if (isTranscriptMessage(entry) && this.hasActiveRemoteEgressSink()) {
               if (!shouldOmitFromExternalEgress(entry)) {
                 const originalParentUuid = entry.parentUuid ?? null
-                let remoteEntry = projectTranscriptParentForExternalEgress(
-                  entry,
-                  this.remoteEgressOmittedParents,
-                )
-                let targetParentUuid = remoteEntry.parentUuid
-                let parentConfirmedSafe = targetParentUuid === null
-                const seenAncestors = new Set<UUID>()
-                while (
-                  targetParentUuid &&
-                  !parentConfirmedSafe &&
-                  !seenAncestors.has(targetParentUuid)
-                ) {
-                  seenAncestors.add(targetParentUuid)
-                  if (
-                    targetParentUuid === this.lastRemoteEgressUuid ||
-                    this.remoteEgressDeliveredParents.has(targetParentUuid)
-                  ) {
-                    parentConfirmedSafe = true
-                    break
-                  }
-                  if (this.remoteEgressSafeLocalParents.has(targetParentUuid)) {
-                    if (
-                      targetParentUuid === this.lastRemoteEgressUuid ||
-                      this.remoteEgressDeliveredParents.has(targetParentUuid)
-                    ) {
-                      parentConfirmedSafe = true
-                    } else {
-                      targetParentUuid = this.lastRemoteEgressUuid ?? null
-                      remoteEntry = {
-                        ...entry,
-                        parentUuid: targetParentUuid,
-                      }
-                      parentConfirmedSafe = true
-                    }
-                    break
-                  }
-                  if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
-                    targetParentUuid =
-                      this.remoteEgressOmittedParents.get(targetParentUuid) ??
-                      null
-                    remoteEntry = { ...entry, parentUuid: targetParentUuid }
-                    if (targetParentUuid === null) {
-                      parentConfirmedSafe = true
-                      break
-                    }
-                    continue
-                  }
-                  if (this.remoteEgressCompactAncestry.has(targetParentUuid)) {
-                    targetParentUuid =
-                      this.remoteEgressCompactAncestry.get(targetParentUuid) ??
-                      null
-                    remoteEntry = { ...entry, parentUuid: targetParentUuid }
-                    if (targetParentUuid === null) {
-                      parentConfirmedSafe = true
-                      break
-                    }
-                    continue
-                  }
-                  if (!this.remoteEgressResolvedMisses.has(targetParentUuid)) {
-                    const queue = this.sessionFile
-                      ? this.writeQueues.get(this.sessionFile)
-                      : undefined
-                    const resolved =
-                      resolveCompactOmissionAncestorFromLocalTranscript(
-                        this.sessionFile,
-                        targetParentUuid,
-                        queue,
-                      )
-                    if (resolved.status === 'resolved') {
-                      this.remoteEgressCompactAncestry.set(
-                        targetParentUuid,
-                        resolved.ancestor,
-                      )
-                      boundCompactAncestryMap(this.remoteEgressCompactAncestry)
-                      targetParentUuid = resolved.ancestor
-                      remoteEntry = {
-                        ...entry,
-                        parentUuid: targetParentUuid,
-                      }
-                      if (targetParentUuid === null) {
-                        parentConfirmedSafe = true
-                        break
-                      }
-                      continue
-                    }
-                    if (resolved.status === 'parent_safe') {
-                      this.remoteEgressSafeLocalParents.add(targetParentUuid)
-                      boundUuidSet(
-                        this.remoteEgressSafeLocalParents,
-                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                      )
-                      if (
-                        targetParentUuid === this.lastRemoteEgressUuid ||
-                        this.remoteEgressDeliveredParents.has(targetParentUuid)
-                      ) {
-                        parentConfirmedSafe = true
-                      } else {
-                        // Parent is safe in local transcript, but lacks a remote delivery witness
-                        // (e.g. written before sink installation, or unconfirmed delivery).
-                        // Project child to the confirmed remote tip or null root so no
-                        // undelivered parent UUID is emitted to the remote sink.
-                        targetParentUuid = this.lastRemoteEgressUuid ?? null
-                        remoteEntry = {
-                          ...entry,
-                          parentUuid: targetParentUuid,
-                        }
-                        parentConfirmedSafe = true
-                      }
-                      if (targetParentUuid) {
-                        this.evictedRemoteEgressOmissions.delete(targetParentUuid)
-                        this.remoteEgressKnownOmitted.delete(targetParentUuid)
-                      }
-                      break
-                    }
-                    if (!queueHasPendingTranscriptAppends(queue)) {
-                      // Only cache durable misses — queued parents may land soon.
-                      this.remoteEgressResolvedMisses.add(targetParentUuid)
-                      boundUuidSet(
-                        this.remoteEgressResolvedMisses,
-                        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                      )
-                    }
-                  }
-                  // Target ancestor could not be confirmed safe or resolved
-                  break
-                }
+                const { remoteEntry, parentConfirmedSafe } =
+                  this.resolveRemoteEgressParentProjection(entry)
                 // Fail closed: do not emit a remote child whose target parent
                 // cannot be confirmed safe, or under an incomplete rebuild.
                 const parentStillUnresolved =
@@ -2333,6 +2367,34 @@ class Project {
       logEvent('tengu_session_persistence_failed', {})
       gracefulShutdownSync(1, 'other')
       return false
+    }
+  }
+
+  /**
+   * Register delivery provenance for entries recovered from a verified
+   * remote baseline (hydrateRemoteSession / CCR v2 internal events). Entries
+   * fetched from the remote sink are confirmed to exist remotely, so they are
+   * authoritative remote parents: subsequent children may reparent to them
+   * without projecting to the null root. The last fetched UUID becomes the
+   * confirmed remote tip.
+   */
+  markRemoteEgressHydrated(entries: readonly unknown[]): void {
+    let last: UUID | null = null
+    for (const entry of entries) {
+      const uuid =
+        entry !== null && typeof entry === 'object'
+          ? (entry as { uuid?: unknown }).uuid
+          : undefined
+      if (typeof uuid !== 'string') continue
+      this.remoteEgressDeliveredParents.add(uuid as UUID)
+      last = uuid as UUID
+    }
+    boundUuidSet(
+      this.remoteEgressDeliveredParents,
+      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+    )
+    if (last !== null) {
+      this.lastRemoteEgressUuid = last
     }
   }
 
@@ -2625,6 +2687,11 @@ export async function hydrateRemoteSession(
       sessionFile,
       serializeTranscriptEntries(remoteLogs),
     )
+    // Entries fetched from the remote sink are confirmed to exist remotely:
+    // register them as authoritative delivery witnesses so post-hydration
+    // children can reparent to a verified remote parent instead of the null
+    // root. The last fetched UUID becomes the confirmed remote tip.
+    project.markRemoteEgressHydrated(remoteLogs)
 
     logForDebugging(`Hydrated ${remoteLogs.length} entries from remote`)
     return remoteLogs.length > 0
@@ -2678,6 +2745,14 @@ export async function hydrateFromCCRv2InternalEvents(
     await project.replaceTranscriptFile(
       sessionFile,
       serializeTranscriptEntries(events.map(event => event.payload)),
+    )
+    // Foreground entries fetched from the CCR sink are confirmed to exist
+    // remotely: register them as authoritative delivery witnesses so
+    // post-hydration children can reparent to a verified remote parent
+    // instead of the null root. The last fetched UUID becomes the confirmed
+    // remote tip.
+    project.markRemoteEgressHydrated(
+      events.map(event => event.payload as { uuid?: UUID | null }),
     )
 
     logForDebugging(

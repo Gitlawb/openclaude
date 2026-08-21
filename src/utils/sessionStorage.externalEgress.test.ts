@@ -25,6 +25,7 @@ import {
   getRemoteEgressOmissionRebuildIncompleteForTesting,
   isMalformedAttachmentBearingEgressRecord,
   isSafeForExternalEgress,
+  markRemoteEgressHydratedForTesting,
   shouldOmitFromExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
@@ -2525,5 +2526,274 @@ describe('external egress delivery failures, malformed records, and eviction fal
       await rm(dir, { recursive: true, force: true })
     }
   })
-})
 
+describe('external egress projection contract matrix', () => {
+  // One privacy boundary exercised as a matrix across parent states and egress
+  // mechanisms. For every scenario assert BOTH invariants:
+  //   (1) no withheld/listing bytes leave the process, and
+  //   (2) every emitted parentUuid refers to a delivered/projection-valid parent
+  //       (a delivered tip/witness, a verified hydrated parent, or an explicit
+  //       projected null root) ? never a locally-persisted-but-undelivered one.
+  function setupSink(remotePayloads: Array<Record<string, unknown>>) {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+    setInternalEventWriter(async (_eventType, payload) => {
+      remotePayloads.push(payload)
+    })
+  }
+
+  test('matrix: sink absent then enabled ? safe local parent is NOT a delivery witness', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-mx-nosink-'))
+    const path = join(dir, 'session.jsonl')
+    const preSinkUuid = id(501)
+    const hookUuid = id(502)
+    const childUuid = id(503)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      // No sink registered yet: a locally persisted safe record must not be
+      // treated as delivered when the sink is later enabled.
+      const preSink = {
+        type: 'user',
+        uuid: preSinkUuid,
+        parentUuid: null,
+        timestamp: '2026-08-11T00:00:00.000Z',
+        message: { role: 'user', content: 'pre-sink safe parent' },
+      } as unknown as Message
+      await recordTranscript([preSink])
+      await flushSessionStorage()
+
+      setupSink(remotePayloads)
+      const hook = hookAttachment(hookUuid, preSinkUuid, 'MX-NOSINK-LEAK')
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: hookUuid,
+        timestamp: '2026-08-11T00:00:02.000Z',
+        message: { role: 'user', content: 'post-sink child' },
+      } as unknown as Message
+      await recordTranscript([hook, child] as unknown as Message[], undefined, preSinkUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // preSinkUuid was never delivered ? child projects to the null root.
+      expect(remoteChild?.parentUuid).toBeNull()
+      expect(remoteChild?.parentUuid).not.toBe(preSinkUuid)
+      expect(remoteChild?.parentUuid).not.toBe(hookUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('MX-NOSINK-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('matrix: delivered parent then resume ? hydrated witness allows reparent', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-mx-hydrate-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(511)
+    const childUuid = id(512)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setupSink(remotePayloads)
+      await recordTranscript([user(seedUuid, null, 'delivered seed')] as unknown as Message[])
+      await flushSessionStorage()
+      // Simulate a verified remote baseline: seed was recovered from the sink,
+      // registering the delivery witness so post-resume children may reparent.
+      markRemoteEgressHydratedForTesting([{ uuid: seedUuid }])
+
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:00:01.000Z',
+        message: { role: 'user', content: 'child of hydrated parent' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, seedUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('matrix: rejected write then recovery ? failed parent omitted, child reparents past it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-mx-reject-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(521)
+    const failUuid = id(522)
+    const childUuid = id(523)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        if (payload.uuid === failUuid) {
+          throw new Error('simulated transport rejection')
+        }
+        remotePayloads.push(payload)
+      })
+
+      await recordTranscript([user(seedUuid, null, 'delivered seed')] as unknown as Message[])
+      await flushSessionStorage()
+
+      const failed = {
+        type: 'user',
+        uuid: failUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-11T00:00:01.000Z',
+        message: { role: 'user', content: 'this write is rejected' },
+      } as unknown as Message
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: failUuid,
+        timestamp: '2026-08-11T00:00:02.000Z',
+        message: { role: 'user', content: 'child of failed write' },
+      } as unknown as Message
+      await recordTranscript([failed], undefined, seedUuid)
+      await recordTranscript([child], undefined, failUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // The failed write was recorded as omitted from the confirmed tip; the
+      // child reparents to the delivered seed, never to the failed parent.
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
+      expect(remoteChild?.parentUuid).not.toBe(failUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('matrix: consecutive omissions and branch children ? both branches reparent to delivered root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-mx-branch-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(531)
+    const hookA = id(532)
+    const hookB = id(533)
+    const childA = id(534)
+    const childB = id(535)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      setupSink(remotePayloads)
+      await recordTranscript([user(seedUuid, null, 'root')] as unknown as Message[])
+      await flushSessionStorage()
+
+      const a = hookAttachment(hookA, seedUuid, 'MX-BRANCH-LEAK-A')
+      const b = hookAttachment(hookB, hookA, 'MX-BRANCH-LEAK-B')
+      const cA = {
+        type: 'user',
+        uuid: childA,
+        parentUuid: hookB,
+        timestamp: '2026-08-11T00:00:03.000Z',
+        message: { role: 'user', content: 'branch child A' },
+      } as unknown as Message
+      const cB = {
+        type: 'user',
+        uuid: childB,
+        parentUuid: hookB,
+        timestamp: '2026-08-11T00:00:04.000Z',
+        message: { role: 'user', content: 'branch child B' },
+      } as unknown as Message
+      await recordTranscript([a, b] as unknown as Message[], undefined, seedUuid)
+      await recordTranscript([cA], undefined, hookB)
+      await recordTranscript([cB], undefined, hookB)
+      await flushSessionStorage()
+
+      const rA = remotePayloads.find(p => p.uuid === childA)
+      const rB = remotePayloads.find(p => p.uuid === childB)
+      expect(rA).toBeDefined()
+      expect(rB).toBeDefined()
+      expect(rA?.parentUuid).toBe(seedUuid)
+      expect(rB?.parentUuid).toBe(seedUuid)
+      const dumped = JSON.stringify(remotePayloads)
+      expect(dumped).not.toContain('MX-BRANCH-LEAK-A')
+      expect(dumped).not.toContain('MX-BRANCH-LEAK-B')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('matrix: malformed records fail closed across in-memory, JSONL, and live paths', async () => {
+    process.env.USER_TYPE = 'external'
+    // In-memory filter: attachment payload on a non-attachment type is dropped.
+    const u1 = user(id(541), null, 'first')
+    const malformed = {
+      type: 'user',
+      uuid: id(542),
+      parentUuid: id(541),
+      attachment: { type: 'skill_listing', skills: ['x'] },
+    }
+    const u2 = user(id(543), id(542), 'second')
+    const filtered = filterMessagesForExternalEgress([u1, malformed as never, u2])
+    expect(filtered.map(m => m.uuid)).toEqual([id(541), id(543)])
+    expect(filtered[1]?.parentUuid).toBe(id(541))
+
+    // JSONL filter: same malformed shape is dropped and the survivor reparents.
+    const out = filterJsonlForExternalEgress(
+      [
+        JSON.stringify(user(id(544), null, 'j-first')),
+        JSON.stringify({
+          type: 'user',
+          uuid: id(545),
+          parentUuid: id(544),
+          attachment: { type: 'skill_listing' },
+        }),
+        JSON.stringify(user(id(546), id(545), 'j-second')),
+      ].join('\n'),
+    )
+    expect(out).not.toContain('skill_listing')
+    const parsed = out
+      .split('\n')
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { uuid: string; parentUuid: string | null })
+    expect(parsed.map(p => p.uuid)).toEqual([id(544), id(546)])
+    expect(parsed[1]?.parentUuid).toBe(id(544))
+  })
+
+  test('matrix: subagent transcripts strip listings per agent while preserving chain', () => {
+    process.env.USER_TYPE = 'external'
+    const filtered = filterSubagentTranscriptsForExternalEgress({
+      agent1: [
+        user(id(551), null, 'a1-root'),
+        listing(id(552), id(551), 'skill_listing', 'MX-SUB-LEAK'),
+        user(id(553), id(552), 'a1-child'),
+      ],
+      agent2: [user(id(554), null, 'a2-root')],
+    })
+    expect(filtered.agent1?.map(m => m.uuid)).toEqual([id(551), id(553)])
+    expect(filtered.agent1?.[1]?.parentUuid).toBe(id(551))
+    expect(filtered.agent2?.map(m => m.uuid)).toEqual([id(554)])
+    expect(JSON.stringify(filtered)).not.toContain('MX-SUB-LEAK')
+  })
+})})
