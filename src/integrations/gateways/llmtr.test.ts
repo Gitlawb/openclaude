@@ -2,13 +2,20 @@ import { expect, test } from 'bun:test'
 
 import { routeForPreset } from '../compatibility.js'
 import { getProviderPresetUiMetadata } from '../providerUiMetadata.js'
+import {
+  resolveActiveRouteIdFromEnv,
+  resolveRouteCredentialValue,
+} from '../routeMetadata.js'
 import catalog, { mapLlmtrModel } from './llmtr.models.js'
 import gateway from './llmtr.js'
 
 test('LLMTR uses the standard OpenAI-compatible gateway contract', () => {
   expect(gateway.defaultBaseUrl).toBe('https://llmtr.com/v1')
   expect(gateway.defaultModel).toBe('deepseek/deepseek-v4-flash')
-  expect(gateway.setup.credentialEnvVars).toEqual(['OPENAI_API_KEY'])
+  expect(gateway.setup.credentialEnvVars).toEqual([
+    'LLMTR_API_KEY',
+    'OPENAI_API_KEY',
+  ])
   expect(gateway.setup.dedicatedCredentialsOnly).not.toBe(true)
   expect(gateway.transportConfig).toEqual({
     kind: 'openai-compatible',
@@ -30,7 +37,8 @@ test('LLMTR preset uses the existing generic profile path', () => {
   })
   expect(
     getProviderPresetUiMetadata('llmtr', {
-      OPENAI_API_KEY: 'llmtr-key',
+      LLMTR_API_KEY: 'llmtr-key',
+      OPENAI_API_KEY: 'generic-key',
     }),
   ).toMatchObject({
     apiKey: 'llmtr-key',
@@ -39,6 +47,36 @@ test('LLMTR preset uses the existing generic profile path', () => {
     provider: 'llmtr',
     routeId: 'llmtr',
   })
+})
+
+test('LLMTR prefers its dedicated env key with generic OpenAI fallback', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      LLMTR_API_KEY: 'dedicated-key',
+    }),
+  ).toBe('llmtr')
+
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'llmtr',
+      baseUrl: 'https://llmtr.com/v1',
+      processEnv: {
+        LLMTR_API_KEY: 'dedicated-key',
+        OPENAI_API_KEY: 'generic-key',
+      },
+    }),
+  ).toBe('dedicated-key')
+
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'llmtr',
+      baseUrl: 'https://llmtr.com/v1',
+      processEnv: { OPENAI_API_KEY: 'generic-key' },
+    }),
+  ).toBe('generic-key')
 })
 
 test('LLMTR discovery keeps tool-capable Chat Completions models', () => {

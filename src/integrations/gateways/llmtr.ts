@@ -11,7 +11,7 @@ export default defineGateway({
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['OPENAI_API_KEY'],
+    credentialEnvVars: ['LLMTR_API_KEY', 'OPENAI_API_KEY'],
   },
   startup: {
     probeReadiness: 'openai-compatible-models',
@@ -28,7 +28,7 @@ export default defineGateway({
     id: 'llmtr',
     description: 'LLMTR OpenAI-compatible multi-model gateway',
     vendorId: 'openai',
-    apiKeyEnvVars: ['OPENAI_API_KEY'],
+    apiKeyEnvVars: ['LLMTR_API_KEY', 'OPENAI_API_KEY'],
     modelEnvVars: ['OPENAI_MODEL'],
   },
   validation: {
@@ -37,9 +37,13 @@ export default defineGateway({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['llmtr.com'],
     },
-    credentialEnvVars: ['OPENAI_API_KEYS', 'OPENAI_API_KEY'],
+    credentialEnvVars: [
+      'LLMTR_API_KEY',
+      'OPENAI_API_KEYS',
+      'OPENAI_API_KEY',
+    ],
     missingCredentialMessage:
-      'LLMTR auth is required. Set OPENAI_API_KEY to your LLMTR API key.',
+      'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
   },
   catalog,
   usage: { supported: false },

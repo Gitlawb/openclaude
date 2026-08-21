@@ -260,6 +260,7 @@ export const PROVIDER_PRESET_MANIFEST = [
     "gatewayId": "llmtr",
     "description": "LLMTR OpenAI-compatible multi-model gateway",
     "apiKeyEnvVars": [
+      "LLMTR_API_KEY",
       "OPENAI_API_KEY"
     ],
     "modelEnvVars": [

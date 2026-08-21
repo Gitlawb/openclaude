@@ -145,7 +145,7 @@ export const providers: Provider[] = [
     name: 'LLMTR',
     group: 'gateways',
     setup: '/provider or OpenAI-compatible env vars',
-    envVars: ['OPENAI_API_KEY'],
+    envVars: ['LLMTR_API_KEY', 'OPENAI_API_KEY'],
     notes: 'OpenAI-compatible multi-model gateway at https://llmtr.com/v1, defaulting to deepseek/deepseek-v4-flash with public discovery of tool-capable chat models.',
   },
   {
