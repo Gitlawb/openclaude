@@ -45,6 +45,7 @@ import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
 import { createUserMessage } from './messages.js'
+import { isAnthropicBillingAttributionBlock } from './anthropicAttribution.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
@@ -337,8 +338,16 @@ function logStripOnce(stripped: string[]): void {
  * Log stats about first block for analyzing prefix matching config
  * (see https://console.statsig.com/4aF3Ewatb6xPVpCwxb5nA3/dynamic_configs/claude_cli_system_prompt_prefixes)
  */
+export function getSystemPromptTelemetryBlock(
+  systemPrompt: SystemPrompt,
+): SystemPromptBlock | undefined {
+  return splitSysPromptPrefix(systemPrompt).find(
+    block => !isAnthropicBillingAttributionBlock(block.text),
+  )
+}
+
 export function logAPIPrefix(systemPrompt: SystemPrompt): void {
-  const [firstSyspromptBlock] = splitSysPromptPrefix(systemPrompt)
+  const firstSyspromptBlock = getSystemPromptTelemetryBlock(systemPrompt)
   const firstSystemPrompt = firstSyspromptBlock?.text
   logEvent('tengu_sysprompt_block', {
     snippet: firstSystemPrompt?.slice(
@@ -395,7 +404,7 @@ export function splitSysPromptPrefix(
     for (const prompt of systemPrompt) {
       if (!prompt) continue
       if (prompt === SYSTEM_PROMPT_DYNAMIC_BOUNDARY) continue // Skip boundary
-      if (prompt.startsWith('x-anthropic-billing-header')) {
+      if (isAnthropicBillingAttributionBlock(prompt)) {
         attributionHeader = prompt
       } else if (CLI_SYSPROMPT_PREFIXES.has(prompt)) {
         systemPromptPrefix = prompt
@@ -432,7 +441,7 @@ export function splitSysPromptPrefix(
         const block = systemPrompt[i]
         if (!block || block === SYSTEM_PROMPT_DYNAMIC_BOUNDARY) continue
 
-        if (block.startsWith('x-anthropic-billing-header')) {
+        if (isAnthropicBillingAttributionBlock(block)) {
           attributionHeader = block
         } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
           systemPromptPrefix = block
@@ -474,7 +483,7 @@ export function splitSysPromptPrefix(
   for (const block of systemPrompt) {
     if (!block) continue
 
-    if (block.startsWith('x-anthropic-billing-header')) {
+    if (isAnthropicBillingAttributionBlock(block)) {
       attributionHeader = block
     } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
       systemPromptPrefix = block

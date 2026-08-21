@@ -3,8 +3,122 @@ import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
 } from 'src/utils/model/providers.js'
+import {
+  getAnthropicApiKeyWithSource,
+  getAuthTokenSource,
+  isClaudeAISubscriber,
+} from 'src/utils/auth.js'
+import {
+  getTransportKindForRoute,
+  resolveActiveRouteIdFromEnv,
+} from '../../integrations/routeMetadata.js'
+import {
+  type AnthropicAttributionAuth,
+  type AnthropicAttributionPolicy,
+  type AnthropicAttributionRoute,
+  getAnthropicAttributionDiagnostic,
+  resolveAnthropicAttributionAuth,
+  resolveAnthropicAttributionPolicy,
+} from '../../utils/anthropicAttribution.js'
+import { logForDebugging } from '../../utils/debug.js'
 
 export type ProviderOverride = { model: string; baseURL: string; apiKey: string }
+
+function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
+  let apiKeySource: ReturnType<
+    typeof getAnthropicApiKeyWithSource
+  >['source'] = 'none'
+  try {
+    ;({ source: apiKeySource } = getAnthropicApiKeyWithSource({
+      skipRetrievingKeyFromApiKeyHelper: true,
+    }))
+  } catch {
+    // Missing credentials are an ambiguous state, not an error for policy.
+  }
+
+  let authTokenSource: ReturnType<typeof getAuthTokenSource>['source'] = 'none'
+  try {
+    ;({ source: authTokenSource } = getAuthTokenSource())
+  } catch {
+    return 'unknown'
+  }
+
+  const apiKey =
+    apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
+      ? 'external'
+      : apiKeySource === '/login managed key'
+        ? 'managed'
+        : 'none'
+  const authToken =
+    authTokenSource === 'ANTHROPIC_AUTH_TOKEN' ||
+    authTokenSource === 'apiKeyHelper'
+      ? 'api_key'
+      : authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN' ||
+          authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' ||
+          authTokenSource === 'CCR_OAUTH_TOKEN_FILE' ||
+          authTokenSource === 'claude.ai'
+        ? 'oauth'
+        : 'none'
+  const hasOAuthToken = authToken === 'oauth'
+  let isSubscriber = false
+  if (hasOAuthToken) {
+    try {
+      isSubscriber = isClaudeAISubscriber()
+    } catch {
+      return 'unknown'
+    }
+  }
+
+  return resolveAnthropicAttributionAuth({
+    apiKey,
+    authToken,
+    isSubscriber,
+  })
+}
+
+function resolveAnthropicAttributionRoute(
+  providerOverride?: ProviderOverride,
+): AnthropicAttributionRoute {
+  if (providerOverride) return 'non_official'
+
+  try {
+    const routeId = resolveActiveRouteIdFromEnv(process.env)
+    if (
+      routeId === 'anthropic' &&
+      getAPIProvider() === 'firstParty' &&
+      isFirstPartyAnthropicBaseUrl()
+    ) {
+      return 'official_anthropic'
+    }
+    if (routeId && getTransportKindForRoute(routeId) !== null) {
+      return 'non_official'
+    }
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+export function resolveCurrentAnthropicAttributionPolicy({
+  attributionEnabled,
+  providerOverride,
+}: {
+  attributionEnabled: boolean
+  providerOverride?: ProviderOverride
+}): AnthropicAttributionPolicy {
+  const route = resolveAnthropicAttributionRoute(providerOverride)
+  const policy = resolveAnthropicAttributionPolicy({
+    route,
+    auth:
+      route === 'official_anthropic'
+        ? resolveCurrentAnthropicAttributionAuth()
+        : 'unknown',
+    attributionEnabled,
+  })
+  const diagnostic = getAnthropicAttributionDiagnostic(policy)
+  if (diagnostic) logForDebugging(diagnostic)
+  return policy
+}
 
 export function shouldUseFirstPartyAnthropicAuthForProvider({
   providerOverride,

@@ -9,11 +9,14 @@ import type { QuerySource } from '../constants/querySource.js'
 import {
   getAttributionHeader,
   getCLISyspromptPrefix,
+  isAttributionHeaderEnabled,
 } from '../constants/system.js'
 import { logEvent } from '../services/analytics/index.js'
 import type { AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS } from '../services/analytics/metadata.js'
 import { getAPIMetadata } from '../services/api/claude.js'
+import { resolveCurrentAnthropicAttributionPolicy } from '../services/api/authRouting.js'
 import { getAnthropicClient } from '../services/api/client.js'
+import { applyAnthropicAttributionPolicy } from './anthropicAttribution.js'
 import { getModelBetas, modelSupportsStructuredOutputs } from './betas.js'
 import { computeFingerprint } from './fingerprint.js'
 import { normalizeModelStringForAPI } from './model/model.js'
@@ -141,30 +144,39 @@ export async function sideQuery(opts: SideQueryOptions): Promise<BetaMessage> {
 
   // Compute fingerprint for OAuth attribution
   const fingerprint = computeFingerprint(messageText, MACRO.VERSION)
-  const attributionHeader = getAttributionHeader(fingerprint)
+  const attributionPolicy = resolveCurrentAnthropicAttributionPolicy({
+    attributionEnabled: isAttributionHeaderEnabled(),
+  })
+  const attributionHeader = getAttributionHeader(
+    fingerprint,
+    attributionPolicy,
+  )
 
   // Build system as array to keep attribution header in its own block
   // (prevents server-side parsing from including system content in cc_entrypoint)
-  const systemBlocks: TextBlockParam[] = [
-    attributionHeader ? { type: 'text', text: attributionHeader } : null,
-    // Skip CLI system prompt prefix for internal classifiers that provide their own prompt
-    ...(skipSystemPromptPrefix
-      ? []
-      : [
-          {
-            type: 'text' as const,
-            text: getCLISyspromptPrefix({
-              isNonInteractive: false,
-              hasAppendSystemPrompt: false,
-            }),
-          },
-        ]),
-    ...(Array.isArray(system)
-      ? system
-      : system
-        ? [{ type: 'text' as const, text: system }]
-        : []),
-  ].filter((block): block is TextBlockParam => block !== null)
+  const systemBlocks: TextBlockParam[] = applyAnthropicAttributionPolicy(
+    [
+      attributionHeader ? { type: 'text', text: attributionHeader } : null,
+      // Skip CLI system prompt prefix for internal classifiers that provide their own prompt
+      ...(skipSystemPromptPrefix
+        ? []
+        : [
+            {
+              type: 'text' as const,
+              text: getCLISyspromptPrefix({
+                isNonInteractive: false,
+                hasAppendSystemPrompt: false,
+              }),
+            },
+          ]),
+      ...(Array.isArray(system)
+        ? system
+        : system
+          ? [{ type: 'text' as const, text: system }]
+          : []),
+    ].filter((block): block is TextBlockParam => block !== null),
+    attributionPolicy,
+  )
 
   let thinkingConfig: BetaThinkingConfigParam | undefined
   if (thinking === false) {
