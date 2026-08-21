@@ -253,6 +253,20 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "llmtr",
+    "routeKind": "gateway",
+    "routeId": "llmtr",
+    "vendorId": "openai",
+    "gatewayId": "llmtr",
+    "description": "LLMTR OpenAI-compatible multi-model gateway",
+    "apiKeyEnvVars": [
+      "OPENAI_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "lmstudio",
     "routeKind": "gateway",
     "routeId": "lmstudio",
@@ -572,6 +586,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "gemini",
   "groq",
   "hicap",
+  "llmtr",
   "lmstudio",
   "atomic-chat",
   "ollama",

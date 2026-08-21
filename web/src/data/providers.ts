@@ -141,6 +141,14 @@ export const providers: Provider[] = [
     notes: 'OpenAI-compatible aggregation across hundreds of hosted models.',
   },
   {
+    id: 'llmtr',
+    name: 'LLMTR',
+    group: 'gateways',
+    setup: '/provider or OpenAI-compatible env vars',
+    envVars: ['OPENAI_API_KEY'],
+    notes: 'OpenAI-compatible multi-model gateway at https://llmtr.com/v1, defaulting to deepseek/deepseek-v4-flash with public discovery of tool-capable chat models.',
+  },
+  {
     id: 'near-ai',
     name: 'NEAR AI',
     group: 'gateways',
