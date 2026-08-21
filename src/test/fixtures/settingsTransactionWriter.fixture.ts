@@ -5,6 +5,7 @@ import {
   setFsImplementation,
 } from '../../utils/fsOperations.js'
 
+const fixtureArgs = process.argv.slice(2)
 const [
   role,
   target,
@@ -14,7 +15,7 @@ const [
   completedMarker,
   readMarker,
   releaseMarker,
-] = process.argv.slice(2)
+] = fixtureArgs
 
 const supportedRoles: ReadonlySet<string> = new Set([
   'normal',
@@ -35,6 +36,30 @@ if (
   !completedMarker
 ) {
   throw new Error('Missing settings transaction fixture arguments')
+}
+
+const expectedArgumentCount =
+  role === 'hold-lock' || role === 'pause-after-read' ? 8 : 6
+if (fixtureArgs.length !== expectedArgumentCount) {
+  throw new Error(
+    `Invalid argument count for ${role}: expected ${expectedArgumentCount}, received ${fixtureArgs.length}`,
+  )
+}
+
+if (role === 'hold-lock' && !releaseMarker) {
+  throw new Error('Hold-lock fixture requires a release marker')
+}
+
+if (role === 'pause-after-read' && (!readMarker || !releaseMarker)) {
+  throw new Error('Pause-after-read fixture requires read and release markers')
+}
+
+const holdMs = role === 'hold-path-for' ? Number(value) : undefined
+if (
+  role === 'hold-path-for' &&
+  (!Number.isFinite(holdMs) || (holdMs ?? -1) < 0)
+) {
+  throw new Error(`Invalid hold duration: ${value}`)
 }
 
 if (role !== 'hold-path-for') {
@@ -63,9 +88,6 @@ function waitForMarker(marker: string): void {
 }
 
 if (role === 'pause-after-read') {
-  if (!readMarker || !releaseMarker) {
-    throw new Error('Pause-after-read fixture requires read and release markers')
-  }
   const originalFs = getFsImplementation()
   let paused = false
   setFsImplementation({
@@ -89,15 +111,8 @@ if (role === 'hold-lock' || role === 'hold-path-for') {
   withSettingsFileTransactionSync(settingsPath, () => {
     writeFileSync(enteredMarker, '')
     if (role === 'hold-path-for') {
-      const holdMs = Number(value)
-      if (!Number.isFinite(holdMs) || holdMs < 0) {
-        throw new Error(`Invalid hold duration: ${value}`)
-      }
-      Atomics.wait(waitBuffer, 0, 0, holdMs)
+      Atomics.wait(waitBuffer, 0, 0, holdMs!)
     } else {
-      if (!releaseMarker) {
-        throw new Error('Hold-lock fixture requires a release marker')
-      }
       waitForMarker(releaseMarker)
     }
   })

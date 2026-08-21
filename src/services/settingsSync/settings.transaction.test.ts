@@ -191,6 +191,7 @@ test(
           appliedCount: 1,
           settingsFilesWritten: 1,
           settingsFilesFailed: 0,
+          settingsFilesRejected: 0,
           memoryFilesWritten: 0,
         })
         expect(elapsedMs).toBeGreaterThanOrEqual(500)
@@ -230,6 +231,7 @@ test(
           appliedCount: 1,
           settingsFilesWritten: 1,
           settingsFilesFailed: 0,
+          settingsFilesRejected: 0,
           memoryFilesWritten: 0,
         })
         expect(JSON.parse(readFileSync(localSettings, 'utf8')).env).toEqual({
@@ -267,6 +269,7 @@ test(
           appliedCount: 1,
           settingsFilesWritten: 0,
           settingsFilesFailed: 1,
+          settingsFilesRejected: 0,
           memoryFilesWritten: 1,
         })
         expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
@@ -286,6 +289,7 @@ test(
           appliedCount: 1,
           settingsFilesWritten: 1,
           settingsFilesFailed: 0,
+          settingsFilesRejected: 0,
           memoryFilesWritten: 0,
         })
         expect(JSON.parse(readFileSync(userSettings, 'utf8')).env).toEqual({
@@ -300,6 +304,34 @@ test(
   TEST_TIMEOUT_MS,
 )
 
+test('permanent settings rejections are reported without retry failure', async () => {
+  await withSyncEnvironment(async ({ userSettings }) => {
+    const oversizedSettings = 'x'.repeat(500 * 1024 + 1)
+    const entries = {
+      [SYNC_KEYS.USER_SETTINGS]: oversizedSettings,
+      [SYNC_KEYS.projectSettings('project-id')]: oversizedSettings,
+    }
+
+    expect(
+      await _applyRemoteEntriesToLocalForTesting(entries, 'project-id'),
+    ).toEqual({
+      appliedCount: 0,
+      settingsFilesWritten: 0,
+      settingsFilesFailed: 0,
+      settingsFilesRejected: 2,
+      memoryFilesWritten: 0,
+    })
+    expect(existsSync(userSettings)).toBe(false)
+
+    try {
+      _setDownloadedEntriesForTesting({ entries, projectId: 'project-id' })
+      expect(await redownloadUserSettings()).toBe(true)
+    } finally {
+      _setDownloadedEntriesForTesting(null)
+    }
+  })
+})
+
 test(
   'startup and reload downloads return false after a timed-out settings apply',
   async () => {
@@ -307,7 +339,7 @@ test(
       writeFileSync(userSettings, '{"env":{"ORIGINAL":"yes"}}\n')
       const entered = join(root, 'download-holder-entered')
       const completed = join(root, 'download-holder-completed')
-      const holder = startHolder(userSettings, 5_000, entered, completed)
+      const holder = startHolder(userSettings, 9_000, entered, completed)
       try {
         await waitForHolder(entered, holder)
         _setDownloadedEntriesForTesting({

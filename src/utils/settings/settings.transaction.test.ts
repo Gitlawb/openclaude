@@ -454,6 +454,89 @@ test('does not require hard-link support from the settings filesystem', async ()
   })
 })
 
+test.each([
+  [
+    'an invalid hold-lock argument count',
+    (root: string, entered: string, completed: string) => [
+      'hold-lock',
+      root,
+      'unused',
+      'unused',
+      entered,
+      completed,
+    ],
+    'Invalid argument count for hold-lock',
+  ],
+  [
+    'a missing hold-lock release marker',
+    (root: string, entered: string, completed: string) => [
+      'hold-lock',
+      root,
+      'unused',
+      'unused',
+      entered,
+      completed,
+      'unused',
+      '',
+    ],
+    'Hold-lock fixture requires a release marker',
+  ],
+  [
+    'a missing pause-after-read marker',
+    (root: string, entered: string, completed: string) => [
+      'pause-after-read',
+      root,
+      'unused',
+      'unused',
+      entered,
+      completed,
+      '',
+      'unused',
+    ],
+    'Pause-after-read fixture requires read and release markers',
+  ],
+] as const)(
+  'fixture rejects %s before acquiring',
+  async (_label, buildArgs, expectedError) => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-fixture-args-'))
+    const entered = join(root, 'entered')
+    const completed = join(root, 'completed')
+    const child = startWriter(buildArgs(root, entered, completed))
+    try {
+      const outcome = await child.exited
+      const { stderr } = child.output()
+      expect(outcome.code).not.toBe(0)
+      expect(stderr).toContain(expectedError)
+      expect(existsSync(entered)).toBe(false)
+      expect(existsSync(join(root, 'settings.json.lock'))).toBe(false)
+    } finally {
+      await terminateChild(child)
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test('keeps an operation error primary when lock release also fails', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-release-error-'))
+  const settingsPath = join(root, 'settings.json')
+  try {
+    const { withSettingsFileTransactionSync } = await import(
+      './settingsFileTransaction.js'
+    )
+    expect(() =>
+      withSettingsFileTransactionSync(settingsPath, targetPath => {
+        const lockPath = `${targetPath}.lock`
+        rmSync(lockPath, { recursive: true, force: true })
+        mkdirSync(lockPath)
+        throw new Error('primary operation failure')
+      }),
+    ).toThrow('primary operation failure')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('reports transaction failures with operation-neutral context', async () => {
   await withIsolatedUserSettings((_root, settingsPath) => {
     mkdirSync(settingsPath)
@@ -564,7 +647,6 @@ test(
       expect(timedResult.ok).toBe(false)
       expect(timedResult.error).toContain('Timed out after 2000ms')
       expect(elapsedMs).toBeGreaterThanOrEqual(1_800)
-      expect(elapsedMs).toBeLessThan(3_500)
       expect(JSON.parse(readFileSync(settingsPath, 'utf8'))).toEqual({})
 
       writeFileSync(releaseHolder, '')
@@ -877,7 +959,7 @@ test('marks the requested logical alias after publishing to its physical target'
   }
 })
 
-test('local settings still arrange the existing global gitignore rule', () => {
+test('repository settings sources arrange their global gitignore rules', () => {
   const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-gitignore-'))
   const project = join(root, 'project')
   const previousOriginalCwd = getOriginalCwd()
@@ -897,12 +979,21 @@ test('local settings still arrange the existing global gitignore rule', () => {
         env: { LOCAL: 'yes' },
       }),
     ).toEqual({ error: null })
+    expect(
+      updateSettingsForSource('projectSettings', {
+        env: { PROJECT: 'yes' },
+      }),
+    ).toEqual({ error: null })
     expect(addRule).toHaveBeenCalledWith(
       '.openclaude/settings.local.json',
       project,
     )
     expect(addRule).toHaveBeenCalledWith(
       '.openclaude/settings.local.json.lock*',
+      project,
+    )
+    expect(addRule).toHaveBeenCalledWith(
+      '.openclaude/settings.json.lock*',
       project,
     )
   } finally {

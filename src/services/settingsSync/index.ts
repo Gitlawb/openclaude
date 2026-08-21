@@ -520,11 +520,13 @@ async function applyRemoteEntriesToLocal(
   appliedCount: number
   settingsFilesWritten: number
   settingsFilesFailed: number
+  settingsFilesRejected: number
   memoryFilesWritten: number
 }> {
   let appliedCount = 0
   let settingsFilesWritten = 0
   let settingsFilesFailed = 0
+  let settingsFilesRejected = 0
   let memoryFilesWritten = 0
 
   // Helper to check size limit (defense-in-depth, matches backend limit)
@@ -555,7 +557,7 @@ async function applyRemoteEntriesToLocal(
         settingsFilesFailed++
       }
     } else {
-      settingsFilesFailed++
+      settingsFilesRejected++
     }
   }
 
@@ -590,7 +592,7 @@ async function applyRemoteEntriesToLocal(
           settingsFilesFailed++
         }
       } else {
-        settingsFilesFailed++
+        settingsFilesRejected++
       }
     }
 
@@ -616,12 +618,14 @@ async function applyRemoteEntriesToLocal(
     appliedCount,
     settingsFilesWritten,
     settingsFilesFailed,
+    settingsFilesRejected,
     memoryFilesWritten,
   })
   return {
     appliedCount,
     settingsFilesWritten,
     settingsFilesFailed,
+    settingsFilesRejected,
     memoryFilesWritten,
   }
 }
@@ -659,6 +663,7 @@ export function _applyRemoteEntriesToLocalForTesting(
   appliedCount: number
   settingsFilesWritten: number
   settingsFilesFailed: number
+  settingsFilesRejected: number
   memoryFilesWritten: number
 }> {
   return applyRemoteEntriesToLocal(entries, projectId)

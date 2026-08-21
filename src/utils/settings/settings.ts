@@ -519,11 +519,12 @@ export function updateSettingsForSource(
     )
     if (validationError) return { error: validationError }
 
-    if (source === 'localSettings') {
+    if (source === 'localSettings' || source === 'projectSettings') {
       // Okay to add to gitignore async without awaiting
-      const relativePath =
-        getRelativeSettingsFilePathForSource('localSettings')
-      void addFileGlobRuleToGitignore(relativePath, getOriginalCwd())
+      const relativePath = getRelativeSettingsFilePathForSource(source)
+      if (source === 'localSettings') {
+        void addFileGlobRuleToGitignore(relativePath, getOriginalCwd())
+      }
       void addFileGlobRuleToGitignore(
         `${relativePath}.lock*`,
         getOriginalCwd(),
