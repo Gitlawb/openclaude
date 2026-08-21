@@ -276,13 +276,16 @@ function resolveProfileCapabilityRouteId(
   if (
     (providerRouteId === 'cloudflare' ||
       providerRouteId === 'longcat' ||
-      providerRouteId === 'concentrate') &&
+      providerRouteId === 'concentrate' ||
+      providerRouteId === 'llmtr') &&
     baseUrl &&
     !(providerRouteId === 'cloudflare'
       ? isCloudflareBaseUrl(baseUrl)
       : providerRouteId === 'longcat'
         ? isLongcatBaseUrl(baseUrl)
-        : isCanonicalConcentrateInferenceBaseUrl(baseUrl))
+        : providerRouteId === 'concentrate'
+          ? isCanonicalConcentrateInferenceBaseUrl(baseUrl)
+          : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
@@ -1187,17 +1190,12 @@ export function applyProviderProfileToProcessEnv(
     // mirrored credentials on relaunch, while the ambient key itself is only
     // resolved for a profile that still points at the canonical endpoint.
     //
-    // Keyed off `capabilityRouteId` — the identity this function already
-    // resolved from the provider *and* the base URL — not off the provider
-    // alone. A saved `openai` profile whose base URL is the canonical LLMTR
-    // endpoint is an LLMTR route: request-time resolution derives `llmtr`
-    // from that URL, so without the stamp the applied-profile marker and the
-    // runtime route disagree and resolveOpenAIShimRuntimeContext downgrades
-    // `customAuthSource` to `none`, silently dropping the profile's own auth
-    // header. The same resolver keeps the stamp on a retargeted `llmtr`
-    // preset and withholds it from a generic profile on a non-canonical
-    // llmtr.com URL, which runs as a plain OpenAI-compatible session.
-    if (capabilityRouteId === 'llmtr') {
+    // Named LLMTR profiles retain their marker independently from capability
+    // resolution: a retarget runs with generic proxy capabilities, but its
+    // persisted identity is still needed to withhold ambient dedicated keys on
+    // relaunch. A generic OpenAI profile receives the marker only when its
+    // canonical base resolves to LLMTR, keeping custom auth aligned there.
+    if (route.gatewayId === 'llmtr' || capabilityRouteId === 'llmtr') {
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
       if (isLlmtrProfile(profile)) {
         const ambientLlmtrKey = sanitizeApiKey(process.env.LLMTR_API_KEY)
@@ -1620,10 +1618,9 @@ function buildOpenAICompatibleStartupEnv(
   if (activeProfileRouteId === 'apismart') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'apismart'
   }
-  // Same reason for LLMTR: without the stamp a retargeted profile relaunches as
-  // an anonymous OpenAI-compatible session and buildLaunchEnv can no longer tell
-  // that ambient LLMTR_API_KEY must stay out of it.
-  if (startupCapabilityRouteId === 'llmtr') {
+  // Same reason for LLMTR: preserve named-profile identity across a retargeted
+  // startup env even though its capability route is `custom`.
+  if (activeProfileRouteId === 'llmtr' || startupCapabilityRouteId === 'llmtr') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
   }
   // Preserve Concentrate identity for retargeted profiles too, so a later

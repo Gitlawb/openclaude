@@ -877,6 +877,50 @@ describe('applyProviderProfileToProcessEnv', () => {
     }
   })
 
+  test('retargeted LLMTR profiles retain generic proxy capabilities', async () => {
+    // Runtime derives `custom` from a noncanonical endpoint. Persist profile
+    // capabilities with that same identity so fixed LLMTR transport metadata
+    // does not discard settings that a proxy will actually receive.
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'proxy-model',
+      apiKey: 'llmtr-test-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    expect(saved).toMatchObject({
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+    // Credential withholding remains separate from capability resolution.
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
   // A saved profile may target LLMTR without naming it: the guided flow writes
   // provider 'llmtr', but a hand-written or imported profile can be a generic
   // 'openai' one whose base URL is the canonical LLMTR endpoint. Route identity
