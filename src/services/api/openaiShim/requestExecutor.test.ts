@@ -589,6 +589,40 @@ test('LLMTR selection prefers its dedicated key over a generic OPENAI_API_KEYS p
   expect(captured.authorization).toBe('Bearer llmtr-key')
 })
 
+test('saved LLMTR profile key wins over an ambient OPENAI_API_KEYS pool', async () => {
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+
+  applyProviderProfileToProcessEnv({
+    id: 'llmtr-profile',
+    name: 'LLMTR',
+    provider: 'llmtr',
+    baseUrl: 'https://llmtr.com/v1',
+    model: 'deepseek/deepseek-v4-flash',
+    apiKey: 'llmtr-profile-key',
+  })
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://llmtr.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer llmtr-profile-key')
+})
+
+test('retargeted LLMTR profile does not send its stored key to the proxy', async () => {
+  applyProviderProfileToProcessEnv({
+    id: 'llmtr-proxy-profile',
+    name: 'LLMTR proxy',
+    provider: 'llmtr',
+    baseUrl: 'https://proxy.example/v1',
+    model: 'proxy-model',
+    apiKey: 'llmtr-profile-key',
+  })
+
+  const captured = await captureChatCompletionRequest('proxy-model')
+
+  expect(captured.url).toBe('https://proxy.example/v1/chat/completions')
+  expect(captured.authorization).toBeNull()
+})
+
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {
   process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
   process.env.OPENAI_API_KEYS = 'fake-openai-pool-a,fake-openai-pool-b'
