@@ -75,6 +75,11 @@ type OpenAIShimReasoningSupportContext = {
   useRuntimeFallback?: boolean
 }
 
+type ReasoningCompatibilityOverrides = {
+  thinkingRequestFormat?: OpenAIShimThinkingRequestFormat
+  removeBodyFields?: string[]
+}
+
 export type ReasoningControlContext = OpenAIShimReasoningSupportContext & {
   apiProvider?: ReturnType<typeof getAPIProvider>
   supportsCodexReasoningEffort?: boolean | ((model: string) => boolean)
@@ -502,9 +507,15 @@ function resolveLegacyReasoningControl(
 export function resolveModelReasoningControl(
   model: string,
   context?: ReasoningControlContext,
+  compatibilityOverrides?: ReasoningCompatibilityOverrides,
 ): ReasoningControlResolution {
   const metadata = resolveMetadataReasoningControl(model, context)
-  const compatibility = resolveCompatibilityReasoningControl(model, undefined, undefined, context)
+  const compatibility = resolveCompatibilityReasoningControl(
+    model,
+    compatibilityOverrides?.thinkingRequestFormat,
+    compatibilityOverrides?.removeBodyFields,
+    context,
+  )
   if (compatibility && !compatibility.controllable) {
     return compatibility
   }
@@ -534,31 +545,11 @@ export function modelSupportsShimReasoningEffort(
   removeBodyFields?: string[],
   context?: ReasoningControlContext,
 ): boolean {
-  const metadata = resolveMetadataReasoningControl(
+  const control = resolveModelReasoningControl(
     model,
     context,
+    { thinkingRequestFormat, removeBodyFields },
   )
-  const compatibility = resolveCompatibilityReasoningControl(
-    model,
-    thinkingRequestFormat,
-    removeBodyFields,
-    context,
-  )
-  if (compatibility && !compatibility.controllable) {
-    return false
-  }
-  if (metadata?.source === 'metadata' || metadata?.supportsReasoning === false) {
-    return Boolean(metadata.controllable && metadataWireFormatSupportsEffort(metadata.wireFormat))
-  }
-  if (compatibility) {
-    return compatibility.controllable
-  }
-
-  if (metadata) {
-    return false
-  }
-
-  const control = resolveLegacyReasoningControl(model, context)
   return Boolean(control.controllable && metadataWireFormatSupportsEffort(control.wireFormat))
 }
 

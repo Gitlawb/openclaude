@@ -16,7 +16,9 @@ import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
 
 const originalEnv = { ...process.env }
 const routingEnvKeys = [
+  'ANTHROPIC_BASE_URL',
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+  'CLAUDE_CODE_EFFORT_LEVEL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_GEMINI',
@@ -35,6 +37,7 @@ const routingEnvKeys = [
   'OPENAI_MODEL',
   'XAI_API_KEY',
   'ZAI_API_KEY',
+  'USER_TYPE',
 ] as const
 
 function restoreMockedModulesToActual(): void {
@@ -44,6 +47,15 @@ function restoreMockedModulesToActual(): void {
   mock.module('src/services/analytics/growthbook.js', () => actualGrowthbook)
 }
 
+function restoreProcessEnv(): void {
+  for (const key of Object.keys(process.env)) {
+    if (!Object.hasOwn(originalEnv, key)) delete process.env[key]
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+}
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
@@ -56,7 +68,7 @@ afterEach(() => {
   try {
     mock.restore()
     restoreMockedModulesToActual()
-    process.env = { ...originalEnv }
+    restoreProcessEnv()
   } finally {
     releaseSharedMutationLock()
   }
@@ -120,6 +132,17 @@ async function importFreshEffortModule(options: {
     ...effort,
     resolveModelReasoningControl: (model: string) =>
       effort.resolveModelReasoningControl(model, reasoningContext),
+    resolveModelReasoningControlWithCompatibility: (
+      model: string,
+      compatibilityOverrides: {
+        thinkingRequestFormat?: 'none' | 'deepseek-compatible' | 'zai-compatible'
+        removeBodyFields?: string[]
+      },
+    ) => effort.resolveModelReasoningControl(
+      model,
+      reasoningContext,
+      compatibilityOverrides,
+    ),
     modelSupportsEffort: (model: string) =>
       effort.modelSupportsEffort(model, reasoningContext),
     modelSupportsWireEffort: (model: string) =>
@@ -1122,6 +1145,41 @@ test('force enable cannot override non-effort metadata or transport contracts', 
   expect(
     metadataWithTransportVeto.modelSupportsWireEffort(
       'metadata-with-transport-veto',
+    ),
+  ).toBe(false)
+})
+
+test('resolver and shim effort predicate accept explicit transport vetoes', async () => {
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const {
+    modelSupportsShimReasoningEffort,
+    resolveModelReasoningControlWithCompatibility,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom',
+    useRuntimeFallback: false,
+  })
+
+  expect(
+    resolveModelReasoningControlWithCompatibility(
+      'transport-no-effort',
+      { thinkingRequestFormat: 'none' },
+    ),
+  ).toMatchObject({
+    supportsReasoning: false,
+    controllable: false,
+    source: 'compat',
+  })
+
+  expect(
+    modelSupportsShimReasoningEffort('transport-no-effort', 'none'),
+  ).toBe(false)
+  expect(
+    modelSupportsShimReasoningEffort(
+      'transport-no-effort',
+      undefined,
+      ['reasoning_effort'],
     ),
   ).toBe(false)
 })

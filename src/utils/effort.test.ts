@@ -8,7 +8,15 @@ import * as realThinking from './thinking.js'
 
 const originalEnv = { ...process.env }
 const routingEnvKeys = [
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+  'CLAUDE_CODE_EFFORT_LEVEL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_GEMINI',
@@ -16,12 +24,6 @@ const routingEnvKeys = [
   'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_VERTEX',
-  'ANTHROPIC_DEFAULT_OPUS_MODEL',
-  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
-  'ANTHROPIC_DEFAULT_SONNET_MODEL',
-  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
-  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
   'GEMINI_API_KEY',
   'MIMO_API_KEY',
   'MINIMAX_API_KEY',
@@ -33,10 +35,21 @@ const routingEnvKeys = [
   'OPENAI_MODEL',
   'XAI_API_KEY',
   'ZAI_API_KEY',
+  'USER_TYPE',
 ] as const
 
 async function importFreshEffortModule() {
-  return import(`./effort.ts?ts=${Date.now()}-${Math.random()}`)
+  return import(`./effort.js?ts=${Date.now()}-${Math.random()}`)
+}
+
+function restoreProcessEnv(): void {
+  for (const key of Object.keys(process.env)) {
+    if (!Object.hasOwn(originalEnv, key)) delete process.env[key]
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
 }
 
 beforeEach(async () => {
@@ -51,7 +64,7 @@ afterEach(() => {
     mock.restore()
     mock.module('./auth.js', () => realAuth)
     mock.module('./thinking.js', () => realThinking)
-    process.env = { ...originalEnv }
+    restoreProcessEnv()
   } finally {
     releaseSharedMutationLock()
   }
