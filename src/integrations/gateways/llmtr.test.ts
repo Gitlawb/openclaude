@@ -77,6 +77,43 @@ test('LLMTR prefers its dedicated env key with generic OpenAI fallback', () => {
       processEnv: { OPENAI_API_KEY: 'generic-key' },
     }),
   ).toBe('generic-key')
+
+  for (const baseUrl of [
+    'https://proxy.example/v1',
+    'http://llmtr.com/v1',
+    'https://llmtr.com/staging/v1',
+    'https://llmtr.com:8443/v1',
+    'https://llmtr.com/v1?tenant=other',
+  ]) {
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'llmtr',
+        baseUrl,
+        processEnv: {
+          LLMTR_API_KEY: 'dedicated-key',
+          OPENAI_API_KEY: 'generic-key',
+        },
+      }),
+    ).toBeUndefined()
+  }
+
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'http://llmtr.com/v1',
+      LLMTR_API_KEY: 'dedicated-key',
+    }),
+  ).toBe('custom')
+
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1' },
+      {
+        activeProfileProvider: 'llmtr',
+        activeProfileBaseUrl: 'https://proxy.example/v1',
+      },
+    ),
+  ).toBe('openai')
 })
 
 test('LLMTR discovery keeps tool-capable Chat Completions models', () => {

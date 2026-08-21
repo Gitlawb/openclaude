@@ -35,7 +35,6 @@ export default defineGateway({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
-      matchBaseUrlHosts: ['llmtr.com'],
     },
     credentialEnvVars: [
       'LLMTR_API_KEY',

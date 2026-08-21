@@ -51,6 +51,7 @@ const originalEnv = {
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
   CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
@@ -475,6 +476,7 @@ beforeEach(async () => {
   delete process.env.DEEPSEEK_API_KEY
   delete process.env.MIMO_API_KEY
   delete process.env.CONCENTRATE_API_KEY
+  delete process.env.LLMTR_API_KEY
   delete process.env.CONCENTRATE_BASE_URL
   delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENGATEWAY_API_KEY
@@ -524,6 +526,7 @@ afterEach(() => {
     restoreEnv('DEEPSEEK_API_KEY', originalEnv.DEEPSEEK_API_KEY)
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     restoreEnv('CONCENTRATE_API_KEY', originalEnv.CONCENTRATE_API_KEY)
+    restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
     restoreEnv('CONCENTRATE_BASE_URL', originalEnv.CONCENTRATE_BASE_URL)
     restoreEnv('CONCENTRATE_MODEL', originalEnv.CONCENTRATE_MODEL)
     restoreEnv('OPENGATEWAY_API_KEY', originalEnv.OPENGATEWAY_API_KEY)
@@ -568,6 +571,22 @@ test('Concentrate selection prefers its dedicated key over a generic OPENAI_API_
 
   expect(captured.url).toBe('https://api.concentrate.ai/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer concentrate-key')
+})
+
+test('LLMTR selection prefers its dedicated key over a generic OPENAI_API_KEYS pool', async () => {
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('llmtr', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest()
+
+  expect(captured.url).toBe('https://llmtr.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer llmtr-key')
 })
 
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {

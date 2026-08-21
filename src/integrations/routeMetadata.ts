@@ -441,6 +441,29 @@ export function isConcentrateBaseUrl(value: string | undefined): boolean {
 
 const CONCENTRATE_CANONICAL_INFERENCE_BASE_URL = 'https://api.concentrate.ai/v1'
 
+export function isCanonicalLlmtrInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const candidate = new URL(trimmed)
+    return (
+      candidate.protocol === 'https:' &&
+      candidate.hostname.toLowerCase() === 'llmtr.com' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      (candidate.pathname.replace(/\/+$/, '') || '/') === '/v1'
+    )
+  } catch {
+    return false
+  }
+}
+
 export function isCanonicalConcentrateInferenceBaseUrl(
   value: string | undefined,
 ): boolean {
@@ -1117,6 +1140,16 @@ export function resolveRouteCredentialValue(
   ) {
     return undefined
   }
+  // LLMTR's dedicated key is valid only for its documented HTTPS inference
+  // base. Generic OpenAI credentials remain available to intentional custom
+  // endpoints through the ordinary fallback path.
+  if (
+    routeId === 'llmtr' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
 
   return getRouteCredentialValue(routeId, processEnv)
 }
@@ -1280,6 +1313,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'apismart') {
     return isApismartBaseUrl(baseUrl)
+  }
+  if (routeId === 'llmtr') {
+    return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
   return true
 }
