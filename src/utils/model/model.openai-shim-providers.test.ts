@@ -378,6 +378,23 @@ test('LLMTR honors OPENAI_MODEL before client normalization', async () => {
   expect(getMainLoopModel()).toBe('anthropic/claude-sonnet-4.6')
 })
 
+test('LLMTR uses its route model for small requests before client normalization', async () => {
+  process.env.LLMTR_API_KEY = 'llmtr-test'
+
+  const { getSmallFastModel } = await importFreshModelModule()
+
+  expect(getSmallFastModel()).toBe('deepseek/deepseek-v4-flash')
+})
+
+test('LLMTR small requests honor an allowed explicit model before client normalization', async () => {
+  process.env.LLMTR_API_KEY = 'llmtr-test'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+
+  const { getSmallFastModel } = await importFreshModelModule()
+
+  expect(getSmallFastModel()).toBe('anthropic/claude-sonnet-4.6')
+})
+
 test.each(['sonnet', 'haiku', 'opus', 'best', 'opusplan'] as const)(
   'LLMTR resolves the %s alias before client normalization',
   async alias => {
