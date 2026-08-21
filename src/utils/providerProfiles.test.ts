@@ -1068,6 +1068,46 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
   })
 
+  test.each([
+    ['OPENAI_API_KEYS', 'generic-key-a, generic-key-b'],
+    ['OPENAI_API_KEY', 'generic-key'],
+  ] as const)(
+    'keyless canonical LLMTR profile preserves the supported %s fallback',
+    async (envVar, credential) => {
+      const { applyProviderProfileToProcessEnv } =
+        await importFreshProviderProfileModules()
+      const { getProviderValidationError } = await import(
+        `./providerValidation.js?ts=${Date.now()}-${Math.random()}`
+      )
+      process.env[envVar] = credential
+
+      applyProviderProfileToProcessEnv(
+        buildLlmtrProfile({ apiKey: undefined }),
+      )
+
+      expect(process.env[envVar]).toBe(credential)
+      expect(process.env.LLMTR_API_KEY).toBeUndefined()
+      expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+      expect(await getProviderValidationError(process.env)).toBeNull()
+    },
+  )
+
+  test('keyless canonical LLMTR profile keeps the dedicated credential ahead of generic fallbacks', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+    process.env.OPENAI_API_KEYS = 'generic-key-a,generic-key-b'
+    process.env.OPENAI_API_KEY = 'generic-key'
+
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ apiKey: undefined }),
+    )
+
+    expect(process.env.LLMTR_API_KEY).toBe('ambient-llmtr-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-llmtr-key')
+    expect(process.env.OPENAI_API_KEYS).toBeUndefined()
+  })
+
   test('retargeted LLMTR profile withholds its stored credential', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1079,6 +1119,26 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+  })
+
+  test('keyless retargeted LLMTR profile withholds every ambient credential channel', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+    process.env.OPENAI_API_KEYS = 'generic-key-a,generic-key-b'
+    process.env.OPENAI_API_KEY = 'generic-key'
+
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({
+        apiKey: undefined,
+        baseUrl: 'https://proxy.example/v1',
+      }),
+    )
+
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEYS).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
   })
 

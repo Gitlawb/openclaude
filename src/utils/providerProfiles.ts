@@ -39,6 +39,7 @@ import {
 } from './providerProfile.js'
 import { isCanonicalAimlapiInferenceBaseUrl } from '../integrations/aimlapi/config.js'
 import { refreshStartupDiscoveryForRoute } from '../integrations/discoveryService.js'
+import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import {
   getCatalogEntriesForRoute,
   getProviderPresetUiMetadata,
@@ -1182,6 +1183,10 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY =
             openAIProfileEnv.OPENAI_API_KEY ?? ambientLlmtrKey
           openAIProfileEnv.LLMTR_API_KEY = ambientLlmtrKey
+        } else if (hasUsableOpenAICredential(process.env.OPENAI_API_KEYS)) {
+          openAIProfileEnv.OPENAI_API_KEYS = process.env.OPENAI_API_KEYS?.trim()
+        } else if (hasUsableOpenAICredential(process.env.OPENAI_API_KEY)) {
+          openAIProfileEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim()
         }
       }
     }

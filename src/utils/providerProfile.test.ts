@@ -3229,6 +3229,40 @@ test('buildStartupEnvFromProfile preserves LLMTR env-only setup over a saved pro
   assert.equal(resolveActiveRouteIdFromEnv(env), 'llmtr')
 })
 
+test('buildStartupEnvFromProfile rejects an LLMTR key paired with a conflicting endpoint', async () => {
+  for (const baseEnvVar of ['OPENAI_BASE_URL', 'OPENAI_API_BASE'] as const) {
+    const env = await buildStartupEnvFromProfile({
+      persisted: profile('openai', {
+        OPENAI_BASE_URL: 'https://api.openai.com/v1',
+        OPENAI_MODEL: 'gpt-4o',
+        OPENAI_API_KEY: 'saved-openai-key',
+      }),
+      goal: 'balanced',
+      processEnv: {
+        LLMTR_API_KEY: 'ambient-llmtr-key',
+        [baseEnvVar]: 'https://proxy.example/v1',
+        OPENAI_MODEL: 'stale-proxy-model',
+        OPENAI_API_FORMAT: 'responses',
+        OPENAI_AUTH_HEADER: 'X-Stale-Key',
+        OPENAI_AUTH_HEADER_VALUE: 'stale-proxy-secret',
+        ANTHROPIC_CUSTOM_HEADERS: 'X-Stale-Trace: stale-proxy-secret',
+      },
+    })
+
+    assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+    assert.equal(env.OPENAI_BASE_URL, 'https://api.openai.com/v1')
+    assert.equal(env.OPENAI_API_BASE, undefined)
+    assert.equal(env.OPENAI_MODEL, 'gpt-4o')
+    assert.equal(env.OPENAI_API_KEY, 'saved-openai-key')
+    assert.equal(env.LLMTR_API_KEY, undefined)
+    assert.equal(env.OPENAI_API_FORMAT, undefined)
+    assert.equal(env.OPENAI_AUTH_HEADER, undefined)
+    assert.equal(env.OPENAI_AUTH_HEADER_VALUE, undefined)
+    assert.equal(env.ANTHROPIC_CUSTOM_HEADERS, undefined)
+    assert.equal(resolveActiveRouteIdFromEnv(env), 'openai')
+  }
+})
+
 test('buildStartupEnvFromProfile restores a retargeted LLMTR profile before an ambient dedicated key', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {

@@ -25,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  hasLlmtrEnvOnlyProviderIntent,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
@@ -1478,8 +1479,43 @@ function hasConcreteProviderSelection(
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.CONCENTRATE_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.LLMTR_API_KEY) !== undefined
+    hasLlmtrEnvOnlyProviderIntent(processEnv)
   )
+}
+
+function withoutRejectedLlmtrEnvOnlyConfig(
+  processEnv: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const configuredBaseUrl =
+    sanitizeProviderConfigValue(processEnv.OPENAI_BASE_URL) ??
+    sanitizeProviderConfigValue(processEnv.OPENAI_API_BASE)
+  if (
+    sanitizeApiKey(processEnv.LLMTR_API_KEY) === undefined ||
+    configuredBaseUrl === undefined ||
+    isCanonicalLlmtrInferenceBaseUrl(configuredBaseUrl)
+  ) {
+    return processEnv
+  }
+
+  // A dedicated LLMTR key cannot authenticate a different OpenAI-compatible
+  // endpoint. Once route eligibility rejects that combination, none of its
+  // partial routing/auth state may override a saved profile. Keep independent
+  // generic OpenAI credentials available as live credential rotations, but
+  // restore the saved profile's endpoint, model, and transport contract.
+  const nextEnv = { ...processEnv }
+  delete nextEnv.LLMTR_API_KEY
+  delete nextEnv.OPENAI_BASE_URL
+  delete nextEnv.OPENAI_API_BASE
+  delete nextEnv.OPENAI_MODEL
+  delete nextEnv.OPENAI_API_FORMAT
+  delete nextEnv.OPENAI_AZURE_STYLE
+  delete nextEnv.OPENAI_AUTH_HEADER
+  delete nextEnv.OPENAI_AUTH_SCHEME
+  delete nextEnv.OPENAI_AUTH_HEADER_VALUE
+  delete nextEnv.ANTHROPIC_CUSTOM_HEADERS
+  delete nextEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS
+  delete nextEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID
+  return nextEnv
 }
 
 function getConcreteOpenAICompatibleEnvRouteId(
@@ -2462,7 +2498,7 @@ export async function buildStartupEnvFromProfile(options?: {
     goal:
       options?.goal ??
       normalizeRecommendationGoal(processEnv.OPENCLAUDE_PROFILE_GOAL),
-    processEnv,
+    processEnv: withoutRejectedLlmtrEnvOnlyConfig(processEnv),
     getOllamaChatBaseUrl:
       options?.getOllamaChatBaseUrl ?? getOllamaChatBaseUrl,
     resolveOllamaDefaultModel: options?.resolveOllamaDefaultModel,
