@@ -42,6 +42,32 @@ test('buildInheritedEnvVars forwards pooled OpenAI credentials', () => {
   expect(envVars).toContain('OPENAI_API_KEYS=key-a\\,key-b')
 })
 
+test('buildInheritedEnvVars forwards complete custom OpenAI profile routing', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = 'custom-profile'
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.OPENAI_MODEL = 'custom-model'
+  process.env.OPENAI_API_FORMAT = 'responses'
+  process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('CLAUDE_CODE_PROVIDER_ROUTE_ID=custom')
+  expect(envVars).toContain('CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED=1')
+  expect(envVars).toContain(
+    'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID=custom-profile',
+  )
+  expect(envVars).toContain('OPENAI_BASE_URL=https\\://proxy.example/v1')
+  expect(envVars).toContain('OPENAI_MODEL=custom-model')
+  expect(envVars).toContain('OPENAI_API_FORMAT=responses')
+  expect(envVars).toContain('OPENAI_AUTH_HEADER=X-Proxy-Key')
+  expect(envVars).toContain('OPENAI_AUTH_SCHEME=raw')
+  expect(envVars).toContain('OPENAI_AUTH_HEADER_VALUE=proxy-secret')
+})
+
 test.each([
   {
     routeId: 'llmtr',

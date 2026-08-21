@@ -925,9 +925,9 @@ describe('applyProviderProfileToProcessEnv', () => {
   // provider 'llmtr', but a hand-written or imported profile can be a generic
   // 'openai' one whose base URL is the canonical LLMTR endpoint. Route identity
   // has to come out the same either way, because request-time resolution derives
-  // it from that base URL. When the two disagree the applied-profile marker no
-  // longer matches the runtime route, the dedicated-credential route refuses
-  // profile-scoped custom auth, and the profile's own header is dropped.
+  // it from that base URL. The canonical LLMTR route has fixed Bearer auth, so
+  // imported generic custom-header settings are dropped once that route is
+  // identified.
   test('generic openai profile at the canonical LLMTR endpoint resolves as the LLMTR route', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -949,11 +949,8 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
     expect(process.env.LLMTR_API_KEY).toBe('llmtr-generic-key')
     expect(process.env.OPENAI_API_KEY).toBe('llmtr-generic-key')
-    // The route marker is what lets the executor honour these at request time.
-    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-LLMTR-Key')
-    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe(
-      'llmtr-generic-header-secret',
-    )
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
   })
 
   test('generic openai profile on a non-canonical llmtr.com URL stays a plain OpenAI session', async () => {
@@ -3338,11 +3335,9 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
-  // The persisted startup env has to reproduce the applied route identity, or
-  // the next launch reads back a profile that authenticates differently from the
-  // one that was saved: request-time resolution still derives 'llmtr' from the
-  // base URL, but without the marker the dedicated-credential route refuses the
-  // profile's own auth header.
+  // The persisted startup env has to reproduce the applied route identity and
+  // fixed Bearer-auth contract. Imported generic custom-header settings must
+  // not reappear on relaunch after the canonical base resolves to LLMTR.
   test('persists the LLMTR route marker for a generic openai profile at the canonical endpoint', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
@@ -3380,10 +3375,8 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
       expect(persisted.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
       expect(persisted.env.LLMTR_API_KEY).toBe('llmtr-generic-key')
-      expect(persisted.env.OPENAI_AUTH_HEADER).toBe('X-LLMTR-Key')
-      expect(persisted.env.OPENAI_AUTH_HEADER_VALUE).toBe(
-        'llmtr-generic-header-secret',
-      )
+      expect(persisted.env.OPENAI_AUTH_HEADER).toBeUndefined()
+      expect(persisted.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

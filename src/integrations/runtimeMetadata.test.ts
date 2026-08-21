@@ -319,7 +319,7 @@ describe('LLMTR route-owned connection state', () => {
     expect(context.connection.customAuthSource).toBe('none')
   })
 
-  it('permits custom auth only when an LLMTR profile applied it', () => {
+  it('rejects custom auth even when an LLMTR profile supplied it', () => {
     const context = resolveOpenAIShimRuntimeContext({
       processEnv: {
         CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
@@ -334,7 +334,7 @@ describe('LLMTR route-owned connection state', () => {
       model: 'anthropic/claude-sonnet-4.6',
     })
 
-    expect(context.connection.customAuthSource).toBe('profile')
+    expect(context.connection.customAuthSource).toBe('none')
   })
 })
 
