@@ -263,6 +263,22 @@ function clearExplicitOpenAIShimOverrides(): void {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
+function getCustomAnthropicProviderSelectionError(): string | undefined {
+  if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
+    return 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.'
+  }
+  if (isFirstPartyAnthropicBaseUrlForEnv(process.env)) {
+    return 'Custom Anthropic-compatible provider requires a non-Anthropic ANTHROPIC_BASE_URL.'
+  }
+  if (
+    !process.env.ANTHROPIC_AUTH_TOKEN?.trim() &&
+    !process.env.ANTHROPIC_API_KEY?.trim()
+  ) {
+    return 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY.'
+  }
+  return undefined
+}
+
 function usableProviderModelEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -334,6 +350,16 @@ export function applyProviderFlag(
   if (!VALID_PROVIDERS.includes(provider)) {
     return {
       error: `Unknown provider "${provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}`,
+    }
+  }
+
+  // Validate before clearing the active selection. A rejected invocation must
+  // leave the process on its prior provider rather than exposing an ambient
+  // env-only route during in-process error recovery.
+  if (provider === 'custom-anthropic') {
+    const error = getCustomAnthropicProviderSelectionError()
+    if (error) {
+      return { error }
     }
   }
 
@@ -410,24 +436,8 @@ export function applyProviderFlag(
       break
     }
 
-    case 'custom-anthropic':
-      if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
-        return {
-          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_BASE_URL.',
-        }
-      }
-      if (isFirstPartyAnthropicBaseUrlForEnv(process.env)) {
-        return {
-          error: 'Custom Anthropic-compatible provider requires a non-Anthropic ANTHROPIC_BASE_URL.',
-        }
-      }
+    case 'custom-anthropic': {
       const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim())
-      const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY?.trim())
-      if (!hasAuthToken && !hasApiKey) {
-        return {
-          error: 'Custom Anthropic-compatible provider requires ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY.',
-        }
-      }
       if (hasAuthToken) {
         delete process.env.ANTHROPIC_API_KEY
       } else {
@@ -444,18 +454,23 @@ export function applyProviderFlag(
       process.env.ANTHROPIC_MODEL ??= defaultModel
       if (model) process.env.ANTHROPIC_MODEL = model
       break
+    }
 
-    case 'openai':
+    case 'openai': {
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      clearExplicitOpenAIShimOverrides()
       // An explicit generic OpenAI selection must not be reclassified as a
       // dedicated env-only gateway during client startup. Replace a previous
       // known gateway endpoint and its model, but preserve deliberate custom
       // or Azure-compatible OpenAI settings.
       if (shouldReplaceStaleKnownBaseUrl(provider)) {
+        clearExplicitOpenAIShimOverrides()
         delete process.env.OPENAI_BASE_URL
         delete process.env.OPENAI_API_BASE
         delete process.env.OPENAI_MODEL
+      } else {
+        // Native Anthropic headers never apply to the retained OpenAI-compatible
+        // endpoint, but its own API-format and authentication settings do.
+        delete process.env.ANTHROPIC_CUSTOM_HEADERS
       }
       if (!getConfiguredOpenAIBaseUrl()) {
         process.env.OPENAI_BASE_URL =
@@ -467,6 +482,7 @@ export function applyProviderFlag(
         process.env.OPENAI_MODEL ??= defaultModel ?? 'gpt-4o'
       }
       break
+    }
 
     case 'gemini':
       process.env.CLAUDE_CODE_USE_GEMINI = '1'

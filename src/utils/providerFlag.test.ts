@@ -243,6 +243,19 @@ describe('applyProviderFlag - custom Anthropic-compatible', () => {
     expect(result.error).toContain('ANTHROPIC_BASE_URL')
   })
 
+  test('leaves the active route intact when validation rejects the selection', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'openai'
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+
+    const result = applyProviderFlag('custom-anthropic', [])
+
+    expect(result.error).toContain('ANTHROPIC_BASE_URL')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('openai')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('openai')
+    expect(resolveEnvOnlyProviderRouteId(process.env)).toBeNull()
+  })
+
   test('rejects the first-party Anthropic endpoint instead of forwarding a custom credential', () => {
     process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
     process.env.ANTHROPIC_AUTH_TOKEN = 'proxy-token'
@@ -387,6 +400,24 @@ describe('applyProviderFlag - openai', () => {
     expect(process.env.OPENAI_AZURE_STYLE).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://azure.example/openai')
     expect(process.env.OPENAI_MODEL).toBe('azure-model')
+  })
+
+  test('preserves custom endpoint transport settings when retaining its base URL', () => {
+    process.env.OPENAI_BASE_URL = 'https://gateway.example/v1'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'gateway-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'x-stale: value'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://gateway.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('api-key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('gateway-secret')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 })
 
