@@ -44,6 +44,7 @@ const ENV_KEYS = [
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'CONCENTRATE_API_KEY',
+  'LLMTR_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
@@ -67,6 +68,19 @@ beforeEach(async () => {
     originalEnv[key] = process.env[key]
     delete process.env[key]
   }
+})
+
+describe('applyProviderFlag - LLMTR credential ownership', () => {
+  test('clears a copied LLMTR key from OPENAI_API_KEY when switching providers', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret-key'
+    process.env.OPENAI_API_KEY = 'llmtr-secret-key'
+
+    applyProviderFlag('openrouter', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+  })
 })
 
 const RESET_KEYS = [
@@ -98,6 +112,7 @@ const RESET_KEYS = [
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'CONCENTRATE_API_KEY',
+  'LLMTR_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',

@@ -260,6 +260,10 @@ function clearConcentrateProviderState(): void {
   delete process.env.CONCENTRATE_MODEL
 }
 
+function clearLlmtrProviderState(): void {
+  delete process.env.LLMTR_API_KEY
+}
+
 function usableProviderModelEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -364,6 +368,9 @@ export function applyProviderFlag(
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.CONCENTRATE_API_KEY
                         ? 'concentrate'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
+                        ? 'llmtr'
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                         ? 'nearai'
@@ -853,6 +860,9 @@ export function applyProviderFlag(
   // custom-anthropic request remains non-mutating.
   if (provider !== 'concentrate') {
     clearConcentrateProviderState()
+  }
+  if (provider !== 'llmtr') {
+    clearLlmtrProviderState()
   }
 
   return {}

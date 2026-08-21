@@ -1477,7 +1477,8 @@ function hasConcreteProviderSelection(
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
-    sanitizeApiKey(processEnv.CONCENTRATE_API_KEY) !== undefined
+    sanitizeApiKey(processEnv.CONCENTRATE_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.LLMTR_API_KEY) !== undefined
   )
 }
 

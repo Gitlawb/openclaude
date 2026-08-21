@@ -34,6 +34,7 @@ const ENV_KEYS = [
   'LONGCAT_API_KEY',
   'APISMART_API_KEY',
   'CONCENTRATE_API_KEY',
+  'LLMTR_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
   'NVIDIA_API_KEY',
@@ -284,6 +285,19 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
 
     await expect(getProviderValidationError(process.env)).resolves.toBe(
       'Concentrate auth is required. Set CONCENTRATE_API_KEY or OPENAI_API_KEY.',
+    )
+  },
+)
+
+test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+  'LLMTR validation rejects placeholder LLMTR_API_KEY %s',
+  async placeholder => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+    process.env.LLMTR_API_KEY = placeholder
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
     )
   },
 )

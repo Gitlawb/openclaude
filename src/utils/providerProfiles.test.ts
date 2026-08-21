@@ -2419,6 +2419,23 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(String(process.env.FIREWORKS_API_KEY)).toBe('fireworks-test-key')
   })
 
+  test('re-applies LLMTR active profile when its dedicated key drifts', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const llmtrProfile = buildLlmtrProfile({ id: 'saved_llmtr' })
+    applyProviderProfileToProcessEnv(llmtrProfile)
+    process.env.LLMTR_API_KEY = 'stale-llmtr-key'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [llmtrProfile],
+      activeProviderProfileId: 'saved_llmtr',
+    } as any)
+
+    expect(applied?.id).toBe('saved_llmtr')
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-test-key')
+    expect(process.env.OPENAI_API_KEY).toBe('llmtr-test-key')
+  })
+
   test('re-applies AI/ML API active profile when AIMLAPI_API_KEY is missing (env drift)', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -3691,7 +3708,6 @@ describe('setActiveProviderProfile', () => {
       const startupEnv = await buildStartupEnvFromProfile({
         persisted,
         processEnv: {
-          LLMTR_API_KEY: 'ambient-llmtr-key',
           OPENAI_API_KEY: 'ambient-llmtr-key',
         },
       })

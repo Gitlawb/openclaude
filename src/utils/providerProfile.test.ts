@@ -3211,6 +3211,24 @@ test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a sav
   assert.equal(resolveActiveRouteIdFromEnv(env), 'concentrate')
 })
 
+test('buildStartupEnvFromProfile preserves LLMTR env-only setup over a saved profile', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      LLMTR_API_KEY: 'llmtr-env-only-key',
+    },
+  })
+
+  assert.equal(env.LLMTR_API_KEY, 'llmtr-env-only-key')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(env), 'llmtr')
+})
+
 test('buildConcentrateProfileEnv prefers CONCENTRATE_MODEL over OPENAI_MODEL', () => {
   const env = buildConcentrateProfileEnv({
     apiKey: 'concentrate-secret-key',

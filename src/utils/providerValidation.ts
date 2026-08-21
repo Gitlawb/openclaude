@@ -142,7 +142,8 @@ function hasUsableCredentialEnvValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
-    envVar === 'CONCENTRATE_API_KEY'
+    envVar === 'CONCENTRATE_API_KEY' ||
+    envVar === 'LLMTR_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -264,12 +265,12 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
-  // The documented CONCENTRATE_API_KEY-only setup is routed before the client
-  // applies its default base URL. Select its descriptor directly so startup
-  // validates the dedicated credential, including a noncanonical dedicated
-  // base URL, instead of returning early for an unset OpenAI mode.
-  if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
-    return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  // Dedicated key-only gateway setups are routed before the client applies
+  // their default base URL. Select the descriptor directly so startup validates
+  // the credential instead of returning early for an unset OpenAI mode.
+  const envOnlyRouteId = resolveActiveRouteIdFromEnv(env)
+  if (envOnlyRouteId === 'concentrate' || envOnlyRouteId === 'llmtr') {
+    return validationTargets.find(target => target.descriptor.id === envOnlyRouteId)
   }
 
   if (!useOpenAI) {

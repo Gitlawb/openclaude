@@ -231,7 +231,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
-    envVar === 'CONCENTRATE_API_KEY'
+    envVar === 'CONCENTRATE_API_KEY' ||
+    envVar === 'LLMTR_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -990,6 +991,21 @@ export function hasConcentrateEnvOnlyProviderIntent(
   )
 }
 
+export function hasLlmtrEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasUsableOpenAICredential(processEnv.LLMTR_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(
+      processEnv,
+      isCanonicalLlmtrInferenceBaseUrl,
+    ) &&
+    !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -1004,6 +1020,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'clinepass'
   | 'apismart'
   | 'concentrate'
+  | 'llmtr'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -1054,6 +1071,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasConcentrateEnvOnlyProviderIntent(processEnv)) {
     return 'concentrate'
+  }
+
+  if (hasLlmtrEnvOnlyProviderIntent(processEnv)) {
+    return 'llmtr'
   }
 
   return null

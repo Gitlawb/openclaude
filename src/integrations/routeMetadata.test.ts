@@ -8,10 +8,12 @@ import {
   getRouteProviderTypeLabel,
   isApismartBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isCloudflareBaseUrl,
   isConcentrateBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
+  resolveEnvOnlyProviderRouteId,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
@@ -1142,4 +1144,28 @@ test('resolveActiveRouteIdFromEnv does not let a stale Concentrate model overrid
       CONCENTRATE_MODEL: 'deepseek-v4-flash-0731',
     }),
   ).toBe('openai')
+})
+
+test('LLMTR env-only key selects the canonical route without an OpenAI flag', () => {
+  const env = { LLMTR_API_KEY: 'llmtr-key' }
+  expect(resolveEnvOnlyProviderRouteId(env)).toBe('llmtr')
+  expect(resolveActiveRouteIdFromEnv(env)).toBe('llmtr')
+})
+
+test('LLMTR env-only intent rejects placeholders and conflicting endpoints', () => {
+  expect(resolveEnvOnlyProviderRouteId({ LLMTR_API_KEY: 'SUA_CHAVE' })).toBeNull()
+  expect(
+    resolveEnvOnlyProviderRouteId({
+      LLMTR_API_KEY: 'llmtr-key',
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+    }),
+  ).toBeNull()
+})
+
+test('LLMTR dedicated credential is usable only at the canonical endpoint', () => {
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1')).toBe(true)
+  expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
+  expect(
+    getRouteCredentialValue('llmtr', { LLMTR_API_KEY: 'SUA_CHAVE' }),
+  ).toBeUndefined()
 })

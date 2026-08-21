@@ -845,6 +845,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.APISMART_API_KEY, profile.apiKey)
       : true) &&
+    (isLlmtrProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.LLMTR_API_KEY, profile.apiKey)
+      : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)

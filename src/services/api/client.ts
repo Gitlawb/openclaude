@@ -45,6 +45,7 @@ import {
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
@@ -449,6 +450,35 @@ function applyConcentrateEnvOnlyDefaults(): void {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
+function applyLlmtrEnvOnlyDefaults(): void {
+  const baseUrlOverride =
+    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
+    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
+    undefined
+  const modelOverride =
+    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) || undefined
+  const apiKey = process.env.LLMTR_API_KEY
+
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL =
+    baseUrlOverride ?? getRouteDefaultBaseUrl('llmtr')
+  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('llmtr')
+  if (
+    hasUsableOpenAICredential(apiKey) &&
+    isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)
+  ) {
+    process.env.OPENAI_API_KEY = apiKey
+  } else {
+    delete process.env.OPENAI_API_KEY
+  }
+  delete process.env.OPENAI_API_FORMAT
+  delete process.env.OPENAI_AZURE_STYLE
+  delete process.env.OPENAI_AUTH_HEADER
+  delete process.env.OPENAI_AUTH_SCHEME
+  delete process.env.OPENAI_AUTH_HEADER_VALUE
+  delete process.env.ANTHROPIC_CUSTOM_HEADERS
+}
+
 function usableProviderConfigEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -575,6 +605,8 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
   const useConcentrateEnvOnlyProvider =
     envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
+  const useLlmtrEnvOnlyProvider =
+    envOnlyProviderRouteId === 'llmtr' && !useMiniMaxEnvOnlyProvider
   if (useMiniMaxEnvOnlyProvider) applyMiniMaxEnvOnlyDefaults(model)
   if (useXiaomiMimoEnvOnlyProvider) applyXiaomiMimoEnvOnlyDefaults()
   if (useXaiEnvOnlyProvider) applyXaiEnvOnlyDefaults()
@@ -584,6 +616,7 @@ export async function getAnthropicClient({
   if (useAimlapiEnvOnlyProvider) applyAimlapiEnvOnlyDefaults()
   if (useApismartEnvOnlyProvider) applyApismartEnvOnlyDefaults()
   if (useConcentrateEnvOnlyProvider) applyConcentrateEnvOnlyDefaults()
+  if (useLlmtrEnvOnlyProvider) applyLlmtrEnvOnlyDefaults()
 
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID

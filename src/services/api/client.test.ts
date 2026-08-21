@@ -70,6 +70,7 @@ const originalEnv = {
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
   CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
+  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
   CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   NVIDIA_NIM: process.env.NVIDIA_NIM,
@@ -169,6 +170,7 @@ beforeEach(async () => {
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
   delete process.env.CONCENTRATE_API_KEY
+  delete process.env.LLMTR_API_KEY
   delete process.env.CONCENTRATE_BASE_URL
   delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENAI_AUTH_HEADER
@@ -222,6 +224,7 @@ afterEach(() => {
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
     restoreEnv('CONCENTRATE_API_KEY', originalEnv.CONCENTRATE_API_KEY)
+    restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
     restoreEnv('CONCENTRATE_BASE_URL', originalEnv.CONCENTRATE_BASE_URL)
     restoreEnv('CONCENTRATE_MODEL', originalEnv.CONCENTRATE_MODEL)
     restoreEnv('NVIDIA_NIM', originalEnv.NVIDIA_NIM)
@@ -873,6 +876,60 @@ test('env-only Concentrate setup withholds its key from a noncanonical same-host
     'https://api.concentrate.ai/v1/models',
   )
   expect(process.env.OPENAI_API_KEY).toBeUndefined()
+})
+
+test('routes env-only LLMTR requests through the OpenAI-compatible shim', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  process.env.LLMTR_API_KEY = 'llmtr-test-key'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: ambient-proxy-secret'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-llmtr',
+        model: 'deepseek/deepseek-v4-flash',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'deepseek/deepseek-v4-flash',
+  })) as unknown as ShimClient
+  await client.beta.messages.create({
+    model: 'deepseek/deepseek-v4-flash',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://llmtr.com/v1/chat/completions')
+  expect(capturedHeaders?.get('authorization')).toBe('Bearer llmtr-test-key')
+  expect(capturedHeaders?.get('x-proxy-auth')).toBeNull()
+  expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+  expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
 })
 
 test('generic OpenAI configuration for the canonical Concentrate endpoint retains its key', async () => {
