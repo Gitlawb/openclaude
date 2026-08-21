@@ -563,6 +563,10 @@ export const OMISSION_REBUILD_TAIL_BYTES = 2 * 1024 * 1024
 // evicted and must never be emitted as a remote parentUuid.
 export const MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE = 64
 
+// Maximum retry attempts to reconstruct an incomplete omission rebuild
+// during subsequent appends before suppressing further attempts.
+export const MAX_REMOTE_EGRESS_REBUILD_RETRIES = 3
+
 // In-memory map of agentId → subdirectory for grouping related subagent
 // transcripts (e.g. workflow runs write to subagents/workflows/<runId>/).
 // Populated before the agent runs; consulted by getAgentTranscriptPath.
@@ -866,7 +870,12 @@ export function getRemoteEgressOmissionRebuildIncompleteForTesting(): boolean {
   return getProject()._getRemoteEgressOmissionRebuildIncompleteForTesting()
 }
 
-/** \@internal Register verified-remote hydration delivery witnesses (tests). */
+/** @internal Snapshot incomplete-rebuild retry count (tests). */
+export function getRemoteEgressRebuildRetryCountForTesting(): number {
+  return getProject()._getRemoteEgressRebuildRetryCountForTesting()
+}
+
+/** @internal Register verified-remote hydration delivery witnesses (tests). */
 export function markRemoteEgressHydratedForTesting(
   entries: readonly unknown[],
 ): void {
@@ -985,6 +994,9 @@ class Project {
   // One-shot guard: emit the suppression diagnostic only the first time an
   // entry is withheld under an incomplete rebuild, not on every later entry.
   private remoteEgressRebuildIncompleteWarned = false
+  // Bounded retry counter: avoid repeated synchronous disk scans on every
+  // append when a transcript is permanently unrecoverable.
+  private remoteEgressRebuildRetryCount = 0
 
   constructor() {}
 
@@ -1005,6 +1017,7 @@ class Project {
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
@@ -1465,6 +1478,11 @@ class Project {
     return this.remoteEgressOmissionRebuildIncomplete
   }
 
+  /** @internal Expose incomplete-rebuild retry count for egress tests. */
+  _getRemoteEgressRebuildRetryCountForTesting(): number {
+    return this.remoteEgressRebuildRetryCount
+  }
+
   /**
    * After --resume / --continue, remoteEgressOmittedParents starts empty
    * (resetSessionFile clears it). Rebuild from the adopted local transcript
@@ -1489,6 +1507,7 @@ class Project {
     this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
     const path = this.sessionFile
     if (!path) return
     const result = ingestRemoteEgressOmissionsFromTranscriptFile(
@@ -1517,6 +1536,7 @@ class Project {
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
     this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
     this.lastRemoteEgressUuid = null
   }
 
@@ -2196,28 +2216,70 @@ class Project {
                 const { remoteEntry, parentConfirmedSafe } =
                   this.resolveRemoteEgressParentProjection(entry)
                 // Bounded rebuild retry: if a prior resume rebuild was left
-                // incomplete, attempt one bounded re-rebuild before suppressing
+                // incomplete, attempt bounded retries before suppressing
                 // this entry. When reconstruction succeeds the session resumes
                 // remote persistence instead of latching fail-closed for life.
-                if (this.remoteEgressOmissionRebuildIncomplete && this.sessionFile) {
+                if (
+                  this.remoteEgressOmissionRebuildIncomplete &&
+                  this.sessionFile &&
+                  this.remoteEgressRebuildRetryCount <
+                    MAX_REMOTE_EGRESS_REBUILD_RETRIES
+                ) {
+                  this.remoteEgressRebuildRetryCount++
                   const retryOmitted = new Map<UUID, UUID | null>()
+                  const retryEvicted = new Set<UUID>()
+                  const retryCompactAncestry = new Map<UUID, UUID | null>()
+                  const retryKnownOmitted = new Set<UUID>()
+                  const retrySafeLocalParents = new Set<UUID>()
                   const result = ingestRemoteEgressOmissionsFromTranscriptFile(
                     this.sessionFile,
                     retryOmitted,
                     {
-                      evicted: this.evictedRemoteEgressOmissions,
-                      compactAncestry: this.remoteEgressCompactAncestry,
-                      knownOmitted: this.remoteEgressKnownOmitted,
-                      safeLocalParents: this.remoteEgressSafeLocalParents,
+                      evicted: retryEvicted,
+                      compactAncestry: retryCompactAncestry,
+                      knownOmitted: retryKnownOmitted,
+                      safeLocalParents: retrySafeLocalParents,
                     },
                     OMISSION_REBUILD_TAIL_BYTES,
                   )
                   if (result.complete) {
                     this.remoteEgressOmissionRebuildIncomplete = false
                     this.remoteEgressRebuildIncompleteWarned = false
+                    this.remoteEgressRebuildRetryCount = 0
                     for (const [k, v] of retryOmitted) {
                       this.remoteEgressOmittedParents.set(k, v)
                     }
+                    boundRemoteEgressOmissionMap(
+                      this.remoteEgressOmittedParents,
+                      this.evictedRemoteEgressOmissions,
+                      this.remoteEgressCompactAncestry,
+                      this.remoteEgressKnownOmitted,
+                    )
+                    for (const uuid of retryEvicted) {
+                      this.evictedRemoteEgressOmissions.add(uuid)
+                    }
+                    for (const [k, v] of retryCompactAncestry) {
+                      this.remoteEgressCompactAncestry.set(k, v)
+                    }
+                    for (const uuid of retryKnownOmitted) {
+                      this.remoteEgressKnownOmitted.add(uuid)
+                    }
+                    for (const uuid of retrySafeLocalParents) {
+                      this.remoteEgressSafeLocalParents.add(uuid)
+                    }
+                    boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+                    boundUuidSet(
+                      this.evictedRemoteEgressOmissions,
+                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                    )
+                    boundUuidSet(
+                      this.remoteEgressKnownOmitted,
+                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                    )
+                    boundUuidSet(
+                      this.remoteEgressSafeLocalParents,
+                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+                    )
                   }
                 }
                 // Fail closed: do not emit a remote child whose target parent
@@ -2254,16 +2316,18 @@ class Project {
                   // Emit a one-time diagnostic the first time an entry is
                   // withheld under an incomplete rebuild, so the degraded
                   // session is observable instead of silently root-only.
-                  if (!
-                    this.remoteEgressRebuildIncompleteWarned
+                  // Ordinary unresolved-parent suppressions must not consume
+                  // the incomplete-rebuild warning slot.
+                  if (
+                    this.remoteEgressOmissionRebuildIncomplete &&
+                    !this.remoteEgressRebuildIncompleteWarned
                   ) {
                     this.remoteEgressRebuildIncompleteWarned = true
                     logForDiagnosticsNoPII(
                       'warn',
                       'remote_egress_parent_unresolved',
                       {
-                        rebuildIncomplete:
-                          this.remoteEgressOmissionRebuildIncomplete,
+                        rebuildIncomplete: true,
                       },
                     )
                   }

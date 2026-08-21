@@ -23,12 +23,14 @@ import {
   flushSessionStorage,
   getRemoteEgressOmittedParentsForTesting,
   getRemoteEgressOmissionRebuildIncompleteForTesting,
+  getRemoteEgressRebuildRetryCountForTesting,
   isMalformedAttachmentBearingEgressRecord,
   isSafeForExternalEgress,
   markRemoteEgressHydratedForTesting,
   shouldOmitFromExternalEgress,
   EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES,
   MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+  MAX_REMOTE_EGRESS_REBUILD_RETRIES,
   OMISSION_REBUILD_TAIL_BYTES,
   projectTranscriptParentForExternalEgress,
   rebuildRemoteEgressOmittedParentsForTesting,
@@ -1390,6 +1392,58 @@ describe('appendEntry remote egress gate', () => {
       await flushSessionStorage()
 
       expect(remotePayloads.find(p => p.uuid === childUuid)).toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('incomplete rebuild retries are bounded and stop for permanently unrecoverable transcripts', async () => {
+    process.env.USER_TYPE = 'external'
+    process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+    process.env.NODE_ENV = 'development'
+    process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+    process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+    delete process.env.CLAUDE_CODE_SKIP_PROMPT_HISTORY
+    setSessionPersistenceDisabled(false)
+
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-retry-bound-'))
+    const path = join(dir, 'session.jsonl')
+    const withheldParent = id(430)
+    const remotePayloads: Array<Record<string, unknown>> = []
+
+    try {
+      // Unrecoverable oversized line without newlines
+      await writeFile(path, Buffer.alloc(OMISSION_REBUILD_TAIL_BYTES + 4096, 0x78))
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      await rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+      expect(getRemoteEgressRebuildRetryCountForTesting()).toBe(0)
+
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // Perform more appends than MAX_REMOTE_EGRESS_REBUILD_RETRIES
+      for (let n = 0; n < MAX_REMOTE_EGRESS_REBUILD_RETRIES + 2; n++) {
+        const msg = {
+          type: 'user',
+          uuid: id(431 + n),
+          parentUuid: withheldParent,
+          timestamp: `2026-08-11T00:00:${String(n).padStart(2, '0')}.000Z`,
+          message: { role: 'user', content: `msg ${n}` },
+        } as unknown as Message
+        await recordTranscript([msg], undefined, withheldParent)
+      }
+      await flushSessionStorage()
+
+      // Retries must cap at MAX_REMOTE_EGRESS_REBUILD_RETRIES
+      expect(getRemoteEgressRebuildRetryCountForTesting()).toBe(
+        MAX_REMOTE_EGRESS_REBUILD_RETRIES,
+      )
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(true)
+      expect(remotePayloads.length).toBe(0)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
