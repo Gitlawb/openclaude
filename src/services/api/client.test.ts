@@ -86,6 +86,12 @@ const originalEnv = {
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
     process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+  // Snapshotted with its profile siblings: tests here set the route marker to
+  // pin a route, and this file runs early in the serial `test:provider` order.
+  // Left behind, a stale marker changes how later files resolve their route —
+  // `providerUsesImplicitPrefixCaching` reads it and skips tool-history
+  // compression for custom endpoints, which fails openaiShim.compression.
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
 }
 
 function restoreEnv(key: string, value: string | undefined): void {
@@ -107,6 +113,7 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
   delete process.env.GEMINI_BASE_URL
@@ -186,6 +193,7 @@ beforeEach(async () => {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
 })
 
 afterEach(() => {
@@ -244,6 +252,10 @@ afterEach(() => {
     restoreEnv(
       'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
       originalEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
+    )
+    restoreEnv(
+      'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+      originalEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID,
     )
     globalThis.fetch = originalFetch
   } finally {
