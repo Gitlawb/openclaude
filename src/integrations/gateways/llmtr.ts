@@ -1,5 +1,83 @@
 import { defineGateway } from '../define.js'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getTrimmedString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key]
+  return typeof value === 'string' ? value.trim() : undefined
+}
+
+function getPositiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value > 0
+    ? value
+    : undefined
+}
+
+function hasStringValue(value: unknown, expected: string): boolean {
+  return (
+    Array.isArray(value) &&
+    value.some(item => typeof item === 'string' && item === expected)
+  )
+}
+
+/**
+ * LLMTR's /models endpoint describes every operation served by the gateway,
+ * including Responses, embeddings, images, audio, video, and reranking. The
+ * OpenClaude route is deliberately a chat-completions coding-agent transport,
+ * so discovery must keep only models that can serve both that endpoint and the
+ * tool calls required by an agent session.
+ */
+function mapLlmtrModel(raw: unknown) {
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const id = getTrimmedString(raw, 'id')
+  if (
+    !id ||
+    !hasStringValue(raw.supported_operations, 'CHAT_COMPLETIONS') ||
+    !hasStringValue(raw.supported_endpoints, '/v1/chat/completions') ||
+    !hasStringValue(raw.supported_parameters, 'tools')
+  ) {
+    return null
+  }
+
+  const topProvider = isRecord(raw.top_provider) ? raw.top_provider : null
+  const architecture = isRecord(raw.architecture) ? raw.architecture : null
+  const reasoning = isRecord(raw.reasoning) ? raw.reasoning : null
+  const contextWindow =
+    getPositiveInteger(raw.context_length) ??
+    getPositiveInteger(topProvider?.context_length)
+  const maxOutputTokens = getPositiveInteger(
+    topProvider?.max_completion_tokens,
+  )
+  const label = getTrimmedString(raw, 'name') || id
+
+  return {
+    id,
+    apiName: id,
+    label,
+    capabilities: {
+      supportsFunctionCalling: true,
+      supportsVision: hasStringValue(architecture?.input_modalities, 'image'),
+      supportsReasoning:
+        reasoning !== null ||
+        hasStringValue(raw.supported_parameters, 'reasoning') ||
+        hasStringValue(raw.supported_parameters, 'reasoning_effort'),
+    },
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+  }
+}
+
 export default defineGateway({
   id: 'llmtr',
   label: 'LLMTR',
@@ -48,7 +126,10 @@ export default defineGateway({
   },
   catalog: {
     source: 'hybrid',
-    discovery: { kind: 'openai-compatible' },
+    discovery: {
+      kind: 'openai-compatible',
+      mapModel: mapLlmtrModel,
+    },
     discoveryCacheTtl: '1d',
     discoveryRefreshMode: 'background-if-stale',
     allowManualRefresh: true,
@@ -76,9 +157,7 @@ export default defineGateway({
       // Turkey-hosted models run on LLMTR's own infrastructure. Fewer routes,
       // but they are what distinguishes this gateway from a generic proxy.
       { id: 'llmtr-gemma-4', apiName: 'llmtr/gemma-4', label: 'Gemma 4 (Turkey-hosted)', modelDescriptorId: 'llmtr/gemma-4', contextWindow: 131_072, maxOutputTokens: 131_072 },
-      { id: 'llmtr-trendyol-asure-12b', apiName: 'llmtr/trendyol-asure-12b', label: 'Trendyol Asure 12B (Turkey-hosted)', modelDescriptorId: 'llmtr/trendyol-asure-12b', contextWindow: 40_960, maxOutputTokens: 40_960 },
       { id: 'llmtr-muse-glimmer-30b-tr', apiName: 'llmtr/muse-glimmer-30b-tr', label: 'Muse Glimmer 30B (Turkey-hosted)', modelDescriptorId: 'llmtr/muse-glimmer-30b-tr', contextWindow: 131_072, maxOutputTokens: 131_072 },
-      { id: 'llmtr-magibu-11b-v8', apiName: 'llmtr/magibu-11b-v8', label: 'Magibu 11B v8 (Turkey-hosted)', modelDescriptorId: 'llmtr/magibu-11b-v8', contextWindow: 8_192, maxOutputTokens: 8_192 },
     ],
   },
   usage: { supported: false },

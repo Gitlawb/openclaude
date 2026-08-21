@@ -16,6 +16,7 @@ import {
 import {
   resolveActiveRouteIdFromEnv,
   resolveEnvOnlyProviderRouteId,
+  resolveRouteCredential,
 } from '../integrations/routeMetadata.js'
 
 const ENV_KEYS = [
@@ -55,6 +56,7 @@ const ENV_KEYS = [
   'CONCENTRATE_MODEL',
   'LONGCAT_API_KEY',
   'OPENGATEWAY_API_KEY',
+  'OPENROUTER_API_KEY',
   'OPENGATEWAY_BASE_URL',
   'CLOUDFLARE_API_TOKEN',
   'MISTRAL_MODEL',
@@ -634,12 +636,20 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
   test('descriptor-backed provider selection preserves custom OPENAI_BASE_URL', () => {
     process.env.OPENAI_BASE_URL = 'http://proxy.local:8080/v1'
+    process.env.OPENROUTER_API_KEY = 'openrouter-secret'
 
     const result = applyProviderFlag('openrouter', [])
 
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://proxy.local:8080/v1')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('custom')
+    expect(
+      resolveRouteCredential({
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBeNull()
   })
 
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {

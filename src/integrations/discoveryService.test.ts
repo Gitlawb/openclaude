@@ -223,6 +223,72 @@ describe('discoverModelsForRoute', () => {
     expect(authorization).toBe('Bearer llmtr-secret')
   })
 
+  test('LLMTR discovery exposes only tool-capable chat-completions models', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    setMockFetch(mock(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: 'vendor/agent-model',
+                name: 'Agent Model',
+                supported_operations: ['CHAT_COMPLETIONS'],
+                supported_endpoints: ['/v1/chat/completions'],
+                supported_parameters: ['tools', 'reasoning_effort'],
+                context_length: 131072,
+                top_provider: { max_completion_tokens: 32768 },
+                architecture: { input_modalities: ['text', 'image'] },
+              },
+              {
+                id: 'openai/responses-only',
+                supported_operations: ['RESPONSES'],
+                supported_endpoints: ['/v1/responses'],
+                supported_parameters: ['tools'],
+              },
+              {
+                id: 'vendor/chat-without-tools',
+                supported_operations: ['CHAT_COMPLETIONS'],
+                supported_endpoints: ['/v1/chat/completions'],
+                supported_parameters: ['temperature'],
+              },
+              {
+                id: 'vendor/embedding-model',
+                supported_operations: ['EMBEDDINGS'],
+                supported_endpoints: ['/v1/embeddings'],
+                supported_parameters: [],
+              },
+            ],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    ) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('llmtr', {
+      baseUrl: 'https://llmtr.com/v1',
+      apiKey: 'llmtr-secret',
+      forceRefresh: true,
+    })
+
+    const discovered = result?.models.find(
+      model => model.apiName === 'vendor/agent-model',
+    )
+    expect(discovered).toMatchObject({
+      label: 'Agent Model',
+      contextWindow: 131072,
+      maxOutputTokens: 32768,
+      capabilities: {
+        supportsFunctionCalling: true,
+        supportsVision: true,
+        supportsReasoning: true,
+      },
+    })
+    expect(result?.models.some(model => model.apiName === 'openai/responses-only')).toBe(false)
+    expect(result?.models.some(model => model.apiName === 'vendor/chat-without-tools')).toBe(false)
+    expect(result?.models.some(model => model.apiName === 'vendor/embedding-model')).toBe(false)
+  })
+
   test('uses built-in openai-compatible discovery and caches results for dynamic routes', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 

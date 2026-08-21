@@ -165,6 +165,10 @@ test('llmtr seed catalog covers passthrough routes and drops retired model ids',
   // only a migration alias, so neither may be advertised.
   expect(apiNames).not.toContain('llmtr/sincap')
   expect(apiNames).not.toContain('llmtr/trendyol-7b')
+  // These chat endpoints do not accept tools, so they cannot serve an
+  // OpenClaude coding-agent session and must not be offered by the route.
+  expect(apiNames).not.toContain('llmtr/trendyol-asure-12b')
+  expect(apiNames).not.toContain('llmtr/magibu-11b-v8')
 
   // The default must be a route the catalog actually offers.
   expect(gatewayLlmtr.defaultModel).toBeDefined()

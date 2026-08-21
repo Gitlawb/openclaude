@@ -1511,6 +1511,28 @@ function resolvePinnedProviderRouteId(
     processEnv.OPENAI_BASE_URL ??
     processEnv.OPENAI_API_BASE ??
     processEnv.ANTHROPIC_BASE_URL
+
+  // A CLI provider flag may intentionally preserve an unmatched custom
+  // OpenAI-compatible endpoint. In that case the flag selects the generic
+  // transport, but it must not turn the provider marker into authority to send
+  // that provider's dedicated credential to the retained endpoint. Applied
+  // profiles are excluded: they own their endpoint and authentication as one
+  // saved configuration, and their existing route-specific boundary checks
+  // remain below.
+  const descriptor = getRouteDescriptor(route.routeId)
+  if (
+    baseUrl &&
+    processEnv.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED !== '1' &&
+    descriptor &&
+    (descriptor.transportConfig.kind === 'openai-compatible' ||
+      descriptor.transportConfig.kind === 'local')
+  ) {
+    const baseUrlRouteId = resolveRouteIdFromBaseUrl(baseUrl)
+    if (baseUrlRouteId !== route.routeId) {
+      return baseUrlRouteId ?? 'custom'
+    }
+  }
+
   if (
     baseUrl &&
     !profileRouteHonorsBaseUrlBoundary(route.routeId, baseUrl)
