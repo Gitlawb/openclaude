@@ -98,6 +98,13 @@ describe('resolveAnthropicAttributionAuth', () => {
         isSubscriber: true,
       }),
     ).toBe('api_key')
+    expect(
+      resolveAnthropicAttributionAuth({
+        apiKey: 'managed',
+        authToken: 'none',
+        isSubscriber: false,
+      }),
+    ).toBe('api_key')
   })
 
   test('requires both an OAuth source and subscriber state', () => {

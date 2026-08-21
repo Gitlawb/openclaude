@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
+import { applyAnthropicAttributionPolicy } from '../../utils/anthropicAttribution.js'
 import { resolveCurrentAnthropicAttributionPolicy } from './authRouting.js'
 
 const routeEnvKeys = [
@@ -49,29 +50,41 @@ describe('current Anthropic attribution route resolution', () => {
     test(`does not emit first-party metadata on ${label}`, () => {
       process.env[envKey] = '1'
 
-      expect(
-        resolveCurrentAnthropicAttributionPolicy({
-          attributionEnabled: true,
-        }),
-      ).toEqual({
+      const policy = resolveCurrentAnthropicAttributionPolicy({
+        attributionEnabled: true,
+      })
+
+      expect(policy).toEqual({
         generate: false,
         retain: false,
         reason: 'non_official_route',
       })
+      expect(
+        applyAnthropicAttributionPolicy(
+          ['x-anthropic-billing-header: stale', 'stable route prompt'],
+          policy,
+        ),
+      ).toEqual(['stable route prompt'])
     })
   }
 
   test('does not emit through a provider override', () => {
+    const policy = resolveCurrentAnthropicAttributionPolicy({
+      attributionEnabled: true,
+      providerOverride: {
+        model: 'third-party-model',
+        baseURL: 'https://provider.example/v1',
+        apiKey: 'provider-test-key',
+      },
+    })
+
+    expect(policy).toMatchObject({ generate: false, retain: false })
     expect(
-      resolveCurrentAnthropicAttributionPolicy({
-        attributionEnabled: true,
-        providerOverride: {
-          model: 'third-party-model',
-          baseURL: 'https://provider.example/v1',
-          apiKey: 'provider-test-key',
-        },
-      }),
-    ).toMatchObject({ generate: false, retain: false })
+      applyAnthropicAttributionPolicy(
+        ['x-anthropic-billing-header: stale', 'stable route prompt'],
+        policy,
+      ),
+    ).toEqual(['stable route prompt'])
   })
 
   test('treats a custom Anthropic Messages route as non-official', () => {
