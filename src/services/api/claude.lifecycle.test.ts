@@ -22,6 +22,7 @@ import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import {
   executeNonStreamingRequest,
   type Options,
+  queryHaiku,
   queryModelWithStreaming,
 } from './claude.js'
 import { EMPTY_USAGE } from './emptyUsage.js'
@@ -32,6 +33,8 @@ const envKeys = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
   'CLAUDE_CODE_TEST_FIXTURES_ROOT',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
@@ -164,6 +167,50 @@ function makeOpenAIStreamingResponse(): Response {
     }),
     { headers: { 'content-type': 'text/event-stream' } },
   )
+}
+
+function makeAnthropicStreamingResponse(): Response {
+  const events = [
+    {
+      event: 'message_start',
+      data: { type: 'message_start', message: makeBetaMessage() },
+    },
+    {
+      event: 'content_block_start',
+      data: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      },
+    },
+    {
+      event: 'content_block_delta',
+      data: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'ok' },
+      },
+    },
+    {
+      event: 'content_block_stop',
+      data: { type: 'content_block_stop', index: 0 },
+    },
+    {
+      event: 'message_delta',
+      data: {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn', stop_sequence: null },
+        usage: { output_tokens: 1 },
+      },
+    },
+    { event: 'message_stop', data: { type: 'message_stop' } },
+  ]
+  const body = events
+    .map(event => `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`)
+    .join('')
+  return new Response(body, {
+    headers: { 'content-type': 'text/event-stream' },
+  })
 }
 
 function makeStallingOpenAIStreamResponse(
@@ -362,6 +409,43 @@ afterEach(() => {
 })
 
 describe('Claude API lifecycle tracking', () => {
+  test('Haiku side queries omit effort from native Anthropic requests when force enabled', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+    process.env.ANTHROPIC_SMALL_FAST_MODEL = 'claude-haiku-4-5-20251001'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    const queryLifecycle = new QueryLifecycleOperationTracker()
+    let requestBody: Record<string, unknown> | undefined
+    let requestHeaders: Headers | undefined
+    const fetchOverride: FetchOverride = async (_input, init) => {
+      requestBody = parseRequestBody(init)
+      requestHeaders = new Headers(init?.headers)
+      return makeAnthropicStreamingResponse()
+    }
+
+    await queryHaiku({
+      userPrompt: 'summarize this turn',
+      systemPrompt: asSystemPrompt([]),
+      signal: new AbortController().signal,
+      options: {
+        isNonInteractiveSession: false,
+        querySource: 'sdk',
+        agents: [],
+        hasAppendSystemPrompt: false,
+        mcpTools: [],
+        queryLifecycle,
+        fetchOverride,
+        effortValue: 'medium',
+      },
+    })
+
+    expect(requestBody?.model).toBe('claude-haiku-4-5-20251001')
+    expect(requestBody).not.toHaveProperty('output_config.effort')
+    expect(requestBody).not.toHaveProperty('reasoning_effort')
+    expect(requestBody).not.toHaveProperty('effort')
+    expect(requestHeaders?.get('anthropic-beta')).not.toContain('effort')
+  })
+
   test('uses the original codexplan selection for custom-gateway defaults', async () => {
     setClientTestEnv()
     process.env.CLAUDE_CODE_USE_OPENAI = '1'

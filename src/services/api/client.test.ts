@@ -22,6 +22,21 @@ const realProviders = {
 }
 mock.module('../../utils/model/providers.js', () => realProviders)
 mock.module('src/utils/model/providers.js', () => realProviders)
+const _realModelSupportOverridesModule = await import(
+  `../../utils/model/modelSupportOverrides.js?real=${Date.now()}-${Math.random()}`,
+)
+const realModelSupportOverrides = {
+  get3PModelCapabilityOverride:
+    _realModelSupportOverridesModule.get3PModelCapabilityOverride,
+}
+mock.module(
+  '../../utils/model/modelSupportOverrides.js',
+  () => realModelSupportOverrides,
+)
+mock.module(
+  'src/utils/model/modelSupportOverrides.js',
+  () => realModelSupportOverrides,
+)
 const { getAnthropicClient } = await import(
   `./client.js?real=${Date.now()}-${Math.random()}`,
 )
@@ -39,6 +54,8 @@ type ShimClient = {
 const originalFetch = globalThis.fetch
 const originalMacro = (globalThis as Record<string, unknown>).MACRO
 const originalEnv = {
+  CLAUDE_CODE_ALWAYS_ENABLE_EFFORT:
+    process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_BEDROCK: process.env.CLAUDE_CODE_USE_BEDROCK,
   CLAUDE_CODE_SKIP_BEDROCK_AUTH: process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH,
@@ -79,6 +96,18 @@ const originalEnv = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
+  ANTHROPIC_DEFAULT_OPUS_MODEL:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+  ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_SONNET_MODEL:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+  ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES:
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
   USER_TYPE: process.env.USER_TYPE,
   USE_STAGING_OAUTH: process.env.USE_STAGING_OAUTH,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
@@ -133,6 +162,12 @@ function clearEnvForMiniMaxOnlyTest(): void {
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES
   delete process.env.USER_TYPE
   delete process.env.USE_STAGING_OAUTH
 }
@@ -146,6 +181,7 @@ beforeEach(async () => {
   process.env.GEMINI_BASE_URL = 'https://gemini.example/v1beta/openai'
   process.env.GEMINI_AUTH_MODE = 'api-key'
 
+  delete process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_BEDROCK
   delete process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH
@@ -181,6 +217,12 @@ beforeEach(async () => {
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED
   delete process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID
 })
@@ -188,6 +230,10 @@ beforeEach(async () => {
 afterEach(() => {
   try {
     ;(globalThis as Record<string, unknown>).MACRO = originalMacro
+    restoreEnv(
+      'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+      originalEnv.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,
+    )
     restoreEnv('CLAUDE_CODE_USE_OPENAI', originalEnv.CLAUDE_CODE_USE_OPENAI)
     restoreEnv('CLAUDE_CODE_USE_BEDROCK', originalEnv.CLAUDE_CODE_USE_BEDROCK)
     restoreEnv(
@@ -231,6 +277,30 @@ afterEach(() => {
     restoreEnv('ANTHROPIC_BASE_URL', originalEnv.ANTHROPIC_BASE_URL)
     restoreEnv('ANTHROPIC_MODEL', originalEnv.ANTHROPIC_MODEL)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_OPUS_MODEL',
+      originalEnv.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    )
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+      originalEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+    )
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_SONNET_MODEL',
+      originalEnv.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    )
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+      originalEnv.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+    )
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+      originalEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+    )
+    restoreEnv(
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+      originalEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
+    )
     restoreEnv('USER_TYPE', originalEnv.USER_TYPE)
     restoreEnv('USE_STAGING_OAUTH', originalEnv.USE_STAGING_OAUTH)
     restoreEnv(
@@ -1854,9 +1924,9 @@ test('auto-routed Azure gpt-5.4 and gpt-5.5 requests preserve selected effort', 
   ])
 })
 
-test('OPENAI_API_BASE gateway does not inherit first-party GPT-5.6 effort metadata', async () => {
+test('OPENAI_API_BASE gateway omits the GPT-5.6 default but preserves explicit effort', async () => {
   let requestUrl = ''
-  let requestBody: Record<string, unknown> | undefined
+  const requestBodies: Record<string, unknown>[] = []
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
@@ -1865,7 +1935,7 @@ test('OPENAI_API_BASE gateway does not inherit first-party GPT-5.6 effort metada
 
   globalThis.fetch = (async (input, init) => {
     requestUrl = String(input)
-    requestBody = JSON.parse(String(init?.body))
+    requestBodies.push(JSON.parse(String(init?.body)))
     return new Response(JSON.stringify({
       id: 'chatcmpl-gateway',
       choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
@@ -1873,15 +1943,22 @@ test('OPENAI_API_BASE gateway does not inherit first-party GPT-5.6 effort metada
     }), { headers: { 'Content-Type': 'application/json' } })
   }) as FetchType
 
-  const client = (await getAnthropicClient({
+  const defaultClient = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'gpt-5.6-sol',
+  })) as unknown as ShimClient
+  await defaultClient.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+
+  const explicitClient = (await getAnthropicClient({
     maxRetries: 0,
     model: 'gpt-5.6-sol',
     effortValue: 'xhigh',
   })) as unknown as ShimClient
-  await client.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
+  await explicitClient.beta.messages.create({ model: 'gpt-5.6-sol', messages: [{ role: 'user', content: 'hello' }], max_tokens: 64, stream: false })
 
   expect(requestUrl).toBe('https://gateway.example/v1/chat/completions')
-  expect(requestBody?.reasoning_effort).toBeUndefined()
+  expect(requestBodies[0]?.reasoning_effort).toBeUndefined()
+  expect(requestBodies[1]?.reasoning_effort).toBe('xhigh')
 })
 
 test('providerOverride Azure gpt effort uses the override base for catalog metadata', async () => {
@@ -2009,7 +2086,7 @@ test('providerOverride custom OpenAI-compatible gpt effort uses legacy support',
 
   const client = (await getAnthropicClient({
     maxRetries: 0,
-    effortValue: 'high',
+    effortValue: 'medium',
     providerOverride: {
       model: 'gpt-5.4',
       baseURL: 'https://custom-openai-compatible.example.test/v1',
@@ -2025,8 +2102,180 @@ test('providerOverride custom OpenAI-compatible gpt effort uses legacy support',
     stream: false,
   })
 
-  expect(requestBody?.reasoning_effort).toBe('high')
+  expect(requestBody?.reasoning_effort).toBe('medium')
 })
+
+test('force enable adds effort only for an otherwise unresolved custom shim model', async () => {
+  const requestBodies: Record<string, unknown>[] = []
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body)))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-force-effort',
+        model: 'gateway-custom-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  for (const forceEnabled of [false, true]) {
+    if (forceEnabled) {
+      process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+    } else {
+      delete process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT
+    }
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'medium',
+      providerOverride: {
+        model: 'gateway-custom-model',
+        baseURL: 'https://custom-openai-compatible.example.test/v1',
+        apiKey: 'provider-test-key',
+      },
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'unused',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  }
+
+  expect(requestBodies[0]?.reasoning_effort).toBeUndefined()
+  expect(requestBodies[1]?.reasoning_effort).toBe('medium')
+})
+
+test('providerOverride third-party false beats force enable under a first-party parent', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'gateway-custom-model'
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-force-false',
+        model: 'gateway-custom-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    effortValue: 'medium',
+    providerOverride: {
+      model: 'gateway-custom-model',
+      baseURL: 'https://custom-openai-compatible.example.test/v1',
+      apiKey: 'provider-test-key',
+    },
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'unused',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test('force enable respects a shim non-effort contract before request serialization', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-force-veto',
+        model: 'gateway-custom-model',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  _clearRegistryForTesting()
+  try {
+    registerGateway({
+      id: 'non-effort-transport-test',
+      label: 'Non-effort Transport Test',
+      defaultBaseUrl: 'https://non-effort-transport.example.test/v1',
+      setup: { requiresAuth: true, authMode: 'api-key' },
+      transportConfig: {
+        kind: 'openai-compatible',
+        openaiShim: { thinkingRequestFormat: 'none' },
+      },
+      catalog: { source: 'static', models: [] },
+    })
+
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'medium',
+      providerOverride: {
+        model: 'gateway-custom-model',
+        baseURL: 'https://non-effort-transport.example.test/v1',
+        apiKey: 'provider-test-key',
+      },
+    })) as unknown as ShimClient
+
+    // Remove the synthetic route before serialization so no later request-body
+    // cleanup can hide an incorrect reasoningEffort value captured by the client.
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+
+    await client.beta.messages.create({
+      model: 'unused',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  } finally {
+    _clearRegistryForTesting()
+    ensureIntegrationsLoaded()
+  }
+
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
 test('providerOverride clamps stale effort against metadata levels', async () => {
   let requestBody: Record<string, unknown> | undefined
 

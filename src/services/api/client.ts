@@ -504,11 +504,9 @@ export async function getAnthropicClient({
         openaiShimConfig: effortShimConfig,
         baseUrl: effortBaseUrl,
         processEnv: effortProcessEnv,
-        apiProvider: effortRuntimeContext.routeId === 'openai'
-          ? 'openai' as const
-          : effortRuntimeContext.routeId === 'codex'
-            ? 'codex' as const
-            : undefined,
+        // Per-agent overrides always use the OpenAI-compatible shim, regardless
+        // of the parent session's provider.
+        apiProvider: providerOverride ? 'openai' as const : getAPIProvider(),
       }
     : undefined
   const supportsShimReasoningEffort = effortModel
@@ -519,7 +517,7 @@ export async function getAnthropicClient({
         effortShimConfig.removeBodyFields,
         effortContext,
       )
-      : modelSupportsWireEffort(effortModel)
+      : modelSupportsWireEffort(effortModel, effortContext)
     : false
   const reasoningControl = effortModel
     ? resolveModelReasoningControl(effortModel, effortContext)
