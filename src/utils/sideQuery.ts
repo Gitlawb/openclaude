@@ -33,7 +33,8 @@ export type SideQueryOptions = {
   /** Model to use for the query */
   model: string
   /**
-   * System prompt - string or array of text blocks (will be prefixed with CLI attribution).
+   * System prompt - string or array of text blocks. Compatible first-party
+   * requests are prefixed with CLI attribution according to the resolved policy.
    *
    * The attribution header is always placed in its own TextBlockParam block to ensure
    * server-side parsing correctly extracts the cc_entrypoint value without including
@@ -54,7 +55,7 @@ export type SideQueryOptions = {
   maxRetries?: number
   /** Abort signal */
   signal?: AbortSignal
-  /** Skip CLI system prompt prefix (keeps attribution header for OAuth). Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude Code…" prefix. */
+  /** Skip CLI system prompt prefix. Attribution is handled separately by the resolved request policy. Default true — side queries are internal classifiers with their own prompt. Set false only for queries that need the full "You are Claude Code…" prefix. */
   skipSystemPromptPrefix?: boolean
   /** Temperature override */
   temperature?: number

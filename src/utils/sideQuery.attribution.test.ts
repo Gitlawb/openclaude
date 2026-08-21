@@ -154,6 +154,22 @@ describe('sideQuery Anthropic attribution', () => {
   test('strips the block from a custom native endpoint', async () => {
     process.env.ANTHROPIC_BASE_URL = 'https://custom-anthropic.example/v1'
 
+    const texts = blockTexts(
+      await captureSideQuerySystem([
+        { type: 'text', text: 'x-anthropic-billing-header: stale' },
+        { type: 'text', text: 'stable side prompt' },
+      ]),
+    )
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(texts).toContain('stable side prompt')
+  })
+
+  test('honors the disabled setting for an official API key', async () => {
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+
     const texts = blockTexts(await captureSideQuerySystem())
 
     expect(
