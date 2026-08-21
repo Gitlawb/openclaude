@@ -298,22 +298,21 @@ export function withSettingsFileTransactionSync<T>(
   const targetPath = resolveSettingsMutationTarget(requestedPath)
   getFsImplementation().mkdirSync(dirname(targetPath))
   const release = acquireSettingsLock(targetPath)
-  let operationFailed = false
+  let result: T
   try {
-    return operation(targetPath)
-  } catch (error) {
-    operationFailed = true
-    throw error
-  } finally {
+    result = operation(targetPath)
+  } catch (operationError) {
     try {
       release()
     } catch (releaseError) {
-      if (!operationFailed) throw releaseError
       logForDebugging(`Settings lock release failed: ${releaseError}`, {
         level: 'error',
       })
     }
+    throw operationError
   }
+  release()
+  return result
 }
 
 /** Replace a complete settings document using the shared transaction identity. */

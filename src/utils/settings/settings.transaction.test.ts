@@ -520,6 +520,8 @@ test.each([
 test('keeps an operation error primary when lock release also fails', async () => {
   const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-release-error-'))
   const settingsPath = join(root, 'settings.json')
+  const originalFs = getFsImplementation()
+  let releaseOwnerRead = false
   try {
     const { withSettingsFileTransactionSync } = await import(
       './settingsFileTransaction.js'
@@ -529,9 +531,39 @@ test('keeps an operation error primary when lock release also fails', async () =
         const lockPath = `${targetPath}.lock`
         rmSync(lockPath, { recursive: true, force: true })
         mkdirSync(lockPath)
+        const ownerPath = join(lockPath, 'owner.json')
+        setFsImplementation({
+          ...originalFs,
+          readFileSync(path, options) {
+            if (resolve(path) === resolve(ownerPath)) releaseOwnerRead = true
+            return originalFs.readFileSync(path, options)
+          },
+        })
         throw new Error('primary operation failure')
       }),
     ).toThrow('primary operation failure')
+    expect(releaseOwnerRead).toBe(true)
+  } finally {
+    setFsImplementation(originalFs)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('propagates a release error after the operation succeeds', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-release-error-'))
+  const settingsPath = join(root, 'settings.json')
+  try {
+    const { withSettingsFileTransactionSync } = await import(
+      './settingsFileTransaction.js'
+    )
+    expect(() =>
+      withSettingsFileTransactionSync(settingsPath, targetPath => {
+        const lockPath = `${targetPath}.lock`
+        rmSync(lockPath, { recursive: true, force: true })
+        mkdirSync(lockPath)
+        return 'operation result'
+      }),
+    ).toThrow('Settings file lock ownership changed before release')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
