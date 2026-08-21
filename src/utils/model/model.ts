@@ -69,6 +69,11 @@ function getAllowedConcentrateConfigModel(): string | undefined {
   return undefined
 }
 
+function getAllowedLlmtrConfigModel(): string | undefined {
+  const model = getUsableProviderConfigModel(process.env.OPENAI_MODEL)
+  return model && isModelAllowed(model) ? model : undefined
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   if (isCustomAnthropicProvider()) {
@@ -173,6 +178,8 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
       ? getAllowedConcentrateConfigModel()
+      : activeRouteId === 'llmtr'
+        ? getAllowedLlmtrConfigModel()
       : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
         (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
         (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
@@ -397,11 +404,19 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
-  if (resolveActiveRouteIdFromEnv(process.env) === 'concentrate') {
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
+  if (activeRouteId === 'concentrate') {
     return (
       getAllowedConcentrateConfigModel() ||
       getRouteDefaultModel('concentrate') ||
       'deepseek-v4-flash'
+    )
+  }
+  if (activeRouteId === 'llmtr') {
+    return (
+      getAllowedLlmtrConfigModel() ||
+      getRouteDefaultModel('llmtr') ||
+      'deepseek/deepseek-v4-flash'
     )
   }
   // Custom Anthropic-compatible endpoints intentionally retain the legacy
