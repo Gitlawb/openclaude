@@ -132,6 +132,11 @@ test('isCanonicalLlmtrInferenceBaseUrl gates the dedicated key on the real endpo
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/anything')).toBe(false)
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1?query=value')).toBe(false)
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1#fragment')).toBe(false)
+  // URL.origin deliberately omits userinfo, but passing it through would add
+  // credentials unrelated to LLMTR_API_KEY to the outbound request URL.
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://user@llmtr.com/v1')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://:password@llmtr.com/v1')).toBe(false)
+  expect(isCanonicalLlmtrInferenceBaseUrl('https://user:password@llmtr.com/v1')).toBe(false)
 
   // Plaintext would put LLMTR_API_KEY on the wire unencrypted.
   expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
@@ -443,6 +448,7 @@ test('LLMTR dedicated credential is limited to the canonical inference base', ()
     'https://llmtr.com',
     'https://llmtr.com/anything',
     'https://llmtr.com/v1?query=value',
+    'https://user:password@llmtr.com/v1',
     'https://proxy.example/v1',
   ]) {
     expect(

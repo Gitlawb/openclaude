@@ -425,6 +425,9 @@ const LLMTR_CANONICAL_INFERENCE_BASE_PATH = /^\/v1\/?$/
  * an arbitrary path would create a different authenticated request URL. Parse
  * rather than compare strings so the default HTTPS port and host case are
  * normalized, while `/v1` and `/v1/` remain the only supported base paths.
+ * URL origins intentionally omit userinfo, so reject it separately: an API
+ * base must not smuggle unrelated username/password credentials into the
+ * outbound request URL.
  */
 export function isCanonicalLlmtrInferenceBaseUrl(
   value: string | undefined,
@@ -439,6 +442,8 @@ export function isCanonicalLlmtrInferenceBaseUrl(
     return (
       parsed.origin === LLMTR_CANONICAL_INFERENCE_BASE_URL.origin &&
       LLMTR_CANONICAL_INFERENCE_BASE_PATH.test(parsed.pathname) &&
+      !parsed.username &&
+      !parsed.password &&
       !parsed.search &&
       !parsed.hash
     )
