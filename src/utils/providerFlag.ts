@@ -761,6 +761,22 @@ export function applyProviderFlag(
       }
       break
 
+    case 'llmtr':
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      // LLMTR has a fixed Chat Completions + Bearer-auth contract. Keep the
+      // explicit preset path aligned with the dedicated-key env-only path so
+      // custom auth state from a previous provider cannot follow the switch.
+      clearUnsupportedOpenAIShimSettings('llmtr')
+      delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      applyOpenAIBaseUrlDefault(
+        provider,
+        defaultBaseUrl ?? 'https://llmtr.com/v1',
+      )
+      process.env.OPENAI_MODEL ??=
+        defaultModel ?? 'deepseek/deepseek-v4-flash'
+      if (model) process.env.OPENAI_MODEL = model
+      break
+
     case 'fireworks':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)

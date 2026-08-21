@@ -1082,6 +1082,47 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
   })
 
+  test('query-scoped LLMTR profiles retain generic proxy capabilities', async () => {
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR tenant proxy',
+      baseUrl: 'https://llmtr.com/v1?tenant=other',
+      model: 'proxy-model',
+      apiKey: 'proxy-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    expect(saved).toMatchObject({
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://llmtr.com/v1?tenant=other',
+    )
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
   test('retargeted Concentrate profiles retain generic proxy capabilities', async () => {
     const { addProviderProfile, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

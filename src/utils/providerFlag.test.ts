@@ -81,6 +81,28 @@ describe('applyProviderFlag - LLMTR credential ownership', () => {
     expect(process.env.LLMTR_API_KEY).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
   })
+
+  test('clears stale custom auth when selecting LLMTR with the generic key fallback', () => {
+    process.env.OPENAI_API_KEY = 'generic-llmtr-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-provider-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS =
+      'X-Previous-Provider: previous-provider-secret'
+
+    applyProviderFlag('llmtr', [])
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+    expect(process.env.OPENAI_API_KEY).toBe('generic-llmtr-key')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
 })
 
 const RESET_KEYS = [

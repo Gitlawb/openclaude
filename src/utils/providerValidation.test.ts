@@ -302,6 +302,20 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   },
 )
 
+test('LLMTR query-scoped endpoints use custom validation instead of the dedicated route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1?tenant=other'
+  process.env.OPENAI_MODEL = 'proxy-model'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'OPENAI_API_KEYS or OPENAI_API_KEY is required',
+  )
+
+  process.env.OPENAI_API_KEY = 'proxy-key'
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'ApiSmart validation rejects placeholder APISMART_API_KEY %s',
   async placeholder => {

@@ -2412,10 +2412,16 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'concentrate' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalConcentrateInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  const persistedLlmtrProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'llmtr' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalLlmtrInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
   if (
     hasConcreteProviderSelection(processEnv) &&
     !persistedApismartProxy &&
-    !persistedConcentrateProxy
+    !persistedConcentrateProxy &&
+    !persistedLlmtrProxy
   ) {
     return processEnv
   }

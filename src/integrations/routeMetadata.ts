@@ -1279,6 +1279,12 @@ export function resolveRouteIdFromBaseUrl(
       normalizedBaseUrl &&
       normalizedDefaultBaseUrl === normalizedBaseUrl
     ) {
+      if (
+        route.id === 'llmtr' &&
+        !isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+      ) {
+        continue
+      }
       return route.id
     }
   }

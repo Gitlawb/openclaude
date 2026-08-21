@@ -378,6 +378,30 @@ test('LLMTR honors OPENAI_MODEL before client normalization', async () => {
   expect(getMainLoopModel()).toBe('anthropic/claude-sonnet-4.6')
 })
 
+test.each(['sonnet', 'haiku', 'opus', 'best', 'opusplan'] as const)(
+  'LLMTR resolves the %s alias before client normalization',
+  async alias => {
+    process.env.LLMTR_API_KEY = 'llmtr-test'
+
+    const { parseUserSpecifiedModel } = await importFreshModelModule()
+
+    expect(parseUserSpecifiedModel(alias)).toBe(
+      'deepseek/deepseek-v4-flash',
+    )
+  },
+)
+
+test('LLMTR aliases honor an allowed explicit model before client normalization', async () => {
+  process.env.LLMTR_API_KEY = 'llmtr-test'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+
+  const { parseUserSpecifiedModel } = await importFreshModelModule()
+
+  expect(parseUserSpecifiedModel('sonnet')).toBe(
+    'anthropic/claude-sonnet-4.6',
+  )
+})
+
 test('Concentrate selects its dedicated model before client normalization', async () => {
   // getMainLoopModel runs before getAnthropicClient mirrors Concentrate into
   // OPENAI_MODEL. A saved model must not win during that interval.

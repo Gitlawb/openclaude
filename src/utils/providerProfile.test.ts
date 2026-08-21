@@ -3229,6 +3229,27 @@ test('buildStartupEnvFromProfile preserves LLMTR env-only setup over a saved pro
   assert.equal(resolveActiveRouteIdFromEnv(env), 'llmtr')
 })
 
+test('buildStartupEnvFromProfile restores a retargeted LLMTR profile before an ambient dedicated key', async () => {
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+      OPENAI_MODEL: 'proxy-model',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      LLMTR_API_KEY: 'ambient-llmtr-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'llmtr')
+  assert.equal(env.CLAUDE_CODE_USE_OPENAI, '1')
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example/v1')
+  assert.equal(env.OPENAI_MODEL, 'proxy-model')
+  assert.equal(env.LLMTR_API_KEY, undefined)
+  assert.equal(env.OPENAI_API_KEY, undefined)
+})
+
 test('buildConcentrateProfileEnv prefers CONCENTRATE_MODEL over OPENAI_MODEL', () => {
   const env = buildConcentrateProfileEnv({
     apiKey: 'concentrate-secret-key',

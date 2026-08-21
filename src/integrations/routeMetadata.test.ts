@@ -1164,7 +1164,20 @@ test('LLMTR env-only intent rejects placeholders and conflicting endpoints', () 
 
 test('LLMTR dedicated credential is usable only at the canonical endpoint', () => {
   expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1')).toBe(true)
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1/')).toBe('llmtr')
   expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
+  expect(
+    resolveRouteIdFromBaseUrl('https://llmtr.com/v1?tenant=other'),
+  ).toBeNull()
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://llmtr.com/v1?tenant=other',
+      OPENAI_MODEL: 'proxy-model',
+      OPENAI_API_KEY: 'proxy-key',
+    }),
+  ).toBe('custom')
   expect(
     getRouteCredentialValue('llmtr', { LLMTR_API_KEY: 'SUA_CHAVE' }),
   ).toBeUndefined()

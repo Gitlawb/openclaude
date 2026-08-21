@@ -410,14 +410,19 @@ function makeChatCompletionResponse(model: string): Response {
 
 async function captureChatCompletionRequest(
   model = 'mimo-v2.5-pro',
-): Promise<{ authorization: string | null; url: string | null }> {
+): Promise<{
+  authorization: string | null
+  headers: Headers
+  url: string | null
+}> {
   let authorization: string | null = null
+  let capturedHeaders = new Headers()
   let url: string | null = null
 
   globalThis.fetch = (async (input, init) => {
     url = String(input)
-    const headers = init?.headers as Record<string, string> | undefined
-    authorization = headers?.Authorization ?? headers?.authorization ?? null
+    capturedHeaders = new Headers(init?.headers)
+    authorization = capturedHeaders.get('authorization')
 
     return makeChatCompletionResponse(model)
   }) as unknown as FetchType
@@ -431,7 +436,7 @@ async function captureChatCompletionRequest(
     stream: false,
   })
 
-  return { authorization, url }
+  return { authorization, headers: capturedHeaders, url }
 }
 
 function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
@@ -587,6 +592,29 @@ test('LLMTR selection prefers its dedicated key over a generic OPENAI_API_KEYS p
 
   expect(captured.url).toBe('https://llmtr.com/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer llmtr-key')
+})
+
+test('LLMTR generic-key selection drops stale auth and custom headers before the request', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.hicap.ai/v1'
+  process.env.OPENAI_API_KEY = 'generic-llmtr-key'
+  process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'previous-provider-secret'
+  process.env.ANTHROPIC_CUSTOM_HEADERS =
+    'X-Previous-Provider: previous-provider-secret'
+  delete process.env.LLMTR_API_KEY
+
+  const result = applyProviderFlag('llmtr', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+  )
+
+  expect(captured.url).toBe('https://llmtr.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer generic-llmtr-key')
+  expect(captured.headers.get('x-api-key')).toBeNull()
+  expect(captured.headers.get('x-previous-provider')).toBeNull()
 })
 
 test('saved LLMTR profile key wins over an ambient OPENAI_API_KEYS pool', async () => {
