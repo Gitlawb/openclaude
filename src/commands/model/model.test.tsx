@@ -16,6 +16,12 @@ import { encodeSwitchProfileValue } from '../../utils/model/modelOptions.js'
 import type { ModelOption } from '../../utils/model/modelOptions.js'
 import type { ModelSetting } from '../../utils/model/model.js'
 import type { SettingsJson } from '../../utils/settings/types.js'
+import type { ModelCatalogEntry } from '../../integrations/descriptors.js'
+import {
+  filterAvailableCatalogEntries,
+  getRouteDescriptor,
+} from '../../integrations/index.js'
+import { mergeRouteCatalogEntries } from '../../utils/model/routeCatalogOptions.js'
 import * as actualFastModeForModelTest from '../../utils/fastMode.js'
 import * as actualExtraUsageForModelTest from '../../utils/extraUsage.js'
 
@@ -297,13 +303,21 @@ function mockDescriptorDiscovery(options: {
         headers?: Record<string, string>
       },
     ) => `${routeId}|${requestOptions?.baseUrl ?? ''}|${requestOptions?.apiKey ?? ''}|${JSON.stringify(requestOptions?.headers ?? {})}`,
-    discoverModelsForRoute: mock(async () => ({
-      routeId: options.routeId ?? 'openrouter',
-      models: options.discoveredModels ?? options.cachedModels,
-      stale: false,
-      error: null,
-      source: 'network',
-    })),
+    discoverModelsForRoute: mock(async () => {
+      const routeId = options.routeId ?? 'openrouter'
+      const rawStatic = getRouteDescriptor(routeId)?.catalog?.models ?? []
+      const discovered = (options.discoveredModels ?? options.cachedModels) as ModelCatalogEntry[]
+      const merged = filterAvailableCatalogEntries(
+        mergeRouteCatalogEntries(rawStatic, discovered),
+      )
+      return {
+        routeId,
+        models: merged,
+        stale: false,
+        error: null,
+        source: 'network',
+      }
+    }),
     probeRouteReadiness: mock(async () => null),
   }))
 }
@@ -1440,6 +1454,10 @@ test('/model applies auto provider surface for single-model static descriptor pr
   mockProviderProfiles({
     getActiveProviderProfile: () => activeProfile,
   })
+  mockDescriptorDiscovery({
+    cachedModels: [],
+    routeId: 'gitlawb-opengateway',
+  })
 
   // Pin the clock inside the Ling Tiny availability window (its catalog
   // entry expires via availableUntil on 2026-08-13T10:00Z) so this expected
@@ -1529,6 +1547,140 @@ test('/model drops expired availableUntil entries from the static picker after t
     }
   } finally {
     setSystemTime()
+  }
+})
+
+test('/model merges non-empty OpenGateway discovery cache with curated entries without duplicate MiMo rows', async () => {
+  const activeProfile = {
+    id: 'opengateway-profile',
+    name: 'Gitlawb Opengateway',
+    provider: 'gitlawb-opengateway',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+    model: 'mimo-v2.5-pro',
+    apiKey: 'sk-opengateway',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  process.env.OPENAI_API_KEY = activeProfile.apiKey
+  process.env.OPENAI_MODEL = activeProfile.model
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.OPENROUTER_API_KEY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mockProviderProfiles({
+    getActiveProviderProfile: () => activeProfile,
+  })
+  mockDescriptorDiscovery({
+    cachedModels: [
+      { id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
+      { id: 'xiaomi/mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro Raw' },
+      { id: 'moonshotai/kimi-k3', apiName: 'moonshotai/kimi-k3', label: 'Kimi K3 (via Opengateway)' },
+    ],
+    routeId: 'gitlawb-opengateway',
+  })
+
+  const rendered = await renderModelCommandWithCapturedPicker(
+    'descriptor-picker-auto-provider-hybrid-mode',
+  )
+  try {
+    const optionValues = (
+      rendered.getCapturedProps().optionsOverride as ModelOption[]
+    ).map(option => option.value)
+    expect(optionValues).toEqual([
+      'auto',
+      'mimo-v2.5-pro',
+      'mimo-v2.5',
+      'mimo-v2-flash',
+      'google/gemini-3.1-flash-lite',
+      'minimax/minimax-m3',
+      'qwen/qwen3.7-max',
+      'z-ai/glm-5.2',
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3-ultra-550b-a55b',
+      'inclusionai/ling-3.0-flash',
+      'mindai/macaron-v1-tall',
+      'mindai/macaron-v1-venti',
+      'tencent/hy3',
+      'moonshotai/kimi-k3',
+    ])
+    // Verify mimo-v2.5-pro appears exactly once (curated entry wins, duplicate is discarded)
+    expect(optionValues.filter(val => val === 'mimo-v2.5-pro')).toHaveLength(1)
+  } finally {
+    rendered.instance.unmount()
+    rendered.stdout.end()
+  }
+})
+
+test('/model OpenGateway interactive refresh preserves availability filter and hides expired models', async () => {
+  const activeProfile = {
+    id: 'opengateway-profile',
+    name: 'Gitlawb Opengateway',
+    provider: 'gitlawb-opengateway',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+    model: 'auto',
+    apiKey: '',
+  }
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  process.env.OPENAI_MODEL = 'auto'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mockProviderProfiles({
+    getActiveProviderProfile: () => activeProfile,
+  })
+  mockDescriptorDiscovery({
+    cachedModels: [
+      { id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
+      { id: 'inclusionai/ling-3.0-tiny:free', apiName: 'inclusionai/ling-3.0-tiny:free', label: 'Ling 3.0 Tiny Live' },
+      { id: 'moonshotai/kimi-k3', apiName: 'moonshotai/kimi-k3', label: 'Kimi K3' },
+    ],
+    routeId: 'gitlawb-opengateway',
+  })
+
+  const rendered = await renderModelCommandWithCapturedPicker(
+    'opengateway-picker-refresh-availability',
+  )
+  try {
+    const initialValues = (
+      rendered.getCapturedProps().optionsOverride as ModelOption[]
+    ).map(option => option.value)
+    expect(initialValues).not.toContain('inclusionai/ling-3.0-tiny:free')
+    expect(initialValues).toContain('moonshotai/kimi-k3')
+
+    rendered.getCapturedProps().onRefresh?.()
+    await waitForCondition(() => {
+      const message = rendered.getCapturedProps().discoveryState?.message
+      return (
+        message !== undefined &&
+        message !== 'Refreshing Gitlawb Opengateway models…'
+      )
+    })
+
+    const refreshedValues = (
+      rendered.getCapturedProps().optionsOverride as ModelOption[]
+    ).map(option => option.value)
+    expect(refreshedValues).not.toContain('inclusionai/ling-3.0-tiny:free')
+    expect(refreshedValues).toContain('moonshotai/kimi-k3')
+  } finally {
+    rendered.instance.unmount()
+    rendered.stdout.end()
   }
 })
 
@@ -2682,6 +2834,91 @@ test('/model refresh reports discovered model changes for dynamic active profile
   )
 
   expect(messages).toContain('Updated LM Studio models.')
+})
+
+test('/model refresh on OpenGateway does not restore or mention expired models', async () => {
+  const activeProfile = {
+    id: 'opengateway-profile',
+    name: 'Gitlawb Opengateway',
+    provider: 'gitlawb-opengateway',
+    baseUrl: 'https://opengateway.gitlawb.com/v1',
+    model: 'auto',
+    apiKey: '',
+  }
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = activeProfile.baseUrl
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENGATEWAY_API_KEY
+  process.env.OPENAI_MODEL = activeProfile.model
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = activeProfile.id
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  mock.module('../../integrations/discoveryCache.js', () => ({
+    clearDiscoveryCache: mock(async () => {}),
+    getCachedModels: mock(async () => ({
+      models: [{ id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro' }],
+      updatedAt: Date.now(),
+      error: null,
+    })),
+    isCacheStale: mock(async () => false),
+    parseDurationString: (value: number | string) =>
+      typeof value === 'number' ? value : 86_400_000,
+  }))
+
+  mock.module('../../integrations/discoveryService.js', () => ({
+    getDiscoveryCacheKey: (
+      routeId: string,
+      options?: { apiKey?: string; baseUrl?: string; headers?: Record<string, string> },
+    ) => `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+    discoverModelsForRoute: mock(async () => {
+      const rawStatic = getRouteDescriptor('gitlawb-opengateway')?.catalog?.models ?? []
+      const discovered = [
+        { id: 'mimo-v2.5-pro', apiName: 'mimo-v2.5-pro' },
+        { id: 'moonshotai/kimi-k3', apiName: 'moonshotai/kimi-k3' },
+        { id: 'inclusionai/ling-3.0-tiny:free', apiName: 'inclusionai/ling-3.0-tiny:free' },
+      ] as ModelCatalogEntry[]
+      const merged = filterAvailableCatalogEntries(
+        mergeRouteCatalogEntries(rawStatic, discovered),
+      )
+      return {
+        routeId: 'gitlawb-opengateway',
+        models: merged,
+        stale: false,
+        error: null,
+        source: 'network',
+      }
+    }),
+    probeRouteReadiness: mock(async () => null),
+  }))
+
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => activeProfile,
+  })
+
+  const messages: string[] = []
+  const { call } = await importFreshModelModule(
+    'opengateway-refresh-summary-no-expired',
+  )
+  await call(
+    (message?: string) => {
+      if (message) {
+        messages.push(message)
+      }
+    },
+    {} as never,
+    'refresh',
+  )
+
+  expect(messages).toContain('Updated Gitlawb Opengateway models.')
+  expect(messages.join(' ')).not.toContain('inclusionai/ling-3.0-tiny:free')
 })
 
 test('/model refresh compares already allowlist-filtered descriptor options', async () => {

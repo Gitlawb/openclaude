@@ -1,5 +1,64 @@
 import { defineGateway } from '../define.js'
+import type { ModelCatalogEntry } from '../descriptors.js'
 import { ZAI_GLM_OPENAI_SHIM } from '../transport/zaiGlmShim.js'
+import {
+  firstPositiveNumber,
+  getTrimmedString,
+  isFreeModel,
+  isKnownNonCodingModelId,
+  isRecord,
+} from '../modelMapping.js'
+
+/**
+ * Normalizes OpenGateway model IDs by removing the `xiaomi/` prefix when the
+ * remainder starts with `mimo` (the gateway exposes some Xiaomi models both
+ * with and without the vendor prefix; we keep the shorter form for the catalog).
+ */
+function normalizeOpenGatewayModelId(id: string): string {
+  return id.replace(/^xiaomi\/(?=mimo(?:-|$))/i, '')
+}
+
+/**
+ * Map OpenGateway's public GET /v1/models payload into a catalog entry.
+ * The gateway already curates what it exposes, so every non-empty id is kept
+ * except clearly non-coding names if they ever appear.
+ */
+export function mapOpenGatewayModel(raw: unknown): ModelCatalogEntry | null {
+  if (!isRecord(raw)) {
+    return null
+  }
+
+  const rawId = getTrimmedString(raw, 'id')
+  if (!rawId || isKnownNonCodingModelId(rawId)) {
+    return null
+  }
+  const id = normalizeOpenGatewayModelId(rawId)
+
+  const name =
+    getTrimmedString(raw, 'name') ||
+    getTrimmedString(raw, 'display_name') ||
+    getTrimmedString(raw, 'title')
+  const free = isFreeModel(id, raw)
+  let label = name || id
+  if (free && !label.toLowerCase().includes('free')) {
+    label = `${label} (free)`
+  }
+
+  const contextWindow = firstPositiveNumber(
+    raw.context_window,
+    raw.contextWindow,
+    raw.context_length,
+    raw.max_context_length,
+  )
+
+  return {
+    id,
+    apiName: id,
+    label,
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(free ? { notes: 'Free' } : {}),
+  }
+}
 
 export default defineGateway({
   id: 'gitlawb-opengateway',
@@ -62,7 +121,18 @@ export default defineGateway({
     fallbackModel: 'mimo-v2.5-pro',
   },
   catalog: {
-    source: 'static',
+    // Hybrid: curated defaults stay first for labels/descriptor links; live
+    // GET /v1/models fills in new gateway routes without a catalog PR.
+    source: 'hybrid',
+    discovery: {
+      kind: 'openai-compatible',
+      // Public model list works without a key (chat still requires auth).
+      requiresAuth: false,
+      mapModel: mapOpenGatewayModel,
+    },
+    discoveryCacheTtl: '1d',
+    discoveryRefreshMode: 'startup',
+    allowManualRefresh: true,
     models: [
       // Virtual model: the gateway's smart router picks the cheapest model
       // expected to handle the request and escalates on upstream failure

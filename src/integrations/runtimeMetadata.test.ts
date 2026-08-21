@@ -1143,4 +1143,43 @@ describe('resolveOpenAIShimRuntimeContext - segment-boundary heuristic', () => {
       }).contextWindow,
     ).toBe(262_144)
   })
+
+  it('preserves OpenGateway maxTokensField wire contract for live-only inferred models', () => {
+    for (const model of ['moonshotai/kimi-k3', 'deepseek/deepseek-r1', 'z-ai/glm-5.2']) {
+      const result = resolveOpenAIShimRuntimeContext({
+        baseUrl: 'https://opengateway.gitlawb.com/v1',
+        model,
+        processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+      })
+      expect(result.routeId).toBe('gitlawb-opengateway')
+      expect(result.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
+      expect(result.openaiShimConfig.preserveReasoningContent).toBe(true)
+    }
+  })
+
+  it('prefers explicit descriptor and catalog openaiShim overrides over inferred settings and merges removeBodyFields', () => {
+    // Inferred GLM shim defaults maxTokensField to 'max_tokens' and removeBodyFields to ['store'].
+    // OpenGateway route descriptor explicitly sets maxTokensField to 'max_completion_tokens'
+    // and removeBodyFields to ['store', 'stream_options'].
+    const opengatewayGlm = resolveOpenAIShimRuntimeContext({
+      baseUrl: 'https://opengateway.gitlawb.com/v1',
+      model: 'z-ai/glm-5.2',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(opengatewayGlm.openaiShimConfig.maxTokensField).toBe('max_completion_tokens')
+    expect(opengatewayGlm.openaiShimConfig.removeBodyFields).toEqual([
+      'store',
+      'stream_options',
+    ])
+    expect(opengatewayGlm.openaiShimConfig.preserveReasoningContent).toBe(true)
+
+    // Atlas Cloud grok-build-0.1 catalog entry explicitly sets removeBodyFields: ['reasoning_effort']
+    // which merges with any route-level settings.
+    const atlasGrok = resolveOpenAIShimRuntimeContext({
+      baseUrl: 'https://api.atlascloud.ai/v1',
+      model: 'xai/grok-build-0.1',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+    expect(atlasGrok.openaiShimConfig.removeBodyFields).toContain('reasoning_effort')
+  })
 })

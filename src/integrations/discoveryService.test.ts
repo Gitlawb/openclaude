@@ -15,6 +15,7 @@ const originalFetch = globalThis.fetch
 const originalEnv = {
   CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+  OPENGATEWAY_API_KEY: process.env.OPENGATEWAY_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -94,6 +95,7 @@ afterEach(() => {
     setClaudeConfigHomeDirForTesting(undefined)
     restoreEnvValue('CLAUDE_CONFIG_DIR')
     restoreEnvValue('OPENROUTER_API_KEY')
+    restoreEnvValue('OPENGATEWAY_API_KEY')
     restoreEnvValue('OPENAI_BASE_URL')
     restoreEnvValue('OPENAI_API_BASE')
     restoreEnvValue('OPENAI_API_KEY')
@@ -285,15 +287,34 @@ describe('discoverModelsForRoute', () => {
   test('hybrid routes keep curated descriptor entries ahead of discovered duplicates', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
 
-    process.env.OPENROUTER_API_KEY = 'or-key'
-    setMockFetch(mock((_input, init) => {
-      expect(init?.headers).toEqual({ Authorization: 'Bearer or-key' })
+    // OpenRouter lists models publicly; discovery no longer requires a key.
+    delete process.env.OPENROUTER_API_KEY
+    const openRouterCalls: Array<{ url: string; headers: unknown }> = []
+    setMockFetch(mock((input, init) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      openRouterCalls.push({ url, headers: init?.headers })
       return Promise.resolve(
         new Response(
           JSON.stringify({
             data: [
-              { id: 'openai/gpt-5-mini' },
-              { id: 'anthropic/claude-sonnet-4' },
+              {
+                id: 'openai/gpt-5-mini',
+                name: 'OpenAI: GPT-5 Mini',
+                context_length: 400000,
+                supported_parameters: ['tools'],
+              },
+              {
+                id: 'anthropic/claude-sonnet-4',
+                name: 'Anthropic: Claude Sonnet 4',
+                context_length: 200000,
+                supported_parameters: ['tools', 'reasoning'],
+              },
+              { id: 'openai/text-embedding-3-large', name: 'Embedding' },
             ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -305,6 +326,9 @@ describe('discoverModelsForRoute', () => {
       forceRefresh: true,
     })
 
+    expect(openRouterCalls).toHaveLength(1)
+    expect(openRouterCalls[0]?.url).toContain('/models')
+    expect(openRouterCalls[0]?.headers).toBeUndefined()
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual([
       'openai/gpt-5-mini',
       'x-ai/grok-4.6',
@@ -312,6 +336,183 @@ describe('discoverModelsForRoute', () => {
       'anthropic/claude-sonnet-4',
     ])
     expect(result?.models[0]?.label).toBe('GPT-5 Mini (via OpenRouter)')
+    expect(result?.models[3]?.label).toBe('Anthropic: Claude Sonnet 4')
+    expect(result?.models[3]?.contextWindow).toBe(200000)
+  })
+
+  test('opengateway hybrid discovery loads the live list without a key', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    delete process.env.OPENGATEWAY_API_KEY
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+    const openGatewayCalls: Array<{ url: string; headers: unknown }> = []
+    setMockFetch(mock((input, init) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      openGatewayCalls.push({ url, headers: init?.headers })
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'auto', name: 'Auto (smart routing)' },
+              {
+                id: 'xiaomi/mimo-v2.5-pro',
+                name: 'MiMo V2.5-Pro',
+                context_window: 262144,
+              },
+              {
+                id: 'moonshotai/kimi-k3',
+                name: 'Kimi K3',
+                context_window: 128000,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      forceRefresh: true,
+    })
+
+    expect(openGatewayCalls).toHaveLength(1)
+    expect(openGatewayCalls[0]?.url).toContain('/v1/models')
+    expect(openGatewayCalls[0]?.headers).toEqual({
+      'Accept-Encoding': 'identity',
+    })
+    expect(result?.source).toBe('network')
+    const apiNames = result?.models.map(
+      (model: { apiName: string }) => model.apiName,
+    )
+    // Curated static entries stay first; live-only routes are appended.
+    expect(apiNames?.[0]).toBe('auto')
+    expect(apiNames).toContain('mimo-v2.5-pro')
+    expect(apiNames).not.toContain('xiaomi/mimo-v2.5-pro')
+    expect(apiNames).toContain('moonshotai/kimi-k3')
+    const liveOnly = result?.models.find(
+      (model: { apiName: string }) => model.apiName === 'moonshotai/kimi-k3',
+    )
+    expect(liveOnly?.label).toBe('Kimi K3')
+    expect(liveOnly?.contextWindow).toBe(128000)
+  })
+
+  test('openrouter discovery preserves credentials and custom headers for overridden base URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedUrl: string | undefined
+    let capturedHeaders: unknown
+    setMockFetch(mock((input, init) => {
+      capturedUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'custom-proxy/model-1' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('openrouter', {
+      baseUrl: 'https://proxy.corp.internal/v1',
+      apiKey: 'sk-or-proxy-key',
+      headers: {
+        'X-Proxy-Auth': 'secret-proxy-token',
+      },
+      forceRefresh: true,
+    })
+
+    expect(capturedUrl).toBe('https://proxy.corp.internal/v1/models')
+    expect(capturedHeaders).toEqual({
+      'X-Proxy-Auth': 'secret-proxy-token',
+      Authorization: 'Bearer sk-or-proxy-key',
+    })
+    expect(result?.source).toBe('network')
+    expect(result?.models.some(m => m.apiName === 'custom-proxy/model-1')).toBe(true)
+  })
+
+  test('opengateway discovery preserves credentials and custom headers for overridden base URL', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedUrl: string | undefined
+    let capturedHeaders: unknown
+    setMockFetch(mock((input, init) => {
+      capturedUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'custom-og/mimo-v3' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      baseUrl: 'https://og-proxy.corp.internal/v1',
+      apiKey: 'ogw_live_proxy_key',
+      headers: {
+        'X-Custom-Gate': 'gate-token',
+      },
+      forceRefresh: true,
+    })
+
+    expect(capturedUrl).toBe('https://og-proxy.corp.internal/v1/models')
+    expect(capturedHeaders).toEqual({
+      'Accept-Encoding': 'identity',
+      'X-Custom-Gate': 'gate-token',
+      Authorization: 'Bearer ogw_live_proxy_key',
+    })
+    expect(result?.source).toBe('network')
+    expect(result?.models.some(m => m.apiName === 'custom-og/mimo-v3')).toBe(true)
+  })
+
+  test('opengateway hybrid discovery filters expired static models and live duplicates after availableUntil cutoff', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    setMockFetch(mock((input, init) => {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              { id: 'inclusionai/ling-3.0-tiny:free', name: 'Ling 3.0 Tiny Live' },
+              { id: 'moonshotai/kimi-k3', name: 'Kimi K3' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('gitlawb-opengateway', {
+      forceRefresh: true,
+    })
+
+    expect(result?.source).toBe('network')
+    const apiNames = result?.models.map(
+      (model: { apiName: string }) => model.apiName,
+    )
+    expect(apiNames).toContain('mimo-v2.5-pro')
+    expect(apiNames).toContain('moonshotai/kimi-k3')
+    expect(apiNames).not.toContain('inclusionai/ling-3.0-tiny:free')
   })
 
   test('openai-compatible discovery applies descriptor static headers with auth', async () => {
@@ -413,12 +614,9 @@ describe('discoverModelsForRoute', () => {
     }) as unknown as typeof globalThis.fetch)
 
     const result = await discoverModelsForRoute('discovery-no-auth-test', {
-      apiKey: 'discovery-key',
       forceRefresh: true,
     })
-    const cached = await discoverModelsForRoute('discovery-no-auth-test', {
-      apiKey: 'different-discovery-key',
-    })
+    const cached = await discoverModelsForRoute('discovery-no-auth-test')
 
     expect(result?.source).toBe('network')
     expect(result?.models.map((model: { apiName: string }) => model.apiName)).toEqual(['public-model'])
@@ -501,12 +699,6 @@ describe('discoverModelsForRoute', () => {
     }) as unknown as typeof globalThis.fetch)
 
     const result = await discoverModelsForRoute('aimlapi', {
-      apiKey: 'should-not-be-sent',
-      headers: {
-        Authorization: 'Bearer should-not-be-sent',
-        'anthropic-api-key': 'should-not-be-sent',
-        'X-Custom-Secret': 'should-not-be-sent',
-      },
       forceRefresh: true,
     })
 
