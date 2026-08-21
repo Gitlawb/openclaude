@@ -34,10 +34,11 @@
  * Note: package.json `overrides` do NOT travel to consumers; this script
  * intentionally reproduces the user's resolution, not the repo's.
  */
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { execaSync } from 'execa'
 
 import {
   validateInstallHygieneFields,
@@ -74,6 +75,25 @@ const INFRA_FAILURE_PATTERNS = [
 ]
 
 type Failure = { scenario: string; problem: string }
+type VerificationReporter = {
+  fail: (problem: string) => void
+  pass: (what: string) => void
+}
+type SyncCommandRunner = (
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string
+    env: NodeJS.ProcessEnv
+    reject: false
+    stripFinalNewline: false
+    timeout: number
+  },
+) => {
+  exitCode?: number
+  stdout?: unknown
+  stderr?: unknown
+}
 const failures: Failure[] = []
 function fail(scenario: string, problem: string): void {
   failures.push({ scenario, problem })
@@ -98,21 +118,36 @@ function npmEnv(home: string): NodeJS.ProcessEnv {
   }
 }
 
+export function runCommand(
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string
+    env: NodeJS.ProcessEnv
+    timeout: number
+  },
+  runner: SyncCommandRunner = execaSync as SyncCommandRunner,
+): { status: number; stdout: string; stderr: string } {
+  const result = runner(command, args, {
+    ...options,
+    reject: false,
+    stripFinalNewline: false,
+  })
+  return {
+    status: result.exitCode ?? -1,
+    stdout: String(result.stdout ?? ''),
+    stderr: String(result.stderr ?? ''),
+  }
+}
+
 function runNpm(
   args: string[],
   home: string,
 ): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync('npm', args, {
-    encoding: 'utf8',
+  return runCommand('npm', args, {
     env: npmEnv(home),
-    shell: IS_WINDOWS, // npm is npm.cmd on Windows
     timeout: 10 * 60 * 1000,
   })
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  }
 }
 
 function installFlags(prefix: string, cache: string): string[] {
@@ -239,22 +274,37 @@ function checkInstalledContract(scenario: string, prefix: string): void {
   }
 }
 
-function checkInstalledChromeEntrypoint(
+export function checkInstalledChromeEntrypoint(
   scenario: string,
   prefix: string,
   checkBuiltResolver: boolean,
+  reporter: VerificationReporter = {
+    fail: problem => fail(scenario, problem),
+    pass: what => pass(scenario, what),
+  },
 ): void {
   const packageRoot = join(globalRoot(prefix), ...PACKAGE_NAME.split('/'))
   const manifestPath = join(packageRoot, 'package.json')
+  if (!existsSync(manifestPath)) {
+    reporter.fail(`installed manifest missing at ${manifestPath}`)
+    return
+  }
   const pkg = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const binEntry = pkg.bin?.openclaude
   if (typeof binEntry !== 'string') {
-    fail(scenario, 'installed package has no openclaude launcher metadata')
+    reporter.fail('installed package has no openclaude launcher metadata')
+    return
+  }
+
+  const expectedEntrypoint = join(packageRoot, binEntry)
+  if (!existsSync(expectedEntrypoint)) {
+    reporter.fail(
+      `installed OpenClaude launcher missing at ${expectedEntrypoint}`,
+    )
     return
   }
 
   try {
-    const expectedEntrypoint = join(packageRoot, binEntry)
     const launches = resolveClaudeInChromeLaunches({
       isNativeBuild: false,
       execPath: process.execPath,
@@ -266,33 +316,36 @@ function checkInstalledChromeEntrypoint(
       nativeHostEntrypoint !== expectedEntrypoint ||
       mcpEntrypoint !== expectedEntrypoint
     ) {
-      fail(
-        scenario,
+      reporter.fail(
         'Chrome native-host and MCP launches do not share the installed package launcher',
       )
       return
     }
-    pass(
-      scenario,
+    reporter.pass(
       `Chrome child launches resolve the installed ${expectedEntrypoint.slice(packageRoot.length + 1)}`,
     )
   } catch (error) {
-    fail(
-      scenario,
+    reporter.fail(
       `Chrome child launch cannot resolve an installed CLI entrypoint: ${error}`,
     )
     return
   }
 
   if (checkBuiltResolver) {
-    const bundle = readFileSync(join(packageRoot, 'dist', 'cli.mjs'), 'utf8')
+    const bundlePath = join(packageRoot, 'dist', 'cli.mjs')
+    if (!existsSync(bundlePath)) {
+      reporter.fail(`installed CLI bundle missing at ${bundlePath}`)
+      return
+    }
+    const bundle = readFileSync(bundlePath, 'utf8')
     if (
       bundle.includes('Unable to resolve the current OpenClaude CLI entrypoint.')
     ) {
-      pass(scenario, 'the installed CLI bundle contains the Chrome entrypoint resolver')
+      reporter.pass(
+        'the installed CLI bundle contains the Chrome entrypoint resolver',
+      )
     } else {
-      fail(
-        scenario,
+      reporter.fail(
         'the installed CLI bundle does not contain the Chrome entrypoint resolver',
       )
     }
@@ -308,18 +361,11 @@ function runBin(
   home: string,
   args: string[],
 ): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync(binPath(prefix), args, {
-    encoding: 'utf8',
+  return runCommand(binPath(prefix), args, {
     env: npmEnv(home),
     cwd: home,
-    shell: IS_WINDOWS,
     timeout: 2 * 60 * 1000,
   })
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  }
 }
 
 function checkBinBoots(scenario: string, prefix: string, home: string, expectedVersion: string | null): void {
@@ -374,29 +420,42 @@ function checkBinBoots(scenario: string, prefix: string, home: string, expectedV
   }
 }
 
-function checkTarballContents(tarballPath: string): void {
-  const scenario = 'tarball'
-  const required = [
-    'package/package.json',
-    'package/bin/openclaude',
-    'package/bin/node-compile-cache.mjs',
-    'package/dist/cli.mjs',
-    'package/dist/sdk.mjs',
-    'package/src/entrypoints/sdk.d.ts',
-  ]
-  const forbidden = ['package/dist/cli.js']
-  const listing = execFileSync('tar', ['-tzf', tarballPath], { encoding: 'utf8' })
-  const entries = new Set(listing.split(/\r?\n/).map(l => l.trim()))
-  const missing = required.filter(entry => !entries.has(entry))
-  const presentForbidden = forbidden.filter(entry => entries.has(entry))
+const REQUIRED_TARBALL_ENTRIES = [
+  'package/package.json',
+  'package/bin/openclaude',
+  'package/bin/node-compile-cache.mjs',
+  'package/dist/cli.mjs',
+  'package/dist/sdk.mjs',
+  'package/src/entrypoints/sdk.d.ts',
+] as const
+const FORBIDDEN_TARBALL_ENTRIES = ['package/dist/cli.js'] as const
+
+export function getTarballPayloadProblems(
+  entries: ReadonlySet<string>,
+): string[] {
+  const problems: string[] = []
+  const missing = REQUIRED_TARBALL_ENTRIES.filter(entry => !entries.has(entry))
+  const presentForbidden = FORBIDDEN_TARBALL_ENTRIES.filter(entry =>
+    entries.has(entry),
+  )
   if (missing.length > 0) {
-    fail(scenario, `tarball is missing declared payload: ${missing.join(', ')}`)
-  } else if (presentForbidden.length > 0) {
-    fail(
-      scenario,
+    problems.push(`tarball is missing declared payload: ${missing.join(', ')}`)
+  }
+  if (presentForbidden.length > 0) {
+    problems.push(
       `tarball contains obsolete CLI payload: ${presentForbidden.join(', ')}`,
     )
-  } else {
+  }
+  return problems
+}
+
+function checkTarballContents(tarballPath: string): void {
+  const scenario = 'tarball'
+  const listing = execFileSync('tar', ['-tzf', tarballPath], { encoding: 'utf8' })
+  const entries = new Set(listing.split(/\r?\n/).map(l => l.trim()))
+  const payloadProblems = getTarballPayloadProblems(entries)
+  for (const problem of payloadProblems) fail(scenario, problem)
+  if (payloadProblems.length === 0) {
     pass(scenario, `tarball carries the full declared payload (${entries.size - 1} files)`)
   }
   const size = statSync(tarballPath).size
