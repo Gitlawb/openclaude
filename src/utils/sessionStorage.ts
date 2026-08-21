@@ -982,6 +982,9 @@ class Project {
   // True when rebuild could not establish complete ancestor closure
   // (oversized mid-line skip, scan budget exhausted, unresolved tips).
   private remoteEgressOmissionRebuildIncomplete = false
+  // One-shot guard: emit the suppression diagnostic only the first time an
+  // entry is withheld under an incomplete rebuild, not on every later entry.
+  private remoteEgressRebuildIncompleteWarned = false
 
   constructor() {}
 
@@ -1001,6 +1004,7 @@ class Project {
     this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
     this.lastRemoteEgressUuid = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
@@ -1356,19 +1360,11 @@ class Project {
         break
       }
       if (this.remoteEgressSafeLocalParents.has(targetParentUuid)) {
-        if (
-          targetParentUuid === this.lastRemoteEgressUuid ||
-          this.remoteEgressDeliveredParents.has(targetParentUuid)
-        ) {
-          parentConfirmedSafe = true
-        } else {
-          targetParentUuid = this.lastRemoteEgressUuid ?? null
-          remoteEntry = {
-            ...entry,
-            parentUuid: targetParentUuid,
-          }
-          parentConfirmedSafe = true
-        }
+        // No delivery witness (checked at the top of the loop): project to
+        // the confirmed remote tip or the null root.
+        targetParentUuid = this.lastRemoteEgressUuid ?? null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        parentConfirmedSafe = true
         break
       }
       if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
@@ -1402,6 +1398,7 @@ class Project {
             this.sessionFile,
             targetParentUuid,
             queue,
+            MAX_TRANSCRIPT_READ_BYTES,
           )
         if (resolved.status === 'resolved') {
           this.remoteEgressCompactAncestry.set(
@@ -1426,23 +1423,17 @@ class Project {
             this.remoteEgressSafeLocalParents,
             MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
           )
-          if (
-            targetParentUuid === this.lastRemoteEgressUuid ||
-            this.remoteEgressDeliveredParents.has(targetParentUuid)
-          ) {
-            parentConfirmedSafe = true
-          } else {
-            // Parent is safe in local transcript, but lacks a remote delivery witness
-            // (e.g. written before sink installation, or unconfirmed delivery).
-            // Project child to the confirmed remote tip or null root so no
-            // undelivered parent UUID is emitted to the remote sink.
-            targetParentUuid = this.lastRemoteEgressUuid ?? null
-            remoteEntry = {
-              ...entry,
-              parentUuid: targetParentUuid,
-            }
-            parentConfirmedSafe = true
+          // No delivery witness (checked at the top of the loop): this parent
+          // is safe in the local transcript but was never confirmed delivered
+          // (e.g. written before sink installation, or unconfirmed delivery).
+          // Project the child to the confirmed remote tip or null root so no
+          // undelivered parent UUID is emitted to the remote sink.
+          targetParentUuid = this.lastRemoteEgressUuid ?? null
+          remoteEntry = {
+            ...entry,
+            parentUuid: targetParentUuid,
           }
+          parentConfirmedSafe = true
           if (targetParentUuid) {
             this.evictedRemoteEgressOmissions.delete(targetParentUuid)
             this.remoteEgressKnownOmitted.delete(targetParentUuid)
@@ -1496,8 +1487,8 @@ class Project {
     this.remoteEgressKnownOmitted.clear()
     this.remoteEgressResolvedMisses.clear()
     this.remoteEgressSafeLocalParents.clear()
-    this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
     const path = this.sessionFile
     if (!path) return
     const result = ingestRemoteEgressOmissionsFromTranscriptFile(
@@ -1507,6 +1498,7 @@ class Project {
         evicted: this.evictedRemoteEgressOmissions,
         compactAncestry: this.remoteEgressCompactAncestry,
         knownOmitted: this.remoteEgressKnownOmitted,
+        safeLocalParents: this.remoteEgressSafeLocalParents,
       },
       scanBudget,
     )
@@ -1524,6 +1516,7 @@ class Project {
     this.remoteEgressSafeLocalParents.clear()
     this.remoteEgressDeliveredParents.clear()
     this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
     this.lastRemoteEgressUuid = null
   }
 
@@ -2202,6 +2195,31 @@ class Project {
                 const originalParentUuid = entry.parentUuid ?? null
                 const { remoteEntry, parentConfirmedSafe } =
                   this.resolveRemoteEgressParentProjection(entry)
+                // Bounded rebuild retry: if a prior resume rebuild was left
+                // incomplete, attempt one bounded re-rebuild before suppressing
+                // this entry. When reconstruction succeeds the session resumes
+                // remote persistence instead of latching fail-closed for life.
+                if (this.remoteEgressOmissionRebuildIncomplete && this.sessionFile) {
+                  const retryOmitted = new Map<UUID, UUID | null>()
+                  const result = ingestRemoteEgressOmissionsFromTranscriptFile(
+                    this.sessionFile,
+                    retryOmitted,
+                    {
+                      evicted: this.evictedRemoteEgressOmissions,
+                      compactAncestry: this.remoteEgressCompactAncestry,
+                      knownOmitted: this.remoteEgressKnownOmitted,
+                      safeLocalParents: this.remoteEgressSafeLocalParents,
+                    },
+                    OMISSION_REBUILD_TAIL_BYTES,
+                  )
+                  if (result.complete) {
+                    this.remoteEgressOmissionRebuildIncomplete = false
+                    this.remoteEgressRebuildIncompleteWarned = false
+                    for (const [k, v] of retryOmitted) {
+                      this.remoteEgressOmittedParents.set(k, v)
+                    }
+                  }
+                }
                 // Fail closed: do not emit a remote child whose target parent
                 // cannot be confirmed safe, or under an incomplete rebuild.
                 const parentStillUnresolved =
@@ -2233,6 +2251,22 @@ class Project {
                     )
                   }
                 } else if (entry.uuid) {
+                  // Emit a one-time diagnostic the first time an entry is
+                  // withheld under an incomplete rebuild, so the degraded
+                  // session is observable instead of silently root-only.
+                  if (!
+                    this.remoteEgressRebuildIncompleteWarned
+                  ) {
+                    this.remoteEgressRebuildIncompleteWarned = true
+                    logForDiagnosticsNoPII(
+                      'warn',
+                      'remote_egress_parent_unresolved',
+                      {
+                        rebuildIncomplete:
+                          this.remoteEgressOmissionRebuildIncomplete,
+                      },
+                    )
+                  }
                   // Fail-closed persist still owns this UUID: later children
                   // must rematch through the map instead of treating B as
                   // egressed (grandchild C would otherwise dangle on B).
@@ -4091,6 +4125,7 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
     evicted: Set<UUID>
     compactAncestry: Map<UUID, UUID | null>
     knownOmitted: Set<UUID>
+    safeLocalParents?: Set<UUID>
   },
   scanBudget: number = MAX_TRANSCRIPT_READ_BYTES,
 ): { complete: boolean } {
@@ -4150,6 +4185,15 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
           ),
         )
         boundUuidSet(referencedParents, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+        if (boundState.safeLocalParents) {
+          for (const uuid of egressed) {
+            boundState.safeLocalParents.add(uuid)
+          }
+          boundUuidSet(
+            boundState.safeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
       }
       if (
         sawTranscript &&
@@ -4179,6 +4223,15 @@ function ingestRemoteEgressOmissionsFromTranscriptFile(
         boundState.compactAncestry,
         boundState.knownOmitted,
       )
+      if (boundState.safeLocalParents) {
+        for (const uuid of egressed) {
+          boundState.safeLocalParents.add(uuid)
+        }
+        boundUuidSet(
+          boundState.safeLocalParents,
+          MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+        )
+      }
     }
 
     const hitScanCap = scanned >= budget && cursor > 0 && !closed
