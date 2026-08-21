@@ -19,6 +19,7 @@ import {
   __resetInterruptionTraceForTests,
 } from '../../utils/interruptionTrace.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
 import {
   executeNonStreamingRequest,
   type Options,
@@ -32,9 +33,12 @@ const envKeys = [
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_FIRST_PARTY_PROXY_HOSTS',
   'ANTHROPIC_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL',
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+  'CLAUDE_CODE_ATTRIBUTION_HEADER',
+  'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_TEST_FIXTURES_ROOT',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
@@ -50,10 +54,13 @@ const envKeys = [
   'CLAUDE_FEATURE_FLAGS_FILE',
   'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
   'GEMINI_API_KEY',
+  'GITHUB_TOKEN',
   'LONGCAT_API_KEY',
+  'MINIMAX_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENCLAUDE_CONFIG_DIR',
   'OPENCLAUDE_INTERRUPT_TRACE',
   'OPENCLAUDE_MAX_RETRIES',
   'VCR_RECORD',
@@ -352,6 +359,62 @@ function makeOptions(
   }
 }
 
+async function capturePrimarySystemBlocks({
+  model = 'claude-lifecycle-test',
+  systemPrompt = asSystemPrompt(['stable system prompt']),
+}: {
+  model?: string
+  systemPrompt?: ReturnType<typeof asSystemPrompt>
+} = {}): Promise<unknown[]> {
+  const queryLifecycle = new QueryLifecycleOperationTracker()
+  let requestBody: Record<string, unknown> | undefined
+  const fetchOverride: FetchOverride = async (_input, init) => {
+    requestBody = parseRequestBody(init)
+    return makeErrorResponse(400, 'captured request')
+  }
+
+  const generator = queryModelWithStreaming({
+    messages: [
+      {
+        type: 'user',
+        uuid: '00000000-0000-0000-0000-000000000009',
+        timestamp: '2026-08-21T00:00:00.000Z',
+        message: { role: 'user', content: 'hello' },
+      } as Message,
+    ],
+    systemPrompt,
+    thinkingConfig: { type: 'disabled' },
+    tools: [],
+    signal: new AbortController().signal,
+    options: {
+      ...makeOptions(queryLifecycle),
+      model,
+      fetchOverride,
+    },
+  })
+
+  await generator.next()
+  await generator.return(undefined)
+
+  if (!Array.isArray(requestBody?.system)) {
+    throw new Error('expected captured Anthropic system blocks')
+  }
+  return requestBody.system
+}
+
+function systemBlockTexts(blocks: unknown[]): string[] {
+  return blocks.flatMap(block => {
+    if (
+      typeof block === 'object' &&
+      block !== null &&
+      typeof (block as { text?: unknown }).text === 'string'
+    ) {
+      return [(block as { text: string }).text]
+    }
+    return []
+  })
+}
+
 function setTestMacro(): void {
   ;(globalThis as Record<string, unknown>).MACRO = {
     VERSION: '0.0.0-test',
@@ -370,17 +433,20 @@ function setClientTestEnv(): void {
     delete process.env[key]
   }
   process.env.ANTHROPIC_API_KEY = 'sk-test-lifecycle'
+  process.env.OPENCLAUDE_CONFIG_DIR = fixturesRoot
   process.env.CLAUDE_CODE_TEST_FIXTURES_ROOT = fixturesRoot
   process.env.CLAUDE_FEATURE_FLAGS_FILE = join(
     fixturesRoot,
     'feature-flags.json',
   )
   process.env.VCR_RECORD = '1'
+  getClaudeAIOAuthTokens.cache?.clear?.()
   resetGrowthBook()
 }
 
 beforeEach(async () => {
   await acquireSharedMutationLock('claude.lifecycle.test.ts')
+  getClaudeAIOAuthTokens.cache?.clear?.()
 })
 
 afterEach(() => {
@@ -398,6 +464,7 @@ afterEach(() => {
       delete (globalThis as Record<string, unknown>).MACRO
     }
     globalThis.fetch = originalFetch
+    getClaudeAIOAuthTokens.cache?.clear?.()
     resetGrowthBook()
     if (fixturesRoot) {
       rmSync(fixturesRoot, { force: true, recursive: true })
@@ -444,6 +511,134 @@ describe('Claude API lifecycle tracking', () => {
     expect(requestBody).not.toHaveProperty('reasoning_effort')
     expect(requestBody).not.toHaveProperty('effort')
     expect(requestHeaders?.get('anthropic-beta')).not.toContain('effort')
+  })
+
+  test('strips Anthropic billing attribution from a custom native endpoint', async () => {
+    setClientTestEnv()
+    process.env.ANTHROPIC_BASE_URL = 'https://custom-anthropic.example/v1'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(texts).toContain('stable system prompt')
+  })
+
+  test('keeps required billing attribution for official OAuth when globally disabled', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(true)
+    expect(texts).toContain('stable system prompt')
+  })
+
+  test('preserves the disable setting for an official API key', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('does not trust an Anthropic lookalike host with leftover OAuth state', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.ANTHROPIC_BASE_URL =
+      'https://api.anthropic.com.attacker.example/secret/path'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('keeps OAuth attribution through an approved loopback first-party proxy', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:47821'
+    process.env.ANTHROPIC_FIRST_PARTY_PROXY_HOSTS = '127.0.0.1:47821'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(true)
+  })
+
+  test('uses the normalized MiniMax native route before building attribution', async () => {
+    setClientTestEnv()
+    process.env.MINIMAX_API_KEY = 'minimax-test-key'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({ model: 'MiniMax-M2.7' }),
+    )
+
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('strips attribution from GitHub native Anthropic transport', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.GITHUB_TOKEN = 'github-test-token'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({ model: 'claude-sonnet-4-6' }),
+    )
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('keeps the generated block first and drops later stale copies', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({
+        systemPrompt: asSystemPrompt([
+          'stable system prompt',
+          'x-anthropic-billing-header: stale',
+          'second stable prompt',
+        ]),
+      }),
+    )
+
+    const attribution = texts.filter(text =>
+      text.startsWith('x-anthropic-billing-header'),
+    )
+    expect(attribution).toHaveLength(1)
+    expect(attribution[0]).not.toBe('x-anthropic-billing-header: stale')
+    expect(texts[1]).toStartWith('You are OpenClaude')
+    expect(texts[2]).toBe('stable system prompt\n\nsecond stable prompt')
   })
 
   test('uses the original codexplan selection for custom-gateway defaults', async () => {
