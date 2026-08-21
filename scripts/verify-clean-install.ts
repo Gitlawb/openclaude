@@ -43,6 +43,7 @@ import {
   validateInstallHygieneFields,
   validateRuntimeDependencyContract,
 } from './externalsValidation.js'
+import { resolveClaudeInChromeLaunches } from '../src/utils/claudeInChrome/launch.js'
 
 const PACKAGE_NAME = '@gitlawb/openclaude'
 const MAX_TARBALL_BYTES = 12_000_000 // current tarball is ~8.8MB; catch payload blowups
@@ -238,6 +239,66 @@ function checkInstalledContract(scenario: string, prefix: string): void {
   }
 }
 
+function checkInstalledChromeEntrypoint(
+  scenario: string,
+  prefix: string,
+  checkBuiltResolver: boolean,
+): void {
+  const packageRoot = join(globalRoot(prefix), ...PACKAGE_NAME.split('/'))
+  const manifestPath = join(packageRoot, 'package.json')
+  const pkg = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const binEntry = pkg.bin?.openclaude
+  if (typeof binEntry !== 'string') {
+    fail(scenario, 'installed package has no openclaude launcher metadata')
+    return
+  }
+
+  try {
+    const expectedEntrypoint = join(packageRoot, binEntry)
+    const launches = resolveClaudeInChromeLaunches({
+      isNativeBuild: false,
+      execPath: process.execPath,
+      cliEntrypoint: expectedEntrypoint,
+    })
+    const nativeHostEntrypoint = launches.nativeHost.args[0]
+    const mcpEntrypoint = launches.mcpServer.args[0]
+    if (
+      nativeHostEntrypoint !== expectedEntrypoint ||
+      mcpEntrypoint !== expectedEntrypoint
+    ) {
+      fail(
+        scenario,
+        'Chrome native-host and MCP launches do not share the installed package launcher',
+      )
+      return
+    }
+    pass(
+      scenario,
+      `Chrome child launches resolve the installed ${expectedEntrypoint.slice(packageRoot.length + 1)}`,
+    )
+  } catch (error) {
+    fail(
+      scenario,
+      `Chrome child launch cannot resolve an installed CLI entrypoint: ${error}`,
+    )
+    return
+  }
+
+  if (checkBuiltResolver) {
+    const bundle = readFileSync(join(packageRoot, 'dist', 'cli.mjs'), 'utf8')
+    if (
+      bundle.includes('Unable to resolve the current OpenClaude CLI entrypoint.')
+    ) {
+      pass(scenario, 'the installed CLI bundle contains the Chrome entrypoint resolver')
+    } else {
+      fail(
+        scenario,
+        'the installed CLI bundle does not contain the Chrome entrypoint resolver',
+      )
+    }
+  }
+}
+
 function binPath(prefix: string): string {
   return IS_WINDOWS ? join(prefix, 'openclaude.cmd') : join(prefix, 'bin', 'openclaude')
 }
@@ -291,6 +352,26 @@ function checkBinBoots(scenario: string, prefix: string, home: string, expectedV
   } else {
     pass(scenario, '--help loads the full bundle with silent stderr')
   }
+
+  // The open build stubs the proprietary Chrome server package, so this
+  // subprocess may fail after entering application code. The debug marker is
+  // the stable boundary: Node resolved the installed launcher and CLI bundle,
+  // then OpenClaude selected the Chrome MCP entrypoint.
+  const chromeMcp = runBin(prefix, home, [
+    '--claude-in-chrome-mcp',
+    '--debug-to-stderr',
+  ])
+  if (chromeMcp.stderr.includes('[Claude in Chrome] Starting MCP server')) {
+    pass(
+      scenario,
+      'the installed launcher reaches the Chrome MCP application entrypoint',
+    )
+  } else {
+    fail(
+      scenario,
+      `the installed launcher did not reach the Chrome MCP application entrypoint: ${chromeMcp.stderr.slice(0, 500)}`,
+    )
+  }
 }
 
 function checkTarballContents(tarballPath: string): void {
@@ -303,11 +384,18 @@ function checkTarballContents(tarballPath: string): void {
     'package/dist/sdk.mjs',
     'package/src/entrypoints/sdk.d.ts',
   ]
+  const forbidden = ['package/dist/cli.js']
   const listing = execFileSync('tar', ['-tzf', tarballPath], { encoding: 'utf8' })
   const entries = new Set(listing.split(/\r?\n/).map(l => l.trim()))
   const missing = required.filter(entry => !entries.has(entry))
+  const presentForbidden = forbidden.filter(entry => entries.has(entry))
   if (missing.length > 0) {
     fail(scenario, `tarball is missing declared payload: ${missing.join(', ')}`)
+  } else if (presentForbidden.length > 0) {
+    fail(
+      scenario,
+      `tarball contains obsolete CLI payload: ${presentForbidden.join(', ')}`,
+    )
   } else {
     pass(scenario, `tarball carries the full declared payload (${entries.size - 1} files)`)
   }
@@ -320,9 +408,10 @@ function checkTarballContents(tarballPath: string): void {
 }
 
 function makeSandbox(work: string, name: string): { prefix: string; cache: string; home: string } {
-  const prefix = join(work, name, 'prefix')
-  const cache = join(work, name, 'cache')
-  const home = join(work, name, 'home')
+  const scenarioRoot = join(work, `${name} install scenario`)
+  const prefix = join(scenarioRoot, 'install prefix')
+  const cache = join(scenarioRoot, 'npm cache')
+  const home = join(scenarioRoot, 'home dir')
   for (const dir of [prefix, cache, home]) mkdirSync(dir, { recursive: true })
   return { prefix, cache, home }
 }
@@ -416,6 +505,7 @@ function runScenarios(
       // Contract comparison only makes sense for the artifact built from THIS
       // tree; a published artifact predates contract bumps (version skew).
       if (checkContract) checkInstalledContract(scenario, prefix)
+      checkInstalledChromeEntrypoint(scenario, prefix, checkContract)
       checkBinBoots(scenario, prefix, home, expectedVersion)
     }
   }
@@ -439,6 +529,7 @@ function runScenarios(
     if (output !== null) {
       checkOutputWhitelist(scenario, output)
       checkNoInstallScripts(scenario, prefix)
+      checkInstalledChromeEntrypoint(scenario, prefix, checkContract)
       checkBinBoots(scenario, prefix, home, expectedVersion)
     }
   }
