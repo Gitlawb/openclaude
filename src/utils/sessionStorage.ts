@@ -567,6 +567,11 @@ export const MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE = 64
 // during subsequent appends before suppressing further attempts.
 export const MAX_REMOTE_EGRESS_REBUILD_RETRIES = 3
 
+// Bounded scan budget for on-demand ancestry walks during appendEntry (8 MiB).
+// Bounded to avoid synchronous blocking on multi-GB transcripts while allowing
+// multi-window lookups across non-transcript snapshots.
+export const MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES = 8 * 1024 * 1024
+
 // In-memory map of agentId → subdirectory for grouping related subagent
 // transcripts (e.g. workflow runs write to subagents/workflows/<runId>/).
 // Populated before the agent runs; consulted by getAgentTranscriptPath.
@@ -1411,7 +1416,7 @@ class Project {
             this.sessionFile,
             targetParentUuid,
             queue,
-            MAX_TRANSCRIPT_READ_BYTES,
+            MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES,
           )
         if (resolved.status === 'resolved') {
           this.remoteEgressCompactAncestry.set(
