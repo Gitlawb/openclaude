@@ -14,6 +14,8 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
@@ -319,8 +321,42 @@ test('key-only LLMTR placeholder validates with stale OpenAI mode enabled', asyn
   )
 })
 
+test('key-only LLMTR placeholder ignores a stale OpenAI model', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Set LLMTR_API_KEY for the LLMTR provider. Get a key at https://llmtr.com.',
+  )
+})
+
+test('key-only Concentrate placeholder ignores a stale OpenAI model', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'gpt-4o'
+  process.env.CONCENTRATE_API_KEY = 'SUA_CHAVE'
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Concentrate auth is required. Set CONCENTRATE_API_KEY or OPENAI_API_KEY.',
+  )
+})
+
 test('explicit Anthropic route ignores an unrelated placeholder LLMTR key', async () => {
   process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'anthropic'
+  process.env.ANTHROPIC_API_KEY = 'anthropic-key'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('markerless Anthropic credentials ignore an unrelated placeholder LLMTR key', async () => {
   process.env.ANTHROPIC_API_KEY = 'anthropic-key'
   process.env.LLMTR_API_KEY = 'SUA_CHAVE'
   delete process.env.CLAUDE_CODE_USE_OPENAI

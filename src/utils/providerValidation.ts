@@ -290,23 +290,32 @@ function getRuntimeValidationTarget(
   const hasPinnedRoute = Boolean(env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim())
   const hasExplicitOpenAIConfig = Boolean(
     env.OPENAI_BASE_URL?.trim() ||
-      env.OPENAI_MODEL?.trim() ||
       hasOpenAICredential(env),
   )
+  const hasExplicitAnthropicConfig = Boolean(
+    env.ANTHROPIC_BASE_URL?.trim() ||
+      env.ANTHROPIC_API_KEY?.trim() ||
+      env.ANTHROPIC_AUTH_TOKEN?.trim(),
+  )
   const canInferKeyOnlyRoute =
-    !hasPinnedRoute && (!useOpenAI || !hasExplicitOpenAIConfig)
-  const dedicatedCredentialTargets = canInferKeyOnlyRoute
+    !hasPinnedRoute &&
+    !hasExplicitAnthropicConfig &&
+    (!useOpenAI || !hasExplicitOpenAIConfig)
+  const routeCredentialTargets = canInferKeyOnlyRoute
     ? validationTargets.filter(target => {
         const validation = target.descriptor.validation
         return (
-          target.descriptor.setup.dedicatedCredentialsOnly === true &&
           validation?.kind === 'credential-env' &&
-          validation.credentialEnvVars.some(envVar => hasNonEmptyEnvValue(env, envVar))
+          (target.descriptor.setup.credentialEnvVars ?? []).some(
+            envVar =>
+              validation.credentialEnvVars.includes(envVar) &&
+              hasNonEmptyEnvValue(env, envVar),
+          )
         )
       })
     : []
-  if (dedicatedCredentialTargets.length === 1) {
-    return dedicatedCredentialTargets[0]
+  if (routeCredentialTargets.length === 1) {
+    return routeCredentialTargets[0]
   }
 
   if (!useOpenAI) {
