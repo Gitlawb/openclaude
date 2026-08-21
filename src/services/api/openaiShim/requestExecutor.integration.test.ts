@@ -770,7 +770,7 @@ test.each([
     absentAuthHeader: 'x-previous-key',
   },
   {
-    name: 'route-scoped LLMTR profile auth',
+    name: 'route-scoped LLMTR profile uses required bearer auth',
     clientKind: 'shim' as const,
     model: 'anthropic/claude-sonnet-4.6',
     setup: () => {
@@ -788,16 +788,16 @@ test.each([
     },
     expectedRouteId: 'llmtr',
     expectedUrl: 'https://llmtr.com/v1/chat/completions',
-    expectedAuthHeader: 'x-llmtr-key',
-    expectedAuthValue: 'llmtr-profile-header-secret',
-    absentAuthHeader: 'authorization',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-profile-key',
+    absentAuthHeader: 'x-llmtr-key',
   },
   {
     // Same deployment, saved as a generic 'openai' profile rather than the
     // named preset. Route identity is derived from the base URL at request
     // time, so this has to reach the executor with the same route-scoped
-    // identity as the case above, or the dedicated-credential route refuses
-    // profile auth and the configured header is silently replaced by Bearer.
+    // identity as the case above, so the fixed LLMTR contract ignores generic
+    // profile auth overrides and uses its required Bearer credential.
     name: 'generic OpenAI profile at the canonical LLMTR endpoint',
     clientKind: 'shim' as const,
     model: 'anthropic/claude-sonnet-4.6',
@@ -816,9 +816,9 @@ test.each([
     },
     expectedRouteId: 'llmtr',
     expectedUrl: 'https://llmtr.com/v1/chat/completions',
-    expectedAuthHeader: 'x-llmtr-key',
-    expectedAuthValue: 'llmtr-generic-header-secret',
-    absentAuthHeader: 'authorization',
+    expectedAuthHeader: 'authorization',
+    expectedAuthValue: 'Bearer llmtr-generic-key',
+    absentAuthHeader: 'x-llmtr-key',
   },
   {
     // Negative companion: the generic profile carries no custom auth of its
@@ -894,6 +894,10 @@ test.each([
     expect(captured.routeId).toBe(scenario.expectedRouteId)
     expect(captured.url).toBe(scenario.expectedUrl)
     expect(captured.body.model).toBe(scenario.model)
+    if (scenario.expectedRouteId === 'llmtr') {
+      expect(captured.body.max_tokens).toBe(32)
+      expect(captured.body.max_completion_tokens).toBeUndefined()
+    }
     expect(captured.headers.get(scenario.expectedAuthHeader)).toBe(
       scenario.expectedAuthValue,
     )

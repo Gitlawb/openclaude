@@ -180,10 +180,20 @@ export function buildInheritedEnvVars(): string {
   // keys here so dedicatedCredentialsOnly providers work in teammates without
   // teaching this spawn layer about every current and future provider.
   const inheritedEnvKeys = new Set<string>(TEAMMATE_ENV_VARS)
+  const routeCredentialEnvVars: string[] = []
   if (routeId) {
     for (const key of getRouteCredentialEnvVars(routeId)) {
       inheritedEnvKeys.add(key)
+      routeCredentialEnvVars.push(key)
     }
+  }
+
+  if (routeCredentialEnvVars.length > 0) {
+    envVars.push(
+      `CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS=${quote([
+        routeCredentialEnvVars.join(','),
+      ])}`,
+    )
   }
 
   for (const key of inheritedEnvKeys) {

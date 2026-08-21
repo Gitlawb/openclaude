@@ -70,6 +70,9 @@ test.each([
     const envVars = buildInheritedEnvVars()
 
     expect(envVars).toContain(`CLAUDE_CODE_PROVIDER_ROUTE_ID=${routeId}`)
+    expect(envVars).toContain(
+      `CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS=${credentialEnvVar}`,
+    )
     expect(envVars).toContain(`${credentialEnvVar}=route-secret`)
   },
 )

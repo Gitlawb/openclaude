@@ -20,10 +20,14 @@ import {
 import { applyConfigEnvironmentVariables } from './managedEnv.js'
 
 const ENV_KEYS = [
+  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
+  'CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS',
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'CLAUDE_CODE_USE_OPENAI',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'LLMTR_API_KEY',
 ]
 
 const originalEnv = new Map<string, string | undefined>()
@@ -88,6 +92,36 @@ function writeTempEnvFile(content: string): string {
 }
 
 describe('applyConfigEnvironmentVariables', () => {
+  it('keeps a host-managed OpenAI-compatible route atomic across settings merges', () => {
+    process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+    process.env.CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS =
+      'LLMTR_API_KEY'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+    process.env.OPENAI_API_KEY = 'host-secret'
+    process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+    process.env.LLMTR_API_KEY = 'host-secret'
+    saveGlobalConfig(current => ({
+      ...current,
+      env: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'openrouter',
+        OPENAI_BASE_URL: 'https://settings.example/v1',
+        OPENAI_API_KEY: 'settings-generic-secret',
+        OPENAI_MODEL: 'settings-model',
+        LLMTR_API_KEY: 'settings-llmtr-secret',
+      },
+    }))
+
+    applyConfigEnvironmentVariables()
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('llmtr')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('host-secret')
+    expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-4.6')
+    expect(process.env.LLMTR_API_KEY).toBe('host-secret')
+  })
+
   it('restores remembered provider env-file values after full settings env merge', () => {
     const filePath = writeTempEnvFile([
       'CLAUDE_CODE_USE_OPENAI=1',

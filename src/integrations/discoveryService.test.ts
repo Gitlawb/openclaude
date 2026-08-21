@@ -202,7 +202,7 @@ describe('discoverModelsForRoute', () => {
     expect(authorization).not.toBe('Bearer llmtr-profile-secret')
   })
 
-  test('still sends the LLMTR key on the canonical endpoint', async () => {
+  test('does not send credentials to LLMTR public discovery', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
     process.env.LLMTR_API_KEY = 'llmtr-secret'
     let authorization: string | null | undefined
@@ -220,7 +220,7 @@ describe('discoverModelsForRoute', () => {
       forceRefresh: true,
     })
 
-    expect(authorization).toBe('Bearer llmtr-secret')
+    expect(authorization).toBeNull()
   })
 
   test('LLMTR discovery exposes only tool-capable chat-completions models', async () => {

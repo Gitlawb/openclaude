@@ -14,7 +14,14 @@
 const PROVIDER_MANAGED_ENV_VARS = new Set([
   // The flag itself — settings can't unset it once the host set it
   'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
+  'CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS',
   // Provider selection
+  'CLAUDE_CODE_PROVIDER_ROUTE_ID',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
+  'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
@@ -26,6 +33,10 @@ const PROVIDER_MANAGED_ENV_VARS = new Set([
   'ANTHROPIC_FOUNDRY_BASE_URL',
   'ANTHROPIC_FOUNDRY_RESOURCE',
   'ANTHROPIC_VERTEX_PROJECT_ID',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'GEMINI_BASE_URL',
+  'MISTRAL_BASE_URL',
   // Region routing (per-model VERTEX_REGION_CLAUDE_* handled by prefix below)
   'CLOUD_ML_REGION',
   // Auth
@@ -34,6 +45,14 @@ const PROVIDER_MANAGED_ENV_VARS = new Set([
   'CLAUDE_CODE_OAUTH_TOKEN',
   'AWS_BEARER_TOKEN_BEDROCK',
   'ANTHROPIC_FOUNDRY_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENAI_API_KEYS',
+  'OPENAI_AUTH_HEADER',
+  'OPENAI_AUTH_SCHEME',
+  'OPENAI_AUTH_HEADER_VALUE',
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'MISTRAL_API_KEY',
   'CLAUDE_CODE_SKIP_BEDROCK_AUTH',
   'CLAUDE_CODE_SKIP_VERTEX_AUTH',
   'CLAUDE_CODE_SKIP_FOUNDRY_AUTH',
@@ -54,6 +73,10 @@ const PROVIDER_MANAGED_ENV_VARS = new Set([
   'ANTHROPIC_SMALL_FAST_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL_AWS_REGION',
   'CLAUDE_CODE_SUBAGENT_MODEL',
+  'OPENAI_MODEL',
+  'OPENAI_API_FORMAT',
+  'GEMINI_MODEL',
+  'MISTRAL_MODEL',
 ])
 
 const PROVIDER_MANAGED_ENV_PREFIXES = [
@@ -64,8 +87,14 @@ const PROVIDER_MANAGED_ENV_PREFIXES = [
 
 export function isProviderManagedEnvVar(key: string): boolean {
   const upper = key.toUpperCase()
+  const routeCredentialEnvVars =
+    process.env.CLAUDE_CODE_PROVIDER_MANAGED_CREDENTIAL_ENV_VARS
+      ?.split(',')
+      .map(value => value.trim().toUpperCase())
+      .filter(Boolean) ?? []
   return (
     PROVIDER_MANAGED_ENV_VARS.has(upper) ||
+    routeCredentialEnvVars.includes(upper) ||
     PROVIDER_MANAGED_ENV_PREFIXES.some(p => upper.startsWith(p))
   )
 }

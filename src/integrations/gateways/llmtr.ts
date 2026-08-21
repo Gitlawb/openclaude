@@ -104,7 +104,10 @@ export default defineGateway({
     kind: 'openai-compatible',
     openaiShim: {
       requiredApiFormat: 'chat_completions',
-      supportsAuthHeaders: true,
+      // LLMTR's Chat Completions API accepts the standard max_tokens field and
+      // authenticates only with Authorization: Bearer <key>.
+      maxTokensField: 'max_tokens',
+      supportsAuthHeaders: false,
     },
   },
   preset: {
@@ -128,6 +131,9 @@ export default defineGateway({
     source: 'hybrid',
     discovery: {
       kind: 'openai-compatible',
+      // The catalog is public and identical for every credential. Avoid
+      // transmitting secrets or partitioning its cache by key.
+      requiresAuth: false,
       mapModel: mapLlmtrModel,
     },
     discoveryCacheTtl: '1d',
