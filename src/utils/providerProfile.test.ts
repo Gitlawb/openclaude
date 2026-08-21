@@ -495,6 +495,35 @@ test('openai launch preserves persisted LLMTR dedicated key across restart', asy
   assert.equal(env.LLMTR_API_KEY, 'llmtr-secret-key')
 })
 
+test('openai launch migrates a legacy generic LLMTR profile credential on restart', async () => {
+  for (const [credentialEnvVar, credential, expectedKey] of [
+    ['OPENAI_API_KEY', 'legacy-llmtr-key', 'legacy-llmtr-key'],
+    ['OPENAI_API_KEYS', 'legacy-llmtr-key-a,legacy-llmtr-key-b', 'legacy-llmtr-key-a'],
+  ] as const) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        OPENAI_BASE_URL: 'https://llmtr.com/v1',
+        OPENAI_MODEL: 'llmtr/gemma-4',
+        [credentialEnvVar]: credential,
+      }),
+      goal: 'coding',
+      processEnv: {},
+    })
+
+    assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'llmtr')
+    assert.equal(env.LLMTR_API_KEY, expectedKey)
+    assert.equal(
+      resolveRouteCredentialValue({
+        routeId: 'llmtr',
+        baseUrl: env.OPENAI_BASE_URL,
+        processEnv: env,
+      }),
+      expectedKey,
+    )
+  }
+})
+
 test('openai launch prefers a live LLMTR key over the persisted one', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

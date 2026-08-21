@@ -2364,13 +2364,29 @@ export async function buildLaunchEnv(options: {
       persistedOpenAICredential?.kind === 'usable'
         ? sanitizeApiKey(persistedOpenAICredential.value)
         : undefined
+    // LLMTR previously worked as a generic OpenAI-compatible endpoint, so a
+    // persisted profile created before this descriptor could only have stored
+    // its profile-owned credential under OPENAI_API_KEY(S). Now that this
+    // canonical endpoint is dedicatedCredentialsOnly, restore that owned value
+    // into the dedicated slot; never promote a live shell OpenAI credential.
+    // LLMTR accepts one API key, so preserve the first legacy pool entry rather
+    // than serializing the comma-delimited pool as one malformed bearer token.
+    const backfillLegacyLlmtrProfileKey =
+      dedicatedKey === 'LLMTR_API_KEY' &&
+      effectiveOpenAIRouteId === 'llmtr' &&
+      !!dedicatedBaseUrl &&
+      isCanonicalLlmtrInferenceBaseUrl(dedicatedBaseUrl) &&
+      persistedOpenAICredential?.kind === 'usable'
+        ? sanitizeApiKey(persistedOpenAICredential.value.split(',')[0])
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
         backfillLegacyApismartProfileKey ||
-        backfillLegacyConcentrateProfileKey
+        backfillLegacyConcentrateProfileKey ||
+        backfillLegacyLlmtrProfileKey
     if (dedicatedValue) {
       env[dedicatedKey] = dedicatedValue
     }

@@ -557,6 +557,16 @@ test('env-only LLMTR still resolves when OPENAI_BASE_URL targets llmtr.com', () 
   ).toBe('llmtr')
 })
 
+test('env-only LLMTR honors an explicit OpenAI-compatible opt-out', () => {
+  const processEnv = {
+    CLAUDE_CODE_USE_OPENAI: '0',
+    LLMTR_API_KEY: 'llmtr-key',
+  }
+
+  expect(resolveEnvOnlyProviderRouteId(processEnv)).toBeNull()
+  expect(resolveActiveRouteIdFromEnv(processEnv)).not.toBe('llmtr')
+})
+
 test('env-only LLMTR does not claim non-canonical URLs on its own host', () => {
   // Plaintext and off-port llmtr.com URLs must not select the dedicated route.
   // If they did, applyLlmtrEnvOnlyDefaults would then withhold the key for being

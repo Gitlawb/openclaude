@@ -853,6 +853,15 @@ function hasNoExplicitNonOpenAIProvider(
   )
 }
 
+function hasExplicitOpenAICompatibleOptOut(
+  processEnv: NodeJS.ProcessEnv,
+): boolean {
+  return (
+    processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
+    !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)
+  )
+}
+
 export function hasAimlapiEnvOnlyProviderIntent(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -1043,6 +1052,7 @@ export function hasLlmtrEnvOnlyProviderIntent(
       processEnv,
       isCanonicalLlmtrInferenceBaseUrl,
     ) &&
+    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
@@ -1057,8 +1067,7 @@ export function hasConcentrateEnvOnlyProviderIntent(
   return (
     hasUsableOpenAICredential(processEnv.CONCENTRATE_API_KEY) &&
     !hasConflictingOpenAIBaseUrlForRoute(processEnv, isConcentrateBaseUrl) &&
-    !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&
+    !hasExplicitOpenAICompatibleOptOut(processEnv) &&
     hasNoExplicitNonOpenAIProvider(processEnv)
   )
 }
