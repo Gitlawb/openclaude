@@ -5,6 +5,7 @@ import { open, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import treeKill from 'tree-kill'
 import { argsBeforeDelimiter } from '../utils/cliArgs.js'
+import { hasPrintFlag } from '../utils/printFlag.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
   assertBackgroundSessionNameAvailable,
@@ -335,8 +336,7 @@ function findSessionName(args: string[]): string | undefined {
 }
 
 function hasPrintMode(args: string[]): boolean {
-  const searchable = argsBeforeDelimiter(args)
-  return searchable.includes('--print') || searchable.includes('-p')
+  return hasPrintFlag(args)
 }
 
 function insertBeforePrompt(args: string[], values: string[]): string[] {

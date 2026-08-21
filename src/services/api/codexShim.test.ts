@@ -782,7 +782,11 @@ describe('Codex request translation', () => {
     expect(output?.output).toBe('first block\nsecond block')
   })
 
-  test('compresses structured tool results with the Codex Responses separator', async () => {
+  test('keeps tool history uncompressed on the Codex transport (implicit prefix caching)', async () => {
+    // Codex talks to OpenAI Responses backends, which do implicit prefix
+    // caching: compressToolHistory's end-relative window would rewrite
+    // already-sent tool results each turn and bust the cache, so the Codex
+    // path must send history verbatim even with compression enabled.
     setToolHistoryCompressionEnabledOverrideForTest(true)
     try {
       mock.restore()
@@ -828,8 +832,12 @@ describe('Codex request translation', () => {
       const outputs = (body?.input as Array<{ type?: string; output?: string }>)
         .filter(item => item.type === 'function_call_output')
       expect(outputs[16]?.output).toBe(
-        `${'a'.repeat(1_000)}\n${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
+        `${'a'.repeat(1_000)}\n${'b'.repeat(1_500)}`,
       )
+      for (const item of outputs) {
+        expect(item.output).not.toContain('truncated')
+        expect(item.output).not.toContain('chars omitted')
+      }
     } finally {
       setToolHistoryCompressionEnabledOverrideForTest(undefined)
     }

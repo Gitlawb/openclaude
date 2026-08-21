@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { hasPrintFlag } from './printFlag.js'
 import '../integrations/index.js'
 import {
   ensureIntegrationsLoaded,
@@ -702,8 +703,7 @@ export function shouldExitForStartupProviderValidationError(options: {
   }
 
   return (
-    args.includes('-p') ||
-    args.includes('--print') ||
+    hasPrintFlag(args) ||
     args.includes('--init-only') ||
     args.some(arg => arg.startsWith('--sdk-url'))
   )

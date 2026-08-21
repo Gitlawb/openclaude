@@ -121,7 +121,14 @@ export async function resumeAgentBackground({
     const found = toolUseContext.options.agentDefinitions.activeAgents.find(
       a => a.agentType === meta.agentType,
     )
-    selectedAgent = found ?? GENERAL_PURPOSE_AGENT
+    if (!found) {
+      throw new Error(`Cannot resume agent: type '${meta.agentType}' is unavailable or disabled in the current session.`)
+    }
+    const isLegacyMatch = meta.source === undefined && found.source !== 'built-in'
+    if (meta.source !== found.source && !isLegacyMatch) {
+      throw new Error(`Cannot resume agent: identity mismatch. Expected source '${meta.source}', found '${found.source}' for type '${meta.agentType}'.`)
+    }
+    selectedAgent = found
   } else {
     selectedAgent = GENERAL_PURPOSE_AGENT
   }

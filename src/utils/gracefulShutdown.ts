@@ -30,6 +30,7 @@ import {
   wrapForMultiplexer,
 } from '../ink/termio/osc.js'
 import { shutdownDatadog } from '../services/analytics/datadog.js'
+import { reportErrorToSentry } from './sentry.js'
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   logEvent,
@@ -38,6 +39,7 @@ import type { AppState } from '../state/AppState.js'
 import { noteBackgroundSessionTerminationSignal } from './backgroundSessionTermination.js'
 import { runCleanupFunctions } from './cleanupRegistry.js'
 import { createCombinedAbortSignal } from './combinedAbortSignal.js'
+import { hasPrintFlag } from './printFlag.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
 import {
@@ -269,7 +271,7 @@ export const setupGracefulShutdown = memoize(() => {
     // avoid racing with it. Only check print mode — other non-interactive
     // sessions (--sdk-url, --init-only, non-TTY) don't register their own
     // SIGINT handler and need gracefulShutdown to run.
-    if (process.argv.includes('-p') || process.argv.includes('--print')) {
+    if (hasPrintFlag(process.argv)) {
       return
     }
     noteBackgroundSessionTerminationSignal('SIGINT')
@@ -311,7 +313,7 @@ export const setupGracefulShutdown = memoize(() => {
 
   // Log uncaught exceptions for container observability and analytics
   // Error names (e.g., "TypeError") are not sensitive - safe to log
-  process.on('uncaughtException', error => {
+    process.on('uncaughtException', error => {
     logForDiagnosticsNoPII('error', 'uncaught_exception', {
       error_name: error.name,
       error_message: error.message.slice(0, 2000),
@@ -320,6 +322,10 @@ export const setupGracefulShutdown = memoize(() => {
       error_name:
         error.name as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
+    // Optional Sentry reporting (env-driven, opt-in). No-op unless
+    // SENTRY_DSN is set; only sends the sanitized message for
+    // TelemetrySafeError instances, never this raw error.
+    reportErrorToSentry(error)
   })
 
   // Log unhandled promise rejections for container observability and analytics
@@ -343,6 +349,10 @@ export const setupGracefulShutdown = memoize(() => {
       error_name:
         errorName as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
+    // Optional Sentry reporting (env-driven, opt-in). No-op unless
+    // SENTRY_DSN is set; only sends the sanitized message for
+    // TelemetrySafeError instances, never this raw rejection reason.
+    reportErrorToSentry(reason)
   })
 })
 

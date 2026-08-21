@@ -778,21 +778,36 @@ export async function* runAgent({
     })
   }
 
-  // Record initial messages before the query loop starts, plus the agentType
-  // so resume can route correctly when subagent_type is omitted. Both writes
-  // are fire-and-forget — persistence failure shouldn't block the agent.
-  void recordSidechainTranscript(initialMessages, agentId).catch(_err =>
-    logForDebugging(`Failed to record sidechain transcript: ${_err}`),
-  )
-  void writeAgentMetadata(agentId, {
-    agentType: agentDefinition.agentType,
-    ...(worktreePath && { worktreePath }),
-    // Keep explicit cwd even when a worktree exists so resume can fall back
-    // to the child repo if the worktree is later removed.
-    ...(cwd && { cwd }),
-    ...(description && { description }),
-  }).catch(_err => logForDebugging(`Failed to write agent metadata: ${_err}`))
+  // Record agentType and identity metadata so resume can route correctly.
+  // This must be awaited before writing the initial transcript so that any
+  // resume attempt reading the transcript is guaranteed to find the metadata.
+  let metadataWritten = false
+  try {
+    await writeAgentMetadata(agentId, {
+      agentType: agentDefinition.agentType,
+      source: agentDefinition.source,
+      ...(worktreePath && { worktreePath }),
+      // Keep explicit cwd even when a worktree exists so resume can fall back
+      // to the child repo if the worktree is later removed.
+      ...(cwd && { cwd }),
+      ...(description && { description }),
+    })
+    metadataWritten = true
+  } catch (_err) {
+    logForDebugging(`Failed to write agent metadata: ${_err}`)
+  }
 
+  // Record initial messages before the query loop starts.
+  // Fire-and-forget — persistence failure shouldn't block the agent.
+  // Only write the transcript if identity metadata was successfully persisted,
+  // ensuring we never leave a transcript that would resume without its restricted identity.
+  if (metadataWritten) {
+    void recordSidechainTranscript(initialMessages, agentId).catch(_err =>
+      logForDebugging(`Failed to record sidechain transcript: ${_err}`),
+    )
+  } else {
+    logForDebugging('Skipping initial transcript write because identity metadata persistence failed')
+  }
   // Track the last recorded message UUID for parent chain continuity
   let lastRecordedUuid: UUID | null = initialMessages.at(-1)?.uuid ?? null
 
@@ -859,13 +874,16 @@ export async function* runAgent({
 
         if (isRecordableMessage(message)) {
           // Record only the new message with correct parent (O(1) per message)
-          await recordSidechainTranscript(
-            [message],
-            agentId,
-            lastRecordedUuid,
-          ).catch(err =>
-            logForDebugging(`Failed to record sidechain transcript: ${err}`),
-          )
+          // Only write if identity metadata was successfully persisted.
+          if (metadataWritten) {
+            await recordSidechainTranscript(
+              [message],
+              agentId,
+              lastRecordedUuid,
+            ).catch(err =>
+              logForDebugging(`Failed to record sidechain transcript: ${err}`),
+            )
+          }
           if (message.type !== 'progress') {
             lastRecordedUuid = message.uuid
           }

@@ -69,6 +69,46 @@ type Dependencies = {
   ): boolean
 }
 
+// Providers documented to do implicit prefix caching on OpenAI-compatible
+// endpoints (see the stableStringifyJson rationale in utils/stableStringify.ts:
+// OpenAI, Kimi/Moonshot, DeepSeek — plus xAI). For these, a stable request
+// prefix is worth more than tool-history compression.
+const PREFIX_CACHING_ROUTE_IDS = new Set([
+  'openai',
+  'xai',
+  'deepseek',
+  'moonshot',
+  'kimi-code',
+])
+const PREFIX_CACHING_HOSTNAMES = new Set([
+  'api.openai.com',
+  'api.x.ai',
+  'api.deepseek.com',
+  'api.moonshot.ai',
+  'api.moonshot.cn',
+  'api.kimi.com',
+])
+
+function providerUsesImplicitPrefixCaching(
+  routeId: string | null | undefined,
+  baseUrl: string | undefined,
+): boolean {
+  if (routeId && PREFIX_CACHING_ROUTE_IDS.has(routeId)) {
+    return true
+  }
+  if (!baseUrl) {
+    return false
+  }
+  // Parse and compare hostnames rather than substring-matching the raw URL —
+  // a path-routed gateway like https://proxy.example/api.openai.com/v1 is not
+  // the provider itself and gets no implicit caching.
+  try {
+    return PREFIX_CACHING_HOSTNAMES.has(new URL(baseUrl).hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
 export function prepareOpenAIRequest({
   request,
   params,
@@ -114,11 +154,21 @@ export function prepareOpenAIRequest({
       : shimConfig.endpointPath?.startsWith('/models/gemini-')
         ? 'gemini'
         : request.transport
+  // Mirror the native-transport guard (shouldCompressNativeToolHistory):
+  // compressToolHistory's window is measured from the end of the conversation,
+  // so each turn rewrites tool results that were already sent verbatim. On
+  // providers with implicit prefix caching that mutates the middle of the
+  // request prefix and forfeits the entire cache downstream — costing far more
+  // than the compression saves.
+  const skipCompressionForPrefixCache = providerUsesImplicitPrefixCaching(
+    runtimeShimContext.routeId,
+    request.baseUrl,
+  )
   const compressedMessages =
     effectiveTransport === 'chat_completions' ||
     effectiveTransport === 'responses' ||
     effectiveTransport === 'responses_compat'
-      ? fastPath.skipToolHistoryCompression
+      ? fastPath.skipToolHistoryCompression || skipCompressionForPrefixCache
         ? rawMessages
         : compressToolHistory(rawMessages, runtimeModel, {
           textBlockSeparator:
@@ -301,7 +351,7 @@ export function prepareOpenAIRequest({
   let responsesMessages: typeof compressedMessages | undefined
   const getResponsesInput = () => {
     responsesMessages ??= effectiveTransport === 'chat_completions'
-      ? fastPath.skipToolHistoryCompression
+      ? fastPath.skipToolHistoryCompression || skipCompressionForPrefixCache
         ? rawMessages
         : compressToolHistory(rawMessages, request.resolvedModel, {
           textBlockSeparator: '\n',

@@ -16,6 +16,7 @@ import { clearDumpState } from '../../services/api/dumpPrompts.js';
 import { resolveAgentRunModelRouting, resolveOutOfProcessTeammateProvider, resolveOutOfProcessTeammateModelOnly } from '../../services/api/agentRouting.js';
 import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
+import { isBuiltInAgentType } from './builtInAgents.js';
 import { asAgentId } from '../../types/ids.js';
 import { runWithAgentContext } from '../../utils/agentContext.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
@@ -374,6 +375,17 @@ export const AgentTool = buildTool({
     if (teamName && name) {
       // Set agent definition color for grouped UI display before spawning
       const agentDef = subagent_type ? toolUseContext.options.agentDefinitions.activeAgents.find(a => a.agentType === subagent_type) : undefined;
+
+      if (subagent_type) {
+        if (agentDef) {
+          if (agentDef.source === 'built-in') {
+            throw new Error(`Built-in agent type '${subagent_type}' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.`);
+          }
+        } else if (isBuiltInAgentType(subagent_type)) {
+          throw new Error(`Built-in agent type '${subagent_type}' cannot be spawned as a teammate. Please omit name and team_name to use it as a standard subagent.`);
+        }
+      }
+
       if (agentDef?.color) {
         setAgentColor(subagent_type!, agentDef.color);
       }
@@ -849,6 +861,7 @@ export const AgentTool = buildTool({
           // present so resume can still land in the target repository.
           void writeAgentMetadata(asAgentId(earlyAgentId), {
             agentType: selectedAgent.agentType,
+            source: selectedAgent.source,
             ...(cwd && { cwd }),
             ...(description && { description }),
           }).catch(_err => logForDebugging(`Failed to clear worktree metadata: ${_err}`));

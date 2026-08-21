@@ -403,6 +403,7 @@ missing. Install only what you need:
 | Azure Foundry | `CLAUDE_CODE_USE_FOUNDRY=1` | `npm i -g @anthropic-ai/foundry-sdk @azure/identity` |
 | Claude on Vertex AI / Gemini ADC | `CLAUDE_CODE_USE_VERTEX=1` / Gemini ADC auth | `npm i -g google-auth-library` |
 | Reading/processing images | reading an image file | `npm i -g sharp` |
+| Optional error reporting | `SENTRY_DSN` is set | `npm i -g @sentry/node`. Without this package installed, setting `SENTRY_DSN` has no effect and reporting is silently disabled. |
 
 When installing OpenClaude from source (`bun install`), all of these are
 already present as dev dependencies, so source/dev builds need no extra steps.
@@ -591,6 +592,37 @@ characters, and the map at 256 entries. These deliberately generous bounds
 reject accidental absurd values. An invalid pricing map is ignored without
 discarding unrelated settings from the same file. `/config` does not currently
 edit record-valued settings, so edit the JSON file directly.
+
+## Optional Error Reporting (Sentry)
+
+OpenClaude can optionally report sanitized error events to Sentry. This is
+disabled by default and opt-in only.
+
+```bash
+export SENTRY_DSN=https://your-key@your-org.ingest.sentry.io/your-project
+openclaude
+```
+
+Notes:
+
+- Reporting only activates when `SENTRY_DSN` is set. Unset, this is a no-op.
+- Reporting is skipped even when `SENTRY_DSN` is set if `DISABLE_TELEMETRY` or
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, matching the same privacy
+  levels used for existing telemetry (see [Runtime Hardening](#runtime-hardening)).
+- Only sanitized, telemetry-safe error messages are sent — never raw error
+  messages, which may contain file paths or other identifying information.
+- `@sentry/node` is an optional dev dependency and is **not included** in the
+  default `npm install -g @gitlawb/openclaude` install (see
+  [Optional provider packages](#optional-provider-packages)). If you set
+  `SENTRY_DSN` without installing it separately, reporting is silently
+  disabled (no error, no crash). Install it explicitly with:
+
+```bash
+  npm i -g @sentry/node
+```
+
+  Source builds (`bun install`) already include it as a dev dependency, so no
+  extra step is needed there.
 
 ## Safety strictness
 

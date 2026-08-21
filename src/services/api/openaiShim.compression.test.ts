@@ -485,7 +485,7 @@ test('FIX: 1M context model with 30 exchanges → only first 5 mid-truncated', a
   }
 })
 
-test('Kimi K3 256K selection uses its own compression window while sending the k3 API name', async () => {
+test('Kimi K3 256K selection keeps history uncompressed (implicit prefix caching) while sending the k3 API name', async () => {
   mockState.enabled = true
   process.env.OPENAI_BASE_URL = 'https://api.kimi.com/coding/v1'
   const messages = buildLongConversation(50, 5_000)
@@ -497,7 +497,63 @@ test('Kimi K3 256K selection uses its own compression window while sending the k
 
   expect(body.model).toBe('k3')
   expect(toolMessages).toHaveLength(50)
+  // api.kimi.com does implicit prefix caching: compressToolHistory's
+  // end-relative window would rewrite already-sent tool results each turn
+  // and bust the cache, so compression is skipped for this host.
+  for (const m of toolMessages) {
+    expect(m.content).not.toContain('chars omitted')
+    expect(m.content).not.toContain('[…truncated')
+  }
+})
+
+test('implicit-prefix-caching host (api.deepseek.com) skips tool-history compression', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000 // small window: would compress on a custom endpoint
+  process.env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
+  const messages = buildLongConversation(30, 5_000)
+
+  const body = await captureRequestBody(messages, 'deepseek-chat')
+  const toolMessages = getToolMessages(body)
+
+  expect(toolMessages).toHaveLength(30)
+  for (const m of toolMessages) {
+    expect(m.content.length).toBe(5_000)
+    expect(m.content).not.toContain('chars omitted')
+    expect(m.content).not.toContain('[…truncated')
+  }
+})
+
+test('non-caching custom endpoint still compresses tool history', async () => {
+  // Guard against the inverse regression: the prefix-caching skip must not
+  // disable compression for endpoints with no implicit caching. The default
+  // harness base URL (http://example.test/v1) is such an endpoint.
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000 // recent=12, mid=25
+  const messages = buildLongConversation(30, 5_000)
+
+  const body = await captureRequestBody(messages, 'gpt-4o')
+  const toolMessages = getToolMessages(body)
+
+  expect(toolMessages).toHaveLength(30)
   expect(toolMessages[0].content).toContain('chars omitted')
+})
+
+test('implicit-prefix-caching host skips compression on the Responses path too', async () => {
+  mockState.enabled = true
+  mockState.effectiveWindow = 100_000
+  const messages = buildLongConversation(30, 5_000)
+
+  const body = await captureResponsesRequestBody(messages, 'gpt-4o', {
+    baseUrl: 'https://api.openai.com/v1',
+  })
+  const outputs = (body.input as Array<{ type?: string; output?: string }>)
+    .filter(item => item.type === 'function_call_output')
+
+  expect(outputs).toHaveLength(30)
+  for (const item of outputs) {
+    expect(item.output).not.toContain('chars omitted')
+    expect(item.output).not.toContain('[…truncated')
+  }
 })
 
 // ============================================================================

@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.29.1](https://github.com/Gitlawb/openclaude/compare/v0.29.0...v0.29.1) (2026-08-19)
+
+
+### Performance Improvements
+
+* stop busting the prompt cache and slim per-turn context ([#2142](https://github.com/Gitlawb/openclaude/issues/2142)) ([31ac8a6](https://github.com/Gitlawb/openclaude/commit/31ac8a6ecae593ec08770568aa9ea651595eb162))
+
+## [0.29.0](https://github.com/Gitlawb/openclaude/compare/v0.28.0...v0.29.0) (2026-08-19)
+
+
+### Features
+
+* **aimlapi:** passwordless onboarding and resumable card top-up (3/3) ([#2032](https://github.com/Gitlawb/openclaude/issues/2032)) ([fb9102c](https://github.com/Gitlawb/openclaude/commit/fb9102c422403e9f65a7cd7a34a96bff679e8ec1))
+* **cost:** support exact custom model pricing ([#2131](https://github.com/Gitlawb/openclaude/issues/2131)) ([09eba26](https://github.com/Gitlawb/openclaude/commit/09eba26d303b3458c1922e515fe2965f2f91e71e))
+* **gateway:** add Concentrate AI provider with dynamic model discovery ([#2140](https://github.com/Gitlawb/openclaude/issues/2140)) ([084bc53](https://github.com/Gitlawb/openclaude/commit/084bc534639b1d16eca18d067bd7a2cc3634dd96))
+* merge knowledge graph + conversation arc into memdir ([#1811](https://github.com/Gitlawb/openclaude/issues/1811)) ([c461a03](https://github.com/Gitlawb/openclaude/commit/c461a0363d172c262cc06bc4d681a78e0adb883d))
+* **partners:** add ApiSmart, refresh Novita AI logo ([#2121](https://github.com/Gitlawb/openclaude/issues/2121)) ([575b407](https://github.com/Gitlawb/openclaude/commit/575b407275c96c91984e9c9cea570aa9eabc01cc))
+* **partners:** add Concentrate and Exa to partner roster ([#2141](https://github.com/Gitlawb/openclaude/issues/2141)) ([6e35903](https://github.com/Gitlawb/openclaude/commit/6e3590303bcfe7328a148e50a6ea93c4d08f995f))
+* **xai:** add Grok 4.6/4.5 to catalog, xAI provider, and gateways ([#2117](https://github.com/Gitlawb/openclaude/issues/2117)) ([7cae408](https://github.com/Gitlawb/openclaude/commit/7cae4089d60c73ed62df3d3f3fad362d5dcc9174))
+* **zai:** expand Coding Plan catalog support ([#2127](https://github.com/Gitlawb/openclaude/issues/2127)) ([ea65516](https://github.com/Gitlawb/openclaude/commit/ea655163d3cf4863063fafa538f60f5d1dfe64a3))
+
+
+### Bug Fixes
+
+* **api:** resolve swarm-field tool names by own-property ([#2123](https://github.com/Gitlawb/openclaude/issues/2123)) ([f553d08](https://github.com/Gitlawb/openclaude/commit/f553d0896d73f6a757bc73cd1bfd1f608345defc))
+* **bg:** preserve detached session terminal outcomes ([#2133](https://github.com/Gitlawb/openclaude/issues/2133)) ([108a413](https://github.com/Gitlawb/openclaude/commit/108a4134931b02985e5baa828b5d406ab392a0f8))
+* **code-reviewer:** require inline diff input and preserve read-only search in embedded-search builds ([#2102](https://github.com/Gitlawb/openclaude/issues/2102)) ([645d596](https://github.com/Gitlawb/openclaude/commit/645d596ea47e505544949e41a81379fb16ca138c))
+* extend Ling 3.0 Tiny :free availability window to Aug 17 ([ee64d80](https://github.com/Gitlawb/openclaude/commit/ee64d80c2ee70f44739cf3bbf5e57ca14614fd66))
+* Ling 3.0 Tiny :free window back to Aug 13 (official promo end) ([6277bfa](https://github.com/Gitlawb/openclaude/commit/6277bfadbc77aac733d090ad8f6dfdb727289fa6))
+* **mcp:** paginate discovery list operations ([#2132](https://github.com/Gitlawb/openclaude/issues/2132)) ([e9e6beb](https://github.com/Gitlawb/openclaude/commit/e9e6beb15b13f792f2b7de37f775fde4c445f341))
+* **web:** link release notes to GitHub ([#2114](https://github.com/Gitlawb/openclaude/issues/2114)) ([c40d663](https://github.com/Gitlawb/openclaude/commit/c40d663b70e9c9e3d3d7be5888b74507f11056d6))
+* **websearch:** reject non-positive WEB_CUSTOM env overrides ([#2124](https://github.com/Gitlawb/openclaude/issues/2124)) ([6c7a12b](https://github.com/Gitlawb/openclaude/commit/6c7a12b2a2b1e125ef925785e7029a6d291aaad4))
+
 ## [0.28.0](https://github.com/Gitlawb/openclaude/compare/v0.27.0...v0.28.0) (2026-08-11)
 
 

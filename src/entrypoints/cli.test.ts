@@ -16,6 +16,7 @@ import {
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Command } from '@commander-js/extra-typings'
 import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
@@ -326,74 +327,76 @@ describe('cli.tsx — --provider startup ordering', () => {
 
 })
 
+const mockImporters = {
+  startupProfiler: async () => ({
+    profileCheckpoint: mockProfileCheckpoint,
+  }),
+  bg: async () => ({
+    psHandler: mockPsHandler,
+    logsHandler: mockLogsHandler,
+    attachHandler: mockAttachHandler,
+    killHandler: mockKillHandler,
+    handleBgFlag: mockHandleBgFlag,
+  }),
+  bgFinalizer: async () => ({
+    prepareBackgroundSessionFinalizer: mockPrepareBackgroundSessionFinalizer,
+  }),
+  envFile: async () => ({
+    loadEnvFile: mockLoadEnvFile,
+    parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
+    reapplyRememberedEnvFileValues: mockReapplyRememberedEnvFileValues,
+    rememberLoadedEnvFileValues: mockRememberLoadedEnvFileValues,
+  }),
+  config: async () => ({
+    enableConfigs: mockEnableConfigs,
+  }),
+  managedEnv: async () => ({
+    applySafeConfigEnvironmentVariables:
+      mockApplySafeConfigEnvironmentVariables,
+  }),
+  providerProfile: async () => ({
+    applyStartupEnvFromProfile: mockApplyStartupEnvFromProfile,
+  }),
+  providerValidation: async () => ({
+    getProviderValidationError: mockGetProviderValidationError,
+    validateProviderEnvForStartupOrExit:
+      mockValidateProviderEnvForStartupOrExit,
+  }),
+  flagSettings: async () => ({
+    eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
+  }),
+  agentRouting: async () => ({
+    applyAgentProviderOverrideToEnv: mockApplyAgentProviderOverrideToEnv,
+    resolveOutOfProcessTeammateProviderFromCliArgs:
+      mockResolveOutOfProcessTeammateProviderFromCliArgs,
+  }),
+  settings: async () => ({
+    getInitialSettings: mockGetInitialSettings,
+  }),
+  githubModelsCredentials: async () => ({
+    hydrateGithubModelsTokenFromSecureStorage:
+      mockHydrateGithubModelsTokenFromSecureStorage,
+    refreshGithubModelsTokenIfNeeded: mockRefreshGithubModelsTokenIfNeeded,
+  }),
+  startupScreen: async () => ({
+    printStartupScreen: mockPrintStartupScreen,
+  }),
+  earlyInput: async () => ({
+    startCapturingEarlyInput: mockStartCapturingEarlyInput,
+  }),
+  main: async () => ({
+    main: mockCliMain,
+  }),
+}
+
 describe('cli.tsx — background routing behavior', () => {
   const bgOptions = {
     bgSessionsEnabled: true,
-    importers: {
-      startupProfiler: async () => ({
-        profileCheckpoint: mockProfileCheckpoint,
-      }),
-      bg: async () => ({
-        psHandler: mockPsHandler,
-        logsHandler: mockLogsHandler,
-        attachHandler: mockAttachHandler,
-        killHandler: mockKillHandler,
-        handleBgFlag: mockHandleBgFlag,
-      }),
-      bgFinalizer: async () => ({
-        prepareBackgroundSessionFinalizer:
-          mockPrepareBackgroundSessionFinalizer,
-      }),
-      envFile: async () => ({
-        loadEnvFile: mockLoadEnvFile,
-        parseProviderEnvFileArgs: mockParseProviderEnvFileArgs,
-        reapplyRememberedEnvFileValues: mockReapplyRememberedEnvFileValues,
-        rememberLoadedEnvFileValues: mockRememberLoadedEnvFileValues,
-      }),
-      config: async () => ({
-        enableConfigs: mockEnableConfigs,
-      }),
-      managedEnv: async () => ({
-        applySafeConfigEnvironmentVariables:
-          mockApplySafeConfigEnvironmentVariables,
-      }),
-      providerProfile: async () => ({
-        applyStartupEnvFromProfile: mockApplyStartupEnvFromProfile,
-      }),
-      providerValidation: async () => ({
-        getProviderValidationError: mockGetProviderValidationError,
-        validateProviderEnvForStartupOrExit:
-          mockValidateProviderEnvForStartupOrExit,
-      }),
-      flagSettings: async () => ({
-        eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
-      }),
-      agentRouting: async () => ({
-        applyAgentProviderOverrideToEnv: mockApplyAgentProviderOverrideToEnv,
-        resolveOutOfProcessTeammateProviderFromCliArgs:
-          mockResolveOutOfProcessTeammateProviderFromCliArgs,
-      }),
-      settings: async () => ({
-        getInitialSettings: mockGetInitialSettings,
-      }),
-      githubModelsCredentials: async () => ({
-        hydrateGithubModelsTokenFromSecureStorage:
-          mockHydrateGithubModelsTokenFromSecureStorage,
-        refreshGithubModelsTokenIfNeeded: mockRefreshGithubModelsTokenIfNeeded,
-      }),
-      startupScreen: async () => ({
-        printStartupScreen: mockPrintStartupScreen,
-      }),
-      earlyInput: async () => ({
-        startCapturingEarlyInput: mockStartCapturingEarlyInput,
-      }),
-      main: async () => ({
-        main: mockCliMain,
-      }),
-    },
+    importers: mockImporters,
   } as unknown as Parameters<CliMain>[1]
   const originalAutoRunGuard =
     process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+  const savedArgv = [...process.argv]
 
   beforeAll(async () => {
     process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = '1'
@@ -413,6 +416,10 @@ describe('cli.tsx — background routing behavior', () => {
 
   beforeEach(() => {
     clearRuntimeMocks()
+  })
+
+  afterEach(() => {
+    process.argv = [...savedArgv]
   })
 
   it('dispatches background management commands before startup work', async () => {
@@ -605,99 +612,148 @@ describe('Node 24 premature exit regression (issue #1678)', () => {
     expect(src).toMatch(/await main\(\)/)
     expect(src).not.toMatch(/^\s*void main\(\)/m)
   })
+})
 
-  describe('--yolo alias', () => {
-    it('is registered on the main command next to the canonical flag', async () => {
-      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-      expect(src).toContain(
-        ".option('--yolo, --dangerously-skip-permissions', 'Bypass all permission checks",
-      )
-    })
+describe('cli.tsx — --yolo alias (PR #1939)', () => {
+  const options = {
+    importers: mockImporters,
+  } as unknown as Parameters<CliMain>[1]
+  const originalAutoRunGuard =
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+  const savedArgv = [...process.argv]
 
-    it('is registered on the ssh stub command', async () => {
-      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-      const sshCmd = src.indexOf("program.command('ssh <host> [dir]')")
-      expect(sshCmd).toBeGreaterThanOrEqual(0)
-      const sshAction = src.indexOf('.action(async () => {', sshCmd)
-      const sshBlock = src.slice(sshCmd, sshAction)
-      expect(sshBlock).toContain(
-        "--yolo, --dangerously-skip-permissions",
-      )
-    })
+  beforeAll(async () => {
+    process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = '1'
+    const entrypoint = await import('./cli.js')
+    runCliEntrypoint = entrypoint.main
+  })
 
-    it('is recognized by the cc:// and ssh raw-argv scans', async () => {
-      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-      // cc:// sets remote state via includes(); the rewrites and ssh path strip
-      // both spellings from the forwarded argv.
-      expect(src).toContain(
-        "rawCliArgs.includes('--dangerously-skip-permissions') || rawCliArgs.includes('--yolo')",
-      )
-      expect(src).toContain("arg !== '--dangerously-skip-permissions' && arg !== '--yolo'")
-      expect(src).toContain(
-        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
-      )
-    })
-
-    it('strips both bypass spellings from cc:// and ssh forwarded argv', async () => {
-      const src = await Bun.file(`${import.meta.dir}/../main.tsx`).text()
-      // Passing both flags at once must not leave one behind as an unknown
-      // option on the headless `open` subcommand or in the ssh forwarded line.
-      const ccBlockStart = src.indexOf('Check for cc:// or cc+unix:// URL in argv')
-      const ccBlockEnd = src.indexOf('// Handle deep link URIs early', ccBlockStart)
-      const ccBlock = src.slice(ccBlockStart, ccBlockEnd)
-      const ccOccurrences =
-        ccBlock.split("'--dangerously-skip-permissions'").length - 1 +
-        ccBlock.split("'--yolo'").length - 1
-      expect(ccOccurrences).toBeGreaterThanOrEqual(4)
-
-      const sshBlockStart = src.indexOf("if (rawCliArgs[0] === 'ssh')")
-      const sshBlockEnd = src.indexOf('// else: `claude ssh` with no host', sshBlockStart)
-      const sshBlock = src.slice(sshBlockStart, sshBlockEnd)
-      expect(sshBlock).toContain(
-        "if (arg === '--dangerously-skip-permissions' || arg === '--yolo')",
-      )
-    })
-
-    it('is recognized by the skills leading scan so --yolo skills list routes', async () => {
-      const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
-      const setStart = src.indexOf('SKILLS_LEADING_BOOLEAN_FLAGS = new Set([')
-      expect(setStart).toBeGreaterThanOrEqual(0)
-      const setEnd = src.indexOf(']', setStart)
-      const setBody = src.slice(setStart, setEnd)
-      expect(setBody).toContain("'--yolo'")
-    })
-
-    it('is recognized by the skills trailing scan so skills list --yolo routes', async () => {
-      const src = await Bun.file(
-        `${import.meta.dir}/../cli/handlers/skillsCli.ts`,
-      ).text()
-      const setStart = src.indexOf('TRAILING_GLOBAL_BOOLEAN_FLAGS = new Set([')
-      expect(setStart).toBeGreaterThanOrEqual(0)
-      const setEnd = src.indexOf(']', setStart)
-      const setBody = src.slice(setStart, setEnd)
-      expect(setBody).toContain("'--yolo'")
-    })
-
-    it('appears in the built CLI help', async () => {
-      const fs = await import('node:fs')
-      const path = await import('node:path')
-      const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
-      expect(fs.existsSync(cliPath)).toBe(true)
-
-      const originalGuard = process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+  afterAll(() => {
+    if (originalAutoRunGuard === undefined) {
       delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
-      try {
-        const proc = Bun.spawn(['node', cliPath, '--help'], { stdout: 'pipe' })
-        const text = await new Response(proc.stdout).text()
-        await proc.exited
-        expect(text).toContain('--yolo, --dangerously-skip-permissions')
-      } finally {
-        if (originalGuard === undefined) {
-          delete process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
-        } else {
-          process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN = originalGuard
-        }
-      }
-    })
+    } else {
+      process.env.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN =
+        originalAutoRunGuard
+    }
+  })
+
+  beforeEach(() => {
+    clearRuntimeMocks()
+  })
+
+  afterEach(() => {
+    process.argv = [...savedArgv]
+  })
+
+  // Mirrors the registration in main.tsx. commander derives the option's
+  // attribute from the LAST long flag, so both spellings set the same
+  // dangerouslySkipPermissions key — the whole reason a native alias works.
+  const buildProgram = () =>
+    new Command()
+      .option(
+        '--yolo, --dangerously-skip-permissions',
+        'bypass',
+        () => true,
+      )
+      .allowExcessArguments()
+      .exitOverride()
+
+  it('commander resolves --yolo to dangerouslySkipPermissions', () => {
+    expect(
+      buildProgram().parse(['node', 'x', '--yolo']).opts()
+        .dangerouslySkipPermissions,
+    ).toBe(true)
+    expect(
+      buildProgram().parse(['node', 'x', '--dangerously-skip-permissions']).opts()
+        .dangerouslySkipPermissions,
+    ).toBe(true)
+    expect(
+      buildProgram().parse(['node', 'x']).opts().dangerouslySkipPermissions,
+    ).toBeUndefined()
+  })
+
+  it('passes args through to cliMain verbatim — no per-token --yolo rewrite', async () => {
+    // Regression guard for the six correctness bugs the old pre-parse argv
+    // rewrite caused: --yolo must reach commander untouched, whatever position
+    // it sits in (after a value flag, after `--`, or on a subcommand), so
+    // commander — not a hand-rolled scanner — resolves it.
+    const cases = [
+      ['--yolo', '-p', 'hi'],
+      ['--system-prompt', '--yolo'],
+      ['-p', '--', '--yolo'],
+      ['mcp', 'add', '--yolo', 'srv', 'cmd'],
+    ]
+    for (const argv of cases) {
+      clearRuntimeMocks()
+      process.argv = ['node', 'openclaude', ...argv]
+      let argvSeenByCliMain: string[] | undefined
+      mockCliMain.mockImplementationOnce(async () => {
+        argvSeenByCliMain = [...process.argv]
+      })
+
+      await runCliEntrypoint(argv, options)
+
+      expect(argvSeenByCliMain).toEqual(['node', 'openclaude', ...argv])
+    }
+  })
+
+  it('does not mutate the host process.argv (no leak of a caller args array)', async () => {
+    // main() must not push an explicit args array into the process-global argv:
+    // cliMain reads the real process.argv, and leaking a caller's args (e.g. a
+    // bypass flag) into it would corrupt an overlapping call or the host.
+    const hostArgv = ['node', 'openclaude', 'host-arg']
+    process.argv = [...hostArgv]
+    await runCliEntrypoint(['--yolo', '-p', 'hi'], options)
+    expect(process.argv).toEqual(hostArgv)
+  })
+
+  it('the built CLI lists --yolo on the main, ssh, and open command help (live registration)', async () => {
+    // Behavioral proof the alias is registered on the real commands — not dead
+    // code or the wrong command: commander only prints an option in --help if it
+    // is actually registered. --help short-circuits before any startup.
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const cliPath = path.resolve(import.meta.dir, '../../dist/cli.mjs')
+    if (!fs.existsSync(cliPath)) return // needs `bun run build`; always present in CI
+    // The describe's beforeAll sets OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN=1
+    // to keep main() from auto-running in-process; the child must NOT inherit it
+    // or the entrypoint never runs and prints nothing.
+    const childEnv: Record<string, string | undefined> = {
+      ...process.env,
+      OPENCLAUDE_DISABLE_TELEMETRY: '1',
+    }
+    delete childEnv.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+    for (const argv of [
+      ['--yolo', '--help'],
+      ['ssh', '--yolo', '--help'],
+      ['open', '--yolo', '--help'],
+    ]) {
+      const out = Bun.spawnSync(['node', cliPath, ...argv], { env: childEnv })
+      const text = `${out.stdout.toString()}${out.stderr.toString()}`
+      expect(out.exitCode).toBe(0)
+      expect(text).not.toContain('unknown option')
+      expect(text).toContain('--yolo, --dangerously-skip-permissions')
+    }
+  }, { timeout: 20000 })
+
+  it('has no production startup gates using naive includes print checks', async () => {
+    // All pre-Commander print-mode decisions must go through the shared
+    // arity-aware predicate. A naive .includes('-p') / .includes('--print')
+    // disagrees with Commander on value-consumed tokens such as
+    // `--system-prompt --print` or `--model -p`.
+    const files = [
+      'src/utils/interactivity.ts',
+      'src/utils/earlyInput.ts',
+      'src/utils/gracefulShutdown.ts',
+      'src/utils/providerValidation.ts',
+      'src/services/api/logging.ts',
+      'src/cli/bg.ts',
+      'src/main.tsx',
+    ]
+    for (const file of files) {
+      const src = await Bun.file(`${import.meta.dir}/../../${file}`).text()
+      expect(src).not.toMatch(/\.includes\(['"]-p['"]\)/)
+      expect(src).not.toMatch(/\.includes\(['"]--print['"]\)/)
+    }
   })
 })

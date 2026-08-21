@@ -46,7 +46,7 @@ const SKILLS_LEADING_BOOLEAN_FLAGS = new Set([
   '--bare',
   '--debug',
   '--debug-to-stderr',
-  '--yolo',
+  '--yolo', // alias for --dangerously-skip-permissions
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',
   '--disable-slash-commands',

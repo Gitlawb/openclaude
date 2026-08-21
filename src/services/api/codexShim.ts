@@ -1,6 +1,5 @@
 import { APIError } from '@anthropic-ai/sdk'
 import { buildAnthropicUsageFromRawUsage } from './cacheMetrics.js'
-import { compressToolHistory } from './compressToolHistory.js'
 import { fetchWithProxyRetry } from './fetchWithProxyRetry.js'
 import { stableStringifyJson } from '../../utils/stableStringify.js'
 import type {
@@ -578,18 +577,20 @@ export async function performCodexRequest(options: {
   signal?: AbortSignal
   fetcher?: typeof fetchWithProxyRetry
 }): Promise<Response> {
-  const compressedMessages = compressToolHistory(
-    options.params.messages as Array<{
-      role?: string
-      message?: { role?: string; content?: unknown }
-      content?: unknown
-    }>,
-    options.request.resolvedModel,
-    // Codex Responses flattens structured tool-result text with a single
-    // newline, unlike Chat's double-newline message serialization.
-    { textBlockSeparator: '\n' },
-  )
-  const input = convertAnthropicMessagesToResponsesInput(compressedMessages)
+  // No tool-history compression on the Codex transport: Codex talks to
+  // OpenAI Responses backends, which do implicit prefix caching, and
+  // compressToolHistory's end-relative window rewrites already-sent tool
+  // results each turn — mutating the request prefix and forfeiting the
+  // cache, which costs more than the compression saves. This mirrors the
+  // prefix-caching skip in openaiShim/requestPreparation.ts; context
+  // pressure is handled by the compaction machinery, as on the native
+  // Anthropic transport.
+  const rawMessages = options.params.messages as Array<{
+    role?: string
+    message?: { role?: string; content?: unknown }
+    content?: unknown
+  }>
+  const input = convertAnthropicMessagesToResponsesInput(rawMessages)
   const body: Record<string, unknown> = {
     model: options.request.resolvedModel,
     input: input.length > 0

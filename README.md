@@ -88,11 +88,29 @@ OpenClaude is also mirrored to GitLawb:
         </picture>
       </a>
     </td>
+    <td align="center" width="150" height="80">
+      <a href="https://concentrate.ai/">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/concentrate-logo-dark.svg">
+          <img src="docs/assets/concentrate-logo.svg" alt="Concentrate logo" width="64">
+        </picture>
+      </a>
+    </td>
+    <td align="center" width="150" height="80">
+      <a href="https://exa.ai/">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="docs/assets/exa-logo-dark.svg">
+          <img src="docs/assets/exa-logo.svg" alt="Exa logo" width="110">
+        </picture>
+      </a>
+    </td>
   </tr>
   <tr>
     <td align="center"><a href="https://aimlapi.com/"><strong>AI/ML API</strong></a></td>
     <td align="center"><a href="https://novita.ai/"><strong>Novita AI</strong></a></td>
     <td align="center"><a href="https://www.apismart.ai"><strong>ApiSmart</strong></a></td>
+    <td align="center"><a href="https://concentrate.ai/"><strong>Concentrate</strong></a></td>
+    <td align="center"><a href="https://exa.ai/"><strong>Exa</strong></a></td>
   </tr>
 </table>
 
@@ -361,15 +379,18 @@ OpenClaude supports multiple providers, but behavior is not identical across all
 
 For best results, use models with strong tool/function calling support.
 
+
+
 ## Agents
 
 Route different agents to different models (cost optimization, splitting work
 by model strength), cap sub-agent tool steps with `maxSteps`, and tune GitHub
-Copilot sub-agent behavior. All settings-driven:
+Copilot sub-agent behavior. Configured via settings, agent frontmatter, and
+environment variables:
 
-- per-agent provider/model overrides via `agentModels` + `agentRouting` in `~/.openclaude.json`
+- per-agent provider/model overrides via `agentModels` + `agentRouting` in `~/.openclaude/settings.json`
 - model-only routes that reuse your current provider's credentials
-- built-in agents (`Explore`, `Plan`, `verification`) routable by type name
+- built-in agents (`Explore` and `Plan` [feature-gated], `verification` [feature-gated: requires `VERIFICATION_AGENT` + `tengu_hive_evidence`], `code-reviewer` [requires diff inline]) routable by type name
 
 See [Agent Routing and Step Limits](docs/agent-routing.md) for the full guide.
 
