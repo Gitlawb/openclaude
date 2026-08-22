@@ -10,6 +10,7 @@ OpenClaude is a rapidly evolving open-source coding-agent CLI with support for m
 - [Proposing New Features](#proposing-new-features)
 - [Pull Requests](#pull-requests)
   - [Automated Review (CodeRabbit)](#automated-review-coderabbit)
+  - [Keep Your Branch Current](#keep-your-branch-current)
   - [PR Follow-Up Requirements](#pr-follow-up-requirements)
   - [Duplicate PRs](#duplicate-prs)
   - [What Gets Closed Without Review](#what-gets-closed-without-review)
@@ -74,15 +75,32 @@ We use [CodeRabbit](https://coderabbit.ai) to assist with PR reviews. CodeRabbit
 
 **PR authors must address CodeRabbit findings** — do not ignore its comments and wait for a maintainer override. If you're waiting for a maintainer review and CodeRabbit has completed its review with findings, fix those findings first. Maintainer reviews will not proceed until automated review feedback has been addressed.
 
+One important caveat: **verify each suggested change against your PR's stated scope and intent before applying it.** Automated reviewers can suggest fixes that accidentally force changes to surfaces you never intended to touch, or that quietly pull the PR away from its original framing. When a suggestion would cause that kind of drift:
+
+- you may decline it with a brief justification in the comment thread
+- when unsure whether a suggestion is in scope, ask a maintainer before applying or declining it
+
+Declining an out-of-scope suggestion with a clear reason is acceptable. Silently ignoring findings is not — every finding should end up either fixed, declined with justification, or escalated to a maintainer.
+
+### Keep Your Branch Current
+
+The PR author is responsible for keeping their branch current with `main`. Rebase onto `main` whenever you resume work on a PR, and before pushing follow-up fixes.
+
+Stale branches cause real problems: maintainers end up requesting fixes for issues that are already resolved on `main`, which produces endless fix-churn requests for work nobody needs to do again. A quick rebase before each update keeps review feedback relevant and avoids wasted rounds on both sides.
+
+Note that PRs with merge conflicts will not be reviewed or approved regardless (see [Pull Requests](#pull-requests)) — staying current prevents that state entirely.
+
 ### PR Follow-Up Requirements
 
-Submitting a PR is a commitment to see it through. Please be prepared to:
+Submitting a PR is a commitment to see it through to the end. Review here is in-depth and can take multiple rounds — do not be surprised if every review pass results in follow-up fix requests; that is the normal shape of this project's review process, not a signal that your PR is unwelcome. Please be prepared to:
 
 - **Respond to review feedback within 1 week** of a maintainer or CodeRabbit review request
 - **If you need more time**, leave a comment explaining your situation and expected timeline
 - **PRs with no activity for 2 weeks after a review request** will be closed as abandoned. At that point, another contributor may pick up the work under a new PR
 
 This policy ensures the project stays maintainable and that contributor queue doesn't grow stale. We understand life happens — a quick note explaining a delay goes a long way.
+
+If you find yourself getting fix requests on every round, treat that as a signal rather than noise: repeated findings on the same PR usually trace back to a core design issue, with each surface-level patch exposing another symptom. Investigate the root cause of what reviewers are flagging instead of patching the reported problem. And if you are driving the work with an AI agent, this is also the moment to re-evaluate how you are prompting it — vague or narrow prompts produce surface fixes; detailed instructions to investigate the requested change and its surrounding design produce fixes that hold up under review.
 
 ### Duplicate PRs
 
@@ -104,6 +122,7 @@ PRs may be closed without review if they:
 - drift from the approved scope of a linked issue
 - change the project's language, core runtime, or dependency stack without prior maintainer agreement
 - are drive-by contributions with no context, no tests, and no clear purpose
+- submit a PR with the [PR template](.github/pull_request_template.md) ignored — generic filler text or leftover template placeholders (`what changed`, `provider/model path tested:`, etc.) show the description was not written for your PR. These will not be reviewed until corrected and risk being closed without review
 - are automated bounty-hunting or mass-submitted PRs that provide little meaningful value to the codebase
 - are advertisements, sales pitches, or promotional submissions for a product or service — open an issue first to discuss with maintainers if you believe your product or service is relevant to this project
 
@@ -217,51 +236,37 @@ bun run dev:profile
 
 ## Validation
 
-CI runs the following checks on every PR. Run the relevant ones locally before pushing.
+CI runs a fixed set of checks on every PR (see `.github/workflows/pr-checks.yml`). This section is the **authoritative pre-push validation contract** — `AGENTS.md` defers to it. **Run the full suite locally and get it green before every push to an open PR, including follow-up pushes during review.** Do not push commits with failing or unrun checks and wait for GitHub CI to discover the problem — wasted Actions minutes are a real cost on this repo.
 
-Full check (smoke + unit tests):
+The pre-push suite (mirrors CI exactly):
 
 ```bash
+bun install --frozen-lockfile
+bun run build
 bun run check
-```
-
-Full test pass (single concurrency, matches CI):
-
-```bash
-bun run test:full
-```
-
-Provider tests:
-
-```bash
-bun run test:provider
-```
-
-Provider recommendation tests:
-
-```bash
-bun run test:provider-recommendation
-```
-
-Typecheck (enforced by the dedicated `typecheck` CI job):
-
-```bash
 bun run typecheck
 bun run typecheck:type-tests
+node bin/openclaude --version
+NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
+bun run test:provider
+npm run test:provider-recommendation
+bun run security:pr-scan -- --base origin/main --head HEAD
 ```
 
-PR intent scan:
+Notes on that suite:
+
+- `bun run check` already includes smoke, deadcode, and the full unit pass (`test:full`) — do not run them separately, or you execute the suite twice.
+- The security scan is given explicit `--base`/`--head` refs to match CI, which scans against the PR's actual base commit. For the local command to match CI exactly, `origin/main` must resolve to the PR's real base — i.e., fetch it (`git fetch origin main`) and keep your branch rebased onto current `origin/main` before scanning. Without that invariant, the script's built-in defaults would also be only an approximation.
+
+If your PR touches `web/`, add the web job's checks (the web workspace has its own lockfile-driven install):
 
 ```bash
-bun run security:pr-scan
-```
-
-Web (if touching `web/`):
-
-```bash
+bun install --cwd web --frozen-lockfile
 bun run web:typecheck
 bun run web:build
 ```
+
+Cross-platform exception: this is the only carve-out from the full suite. You are required to run what is runnable on your platform; platform-specific verification you cannot execute locally (e.g., Windows-specific behavior when developing on macOS) is best-effort and may be left to CI. Everything else above is expected to be green on your machine before it reaches GitHub.
 
 PRs that fail CI checks will not be merged.
 
