@@ -38,6 +38,7 @@ import {
   recordExternalEgressOmission,
   recordTranscript,
   resetProjectForTesting,
+  resetSessionFilePointer,
   setInternalEventWriter,
   setRemoteIngressUrlForTesting,
   setSessionFileForTesting,
@@ -2923,3 +2924,451 @@ describe('external egress projection contract matrix', () => {
     expect(JSON.stringify(filtered)).not.toContain('MX-SUB-LEAK')
   })
 })})
+
+describe('jatmn review 5000432029 regressions', () => {
+  // --- Finding 1: preserve hydration witnesses through print-mode resume ---
+  test('F1: hydration witness survives resetSessionFilePointer (print resume order)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f1-reset-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(601)
+    const childUuid = id(602)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+      // Hydration establishes the verified remote baseline (seed exists remotely).
+      markRemoteEgressHydratedForTesting([{ uuid: seedUuid }])
+      // Non-fork --print --resume then resets the session pointer, clearing the
+      // transient delivered set; the baseline must survive and re-seed it.
+      await resetSessionFilePointer()
+      // Re-point the session file (reset nulled it) and append a child of seed.
+      setSessionFileForTesting(path)
+      const child = {
+        type: 'user',
+        uuid: childUuid,
+        parentUuid: seedUuid,
+        timestamp: '2026-08-12T00:00:01.000Z',
+        message: { role: 'user', content: 'child of hydrated parent after reset' },
+      } as unknown as Message
+      await recordTranscript([child], undefined, seedUuid)
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // The hydrated seed remains a verified remote parent across the reset.
+      expect(remoteChild?.parentUuid).toBe(seedUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // --- Finding 2: serialize projection state with overlapping remote appends ---
+  test('F2: child waits for deferred parent delivery and keeps its parent (success)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f2-serial-'))
+    const path = join(dir, 'session.jsonl')
+    const parentUuid = id(611)
+    const childUuid = id(612)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    let releaseParent: () => void = () => {}
+    let signalParentRequested: () => void = () => {}
+    const parentGate = new Promise<void>(resolve => {
+      releaseParent = resolve
+    })
+    const parentRequested = new Promise<void>(resolve => {
+      signalParentRequested = resolve
+    })
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        if (payload.uuid === parentUuid) {
+          signalParentRequested()
+          await parentGate
+        }
+        remotePayloads.push(payload)
+      })
+
+      // Fire-and-forget the parent; its delivery is gated once requested.
+      const parentDone = recordTranscript([
+        user(parentUuid, null, 'parent'),
+      ] as unknown as Message[])
+      await parentRequested
+      // Start the child while the parent delivery is still in flight.
+      const childDone = recordTranscript(
+        [user(childUuid, parentUuid, 'child')] as unknown as Message[],
+        undefined,
+        parentUuid,
+      )
+      releaseParent()
+      await Promise.all([parentDone, childDone])
+      await flushSessionStorage()
+
+      // Serialized delivery: parent first, child second, child keeps parent.
+      expect(remotePayloads.map(p => p.uuid)).toEqual([parentUuid, childUuid])
+      expect(remotePayloads.find(p => p.uuid === childUuid)?.parentUuid).toBe(
+        parentUuid,
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('F2: child reparents past a deferred failed parent (failure)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f2-fail-'))
+    const path = join(dir, 'session.jsonl')
+    const parentUuid = id(621)
+    const childUuid = id(622)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    let releaseParent: () => void = () => {}
+    let signalParentRequested: () => void = () => {}
+    const parentGate = new Promise<void>(resolve => {
+      releaseParent = resolve
+    })
+    const parentRequested = new Promise<void>(resolve => {
+      signalParentRequested = resolve
+    })
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        if (payload.uuid === parentUuid) {
+          signalParentRequested()
+          await parentGate
+          throw new Error('simulated transport rejection')
+        }
+        remotePayloads.push(payload)
+      })
+
+      const parentDone = recordTranscript([
+        user(parentUuid, null, 'parent'),
+      ] as unknown as Message[])
+      await parentRequested
+      const childDone = recordTranscript(
+        [user(childUuid, parentUuid, 'child')] as unknown as Message[],
+        undefined,
+        parentUuid,
+      )
+      releaseParent()
+      await Promise.all([parentDone, childDone])
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // The failed parent is never emitted nor kept as an ancestor.
+      expect(remotePayloads.map(p => p.uuid)).not.toContain(parentUuid)
+      expect(remoteChild?.parentUuid).toBeNull()
+      expect(remoteChild?.parentUuid).not.toBe(parentUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // --- Finding 3: retain delivery provenance for old branch parents ---
+  test('F3: branch target of a delivered parent evicted past the witness bound keeps it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f3-branch-'))
+    const path = join(dir, 'session.jsonl')
+    const firstUuid = id(701)
+    const childUuid = id(799)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      await recordTranscript([user(firstUuid, null, 'first')] as unknown as Message[])
+      await flushSessionStorage()
+      let prev = firstUuid
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 10; n++) {
+        const u = id(710 + n)
+        await recordTranscript(
+          [user(u, prev, 'flood')] as unknown as Message[],
+          undefined,
+          prev,
+        )
+        prev = u
+      }
+      await flushSessionStorage()
+
+      // Branch child targets the first delivered entry (evicted from the cap).
+      await recordTranscript(
+        [user(childUuid, firstUuid, 'branch child')] as unknown as Message[],
+        undefined,
+        firstUuid,
+      )
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // The durable journal proves the old parent was delivered: keep it, not
+      // the newest tip and not the null root.
+      expect(remoteChild?.parentUuid).toBe(firstUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('F3: hydrated history beyond the witness bound keeps its parent', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f3-hydrate-'))
+    const path = join(dir, 'session.jsonl')
+    const oldestUuid = id(800)
+    const childUuid = id(899)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      // Hydration returns more entries than the in-memory witness cap.
+      const hydrated: Array<{ uuid: UUID }> = []
+      for (let n = 0; n < MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE + 10; n++) {
+        hydrated.push({ uuid: id(800 + n) })
+      }
+      markRemoteEgressHydratedForTesting(hydrated)
+
+      // A child targeting the OLDEST hydrated entry (evicted from the cap).
+      await recordTranscript(
+        [user(childUuid, oldestUuid, 'child of old hydrated')] as unknown as Message[],
+        undefined,
+        oldestUuid,
+      )
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBe(oldestUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('F3: local-only parent (never delivered) still projects to null root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f3-local-'))
+    const path = join(dir, 'session.jsonl')
+    const preSinkUuid = id(901)
+    const childUuid = id(902)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      await writeFile(path, '')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      // No sink yet: the pre-sink parent is local-only and never delivered.
+      await recordTranscript([user(preSinkUuid, null, 'pre-sink')] as unknown as Message[])
+      await flushSessionStorage()
+
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+      await recordTranscript(
+        [user(childUuid, preSinkUuid, 'child')] as unknown as Message[],
+        undefined,
+        preSinkUuid,
+      )
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      // Not in the journal (never delivered): project to the null root, never
+      // to the local-only parent.
+      expect(remoteChild?.parentUuid).toBeNull()
+      expect(remoteChild?.parentUuid).not.toBe(preSinkUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // --- Finding 4: skip JSON primitives without poisoning resume projection ---
+  test('F4: primitives in transcript do not poison the rebuild path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f4-rebuild-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(911)
+    const omittedUuid = id(912)
+    try {
+      const lines = [
+        'null',
+        '42',
+        '"a string"',
+        '[1,2,3]',
+        '{"type":"user","uuid":"' + seedUuid + '","parentUuid":null,"message":{"role":"user","content":"seed"}}',
+        JSON.stringify(listing(omittedUuid, seedUuid, 'skill_listing', 'F4-LEAK')),
+      ]
+      await writeFile(path, lines.join('\n') + '\n')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+
+      rebuildRemoteEgressOmittedParentsForTesting()
+      // Primitive lines must be skipped, not conflated with an incomplete scan.
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(false)
+      // The listing omission is still recorded and reparents to the seed.
+      expect(
+        getRemoteEgressOmittedParentsForTesting().get(omittedUuid),
+      ).toBe(seedUuid)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('F4: primitives in transcript do not poison the on-demand ancestry path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'openclaude-egress-f4-ondemand-'))
+    const path = join(dir, 'session.jsonl')
+    const seedUuid = id(921)
+    const omittedUuid = id(922)
+    const childUuid = id(923)
+    const remotePayloads: Array<Record<string, unknown>> = []
+    try {
+      const lines = [
+        'null',
+        '42',
+        '{"type":"user","uuid":"' + seedUuid + '","parentUuid":null,"message":{"role":"user","content":"seed"}}',
+        JSON.stringify(listing(omittedUuid, seedUuid, 'skill_listing', 'F4-LEAK')),
+      ]
+      await writeFile(path, lines.join('\n') + '\n')
+      resetProjectForTesting()
+      clearSessionMessagesCache()
+      setSessionFileForTesting(path)
+      process.env.USER_TYPE = 'external'
+      process.env.CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT = '1'
+      process.env.NODE_ENV = 'development'
+      process.env.TEST_ENABLE_SESSION_PERSISTENCE = 'true'
+      process.env.ENABLE_SESSION_PERSISTENCE = 'true'
+      setSessionPersistenceDisabled(false)
+      setInternalEventWriter(async (_eventType, payload) => {
+        remotePayloads.push(payload)
+      })
+
+      rebuildRemoteEgressOmittedParentsForTesting()
+      expect(getRemoteEgressOmissionRebuildIncompleteForTesting()).toBe(false)
+
+      // A child of the withheld parent resolves on-demand despite the primitive
+      // lines. The withheld parent's nearest kept ancestor (seed) is itself
+      // local-only (never delivered), so the child projects to the safe root.
+      await recordTranscript(
+        [user(childUuid, omittedUuid, 'child')] as unknown as Message[],
+        undefined,
+        omittedUuid,
+      )
+      await flushSessionStorage()
+
+      const remoteChild = remotePayloads.find(p => p.uuid === childUuid)
+      expect(remoteChild).toBeDefined()
+      expect(remoteChild?.parentUuid).toBeNull()
+      expect(remoteChild?.parentUuid).not.toBe(omittedUuid)
+      expect(JSON.stringify(remotePayloads)).not.toContain('F4-LEAK')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  // --- Finding 5: validate parent UUIDs before rebuilding the projected chain ---
+  test('F5: numeric parentUuid is re-rooted and never emitted as ancestry', () => {
+    process.env.USER_TYPE = 'external'
+    const out = filterJsonlForExternalEgress(
+      [
+        JSON.stringify({
+          type: 'attachment',
+          uuid: id(931),
+          parentUuid: 123,
+          attachment: { type: 'skill_listing' },
+        }),
+        JSON.stringify({
+          type: 'user',
+          uuid: id(932),
+          parentUuid: id(931),
+          message: { role: 'user', content: 'child' },
+        }),
+      ].join('\n'),
+    )
+    expect(out).not.toContain('skill_listing')
+    const parsed = out
+      .split('\n')
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { uuid: string; parentUuid: unknown })
+    expect(parsed.length).toBe(1)
+    expect(parsed[0]?.uuid).toBe(id(932))
+    // The survivor is re-rooted to null, never carrying the numeric parent.
+    expect(parsed[0]?.parentUuid).toBeNull()
+  })
+
+  test('F5: malformed UUID-string parent is re-rooted, retained survivor keeps valid chain', () => {
+    process.env.USER_TYPE = 'external'
+    const out = filterJsonlForExternalEgress(
+      [
+        JSON.stringify({
+          type: 'user',
+          uuid: id(941),
+          parentUuid: 'not-a-uuid',
+          message: { role: 'user', content: 'root-ish' },
+        }),
+        JSON.stringify({
+          type: 'user',
+          uuid: id(942),
+          parentUuid: id(941),
+          message: { role: 'user', content: 'child' },
+        }),
+      ].join('\n'),
+    )
+    const parsed = out
+      .split('\n')
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { uuid: string; parentUuid: unknown })
+    expect(parsed.map(p => p.uuid)).toEqual([id(941), id(942)])
+    // The malformed-parent survivor is re-rooted to null.
+    expect(parsed[0]?.parentUuid).toBeNull()
+    // The child of a valid parent keeps its link.
+    expect(parsed[1]?.parentUuid).toBe(id(941))
+  })
+})

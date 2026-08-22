@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, fstatSync, openSync, readSync } from 'fs'
+import { appendFileSync, closeSync, fstatSync, openSync, readSync, writeFileSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -464,12 +464,19 @@ const SKIP_FIRST_PROMPT_PATTERN =
  * chain. Including them caused chain forks that orphaned real conversation
  * messages on resume (see #14373, #23537).
  */
-export function isTranscriptMessage(entry: Entry): entry is TranscriptMessage {
+export function isTranscriptMessage(entry: unknown): entry is TranscriptMessage {
+  // Runtime boundary for untrusted JSONL values: jsonParse can yield null,
+  // primitives, or arrays. Dereferencing .type on those throws inside the
+  // rebuild / on-demand parsers and poisons an otherwise-recoverable scan.
+  if (typeof entry !== 'object' || entry === null) {
+    return false
+  }
+  const type = (entry as { type?: unknown }).type
   return (
-    entry.type === 'user' ||
-    entry.type === 'assistant' ||
-    entry.type === 'attachment' ||
-    entry.type === 'system'
+    type === 'user' ||
+    type === 'assistant' ||
+    type === 'attachment' ||
+    type === 'system'
   )
 }
 
@@ -993,6 +1000,16 @@ class Project {
   // via successful persistToRemote or verified remote hydration.
   private remoteEgressDeliveredParents = new Set<UUID>()
   private lastRemoteEgressUuid: UUID | null = null
+  // Authoritative hydration baseline: UUIDs confirmed to exist on the remote
+  // sink by hydration (Session Ingress / CCR v2). resetSessionFile clears the
+  // transient delivered set + tip when the session pointer is reset during
+  // --resume, but this baseline survives so the first post-resume child can
+  // still reparent to a verified remote parent instead of the null root.
+  // Keyed to the hydrated session so a different-session reset (/clear,
+  // regenerateSessionId) drops stale witnesses instead of inheriting them.
+  private remoteEgressHydrationBaseline = new Set<UUID>()
+  private remoteEgressHydrationBaselineTip: UUID | null = null
+  private remoteEgressHydrationBaselineSessionId: UUID | null = null
   // True when rebuild could not establish complete ancestor closure
   // (oversized mid-line skip, scan budget exhausted, unresolved tips).
   private remoteEgressOmissionRebuildIncomplete = false
@@ -1002,6 +1019,13 @@ class Project {
   // Bounded retry counter: avoid repeated synchronous disk scans on every
   // append when a transcript is permanently unrecoverable.
   private remoteEgressRebuildRetryCount = 0
+  // Serializes remote projection + delivery + witness mutation per process.
+  // recordTranscript is fire-and-forget at the UI boundary, so concurrent
+  // appends can otherwise race lastRemoteEgressUuid / delivery witnesses and
+  // export a linear chain as out-of-order roots. Each step runs after the
+  // prior step settles; the stored tail always resolves so one rejection does
+  // not poison later appends.
+  private remoteEgressChain: Promise<void> = Promise.resolve()
 
   constructor() {}
 
@@ -1024,6 +1048,9 @@ class Project {
     this.remoteEgressRebuildIncompleteWarned = false
     this.remoteEgressRebuildRetryCount = 0
     this.lastRemoteEgressUuid = null
+    this.remoteEgressHydrationBaseline = new Set()
+    this.remoteEgressHydrationBaselineTip = null
+    this.remoteEgressHydrationBaselineSessionId = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
     this.pendingDirectAppends = new Map()
@@ -1372,7 +1399,7 @@ class Project {
       seenAncestors.add(targetParentUuid)
       if (
         targetParentUuid === this.lastRemoteEgressUuid ||
-        this.remoteEgressDeliveredParents.has(targetParentUuid)
+        this.isRemoteEgressDelivered(targetParentUuid)
       ) {
         parentConfirmedSafe = true
         break
@@ -1543,6 +1570,24 @@ class Project {
     this.remoteEgressRebuildIncompleteWarned = false
     this.remoteEgressRebuildRetryCount = 0
     this.lastRemoteEgressUuid = null
+    // Re-seed delivery witnesses from the hydration baseline when the reset
+    // targets the hydrated session (non-fork --resume). For a different
+    // session (/clear, regenerateSessionId) the baseline is stale and must be
+    // dropped so a fresh session never inherits another session's witnesses.
+    const currentSessionId = getSessionId() as UUID
+    if (
+      this.remoteEgressHydrationBaselineSessionId !== null &&
+      this.remoteEgressHydrationBaselineSessionId === currentSessionId
+    ) {
+      for (const uuid of this.remoteEgressHydrationBaseline) {
+        this.remoteEgressDeliveredParents.add(uuid)
+      }
+      this.lastRemoteEgressUuid = this.remoteEgressHydrationBaselineTip
+    } else {
+      this.remoteEgressHydrationBaseline = new Set()
+      this.remoteEgressHydrationBaselineTip = null
+      this.remoteEgressHydrationBaselineSessionId = null
+    }
   }
 
   /**
@@ -2216,161 +2261,9 @@ class Project {
             // and reparent the next remote entry so hydrateRemoteSession /
             // buildConversationChain do not stop at a missing parentUuid.
             if (isTranscriptMessage(entry) && this.hasActiveRemoteEgressSink()) {
-              if (!shouldOmitFromExternalEgress(entry)) {
-                // Bounded rebuild retry: if a prior resume rebuild was left
-                // incomplete, attempt bounded retries before resolving ancestry
-                // for this entry. When reconstruction succeeds the session resumes
-                // remote persistence instead of latching fail-closed for life.
-                if (
-                  this.remoteEgressOmissionRebuildIncomplete &&
-                  this.sessionFile &&
-                  this.remoteEgressRebuildRetryCount <
-                    MAX_REMOTE_EGRESS_REBUILD_RETRIES
-                ) {
-                  this.remoteEgressRebuildRetryCount++
-                  const retryOmitted = new Map<UUID, UUID | null>()
-                  const retryEvicted = new Set<UUID>()
-                  const retryCompactAncestry = new Map<UUID, UUID | null>()
-                  const retryKnownOmitted = new Set<UUID>()
-                  const retrySafeLocalParents = new Set<UUID>()
-                  const result = ingestRemoteEgressOmissionsFromTranscriptFile(
-                    this.sessionFile,
-                    retryOmitted,
-                    {
-                      evicted: retryEvicted,
-                      compactAncestry: retryCompactAncestry,
-                      knownOmitted: retryKnownOmitted,
-                      safeLocalParents: retrySafeLocalParents,
-                    },
-                    OMISSION_REBUILD_TAIL_BYTES,
-                  )
-                  if (result.complete) {
-                    this.remoteEgressOmissionRebuildIncomplete = false
-                    this.remoteEgressRebuildIncompleteWarned = false
-                    this.remoteEgressRebuildRetryCount = 0
-                    this.remoteEgressResolvedMisses.clear()
-                    for (const [k, v] of retryOmitted) {
-                      this.remoteEgressOmittedParents.set(k, v)
-                    }
-                    boundRemoteEgressOmissionMap(
-                      this.remoteEgressOmittedParents,
-                      this.evictedRemoteEgressOmissions,
-                      this.remoteEgressCompactAncestry,
-                      this.remoteEgressKnownOmitted,
-                    )
-                    for (const uuid of retryEvicted) {
-                      this.evictedRemoteEgressOmissions.add(uuid)
-                    }
-                    for (const [k, v] of retryCompactAncestry) {
-                      this.remoteEgressCompactAncestry.set(k, v)
-                    }
-                    for (const uuid of retryKnownOmitted) {
-                      this.remoteEgressKnownOmitted.add(uuid)
-                    }
-                    for (const uuid of retrySafeLocalParents) {
-                      this.remoteEgressSafeLocalParents.add(uuid)
-                    }
-                    boundCompactAncestryMap(this.remoteEgressCompactAncestry)
-                    boundUuidSet(
-                      this.evictedRemoteEgressOmissions,
-                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                    )
-                    boundUuidSet(
-                      this.remoteEgressKnownOmitted,
-                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                    )
-                    boundUuidSet(
-                      this.remoteEgressSafeLocalParents,
-                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                    )
-                  }
-                }
-
-                const originalParentUuid = entry.parentUuid ?? null
-                const { remoteEntry, parentConfirmedSafe } =
-                  this.resolveRemoteEgressParentProjection(entry)
-                // Fail closed: do not emit a remote child whose target parent
-                // cannot be confirmed safe, or under an incomplete rebuild.
-                const parentStillUnresolved =
-                  !!originalParentUuid &&
-                  (!parentConfirmedSafe ||
-                    this.remoteEgressOmissionRebuildIncomplete)
-                if (!parentStillUnresolved) {
-                  const delivered = await this.persistToRemote(
-                    sessionId,
-                    remoteEntry,
-                  )
-                  if (delivered && remoteEntry.uuid) {
-                    this.lastRemoteEgressUuid = remoteEntry.uuid
-                    this.remoteEgressDeliveredParents.add(remoteEntry.uuid)
-                    boundUuidSet(
-                      this.remoteEgressDeliveredParents,
-                      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
-                    )
-                  } else if (!delivered && entry.uuid) {
-                    this.remoteEgressOmittedParents.set(
-                      entry.uuid,
-                      this.lastRemoteEgressUuid,
-                    )
-                    boundRemoteEgressOmissionMap(
-                      this.remoteEgressOmittedParents,
-                      this.evictedRemoteEgressOmissions,
-                      this.remoteEgressCompactAncestry,
-                      this.remoteEgressKnownOmitted,
-                    )
-                  }
-                } else if (entry.uuid) {
-                  // Emit a one-time diagnostic the first time an entry is
-                  // withheld under an incomplete rebuild, so the degraded
-                  // session is observable instead of silently root-only.
-                  // Ordinary unresolved-parent suppressions must not consume
-                  // the incomplete-rebuild warning slot.
-                  if (
-                    this.remoteEgressOmissionRebuildIncomplete &&
-                    !this.remoteEgressRebuildIncompleteWarned
-                  ) {
-                    this.remoteEgressRebuildIncompleteWarned = true
-                    logForDiagnosticsNoPII(
-                      'warn',
-                      'remote_egress_parent_unresolved',
-                      {
-                        rebuildIncomplete: true,
-                      },
-                    )
-                  }
-                  // Fail-closed persist still owns this UUID: later children
-                  // must rematch through the map instead of treating B as
-                  // egressed (grandchild C would otherwise dangle on B).
-                  this.remoteEgressOmittedParents.set(
-                    entry.uuid,
-                    this.lastRemoteEgressUuid,
-                  )
-                  boundRemoteEgressOmissionMap(
-                    this.remoteEgressOmittedParents,
-                    this.evictedRemoteEgressOmissions,
-                    this.remoteEgressCompactAncestry,
-                    this.remoteEgressKnownOmitted,
-                  )
-                }
-                // Keep omitted parents in the bounded map so a second branch
-                // child of the same withheld UUID can still reparent. Size is
-                // enforced by boundRemoteEgressOmissionMap on the omit path.
-              } else {
-                // Only grow the map when a remote sink can consume reparents.
-                // Resume rebuild (adoptResumedSessionFile) still hydrates from
-                // disk before the sink is registered.
-                recordExternalEgressOmission(
-                  this.remoteEgressOmittedParents,
-                  entry.uuid,
-                  entry.parentUuid,
-                )
-                boundRemoteEgressOmissionMap(
-                  this.remoteEgressOmittedParents,
-                  this.evictedRemoteEgressOmissions,
-                  this.remoteEgressCompactAncestry,
-                  this.remoteEgressKnownOmitted,
-                )
-              }
+              await this.runSerializedRemoteEgress(() =>
+                this.persistRemoteEgressEntry(sessionId, entry),
+              )
             }
           }
         }
@@ -2418,6 +2311,194 @@ class Project {
       if (isFsInaccessible(e)) return null
       throw e
     }
+  }
+
+
+  /**
+   * Persist one transcript entry to the remote sink under the projection
+   * contract. Runs inside the serialized remoteEgressChain so a child sees
+   * its predecessor's confirmed delivery result (transcript order, not
+   * network completion order).
+   */
+  private async persistRemoteEgressEntry(
+    sessionId: UUID,
+    entry: TranscriptMessage,
+  ): Promise<void> {
+    if (!shouldOmitFromExternalEgress(entry)) {
+      // Bounded rebuild retry: if a prior resume rebuild was left
+      // incomplete, attempt bounded retries before resolving ancestry
+      // for this entry. When reconstruction succeeds the session resumes
+      // remote persistence instead of latching fail-closed for life.
+      if (
+        this.remoteEgressOmissionRebuildIncomplete &&
+        this.sessionFile &&
+        this.remoteEgressRebuildRetryCount <
+          MAX_REMOTE_EGRESS_REBUILD_RETRIES
+      ) {
+        this.remoteEgressRebuildRetryCount++
+        const retryOmitted = new Map<UUID, UUID | null>()
+        const retryEvicted = new Set<UUID>()
+        const retryCompactAncestry = new Map<UUID, UUID | null>()
+        const retryKnownOmitted = new Set<UUID>()
+        const retrySafeLocalParents = new Set<UUID>()
+        const result = ingestRemoteEgressOmissionsFromTranscriptFile(
+          this.sessionFile,
+          retryOmitted,
+          {
+            evicted: retryEvicted,
+            compactAncestry: retryCompactAncestry,
+            knownOmitted: retryKnownOmitted,
+            safeLocalParents: retrySafeLocalParents,
+          },
+          OMISSION_REBUILD_TAIL_BYTES,
+        )
+        if (result.complete) {
+          this.remoteEgressOmissionRebuildIncomplete = false
+          this.remoteEgressRebuildIncompleteWarned = false
+          this.remoteEgressRebuildRetryCount = 0
+          this.remoteEgressResolvedMisses.clear()
+          for (const [k, v] of retryOmitted) {
+            this.remoteEgressOmittedParents.set(k, v)
+          }
+          boundRemoteEgressOmissionMap(
+            this.remoteEgressOmittedParents,
+            this.evictedRemoteEgressOmissions,
+            this.remoteEgressCompactAncestry,
+            this.remoteEgressKnownOmitted,
+          )
+          for (const uuid of retryEvicted) {
+            this.evictedRemoteEgressOmissions.add(uuid)
+          }
+          for (const [k, v] of retryCompactAncestry) {
+            this.remoteEgressCompactAncestry.set(k, v)
+          }
+          for (const uuid of retryKnownOmitted) {
+            this.remoteEgressKnownOmitted.add(uuid)
+          }
+          for (const uuid of retrySafeLocalParents) {
+            this.remoteEgressSafeLocalParents.add(uuid)
+          }
+          boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+          boundUuidSet(
+            this.evictedRemoteEgressOmissions,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          boundUuidSet(
+            this.remoteEgressKnownOmitted,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          boundUuidSet(
+            this.remoteEgressSafeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
+      }
+
+      const originalParentUuid = entry.parentUuid ?? null
+      const { remoteEntry, parentConfirmedSafe } =
+        this.resolveRemoteEgressParentProjection(entry)
+      // Fail closed: do not emit a remote child whose target parent
+      // cannot be confirmed safe, or under an incomplete rebuild.
+      const parentStillUnresolved =
+        !!originalParentUuid &&
+        (!parentConfirmedSafe ||
+          this.remoteEgressOmissionRebuildIncomplete)
+      if (!parentStillUnresolved) {
+        const delivered = await this.persistToRemote(
+          sessionId,
+          remoteEntry,
+        )
+        if (delivered && remoteEntry.uuid) {
+          this.lastRemoteEgressUuid = remoteEntry.uuid
+          this.remoteEgressDeliveredParents.add(remoteEntry.uuid)
+          boundUuidSet(
+            this.remoteEgressDeliveredParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          // Durably record the confirmed delivery so a branch target of this
+          // UUID remains recoverable after the bounded set evicts it.
+          this.appendRemoteEgressDeliveryJournal(remoteEntry.uuid)
+        } else if (!delivered && entry.uuid) {
+          this.remoteEgressOmittedParents.set(
+            entry.uuid,
+            this.lastRemoteEgressUuid,
+          )
+          boundRemoteEgressOmissionMap(
+            this.remoteEgressOmittedParents,
+            this.evictedRemoteEgressOmissions,
+            this.remoteEgressCompactAncestry,
+            this.remoteEgressKnownOmitted,
+          )
+        }
+      } else if (entry.uuid) {
+        // Emit a one-time diagnostic the first time an entry is
+        // withheld under an incomplete rebuild, so the degraded
+        // session is observable instead of silently root-only.
+        // Ordinary unresolved-parent suppressions must not consume
+        // the incomplete-rebuild warning slot.
+        if (
+          this.remoteEgressOmissionRebuildIncomplete &&
+          !this.remoteEgressRebuildIncompleteWarned
+        ) {
+          this.remoteEgressRebuildIncompleteWarned = true
+          logForDiagnosticsNoPII(
+            'warn',
+            'remote_egress_parent_unresolved',
+            {
+              rebuildIncomplete: true,
+            },
+          )
+        }
+        // Fail-closed persist still owns this UUID: later children
+        // must rematch through the map instead of treating B as
+        // egressed (grandchild C would otherwise dangle on B).
+        this.remoteEgressOmittedParents.set(
+          entry.uuid,
+          this.lastRemoteEgressUuid,
+        )
+        boundRemoteEgressOmissionMap(
+          this.remoteEgressOmittedParents,
+          this.evictedRemoteEgressOmissions,
+          this.remoteEgressCompactAncestry,
+          this.remoteEgressKnownOmitted,
+        )
+      }
+      // Keep omitted parents in the bounded map so a second branch
+      // child of the same withheld UUID can still reparent. Size is
+      // enforced by boundRemoteEgressOmissionMap on the omit path.
+    } else {
+      // Only grow the map when a remote sink can consume reparents.
+      // Resume rebuild (adoptResumedSessionFile) still hydrates from
+      // disk before the sink is registered.
+      recordExternalEgressOmission(
+        this.remoteEgressOmittedParents,
+        entry.uuid,
+        entry.parentUuid,
+      )
+      boundRemoteEgressOmissionMap(
+        this.remoteEgressOmittedParents,
+        this.evictedRemoteEgressOmissions,
+        this.remoteEgressCompactAncestry,
+        this.remoteEgressKnownOmitted,
+      )
+    }
+  }
+
+  /**
+   * Run the remote egress transition serialized behind any prior step. The
+   * stored tail always settles so a rejected step never poisons later
+   * appends; callers still observe their own step's outcome.
+   */
+  private async runSerializedRemoteEgress(
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const prev = this.remoteEgressChain
+    const next = prev.then(run, run)
+    this.remoteEgressChain = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    await next
   }
 
   private async persistToRemote(
@@ -2484,6 +2565,7 @@ class Project {
    * confirmed remote tip.
    */
   markRemoteEgressHydrated(entries: readonly unknown[]): void {
+    const all = new Set<UUID>()
     let last: UUID | null = null
     for (const entry of entries) {
       const uuid =
@@ -2491,8 +2573,24 @@ class Project {
           ? (entry as { uuid?: unknown }).uuid
           : undefined
       if (typeof uuid !== 'string') continue
-      this.remoteEgressDeliveredParents.add(uuid as UUID)
+      all.add(uuid as UUID)
       last = uuid as UUID
+    }
+    // Durably journal the FULL hydrated set (hydration replaces the
+    // transcript, so the prior journal is stale). The journal is the durable
+    // recovery source for branch targets beyond the in-memory bound.
+    this.replaceRemoteEgressDeliveryJournal(all)
+    // The in-memory baseline + delivered set stay bounded performance indexes.
+    const baseline = new Set(all)
+    boundUuidSet(baseline, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+    // A fresh hydration supersedes any prior baseline for this process.
+    this.remoteEgressHydrationBaseline = baseline
+    this.remoteEgressHydrationBaselineTip = last
+    this.remoteEgressHydrationBaselineSessionId = getSessionId() as UUID
+    // Seed the transient delivered set + tip for the pre-reset window; the
+    // subsequent resetSessionFile re-seeds them from the baseline again.
+    for (const uuid of baseline) {
+      this.remoteEgressDeliveredParents.add(uuid)
     }
     boundUuidSet(
       this.remoteEgressDeliveredParents,
@@ -2501,6 +2599,94 @@ class Project {
     if (last !== null) {
       this.lastRemoteEgressUuid = last
     }
+  }
+
+  /**
+   * Durable delivery provenance: an append-only journal next to the session
+   * file recording every UUID confirmed delivered (live writes and hydration).
+   * remoteEgressDeliveredParents is a bounded performance index; once a
+   * delivered UUID is evicted it remains recoverable here, so a branch target
+   * can still be recognized as delivered (vs a pre-sink / local-only parent).
+   * A journal miss never asserts delivery ? the resolver fails closed.
+   */
+  private remoteEgressDeliveredJournalPath(): string | null {
+    return this.sessionFile ? `${this.sessionFile}.remote-delivered` : null
+  }
+
+  private appendRemoteEgressDeliveryJournal(uuid: UUID): void {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return
+    try {
+      appendFileSync(path, `${uuid}\n`, { mode: 0o600 })
+    } catch {
+      // Best-effort: a missed journal line only degrades evicted-witness
+      // recovery; in-process witnesses and fail-closed remain authoritative.
+    }
+  }
+
+  private replaceRemoteEgressDeliveryJournal(uuids: Iterable<UUID>): void {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return
+    try {
+      const lines: string[] = []
+      for (const uuid of uuids) lines.push(`${uuid}\n`)
+      writeFileSync(path, lines.join(''), { mode: 0o600 })
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  private resolveRemoteEgressDeliveredFromJournal(uuid: UUID): boolean {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return false
+    let fd: number | undefined
+    try {
+      fd = openSync(path, 'r')
+      const size = fstatSync(fd).size
+      if (size === 0) return false
+      // Evicted witnesses are the OLDEST deliveries, earliest in the
+      // append-only journal; scan forward within the on-demand budget.
+      let cursor = 0
+      let scanned = 0
+      const windowBytes = OMISSION_REBUILD_TAIL_BYTES
+      while (cursor < size && scanned < MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES) {
+        const end = Math.min(size, cursor + windowBytes)
+        const buf = Buffer.allocUnsafe(end - cursor)
+        const bytesRead = readSync(fd, buf, 0, end - cursor, cursor)
+        const content = buf.toString('utf8', 0, bytesRead)
+        for (const line of content.split('\n')) {
+          if (line.length > 0 && line.trim() === uuid) return true
+        }
+        scanned += end - cursor
+        cursor = end
+      }
+      return false
+    } catch {
+      return false
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd)
+        } catch {
+          // closeSync can throw; treat as miss
+        }
+      }
+    }
+  }
+
+  private isRemoteEgressDelivered(uuid: UUID): boolean {
+    if (this.remoteEgressDeliveredParents.has(uuid)) return true
+    if (this.resolveRemoteEgressDeliveredFromJournal(uuid)) {
+      // Re-promote into the bounded index so repeated branch targets of the
+      // same delivered UUID avoid re-scanning the journal.
+      this.remoteEgressDeliveredParents.add(uuid)
+      boundUuidSet(
+        this.remoteEgressDeliveredParents,
+        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+      )
+      return true
+    }
+    return false
   }
 
   setRemoteIngressUrl(url: string): void {
@@ -4085,7 +4271,7 @@ function ingestRemoteEgressOmissionsFromTranscriptContent(
     } catch {
       continue
     }
-    if (!isTranscriptMessage(parsed as Entry)) continue
+    if (!isTranscriptMessage(parsed)) continue
     const entry = parsed as TranscriptMessage
     sawTranscript = true
     // Always apply current external egress policy. hook_additional_context is
@@ -4418,7 +4604,7 @@ function ingestCompactAncestryNodesFromTranscriptContent(
     } catch {
       continue
     }
-    if (!isTranscriptMessage(parsed as Entry)) continue
+    if (!isTranscriptMessage(parsed)) continue
     const entry = parsed as TranscriptMessage
     if (!entry.uuid) continue
     byUuid.set(entry.uuid, {
@@ -6647,27 +6833,58 @@ export function filterJsonlForExternalEgress(jsonl: string): string {
       continue
     }
     try {
-      const entry = JSON.parse(line) as {
+      const parsed: unknown = JSON.parse(line)
+      // Non-record JSON values (null / primitives / arrays) carry no valid
+      // ancestry; drop them fail-closed instead of emitting an invalid link.
+      if (typeof parsed !== 'object' || parsed === null) {
+        continue
+      }
+      const entry = parsed as {
         type?: string
         attachment?: unknown
-        uuid?: UUID
-        parentUuid?: UUID | null
+        uuid?: unknown
+        parentUuid?: unknown
       }
+      // Runtime-validate chain fields: a parent must be a valid UUID or null.
+      // The JSONL filter admits untrusted bytes, so the TypeScript UUID cast
+      // alone is not a boundary ? numeric / malformed-string parent links must
+      // not enter the omission map or be emitted as ancestry.
+      const uuid =
+        typeof entry.uuid === 'string' ? validateUuid(entry.uuid) : null
+      const parentUuid =
+        entry.parentUuid === null || entry.parentUuid === undefined
+          ? null
+          : typeof entry.parentUuid === 'string'
+            ? validateUuid(entry.parentUuid)
+            : null
+      const parentIsMalformed =
+        entry.parentUuid !== null &&
+        entry.parentUuid !== undefined &&
+        parentUuid === null
       if (shouldOmitFromExternalEgress(entry)) {
-        if (typeof entry.uuid === 'string') {
+        if (uuid !== null) {
+          // A malformed parent is safely re-rooted to null so the omission
+          // map never stores a non-UUID ancestor and survivors reparent to
+          // the root instead of a dangling / numeric link.
           recordExternalEgressOmission(
             omittedParents,
-            entry.uuid,
-            entry.parentUuid ?? null,
+            uuid,
+            parentIsMalformed ? null : parentUuid,
           )
         }
         continue
       }
-      if (entry.parentUuid && omittedParents.has(entry.parentUuid)) {
+      if (parentIsMalformed) {
+        // Fail closed: emit the survivor re-rooted to null so the exported
+        // chain never carries an invalid / dangling parent link.
+        kept.push(jsonStringify({ ...entry, parentUuid: null }))
+        continue
+      }
+      if (parentUuid && omittedParents.has(parentUuid)) {
         const projected = projectTranscriptParentForExternalEgress(
           {
             ...entry,
-            parentUuid: entry.parentUuid,
+            parentUuid,
           },
           omittedParents,
         )
