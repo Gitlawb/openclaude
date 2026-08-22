@@ -5,6 +5,7 @@ import {
   redactEncodedSecretSubstringsForDisplay,
   redactSecretSubstringsForDisplay,
 } from '../../../utils/providerSecrets.js'
+import { parseCustomHeadersEnv } from '../../../utils/providerCustomHeaders.js'
 
 export function formatRetryAfterHint(response: Response): string {
   const retryAfter = response.headers.get('retry-after')
@@ -240,11 +241,35 @@ export async function executeOpenAIRequest(
     isGithubCopilot,
     isGithubModels,
   } = context
+  // Existing routes historically accept process-level custom auth even when
+  // their profile UI hides those controls. LLMTR is the new fixed-contract
+  // route: enforce its explicit capability without changing that compatibility
+  // behavior for unrelated providers or generic custom endpoints.
+  const supportsConfiguredAuthHeaders =
+    runtimeShimContext.routeId !== 'llmtr' ||
+    runtimeShimContext.openaiShimConfig.supportsAuthHeaders === true
+  const unsupportedCustomHeaderNames = supportsConfiguredAuthHeaders
+    ? null
+    : new Set(
+        Object.keys(
+          parseCustomHeadersEnv(
+            requestProcessEnv.ANTHROPIC_CUSTOM_HEADERS,
+          ) ?? {},
+        ).map(name => name.toLowerCase()),
+      )
+  const filterUnsupportedCustomHeaders = (
+    headers: Record<string, string> | undefined,
+  ): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(headers ?? {}).filter(
+        ([name]) => !unsupportedCustomHeaderNames?.has(name.toLowerCase()),
+      ),
+    )
   const baseHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...filterAnthropicHeaders(shimConfig.headers),
-    ...defaultHeaders,
-    ...filterAnthropicHeaders(options?.headers),
+    ...filterUnsupportedCustomHeaders(defaultHeaders),
+    ...filterUnsupportedCustomHeaders(filterAnthropicHeaders(options?.headers)),
   }
 
   const isGemini = isGeminiMode()
@@ -292,6 +317,7 @@ export async function executeOpenAIRequest(
       requestProcessEnv.NEARAI_API_KEY,
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
+      requestProcessEnv.LLMTR_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
@@ -330,7 +356,8 @@ export async function executeOpenAIRequest(
   const catalogAuthHeader =
     runtimeShimContext.catalogEntry?.transportOverrides?.openaiShim
       ?.defaultAuthHeader
-  const configuredAuthHeaderValue = catalogAuthHeader
+  const configuredAuthHeaderValue =
+    catalogAuthHeader || !supportsConfiguredAuthHeaders
     ? undefined
     : requestProcessEnv.OPENAI_AUTH_HEADER_VALUE?.trim()
   if (configuredAuthHeaderValue && /[\r\n]/.test(configuredAuthHeaderValue)) {
@@ -338,7 +365,8 @@ export async function executeOpenAIRequest(
       'OPENAI_AUTH_HEADER_VALUE must not contain CR/LF characters',
     )
   }
-  const customAuthHeader = catalogAuthHeader
+  const customAuthHeader =
+    catalogAuthHeader || !supportsConfiguredAuthHeaders
     ? undefined
     : requestProcessEnv.OPENAI_AUTH_HEADER?.trim()
   const hasCustomAuthHeader = Boolean(

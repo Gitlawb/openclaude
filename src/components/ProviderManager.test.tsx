@@ -136,6 +136,7 @@ const PRESET_ORDER = [
   'Anthropic',
   'Alibaba Coding Plan (China)',
   'Alibaba Coding Plan',
+  'ApiSmart',
   'Atlas Cloud',
   'Azure OpenAI',
   'Bankr',
@@ -149,6 +150,7 @@ const PRESET_ORDER = [
   'Google AI / Gemini',
   'Groq',
   'Hicap',
+  'LLMTR',
   'LM Studio',
   'Atomic Chat',
   'Ollama',
@@ -303,6 +305,17 @@ function mockProviderProfilesModule(options?: {
           name: 'Hicap',
           baseUrl: 'https://api.hicap.ai/v1',
           model: 'claude-opus-4.8',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
+      if (preset === 'llmtr') {
+        return {
+          provider: 'llmtr',
+          name: 'LLMTR',
+          baseUrl: 'https://llmtr.com/v1',
+          model: 'deepseek/deepseek-v4-flash',
           apiKey: '',
           requiresApiKey: true,
         }
@@ -1121,6 +1134,130 @@ test('ProviderManager asks for model and API key when adding OpenAI preset', asy
       }),
       expect.objectContaining({ makeActive: true }),
     )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager adds LLMTR with only model selection and API key', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'llmtr_profile',
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'LLMTR')
+    mounted.stdin.write('\r')
+    const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Step 1 of 2: Default model'),
+    )
+
+    expect(modelOutput).toContain('LLMTR')
+    expect(modelOutput).toContain('deepseek/deepseek-v4-flash')
+    expect(modelOutput).not.toContain('Provider name')
+    expect(modelOutput).not.toContain('Base URL')
+    expect(modelOutput).not.toContain('API mode')
+    expect(modelOutput).not.toContain('Custom headers')
+
+    mounted.stdin.write('\r')
+    const keyOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 2 of 2: API key'),
+    )
+    expect(keyOutput).not.toContain('Provider name')
+    expect(keyOutput).not.toContain('Base URL')
+    expect(keyOutput).not.toContain('API mode')
+    expect(keyOutput).not.toContain('Custom headers')
+
+    mounted.stdin.write('llmtr-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'llmtr',
+        name: 'LLMTR',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: 'llmtr-test-key',
+        apiFormat: 'chat_completions',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager edits query-bearing LLMTR endpoints with generic proxy controls', async () => {
+  const llmtrProxyProfile = {
+    id: 'provider_llmtr_proxy',
+    provider: 'llmtr',
+    name: 'LLMTR query proxy',
+    baseUrl: 'https://llmtr.com/v1?tenant=proxy',
+    model: 'proxy-model',
+    apiKey: undefined,
+    apiFormat: 'responses',
+    authHeader: 'X-Proxy-Key',
+    authScheme: 'raw',
+    authHeaderValue: 'proxy-auth-value',
+    customHeaders: { 'X-Proxy-Trace': 'enabled' },
+  }
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [llmtrProxyProfile],
+      getActiveProviderProfile: () => llmtrProxyProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager') && frame.includes('Edit provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('LLMTR query proxy') &&
+      !frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    const editOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider profile') && frame.includes('Step 1 of 8'),
+    )
+
+    expect(editOutput).toContain('Advanced: this provider supports custom request headers')
   } finally {
     await mounted.dispose()
   }

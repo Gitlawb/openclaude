@@ -18,6 +18,7 @@ const TEST_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'LLMTR_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'OPENAI_API_KEYS',
@@ -290,6 +291,17 @@ describe('loadEnvFile', () => {
       APISMART_API_KEY: 'apismart-key',
       APISMART_MODEL: 'KIMI_K3',
     })
+  })
+
+  it('loads the dedicated LLMTR credential without selecting a route', () => {
+    const filePath = writeTempEnvFile('LLMTR_API_KEY=llmtr-key')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(loaded).toEqual({ LLMTR_API_KEY: 'llmtr-key' })
   })
 
   it('loads documented Concentrate env-only provider setup values', () => {

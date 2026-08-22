@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
+import { resolveRouteCredentialValue } from '../integrations/routeMetadata.js'
 import type { ProviderProfile } from './config.js'
 
 async function importFreshProvidersModule() {
@@ -72,6 +73,7 @@ const RESTORED_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'LLMTR_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -292,6 +294,17 @@ function buildConcentrateProfile(overrides: Partial<ProviderProfile> = {}): Prov
   })
 }
 
+function buildLlmtrProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'llmtr',
+    name: 'LLMTR',
+    baseUrl: 'https://llmtr.com/v1',
+    model: 'deepseek/deepseek-v4-flash',
+    apiKey: 'llmtr-test-key',
+    ...overrides,
+  })
+}
+
 function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'clinepass',
@@ -317,6 +330,50 @@ function buildCloudflareProfile(overrides: Partial<ProviderProfile> = {}): Provi
 }
 
 describe('applyProviderProfileToProcessEnv', () => {
+  test('LLMTR profile clears an ambient dedicated key so its saved key wins', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-old'
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'llmtr',
+        name: 'LLMTR',
+        baseUrl: 'https://llmtr.com/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: 'selected-new',
+      }),
+    )
+
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('selected-new')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'llmtr',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('selected-new')
+  }, 20_000)
+
+  test('keyless canonical LLMTR profile adopts its ambient dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+
+    applyProviderProfileToProcessEnv(buildLlmtrProfile({ apiKey: undefined }))
+
+    expect(process.env.LLMTR_API_KEY).toBe('ambient-llmtr-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-llmtr-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'llmtr',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('ambient-llmtr-key')
+  }, 20_000)
+
   test('applies Azure-style routing from a saved OpenAI-compatible profile', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1802,6 +1859,87 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
   })
+
+  test('retargeted LLMTR profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('query-bearing LLMTR profiles retain generic proxy capabilities', async () => {
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR query proxy',
+      baseUrl: 'https://llmtr.com/v1?tenant=proxy',
+      model: 'proxy-model',
+      apiKey: 'saved-llmtr-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('retargeted LLMTR profiles retain generic proxy capabilities', async () => {
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'proxy-model',
+      apiKey: 'llmtr-test-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    expect(saved).toMatchObject({
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
 })
 
 describe('getProviderProfiles', () => {
@@ -1918,6 +2056,7 @@ describe('clearActiveProviderProfile', () => {
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
+
 })
 
 describe('Anthropic sentinel survives profile management (#1426)', () => {
@@ -3608,6 +3747,66 @@ describe('setActiveProviderProfile', () => {
       expect(startupEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('concentrate')
       expect(startupEnv.CONCENTRATE_API_KEY).toBeUndefined()
       expect(startupEnv.OPENAI_API_KEY).toBeUndefined()
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('keyed canonical LLMTR profiles persist their saved dedicated credential across restart', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const llmtrProfile = buildLlmtrProfile({ id: 'llmtr_profile' })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [llmtrProfile],
+      }))
+
+      const result = setActiveProviderProfile('llmtr_profile', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('llmtr_profile')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toMatchObject({
+        OPENAI_BASE_URL: 'https://llmtr.com/v1',
+        OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+        OPENAI_API_KEY: 'llmtr-test-key',
+        LLMTR_API_KEY: 'llmtr-test-key',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          LLMTR_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(startupEnv.OPENAI_API_KEY).toBe('llmtr-test-key')
+      expect(startupEnv.LLMTR_API_KEY).toBe('llmtr-test-key')
+
+      delete persisted.env.LLMTR_API_KEY
+      const migratedStartupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          LLMTR_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(migratedStartupEnv.OPENAI_API_KEY).toBe('llmtr-test-key')
+      expect(migratedStartupEnv.LLMTR_API_KEY).toBe('llmtr-test-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

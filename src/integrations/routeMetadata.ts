@@ -231,7 +231,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
-    envVar === 'CONCENTRATE_API_KEY'
+    envVar === 'CONCENTRATE_API_KEY' ||
+    envVar === 'LLMTR_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -451,6 +452,34 @@ export function isCanonicalConcentrateInferenceBaseUrl(
 
   try {
     const canonical = new URL(CONCENTRATE_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+const LLMTR_CANONICAL_INFERENCE_BASE_URL = 'https://llmtr.com/v1'
+
+export function isCanonicalLlmtrInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(LLMTR_CANONICAL_INFERENCE_BASE_URL)
     const candidate = new URL(trimmed)
     const normalizePath = (pathname: string): string =>
       pathname.replace(/\/+$/, '') || '/'
@@ -1117,6 +1146,13 @@ export function resolveRouteCredentialValue(
   ) {
     return undefined
   }
+  if (
+    routeId === 'llmtr' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
 
   return getRouteCredentialValue(routeId, processEnv)
 }
@@ -1225,6 +1261,16 @@ export function resolveRouteIdFromBaseUrl(
       normalizedBaseUrl &&
       normalizedDefaultBaseUrl === normalizedBaseUrl
     ) {
+      // LLMTR's dedicated credential and fixed transport contract are valid
+      // only for the exact inference URL. The generic comparable-URL helper
+      // intentionally ignores query/hash components for other providers, but a
+      // query-bearing LLMTR URL is a retargeted/custom endpoint.
+      if (
+        route.id === 'llmtr' &&
+        !isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+      ) {
+        continue
+      }
       return route.id
     }
   }
@@ -1241,7 +1287,9 @@ export function resolveRouteIdFromBaseUrl(
           (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
           (route.id === 'apismart' && !isApismartBaseUrl(baseUrl)) ||
           (route.id === 'concentrate' &&
-            !isCanonicalConcentrateInferenceBaseUrl(baseUrl))
+            !isCanonicalConcentrateInferenceBaseUrl(baseUrl)) ||
+          (route.id === 'llmtr' &&
+            !isCanonicalLlmtrInferenceBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1280,6 +1328,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'apismart') {
     return isApismartBaseUrl(baseUrl)
+  }
+  if (routeId === 'llmtr') {
+    return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
   return true
 }

@@ -90,6 +90,7 @@ import {
   getActiveProviderProfile,
   getProviderPresetDefaults,
   getProviderProfiles,
+  resolveProfileCapabilityRouteId,
   setActiveProviderProfile,
   type ProviderPreset,
   type ProviderProfileInput,
@@ -368,12 +369,7 @@ function resolveProviderEditorRouteId(
   provider: ProviderProfile['provider'],
   baseUrl?: string,
 ): string {
-  const route = resolveProfileRoute(provider).routeId
-  if (route !== 'openai') {
-    return route
-  }
-
-  return resolveRouteIdFromBaseUrl(baseUrl) ?? route
+  return resolveProfileCapabilityRouteId(provider, baseUrl)
 }
 
 function routeSupportsResponsesModel(routeId: string, model: string): boolean {
@@ -2539,6 +2535,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
   }
 
   function renderForm(): React.ReactNode {
+    const editorRouteId = resolveProviderEditorRouteId(
+      draftProvider,
+      draft.baseUrl,
+    )
     return (
       <Box flexDirection="column" gap={1}>
         <Text color="remember" bold>
@@ -2547,9 +2547,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
         <Text dimColor>{displayStep.helpText}</Text>
         <Text dimColor>
           Provider type:{' '}
-          {getRouteProviderTypeLabel(resolveProfileRoute(draftProvider).routeId)}
+          {getRouteProviderTypeLabel(editorRouteId)}
         </Text>
-        {routeSupportsCustomHeaders(resolveProfileRoute(draftProvider).routeId) ? (
+        {routeSupportsCustomHeaders(editorRouteId) ? (
           <Text dimColor>
             Advanced: this provider supports custom request headers when you
             need them.

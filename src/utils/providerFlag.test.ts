@@ -32,6 +32,7 @@ const ENV_KEYS = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'LLMTR_API_KEY',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -572,6 +573,71 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(result.error).toBeUndefined()
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('http://proxy.local:8080/v1')
+  })
+
+  test('LLMTR clears stale custom auth only on its canonical endpoint', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('llmtr', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('LLMTR preserves custom endpoint auth settings when the endpoint is explicit', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('llmtr', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-secret')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Tenant-Secret: tenant-secret',
+    )
+  })
+
+  test('clears an LLMTR key copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret'
+    process.env.OPENAI_API_KEY = 'llmtr-secret'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-secret')
+  })
+
+  test('preserves an independent generic OPENAI_API_KEY when switching from LLMTR', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-secret'
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('generic-openai-secret')
   })
 
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {

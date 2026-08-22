@@ -32,6 +32,7 @@ const ENV_KEYS = [
   'MISTRAL_API_KEY',
   'MINIMAX_API_KEY',
   'LONGCAT_API_KEY',
+  'LLMTR_API_KEY',
   'APISMART_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
@@ -143,6 +144,73 @@ test('openai missing key error includes recovery guidance and config locations',
     'set CLAUDE_CODE_USE_OPENAI=0 in your shell environment',
   )
   expect(message!).toContain('Saved startup settings can come from')
+})
+
+test('LLMTR validation accepts its dedicated credential on the selected route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('LLMTR validation rejects placeholder dedicated credentials', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+  )
+})
+
+test('LLMTR validation rejects an invalid generic fallback credential', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+  )
+})
+
+test('LLMTR validation accepts a dedicated credential despite an invalid generic fallback', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  process.env.OPENAI_API_KEY = 'llmtr-fallback-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  process.env.OPENAI_API_KEYS = 'llmtr-pool-key-a,llmtr-pool-key-b'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('LLMTR_API_KEY does not authenticate an unrelated OpenAI-compatible route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+
+  const message = await getProviderValidationError(process.env)
+  expect(message).toContain('OPENAI_API_KEYS or OPENAI_API_KEY is required')
 })
 
 test('cloudflare Workers AI URL selects the Cloudflare validation target', async () => {
