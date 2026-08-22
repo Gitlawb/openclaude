@@ -72,6 +72,7 @@ export const commands: SlashCommand[] = [
   { name: 'tag', description: 'Toggle a searchable tag on the current session', category: 'session', args: '<tag-name>' },
   { name: 'btw', description: 'Ask a quick side question without interrupting the main conversation', category: 'session', args: '<question>' },
   { name: 'goal', description: 'Set and manage a session completion goal', category: 'session', args: '[condition|status|pause|resume|clear]' },
+  { name: 'steer', description: 'Re-align an off-track task by answering steering questions', category: 'session' },
   { name: 'tasks', description: 'List and manage background tasks', category: 'session' },
   { name: 'session', description: 'Show remote session URL and QR code', category: 'session' },
   { name: 'desktop', description: 'Continue the current session in Claude Desktop', category: 'session' },
