@@ -6,6 +6,7 @@ import {
 import {
   getAnthropicApiKeyWithSource,
   getAuthTokenSource,
+  getSubscriptionType,
   isClaudeAISubscriber,
   isManagedOAuthContext,
 } from 'src/utils/auth.js'
@@ -22,6 +23,7 @@ import {
   resolveAnthropicAttributionPolicy,
 } from '../../utils/anthropicAttribution.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { isBareMode } from '../../utils/envUtils.js'
 
 export type ProviderOverride = { model: string; baseURL: string; apiKey: string }
 
@@ -53,21 +55,41 @@ function resolveAnthropicAttributionAuthTokenSource(
   return 'none'
 }
 
+function isManagedOAuthEffective(
+  authTokenSource: ReturnType<typeof getAuthTokenSource>['source'],
+  managedOAuthContext: boolean,
+  bareMode: boolean,
+): boolean {
+  return (
+    managedOAuthContext &&
+    !bareMode &&
+    resolveAnthropicAttributionAuthTokenSource(authTokenSource, false) ===
+      'oauth'
+  )
+}
+
 export function resolveAnthropicAttributionAuthFromSources({
   apiKeySource,
   authTokenSource,
+  bareMode,
   isSubscriber,
   managedOAuthContext,
 }: {
   apiKeySource: ReturnType<typeof getAnthropicApiKeyWithSource>['source']
   authTokenSource: ReturnType<typeof getAuthTokenSource>['source']
+  bareMode: boolean
   isSubscriber: boolean
   managedOAuthContext: boolean
 }): AnthropicAttributionAuth {
-  // Match getAnthropicClient: managed remote and Desktop sessions send OAuth
-  // and ignore inherited API-key settings, so those settings cannot win the
-  // attribution credential precedence either.
-  const apiKey = managedOAuthContext
+  // Match getAnthropicClient: managed remote and Desktop sessions ignore
+  // inherited API-key settings only when OAuth is actually effective. Bare
+  // mode remains API-key-only even if a managed-context marker is present.
+  const managedOAuthIsEffective = isManagedOAuthEffective(
+    authTokenSource,
+    managedOAuthContext,
+    bareMode,
+  )
+  const apiKey = managedOAuthIsEffective
     ? 'none'
     : apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
       ? 'external'
@@ -76,7 +98,7 @@ export function resolveAnthropicAttributionAuthFromSources({
         : 'none'
   const authToken = resolveAnthropicAttributionAuthTokenSource(
     authTokenSource,
-    managedOAuthContext,
+    managedOAuthIsEffective,
   )
 
   return resolveAnthropicAttributionAuth({
@@ -105,16 +127,27 @@ function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
     return 'unknown'
   }
 
+  const bareMode = isBareMode()
   const managedOAuthContext = isManagedOAuthContext()
+  const managedOAuthIsEffective = isManagedOAuthEffective(
+    authTokenSource,
+    managedOAuthContext,
+    bareMode,
+  )
   const hasOAuthToken =
     resolveAnthropicAttributionAuthTokenSource(
       authTokenSource,
-      managedOAuthContext,
+      managedOAuthIsEffective,
     ) === 'oauth'
   let isSubscriber = false
   if (hasOAuthToken) {
     try {
-      isSubscriber = isClaudeAISubscriber()
+      // Managed launchers establish the subscription OAuth path independently
+      // of machine-local token discovery, but an explicit trusted free-plan
+      // override still makes the client send API-key auth.
+      isSubscriber = managedOAuthIsEffective
+        ? getSubscriptionType() !== 'free'
+        : isClaudeAISubscriber()
     } catch {
       return 'unknown'
     }
@@ -123,6 +156,7 @@ function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
   return resolveAnthropicAttributionAuthFromSources({
     apiKeySource,
     authTokenSource,
+    bareMode,
     isSubscriber,
     managedOAuthContext,
   })
