@@ -22,6 +22,7 @@ const originalEnv = {
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
+  MERGE_GATEWAY_API_KEY: process.env.MERGE_GATEWAY_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -64,6 +65,7 @@ function clearProviderEnv(): void {
   delete process.env.OPENAI_API_KEYS
   delete process.env.OPENAI_MODEL
   delete process.env.APISMART_API_KEY
+  delete process.env.MERGE_GATEWAY_API_KEY
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.CLAUDE_CODE_USE_GEMINI
@@ -102,6 +104,7 @@ afterEach(() => {
     restoreEnvValue('OPENAI_API_KEYS')
     restoreEnvValue('OPENAI_MODEL')
     restoreEnvValue('APISMART_API_KEY')
+    restoreEnvValue('MERGE_GATEWAY_API_KEY')
     restoreEnvValue('ANTHROPIC_CUSTOM_HEADERS')
     restoreEnvValue('CLAUDE_CODE_USE_OPENAI')
     restoreEnvValue('CLAUDE_CODE_USE_GEMINI')
@@ -119,6 +122,51 @@ afterEach(() => {
 })
 
 describe('discoverModelsForRoute', () => {
+  test('uses Merge Gateway native discovery with its dedicated credential', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+    process.env.MERGE_GATEWAY_API_KEY = 'merge-key'
+    process.env.OPENAI_API_KEY = 'unrelated-openai-key'
+
+    let requestUrl: string | null = null
+    let authorization: string | null = null
+    setMockFetch(mock((input: string | URL | Request, init?: RequestInit) => {
+      requestUrl =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url
+      authorization = new Headers(init?.headers).get('authorization')
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                model: 'anthropic/claude-sonnet-5',
+                display_name: 'Claude Sonnet 5',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('merge-gateway', {
+      forceRefresh: true,
+    })
+
+    expect<string | null>(requestUrl).toBe(
+      'https://api-gateway.merge.dev/v1/models',
+    )
+    expect<string | null>(authorization).toBe('Bearer merge-key')
+    expect(result).toMatchObject({
+      routeId: 'merge-gateway',
+      source: 'network',
+      discoveredModelCount: 1,
+    })
+  })
+
   test('does not send an ApiSmart key to an overridden discovery URL', async () => {
     const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
     process.env.APISMART_API_KEY = 'apismart-secret'

@@ -360,6 +360,7 @@ async function runDiscovery(
           baseUrl: getRouteBaseUrl(routeId, options),
           apiKey: getRouteDiscoveryApiKey(routeId, options),
           headers: getRouteDiscoveryHeaders(routeId, options),
+          path: discovery.path,
         })
         if (rawModels === null) {
           return null
@@ -378,6 +379,7 @@ async function runDiscovery(
         baseUrl: getRouteBaseUrl(routeId, options),
         apiKey: getRouteDiscoveryApiKey(routeId, options),
         headers: getRouteDiscoveryHeaders(routeId, options),
+        path: discovery.path,
       })
       return models?.map(model => toDiscoveredModelEntry(model)) ?? null
     }
