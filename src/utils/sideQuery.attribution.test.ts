@@ -2,10 +2,41 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import {
+  setAllowedSettingSources,
+  setFlagSettingsInline,
+  setFlagSettingsPath,
+} from '../bootstrap/state.js'
 import { resetGrowthBook } from '../services/analytics/growthbook.js'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../test/sharedMutationLock.js'
 import { getClaudeAIOAuthTokens } from './auth.js'
-import { sideQuery } from './sideQuery.js'
+import { enableConfigs } from './config.js'
+import { SETTING_SOURCES } from './settings/constants.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
+import {
+  providerModuleIsMocked,
+  REAL_PROVIDER_TEST_CHILD_ENV,
+  REAL_PROVIDER_TEST_TIMEOUT_MS,
+  runTestFileWithRealProviders,
+} from '../test/providerModuleIsolation.js'
+
+// Bun keeps mock.module() registrations process-global across test files.
+// Bind sideQuery only when the canonical provider module is real. When a prior
+// file replaced it, run this file in a clean child process instead.
+const _realProvidersModule = await import(
+  `./model/providers.js?attributionReal=${Date.now()}-${Math.random()}`
+)
+const _loadedProvidersModule = await import('src/utils/model/providers.js')
+const runInProviderIsolatedChild =
+  process.env[REAL_PROVIDER_TEST_CHILD_ENV] !== '1' &&
+  providerModuleIsMocked(_loadedProvidersModule, _realProvidersModule)
+type SideQueryModule = typeof import('./sideQuery.js')
+let sideQuery!: SideQueryModule['sideQuery']
+if (!runInProviderIsolatedChild) {
+  ;({ sideQuery } = await import(
+    `./sideQuery.js?attributionReal=${Date.now()}-${Math.random()}`
+  ))
+}
 
 const envKeys = [
   'ANTHROPIC_API_KEY',
@@ -13,7 +44,9 @@ const envKeys = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
+  'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_REMOTE',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_GEMINI',
@@ -32,6 +65,7 @@ const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 const hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
 const savedMacro = (globalThis as Record<string, unknown>).MACRO
+const originalNodeEnv = process.env.NODE_ENV
 let configRoot: string | undefined
 
 function makeMessageResponse(): Response {
@@ -63,7 +97,7 @@ function makeMessageResponse(): Response {
   )
 }
 
-async function captureSideQuerySystem(
+async function captureSideQueryRequest(
   system:
     | string
     | Array<{
@@ -71,8 +105,12 @@ async function captureSideQuerySystem(
         text: string
         cache_control?: { type: 'ephemeral'; scope?: 'global' | 'org' }
       }> = 'stable side prompt',
-): Promise<Array<Record<string, unknown>>> {
+): Promise<{
+  system: Array<Record<string, unknown>>
+  headers: Headers
+}> {
   let requestBody: Record<string, unknown> | undefined
+  let requestHeaders: Headers | undefined
   globalThis.fetch = (async (input, init) => {
     const request =
       input instanceof Request
@@ -80,6 +118,7 @@ async function captureSideQuerySystem(
         : new Request(input as RequestInfo, init)
     const body = await request.text()
     if (body) requestBody = JSON.parse(body) as Record<string, unknown>
+    requestHeaders = new Headers(request.headers)
     return makeMessageResponse()
   }) as typeof fetch
 
@@ -93,7 +132,25 @@ async function captureSideQuerySystem(
   if (!Array.isArray(requestBody?.system)) {
     throw new Error('expected captured side-query system blocks')
   }
-  return requestBody.system as Array<Record<string, unknown>>
+  if (!requestHeaders) {
+    throw new Error('expected captured side-query request headers')
+  }
+  return {
+    system: requestBody.system as Array<Record<string, unknown>>,
+    headers: requestHeaders,
+  }
+}
+
+async function captureSideQuerySystem(
+  system:
+    | string
+    | Array<{
+        type: 'text'
+        text: string
+        cache_control?: { type: 'ephemeral'; scope?: 'global' | 'org' }
+      }> = 'stable side prompt',
+): Promise<Array<Record<string, unknown>>> {
+  return (await captureSideQueryRequest(system)).system
 }
 
 function blockTexts(blocks: Array<Record<string, unknown>>): string[] {
@@ -104,6 +161,10 @@ function blockTexts(blocks: Array<Record<string, unknown>>): string[] {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('sideQuery.attribution.test.ts')
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline(null)
+  setAllowedSettingSources([...SETTING_SOURCES])
+  resetSettingsCache()
   configRoot = mkdtempSync(join(tmpdir(), 'side-query-attribution-'))
   for (const key of envKeys) delete process.env[key]
   process.env.ANTHROPIC_API_KEY = 'sk-test-side-query'
@@ -124,6 +185,16 @@ beforeEach(async () => {
   resetGrowthBook()
 })
 
+function setIgnoredApiKeyHelper(): void {
+  delete process.env.ANTHROPIC_API_KEY
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline({ apiKeyHelper: 'ignored-test-helper' })
+  setAllowedSettingSources(['flagSettings'])
+  resetSettingsCache()
+  enableConfigs()
+  process.env.NODE_ENV = 'development'
+}
+
 afterEach(() => {
   try {
     for (const key of envKeys) {
@@ -134,6 +205,11 @@ afterEach(() => {
       }
     }
     globalThis.fetch = originalFetch
+    process.env.NODE_ENV = originalNodeEnv
+    setFlagSettingsPath(undefined)
+    setFlagSettingsInline(null)
+    setAllowedSettingSources([...SETTING_SOURCES])
+    resetSettingsCache()
     if (hadSavedMacro) {
       ;(globalThis as Record<string, unknown>).MACRO = savedMacro
     } else {
@@ -150,7 +226,46 @@ afterEach(() => {
   }
 })
 
-describe('sideQuery Anthropic attribution', () => {
+if (runInProviderIsolatedChild) {
+  test('runs side-query attribution cases with the real provider module', async () => {
+    await runTestFileWithRealProviders(import.meta.path)
+  }, { timeout: REAL_PROVIDER_TEST_TIMEOUT_MS + 5_000 })
+}
+
+const describeAttribution = runInProviderIsolatedChild
+  ? describe.skip
+  : describe
+
+describeAttribution('sideQuery Anthropic attribution', () => {
+  for (const [label, envKey, envValue, ambientAuth] of [
+    ['remote', 'CLAUDE_CODE_REMOTE', '1', 'api-key'],
+    [
+      'Claude Desktop',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'claude-desktop',
+      'api-key-helper',
+    ],
+  ] as const) {
+    test(`uses OAuth headers and attribution in managed ${label} sessions`, async () => {
+      process.env[envKey] = envValue
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+      process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+      if (ambientAuth === 'api-key-helper') setIgnoredApiKeyHelper()
+      getClaudeAIOAuthTokens.cache?.clear?.()
+
+      const request = await captureSideQueryRequest()
+      const texts = blockTexts(request.system)
+
+      expect(
+        texts.some(text => text.startsWith('x-anthropic-billing-header')),
+      ).toBe(true)
+      expect(request.headers.get('authorization')).toBe(
+        'Bearer oauth-test-token',
+      )
+      expect(request.headers.has('x-api-key')).toBe(false)
+    })
+  }
+
   test('strips the block from a custom native endpoint', async () => {
     process.env.ANTHROPIC_BASE_URL = 'https://custom-anthropic.example/v1'
 

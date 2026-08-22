@@ -7,6 +7,7 @@ import {
   getAnthropicApiKeyWithSource,
   getAuthTokenSource,
   isClaudeAISubscriber,
+  isManagedOAuthContext,
 } from 'src/utils/auth.js'
 import {
   getTransportKindForRoute,
@@ -23,6 +24,67 @@ import {
 import { logForDebugging } from '../../utils/debug.js'
 
 export type ProviderOverride = { model: string; baseURL: string; apiKey: string }
+
+function resolveAnthropicAttributionAuthTokenSource(
+  authTokenSource: ReturnType<typeof getAuthTokenSource>['source'],
+  managedOAuthContext: boolean,
+): 'oauth' | 'api_key' | 'none' {
+  if (
+    managedOAuthContext &&
+    (authTokenSource === 'ANTHROPIC_AUTH_TOKEN' ||
+      authTokenSource === 'apiKeyHelper')
+  ) {
+    return 'none'
+  }
+  if (
+    authTokenSource === 'ANTHROPIC_AUTH_TOKEN' ||
+    authTokenSource === 'apiKeyHelper'
+  ) {
+    return 'api_key'
+  }
+  if (
+    authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN' ||
+    authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' ||
+    authTokenSource === 'CCR_OAUTH_TOKEN_FILE' ||
+    authTokenSource === 'claude.ai'
+  ) {
+    return 'oauth'
+  }
+  return 'none'
+}
+
+export function resolveAnthropicAttributionAuthFromSources({
+  apiKeySource,
+  authTokenSource,
+  isSubscriber,
+  managedOAuthContext,
+}: {
+  apiKeySource: ReturnType<typeof getAnthropicApiKeyWithSource>['source']
+  authTokenSource: ReturnType<typeof getAuthTokenSource>['source']
+  isSubscriber: boolean
+  managedOAuthContext: boolean
+}): AnthropicAttributionAuth {
+  // Match getAnthropicClient: managed remote and Desktop sessions send OAuth
+  // and ignore inherited API-key settings, so those settings cannot win the
+  // attribution credential precedence either.
+  const apiKey = managedOAuthContext
+    ? 'none'
+    : apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
+      ? 'external'
+      : apiKeySource === '/login managed key'
+        ? 'managed'
+        : 'none'
+  const authToken = resolveAnthropicAttributionAuthTokenSource(
+    authTokenSource,
+    managedOAuthContext,
+  )
+
+  return resolveAnthropicAttributionAuth({
+    apiKey,
+    authToken,
+    isSubscriber,
+  })
+}
 
 function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
   let apiKeySource: ReturnType<
@@ -43,23 +105,12 @@ function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
     return 'unknown'
   }
 
-  const apiKey =
-    apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
-      ? 'external'
-      : apiKeySource === '/login managed key'
-        ? 'managed'
-        : 'none'
-  const authToken =
-    authTokenSource === 'ANTHROPIC_AUTH_TOKEN' ||
-    authTokenSource === 'apiKeyHelper'
-      ? 'api_key'
-      : authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN' ||
-          authTokenSource === 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' ||
-          authTokenSource === 'CCR_OAUTH_TOKEN_FILE' ||
-          authTokenSource === 'claude.ai'
-        ? 'oauth'
-        : 'none'
-  const hasOAuthToken = authToken === 'oauth'
+  const managedOAuthContext = isManagedOAuthContext()
+  const hasOAuthToken =
+    resolveAnthropicAttributionAuthTokenSource(
+      authTokenSource,
+      managedOAuthContext,
+    ) === 'oauth'
   let isSubscriber = false
   if (hasOAuthToken) {
     try {
@@ -69,10 +120,11 @@ function resolveCurrentAnthropicAttributionAuth(): AnthropicAttributionAuth {
     }
   }
 
-  return resolveAnthropicAttributionAuth({
-    apiKey,
-    authToken,
+  return resolveAnthropicAttributionAuthFromSources({
+    apiKeySource,
+    authTokenSource,
     isSubscriber,
+    managedOAuthContext,
   })
 }
 

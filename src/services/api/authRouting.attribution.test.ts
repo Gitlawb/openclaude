@@ -1,13 +1,43 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { applyAnthropicAttributionPolicy } from '../../utils/anthropicAttribution.js'
-import { resolveCurrentAnthropicAttributionPolicy } from './authRouting.js'
+import {
+  providerModuleIsMocked,
+  REAL_PROVIDER_TEST_CHILD_ENV,
+  REAL_PROVIDER_TEST_TIMEOUT_MS,
+  runTestFileWithRealProviders,
+} from '../../test/providerModuleIsolation.js'
+
+// Bun keeps mock.module() registrations process-global across test files.
+// Bind request modules only when the canonical provider module is real. When a
+// prior file replaced it, run this file in a clean child process instead.
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?attributionReal=${Date.now()}-${Math.random()}`
+)
+const _loadedProvidersModule = await import('src/utils/model/providers.js')
+const runInProviderIsolatedChild =
+  process.env[REAL_PROVIDER_TEST_CHILD_ENV] !== '1' &&
+  providerModuleIsMocked(_loadedProvidersModule, _realProvidersModule)
+type AuthRoutingModule = typeof import('./authRouting.js')
+let resolveAnthropicAttributionAuthFromSources!: AuthRoutingModule['resolveAnthropicAttributionAuthFromSources']
+let resolveCurrentAnthropicAttributionPolicy!: AuthRoutingModule['resolveCurrentAnthropicAttributionPolicy']
+if (!runInProviderIsolatedChild) {
+  ;({
+    resolveAnthropicAttributionAuthFromSources,
+    resolveCurrentAnthropicAttributionPolicy,
+  } = await import(
+    `./authRouting.js?attributionReal=${Date.now()}-${Math.random()}`
+  ))
+}
 
 const routeEnvKeys = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_REMOTE',
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_GEMINI',
@@ -41,7 +71,53 @@ afterEach(() => {
   }
 })
 
-describe('current Anthropic attribution route resolution', () => {
+if (runInProviderIsolatedChild) {
+  test('runs attribution route cases with the real provider module', async () => {
+    await runTestFileWithRealProviders(import.meta.path)
+  }, { timeout: REAL_PROVIDER_TEST_TIMEOUT_MS + 5_000 })
+}
+
+const describeAttribution = runInProviderIsolatedChild
+  ? describe.skip
+  : describe
+
+describeAttribution('current Anthropic attribution route resolution', () => {
+  for (const apiKeySource of [
+    'ANTHROPIC_API_KEY',
+    'apiKeyHelper',
+  ] as const) {
+    test(`ignores ${apiKeySource} when managed OAuth is effective`, () => {
+      expect(
+        resolveAnthropicAttributionAuthFromSources({
+          apiKeySource,
+          authTokenSource: 'CLAUDE_CODE_OAUTH_TOKEN',
+          isSubscriber: true,
+          managedOAuthContext: true,
+        }),
+      ).toBe('oauth_subscription')
+    })
+  }
+
+  for (const [label, envKey, envValue] of [
+    ['remote', 'CLAUDE_CODE_REMOTE', '1'],
+    ['Claude Desktop', 'CLAUDE_CODE_ENTRYPOINT', 'claude-desktop'],
+  ] as const) {
+    test(`uses the effective OAuth credential for ${label} sessions`, () => {
+      process.env[envKey] = envValue
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+
+      expect(
+        resolveCurrentAnthropicAttributionPolicy({
+          attributionEnabled: false,
+        }),
+      ).toEqual({
+        generate: true,
+        retain: true,
+        reason: 'official_oauth_required',
+      })
+    })
+  }
+
   for (const [label, envKey] of [
     ['Bedrock', 'CLAUDE_CODE_USE_BEDROCK'],
     ['Vertex', 'CLAUDE_CODE_USE_VERTEX'],

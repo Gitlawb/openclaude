@@ -7,6 +7,11 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
+  setAllowedSettingSources,
+  setFlagSettingsInline,
+  setFlagSettingsPath,
+} from '../../bootstrap/state.js'
+import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
@@ -20,13 +25,38 @@ import {
 } from '../../utils/interruptionTrace.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
-import {
-  executeNonStreamingRequest,
-  type Options,
-  queryHaiku,
-  queryModelWithStreaming,
-} from './claude.js'
+import { enableConfigs } from '../../utils/config.js'
+import { SETTING_SOURCES } from '../../utils/settings/constants.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+import { type Options } from './claude.js'
 import { EMPTY_USAGE } from './emptyUsage.js'
+import {
+  providerModuleIsMocked,
+  REAL_PROVIDER_TEST_CHILD_ENV,
+  REAL_PROVIDER_TEST_TIMEOUT_MS,
+  runTestFileWithRealProviders,
+} from '../../test/providerModuleIsolation.js'
+
+// Bun keeps mock.module() registrations process-global across test files.
+// Bind request modules only when the canonical provider module is real. When a
+// prior file replaced it, run this file in a clean child process instead.
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?attributionReal=${Date.now()}-${Math.random()}`
+)
+const _loadedProvidersModule = await import('src/utils/model/providers.js')
+const runInProviderIsolatedChild =
+  process.env[REAL_PROVIDER_TEST_CHILD_ENV] !== '1' &&
+  providerModuleIsMocked(_loadedProvidersModule, _realProvidersModule)
+type ClaudeModule = typeof import('./claude.js')
+let executeNonStreamingRequest!: ClaudeModule['executeNonStreamingRequest']
+let queryHaiku!: ClaudeModule['queryHaiku']
+let queryModelWithStreaming!: ClaudeModule['queryModelWithStreaming']
+if (!runInProviderIsolatedChild) {
+  ;({ executeNonStreamingRequest, queryHaiku, queryModelWithStreaming } =
+    await import(
+      `./claude.js?attributionReal=${Date.now()}-${Math.random()}`
+    ))
+}
 
 const envKeys = [
   'AIMLAPI_API_KEY',
@@ -38,7 +68,9 @@ const envKeys = [
   'ANTHROPIC_SMALL_FAST_MODEL',
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
+  'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_REMOTE',
   'CLAUDE_CODE_TEST_FIXTURES_ROOT',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
@@ -69,6 +101,7 @@ const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 const hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
 const savedMacro = (globalThis as Record<string, unknown>).MACRO
+const originalNodeEnv = process.env.NODE_ENV
 let fixturesRoot: string | undefined
 
 type FetchOverride = NonNullable<Options['fetchOverride']>
@@ -359,17 +392,19 @@ function makeOptions(
   }
 }
 
-async function capturePrimarySystemBlocks({
+async function capturePrimaryRequest({
   model = 'claude-lifecycle-test',
   systemPrompt = asSystemPrompt(['stable system prompt']),
 }: {
   model?: string
   systemPrompt?: ReturnType<typeof asSystemPrompt>
-} = {}): Promise<unknown[]> {
+} = {}): Promise<{ system: unknown[]; headers: Headers }> {
   const queryLifecycle = new QueryLifecycleOperationTracker()
   let requestBody: Record<string, unknown> | undefined
+  let requestHeaders: Headers | undefined
   const fetchOverride: FetchOverride = async (_input, init) => {
     requestBody = parseRequestBody(init)
+    requestHeaders = new Headers(init?.headers)
     return makeErrorResponse(400, 'captured request')
   }
 
@@ -399,7 +434,17 @@ async function capturePrimarySystemBlocks({
   if (!Array.isArray(requestBody?.system)) {
     throw new Error('expected captured Anthropic system blocks')
   }
-  return requestBody.system
+  if (!requestHeaders) {
+    throw new Error('expected captured Anthropic request headers')
+  }
+  return { system: requestBody.system, headers: requestHeaders }
+}
+
+async function capturePrimarySystemBlocks(options: {
+  model?: string
+  systemPrompt?: ReturnType<typeof asSystemPrompt>
+} = {}): Promise<unknown[]> {
+  return (await capturePrimaryRequest(options)).system
 }
 
 function systemBlockTexts(blocks: unknown[]): string[] {
@@ -444,8 +489,22 @@ function setClientTestEnv(): void {
   resetGrowthBook()
 }
 
+function setIgnoredApiKeyHelper(): void {
+  delete process.env.ANTHROPIC_API_KEY
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline({ apiKeyHelper: 'ignored-test-helper' })
+  setAllowedSettingSources(['flagSettings'])
+  resetSettingsCache()
+  enableConfigs()
+  process.env.NODE_ENV = 'development'
+}
+
 beforeEach(async () => {
   await acquireSharedMutationLock('claude.lifecycle.test.ts')
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline(null)
+  setAllowedSettingSources([...SETTING_SOURCES])
+  resetSettingsCache()
   getClaudeAIOAuthTokens.cache?.clear?.()
 })
 
@@ -464,6 +523,11 @@ afterEach(() => {
       delete (globalThis as Record<string, unknown>).MACRO
     }
     globalThis.fetch = originalFetch
+    process.env.NODE_ENV = originalNodeEnv
+    setFlagSettingsPath(undefined)
+    setFlagSettingsInline(null)
+    setAllowedSettingSources([...SETTING_SOURCES])
+    resetSettingsCache()
     getClaudeAIOAuthTokens.cache?.clear?.()
     resetGrowthBook()
     if (fixturesRoot) {
@@ -475,7 +539,48 @@ afterEach(() => {
   }
 })
 
-describe('Claude API lifecycle tracking', () => {
+if (runInProviderIsolatedChild) {
+  test('runs Claude lifecycle cases with the real provider module', async () => {
+    await runTestFileWithRealProviders(import.meta.path)
+  }, { timeout: REAL_PROVIDER_TEST_TIMEOUT_MS + 5_000 })
+}
+
+const describeLifecycle = runInProviderIsolatedChild
+  ? describe.skip
+  : describe
+
+describeLifecycle('Claude API lifecycle tracking', () => {
+  for (const [label, envKey, envValue, ambientAuth] of [
+    ['remote', 'CLAUDE_CODE_REMOTE', '1', 'api-key'],
+    [
+      'Claude Desktop',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'claude-desktop',
+      'api-key-helper',
+    ],
+  ] as const) {
+    test(`uses OAuth headers and attribution in managed ${label} sessions`, async () => {
+      setClientTestEnv()
+      process.env[envKey] = envValue
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+      process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+      process.env.OPENCLAUDE_MAX_RETRIES = '0'
+      if (ambientAuth === 'api-key-helper') setIgnoredApiKeyHelper()
+      getClaudeAIOAuthTokens.cache?.clear?.()
+
+      const request = await capturePrimaryRequest()
+      const texts = systemBlockTexts(request.system)
+
+      expect(
+        texts.some(text => text.startsWith('x-anthropic-billing-header')),
+      ).toBe(true)
+      expect(request.headers.get('authorization')).toBe(
+        'Bearer oauth-test-token',
+      )
+      expect(request.headers.has('x-api-key')).toBe(false)
+    })
+  }
+
   test('Haiku side queries omit effort from native Anthropic requests when force enabled', async () => {
     setClientTestEnv()
     process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
