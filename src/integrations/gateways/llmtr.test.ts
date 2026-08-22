@@ -68,6 +68,18 @@ test('LLMTR preset uses the existing generic profile path', () => {
       OPENAI_API_KEY: 'fallback-key',
     }).apiKey,
   ).toBe('fallback-key')
+
+  expect(
+    getProviderPresetUiMetadata('llmtr', {
+      LLMTR_API_KEY: 'SUA_CHAVE',
+    }).apiKey,
+  ).toBe('')
+  expect(
+    getProviderPresetUiMetadata('llmtr', {
+      LLMTR_API_KEY: 'SUA_CHAVE',
+      OPENAI_API_KEY: 'fallback-key',
+    }).apiKey,
+  ).toBe('fallback-key')
 })
 
 test('LLMTR dedicated credentials require an already selected LLMTR route', () => {
