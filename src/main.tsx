@@ -111,7 +111,7 @@ import { getActiveAgentsFromList, getAgentDefinitionsWithOverrides, isBuiltInAge
 import type { LogOption } from './types/logs.js';
 import type { Message as MessageType } from './types/message.js';
 import { assertMinVersion } from './utils/autoUpdater.js';
-import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome } from './utils/claudeInChrome/setup.js';
+import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome, waitForClaudeInChromeSetup } from './utils/claudeInChrome/setup.js';
 import { mergeClaudeInChromeStartupConfig, resolveClaudeInChromeStartupMode } from './utils/claudeInChrome/startup.js';
 import { getContextWindowForModel } from './utils/context.js';
 import { loadConversationForResume } from './utils/conversationRecovery.js';
@@ -2488,6 +2488,7 @@ async function run(): Promise<CommanderCommand> {
       await processSessionStartHooks('startup', {
         forceSyncExecution: true
       });
+      await waitForClaudeInChromeSetup();
       gracefulShutdownSync(0);
       return;
     }
