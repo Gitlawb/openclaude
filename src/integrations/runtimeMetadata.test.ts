@@ -369,24 +369,6 @@ describe('AIMLAPI runtime attribution', () => {
   })
 })
 
-describe('LLMTR canonical endpoint boundary', () => {
-  it('keeps query-scoped endpoints on the custom runtime contract', () => {
-    const runtime = resolveOpenAIShimRuntimeContext({
-      processEnv: {
-        CLAUDE_CODE_USE_OPENAI: '1',
-      },
-      activeProfileProvider: 'llmtr',
-      baseUrl: 'https://llmtr.com/v1?tenant=other',
-      model: 'proxy-model',
-    })
-
-    expect(runtime.routeId).toBe('custom')
-    expect(runtime.openaiShimConfig.requiredApiFormat).toBeUndefined()
-    expect(runtime.openaiShimConfig.supportsApiFormatSelection).toBe(true)
-    expect(runtime.openaiShimConfig.supportsAuthHeaders).toBe(true)
-  })
-})
-
 describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {
   it.each([
     'glm-5.2',

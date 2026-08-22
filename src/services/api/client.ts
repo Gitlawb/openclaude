@@ -45,12 +45,10 @@ import {
   getNearaiBaseUrlOverride,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
-  isCanonicalLlmtrInferenceBaseUrl,
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
   getXiaomiMimoBaseUrlOverride,
-  resolveActiveRouteIdFromEnv,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
@@ -451,60 +449,6 @@ function applyConcentrateEnvOnlyDefaults(): void {
   delete process.env.ANTHROPIC_CUSTOM_HEADERS
 }
 
-function applyLlmtrEnvOnlyDefaults(): void {
-  const baseUrlOverride =
-    usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ||
-    usableProviderConfigEnvValue(process.env.OPENAI_API_BASE) ||
-    undefined
-  const modelOverride =
-    usableProviderConfigEnvValue(process.env.OPENAI_MODEL) || undefined
-  const apiKey = process.env.LLMTR_API_KEY
-
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL =
-    baseUrlOverride ?? getRouteDefaultBaseUrl('llmtr')
-  process.env.OPENAI_MODEL = modelOverride ?? getRouteDefaultModel('llmtr')
-  if (
-    hasUsableOpenAICredential(apiKey) &&
-    isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)
-  ) {
-    process.env.OPENAI_API_KEY = apiKey
-  } else if (
-    hasUsableOpenAICredential(process.env.OPENAI_API_KEYS) &&
-    [
-      process.env.OPENGATEWAY_API_KEY,
-      process.env.NVIDIA_API_KEY,
-      process.env.BNKR_API_KEY,
-      process.env.XAI_API_KEY,
-      process.env.MIMO_API_KEY,
-      process.env.VENICE_API_KEY,
-      process.env.MINIMAX_API_KEY,
-      process.env.ATLAS_CLOUD_API_KEY,
-      process.env.APISMART_API_KEY,
-      process.env.CONCENTRATE_API_KEY,
-      process.env.AIMLAPI_API_KEY,
-      process.env.NEARAI_API_KEY,
-      process.env.FIREWORKS_API_KEY,
-      process.env.LONGCAT_API_KEY,
-      process.env.CLOUDFLARE_API_TOKEN,
-    ].some(value =>
-      value?.trim() === process.env.OPENAI_API_KEY?.trim()
-    )
-  ) {
-    // A singular key mirrored from another provider is stale routing state,
-    // not an LLMTR fallback. Let the explicitly configured pool win.
-    delete process.env.OPENAI_API_KEY
-  } else if (!isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)) {
-    delete process.env.OPENAI_API_KEY
-  }
-  delete process.env.OPENAI_API_FORMAT
-  delete process.env.OPENAI_AZURE_STYLE
-  delete process.env.OPENAI_AUTH_HEADER
-  delete process.env.OPENAI_AUTH_SCHEME
-  delete process.env.OPENAI_AUTH_HEADER_VALUE
-  delete process.env.ANTHROPIC_CUSTOM_HEADERS
-}
-
 function usableProviderConfigEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -631,13 +575,6 @@ export async function getAnthropicClient({
     envOnlyProviderRouteId === 'apismart' && !useMiniMaxEnvOnlyProvider
   const useConcentrateEnvOnlyProvider =
     envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
-  const useLlmtrEnvOnlyProvider =
-    !useMiniMaxEnvOnlyProvider &&
-    (envOnlyProviderRouteId === 'llmtr' ||
-      (resolveActiveRouteIdFromEnv(process.env) === 'llmtr' &&
-        isCanonicalLlmtrInferenceBaseUrl(
-          process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
-        )))
   if (useMiniMaxEnvOnlyProvider) applyMiniMaxEnvOnlyDefaults(model)
   if (useXiaomiMimoEnvOnlyProvider) applyXiaomiMimoEnvOnlyDefaults()
   if (useXaiEnvOnlyProvider) applyXaiEnvOnlyDefaults()
@@ -647,7 +584,6 @@ export async function getAnthropicClient({
   if (useAimlapiEnvOnlyProvider) applyAimlapiEnvOnlyDefaults()
   if (useApismartEnvOnlyProvider) applyApismartEnvOnlyDefaults()
   if (useConcentrateEnvOnlyProvider) applyConcentrateEnvOnlyDefaults()
-  if (useLlmtrEnvOnlyProvider) applyLlmtrEnvOnlyDefaults()
 
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID

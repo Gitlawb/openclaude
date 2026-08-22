@@ -442,29 +442,6 @@ export function isConcentrateBaseUrl(value: string | undefined): boolean {
 
 const CONCENTRATE_CANONICAL_INFERENCE_BASE_URL = 'https://api.concentrate.ai/v1'
 
-export function isCanonicalLlmtrInferenceBaseUrl(
-  value: string | undefined,
-): boolean {
-  const trimmed = value?.trim()
-  if (!trimmed) {
-    return false
-  }
-
-  try {
-    const candidate = new URL(trimmed)
-    return (
-      candidate.protocol === 'https:' &&
-      candidate.hostname.toLowerCase() === 'llmtr.com' &&
-      !candidate.port &&
-      !candidate.search &&
-      !candidate.hash &&
-      (candidate.pathname.replace(/\/+$/, '') || '/') === '/v1'
-    )
-  } catch {
-    return false
-  }
-}
-
 export function isCanonicalConcentrateInferenceBaseUrl(
   value: string | undefined,
 ): boolean {
@@ -991,21 +968,6 @@ export function hasConcentrateEnvOnlyProviderIntent(
   )
 }
 
-export function hasLlmtrEnvOnlyProviderIntent(
-  processEnv: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return (
-    hasUsableOpenAICredential(processEnv.LLMTR_API_KEY) &&
-    !hasConflictingOpenAIBaseUrlForRoute(
-      processEnv,
-      isCanonicalLlmtrInferenceBaseUrl,
-    ) &&
-    !(processEnv.CLAUDE_CODE_USE_OPENAI !== undefined &&
-      !isEnvTruthy(processEnv.CLAUDE_CODE_USE_OPENAI)) &&
-    hasNoExplicitNonOpenAIProvider(processEnv)
-  )
-}
-
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -1020,7 +982,6 @@ export function resolveEnvOnlyProviderRouteId(
   | 'clinepass'
   | 'apismart'
   | 'concentrate'
-  | 'llmtr'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -1071,10 +1032,6 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasConcentrateEnvOnlyProviderIntent(processEnv)) {
     return 'concentrate'
-  }
-
-  if (hasLlmtrEnvOnlyProviderIntent(processEnv)) {
-    return 'llmtr'
   }
 
   return null
@@ -1158,16 +1115,6 @@ export function resolveRouteCredentialValue(
     routeId === 'concentrate' &&
     options?.baseUrl !== undefined &&
     !isCanonicalConcentrateInferenceBaseUrl(options.baseUrl)
-  ) {
-    return undefined
-  }
-  // LLMTR's dedicated key is valid only for its documented HTTPS inference
-  // base. Generic OpenAI credentials remain available to intentional custom
-  // endpoints through the ordinary fallback path.
-  if (
-    routeId === 'llmtr' &&
-    options?.baseUrl !== undefined &&
-    !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
   ) {
     return undefined
   }
@@ -1279,12 +1226,6 @@ export function resolveRouteIdFromBaseUrl(
       normalizedBaseUrl &&
       normalizedDefaultBaseUrl === normalizedBaseUrl
     ) {
-      if (
-        route.id === 'llmtr' &&
-        !isCanonicalLlmtrInferenceBaseUrl(baseUrl)
-      ) {
-        continue
-      }
       return route.id
     }
   }
@@ -1340,9 +1281,6 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'apismart') {
     return isApismartBaseUrl(baseUrl)
-  }
-  if (routeId === 'llmtr') {
-    return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
   return true
 }

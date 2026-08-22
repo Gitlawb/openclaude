@@ -69,25 +69,8 @@ function getAllowedConcentrateConfigModel(): string | undefined {
   return undefined
 }
 
-function getAllowedLlmtrConfigModel(): string | undefined {
-  const model = getUsableProviderConfigModel(process.env.OPENAI_MODEL)
-  return model && isModelAllowed(model) ? model : undefined
-}
-
-function getActiveLlmtrModel(): string | undefined {
-  if (resolveActiveRouteIdFromEnv(process.env) !== 'llmtr') return undefined
-
-  const configuredModel = getAllowedLlmtrConfigModel()
-  if (configuredModel && !isModelAlias(configuredModel.toLowerCase())) {
-    return configuredModel
-  }
-  return getRouteDefaultModel('llmtr') || 'deepseek/deepseek-v4-flash'
-}
-
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
-  const llmtrModel = getActiveLlmtrModel()
-  if (llmtrModel) return llmtrModel
   if (isCustomAnthropicProvider()) {
     return process.env.ANTHROPIC_MODEL || getDefaultHaikuModel()
   }
@@ -190,8 +173,6 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
       ? getAllowedConcentrateConfigModel()
-      : activeRouteId === 'llmtr'
-        ? getAllowedLlmtrConfigModel()
       : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
         (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
         (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
@@ -235,8 +216,6 @@ export function getBestModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Opus model (3P providers may lag so keep defaults unchanged).
 export function getDefaultOpusModel(): ModelName {
-  const llmtrModel = getActiveLlmtrModel()
-  if (llmtrModel) return llmtrModel
   if (process.env.ANTHROPIC_DEFAULT_OPUS_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
   }
@@ -287,8 +266,6 @@ export function getDefaultOpusModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
 export function getDefaultSonnetModel(): ModelName {
-  const llmtrModel = getActiveLlmtrModel()
-  if (llmtrModel) return llmtrModel
   if (process.env.ANTHROPIC_DEFAULT_SONNET_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
   }
@@ -337,8 +314,6 @@ export function getDefaultSonnetModel(): ModelName {
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
 export function getDefaultHaikuModel(): ModelName {
-  const llmtrModel = getActiveLlmtrModel()
-  if (llmtrModel) return llmtrModel
   if (process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) {
     return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
   }
@@ -422,19 +397,11 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
-  const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
-  if (activeRouteId === 'concentrate') {
+  if (resolveActiveRouteIdFromEnv(process.env) === 'concentrate') {
     return (
       getAllowedConcentrateConfigModel() ||
       getRouteDefaultModel('concentrate') ||
       'deepseek-v4-flash'
-    )
-  }
-  if (activeRouteId === 'llmtr') {
-    return (
-      getAllowedLlmtrConfigModel() ||
-      getRouteDefaultModel('llmtr') ||
-      'deepseek/deepseek-v4-flash'
     )
   }
   // Custom Anthropic-compatible endpoints intentionally retain the legacy

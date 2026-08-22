@@ -8,12 +8,10 @@ import {
   getRouteProviderTypeLabel,
   isApismartBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
-  isCanonicalLlmtrInferenceBaseUrl,
   isCloudflareBaseUrl,
   isConcentrateBaseUrl,
   isLongcatBaseUrl,
   resolveActiveRouteIdFromEnv,
-  resolveEnvOnlyProviderRouteId,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
@@ -1144,60 +1142,4 @@ test('resolveActiveRouteIdFromEnv does not let a stale Concentrate model overrid
       CONCENTRATE_MODEL: 'deepseek-v4-flash-0731',
     }),
   ).toBe('openai')
-})
-
-test('LLMTR env-only key selects the canonical route without an OpenAI flag', () => {
-  const env = { LLMTR_API_KEY: 'llmtr-key' }
-  expect(resolveEnvOnlyProviderRouteId(env)).toBe('llmtr')
-  expect(resolveActiveRouteIdFromEnv(env)).toBe('llmtr')
-})
-
-test('LLMTR env-only intent rejects placeholders and conflicting endpoints', () => {
-  expect(resolveEnvOnlyProviderRouteId({ LLMTR_API_KEY: 'SUA_CHAVE' })).toBeNull()
-  expect(
-    resolveEnvOnlyProviderRouteId({
-      LLMTR_API_KEY: 'llmtr-key',
-      OPENAI_BASE_URL: 'https://proxy.example/v1',
-    }),
-  ).toBeNull()
-})
-
-test('LLMTR dedicated credential is usable only at the canonical endpoint', () => {
-  const env = { LLMTR_API_KEY: 'llmtr-key' }
-  expect(isCanonicalLlmtrInferenceBaseUrl('https://llmtr.com/v1')).toBe(true)
-  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
-  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1/')).toBe('llmtr')
-  expect(
-    resolveRouteCredentialValue({
-      baseUrl: 'https://llmtr.com/v1',
-      processEnv: env,
-    }),
-  ).toBe('llmtr-key')
-  expect(isCanonicalLlmtrInferenceBaseUrl('http://llmtr.com/v1')).toBe(false)
-  expect(
-    resolveRouteIdFromBaseUrl('https://llmtr.com/v1?tenant=other'),
-  ).toBeNull()
-  expect(
-    resolveRouteCredentialValue({
-      baseUrl: 'https://llmtr.com/v1?tenant=other',
-      processEnv: env,
-    }),
-  ).toBeUndefined()
-  expect(
-    resolveRouteCredentialValue({
-      baseUrl: 'https://proxy.example/v1',
-      processEnv: env,
-    }),
-  ).toBeUndefined()
-  expect(
-    resolveActiveRouteIdFromEnv({
-      CLAUDE_CODE_USE_OPENAI: '1',
-      OPENAI_BASE_URL: 'https://llmtr.com/v1?tenant=other',
-      OPENAI_MODEL: 'proxy-model',
-      OPENAI_API_KEY: 'proxy-key',
-    }),
-  ).toBe('custom')
-  expect(
-    getRouteCredentialValue('llmtr', { LLMTR_API_KEY: 'SUA_CHAVE' }),
-  ).toBeUndefined()
 })

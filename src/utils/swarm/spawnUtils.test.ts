@@ -42,16 +42,14 @@ test('buildInheritedEnvVars forwards pooled OpenAI credentials', () => {
   expect(envVars).toContain('OPENAI_API_KEYS=key-a\\,key-b')
 })
 
-test('buildInheritedEnvVars forwards LLMTR credentials', () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+test('buildInheritedEnvVars forwards an LLMTR credential without inventing route state', () => {
   process.env.LLMTR_API_KEY = 'llmtr-key'
 
   const envVars = buildInheritedEnvVars()
 
   expect(envVars).toContain('LLMTR_API_KEY=llmtr-key')
-  expect(envVars).toContain('OPENAI_BASE_URL=')
-  expect(envVars).toContain('llmtr.com/v1')
+  expect(envVars).not.toContain('CLAUDE_CODE_USE_OPENAI=1')
+  expect(envVars).not.toContain('OPENAI_BASE_URL=')
 })
 
 test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups', () => {

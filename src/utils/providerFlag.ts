@@ -260,10 +260,6 @@ function clearConcentrateProviderState(): void {
   delete process.env.CONCENTRATE_MODEL
 }
 
-function clearLlmtrProviderState(): void {
-  delete process.env.LLMTR_API_KEY
-}
-
 function usableProviderModelEnvValue(
   value: string | undefined,
 ): string | undefined {
@@ -368,9 +364,6 @@ export function applyProviderFlag(
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.CONCENTRATE_API_KEY
                         ? 'concentrate'
-                        : process.env.OPENAI_API_KEY !== undefined &&
-                          process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
-                        ? 'llmtr'
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                         ? 'nearai'
@@ -761,22 +754,6 @@ export function applyProviderFlag(
       }
       break
 
-    case 'llmtr':
-      process.env.CLAUDE_CODE_USE_OPENAI = '1'
-      // LLMTR has a fixed Chat Completions + Bearer-auth contract. Keep the
-      // explicit preset path aligned with the dedicated-key env-only path so
-      // custom auth state from a previous provider cannot follow the switch.
-      clearUnsupportedOpenAIShimSettings('llmtr')
-      delete process.env.ANTHROPIC_CUSTOM_HEADERS
-      applyOpenAIBaseUrlDefault(
-        provider,
-        defaultBaseUrl ?? 'https://llmtr.com/v1',
-      )
-      process.env.OPENAI_MODEL ??=
-        defaultModel ?? 'deepseek/deepseek-v4-flash'
-      if (model) process.env.OPENAI_MODEL = model
-      break
-
     case 'fireworks':
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
@@ -876,9 +853,6 @@ export function applyProviderFlag(
   // custom-anthropic request remains non-mutating.
   if (provider !== 'concentrate') {
     clearConcentrateProviderState()
-  }
-  if (provider !== 'llmtr') {
-    clearLlmtrProviderState()
   }
 
   return {}

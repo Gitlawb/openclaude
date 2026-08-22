@@ -5,6 +5,7 @@ import { getProviderPresetUiMetadata } from '../providerUiMetadata.js'
 import {
   resolveActiveRouteIdFromEnv,
   resolveRouteCredentialValue,
+  resolveRouteIdFromBaseUrl,
 } from '../routeMetadata.js'
 import catalog, { mapLlmtrModel } from './llmtr.models.js'
 import gateway from './llmtr.js'
@@ -17,6 +18,20 @@ test('LLMTR uses the standard OpenAI-compatible gateway contract', () => {
     'OPENAI_API_KEY',
   ])
   expect(gateway.setup.dedicatedCredentialsOnly).not.toBe(true)
+  expect(gateway.preset?.apiKeyEnvVars).toEqual([
+    'LLMTR_API_KEY',
+    'OPENAI_API_KEY',
+  ])
+  expect(gateway.validation).toMatchObject({
+    kind: 'credential-env',
+    routing: { matchDefaultBaseUrl: true },
+    credentialEnvVars: [
+      'LLMTR_API_KEY',
+      'OPENAI_API_KEYS',
+      'OPENAI_API_KEY',
+    ],
+  })
+  expect(gateway.validation?.routing?.matchBaseUrlHosts).toBeUndefined()
   expect(gateway.transportConfig).toEqual({
     kind: 'openai-compatible',
     openaiShim: {
@@ -38,7 +53,7 @@ test('LLMTR preset uses the existing generic profile path', () => {
   expect(
     getProviderPresetUiMetadata('llmtr', {
       LLMTR_API_KEY: 'llmtr-key',
-      OPENAI_API_KEY: 'generic-key',
+      OPENAI_API_KEY: 'fallback-key',
     }),
   ).toMatchObject({
     apiKey: 'llmtr-key',
@@ -47,73 +62,36 @@ test('LLMTR preset uses the existing generic profile path', () => {
     provider: 'llmtr',
     routeId: 'llmtr',
   })
+
+  expect(
+    getProviderPresetUiMetadata('llmtr', {
+      OPENAI_API_KEY: 'fallback-key',
+    }).apiKey,
+  ).toBe('fallback-key')
 })
 
-test('LLMTR prefers its dedicated env key with generic OpenAI fallback', () => {
-  expect(
-    resolveActiveRouteIdFromEnv({
-      CLAUDE_CODE_USE_OPENAI: '1',
-      OPENAI_BASE_URL: 'https://llmtr.com/v1',
-      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
-      LLMTR_API_KEY: 'dedicated-key',
-    }),
-  ).toBe('llmtr')
+test('LLMTR dedicated credentials require an already selected LLMTR route', () => {
+  const processEnv = { LLMTR_API_KEY: 'llmtr-key' }
 
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/proxy/v1')).toBeNull()
   expect(
     resolveRouteCredentialValue({
       routeId: 'llmtr',
       baseUrl: 'https://llmtr.com/v1',
-      processEnv: {
-        LLMTR_API_KEY: 'dedicated-key',
-        OPENAI_API_KEY: 'generic-key',
-      },
+      processEnv,
     }),
-  ).toBe('dedicated-key')
-
+  ).toBe('llmtr-key')
   expect(
     resolveRouteCredentialValue({
-      routeId: 'llmtr',
-      baseUrl: 'https://llmtr.com/v1',
-      processEnv: { OPENAI_API_KEY: 'generic-key' },
+      routeId: 'custom',
+      baseUrl: 'https://proxy.example/v1',
+      processEnv,
     }),
-  ).toBe('generic-key')
-
-  for (const baseUrl of [
-    'https://proxy.example/v1',
-    'http://llmtr.com/v1',
-    'https://llmtr.com/staging/v1',
-    'https://llmtr.com:8443/v1',
-    'https://llmtr.com/v1?tenant=other',
-  ]) {
-    expect(
-      resolveRouteCredentialValue({
-        routeId: 'llmtr',
-        baseUrl,
-        processEnv: {
-          LLMTR_API_KEY: 'dedicated-key',
-          OPENAI_API_KEY: 'generic-key',
-        },
-      }),
-    ).toBeUndefined()
-  }
-
+  ).toBeUndefined()
   expect(
-    resolveActiveRouteIdFromEnv({
-      CLAUDE_CODE_USE_OPENAI: '1',
-      OPENAI_BASE_URL: 'http://llmtr.com/v1',
-      LLMTR_API_KEY: 'dedicated-key',
-    }),
-  ).toBe('custom')
-
-  expect(
-    resolveActiveRouteIdFromEnv(
-      { CLAUDE_CODE_USE_OPENAI: '1' },
-      {
-        activeProfileProvider: 'llmtr',
-        activeProfileBaseUrl: 'https://proxy.example/v1',
-      },
-    ),
-  ).toBe('openai')
+    resolveActiveRouteIdFromEnv(processEnv),
+  ).not.toBe('llmtr')
 })
 
 test('LLMTR discovery keeps tool-capable Chat Completions models', () => {

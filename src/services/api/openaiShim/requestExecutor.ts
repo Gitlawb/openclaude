@@ -289,7 +289,6 @@ export async function executeOpenAIRequest(
       requestProcessEnv.ATLAS_CLOUD_API_KEY,
       requestProcessEnv.APISMART_API_KEY,
       requestProcessEnv.CONCENTRATE_API_KEY,
-      requestProcessEnv.LLMTR_API_KEY,
       requestProcessEnv.NEARAI_API_KEY,
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,

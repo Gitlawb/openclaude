@@ -18,9 +18,9 @@ const TEST_ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
+  'LLMTR_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
-  'LLMTR_API_KEY',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
   'OPENAI_AZURE_STYLE',
@@ -293,6 +293,17 @@ describe('loadEnvFile', () => {
     })
   })
 
+  it('loads the dedicated LLMTR credential without selecting a route', () => {
+    const filePath = writeTempEnvFile('LLMTR_API_KEY=llmtr-key')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(loaded).toEqual({ LLMTR_API_KEY: 'llmtr-key' })
+  })
+
   it('loads documented Concentrate env-only provider setup values', () => {
     const filePath = writeTempEnvFile([
       'CONCENTRATE_API_KEY=concentrate-key',
@@ -309,25 +320,6 @@ describe('loadEnvFile', () => {
       CONCENTRATE_API_KEY: 'concentrate-key',
       CONCENTRATE_BASE_URL: 'https://api.concentrate.ai/v1',
       CONCENTRATE_MODEL: 'claude-sonnet-5',
-    })
-  })
-
-  it('loads documented LLMTR provider setup values', () => {
-    const filePath = writeTempEnvFile([
-      'CLAUDE_CODE_USE_OPENAI=1',
-      'LLMTR_API_KEY=llmtr-key',
-      'OPENAI_BASE_URL=https://llmtr.com/v1',
-      'OPENAI_MODEL=deepseek/deepseek-v4-flash',
-    ].join('\n'))
-
-    const loaded = loadEnvFile(filePath)
-
-    expect(process.env.LLMTR_API_KEY).toBe('llmtr-key')
-    expect(loaded).toEqual({
-      CLAUDE_CODE_USE_OPENAI: '1',
-      LLMTR_API_KEY: 'llmtr-key',
-      OPENAI_BASE_URL: 'https://llmtr.com/v1',
-      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
     })
   })
 

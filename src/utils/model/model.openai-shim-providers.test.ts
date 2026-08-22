@@ -78,7 +78,6 @@ const SAVED_ENV = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
-  LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
   CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
@@ -141,7 +140,6 @@ beforeEach(async () => {
   delete process.env.ANTHROPIC_MODEL
   delete process.env.MIMO_API_KEY
   delete process.env.CONCENTRATE_API_KEY
-  delete process.env.LLMTR_API_KEY
   delete process.env.CONCENTRATE_BASE_URL
   delete process.env.CONCENTRATE_MODEL
   delete process.env.OPENAI_MODEL
@@ -349,74 +347,6 @@ test('getDefaultMainLoopModelSetting defaults MiniMax to M3', async () => {
   } = await importFreshModelModule()
   expect(getDefaultMainLoopModelSetting()).toBe('MiniMax-M3')
   expect(getDefaultMainLoopModel()).toBe('MiniMax-M3')
-})
-
-test('LLMTR ignores a stale saved model before client normalization', async () => {
-  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
-  process.env.LLMTR_API_KEY = 'llmtr-test'
-
-  const {
-    getDefaultMainLoopModelSetting,
-    getMainLoopModel,
-    getUserSpecifiedModelSetting,
-  } = await importFreshModelModule()
-  expect(getUserSpecifiedModelSetting()).toBeUndefined()
-  expect(getDefaultMainLoopModelSetting()).toBe(
-    'deepseek/deepseek-v4-flash',
-  )
-  expect(getMainLoopModel()).toBe('deepseek/deepseek-v4-flash')
-})
-
-test('LLMTR honors OPENAI_MODEL before client normalization', async () => {
-  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
-  process.env.LLMTR_API_KEY = 'llmtr-test'
-  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
-
-  const { getMainLoopModel, getUserSpecifiedModelSetting } =
-    await importFreshModelModule()
-  expect(getUserSpecifiedModelSetting()).toBe('anthropic/claude-sonnet-4.6')
-  expect(getMainLoopModel()).toBe('anthropic/claude-sonnet-4.6')
-})
-
-test('LLMTR uses its route model for small requests before client normalization', async () => {
-  process.env.LLMTR_API_KEY = 'llmtr-test'
-
-  const { getSmallFastModel } = await importFreshModelModule()
-
-  expect(getSmallFastModel()).toBe('deepseek/deepseek-v4-flash')
-})
-
-test('LLMTR small requests honor an allowed explicit model before client normalization', async () => {
-  process.env.LLMTR_API_KEY = 'llmtr-test'
-  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
-
-  const { getSmallFastModel } = await importFreshModelModule()
-
-  expect(getSmallFastModel()).toBe('anthropic/claude-sonnet-4.6')
-})
-
-test.each(['sonnet', 'haiku', 'opus', 'best', 'opusplan'] as const)(
-  'LLMTR resolves the %s alias before client normalization',
-  async alias => {
-    process.env.LLMTR_API_KEY = 'llmtr-test'
-
-    const { parseUserSpecifiedModel } = await importFreshModelModule()
-
-    expect(parseUserSpecifiedModel(alias)).toBe(
-      'deepseek/deepseek-v4-flash',
-    )
-  },
-)
-
-test('LLMTR aliases honor an allowed explicit model before client normalization', async () => {
-  process.env.LLMTR_API_KEY = 'llmtr-test'
-  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
-
-  const { parseUserSpecifiedModel } = await importFreshModelModule()
-
-  expect(parseUserSpecifiedModel('sonnet')).toBe(
-    'anthropic/claude-sonnet-4.6',
-  )
 })
 
 test('Concentrate selects its dedicated model before client normalization', async () => {
