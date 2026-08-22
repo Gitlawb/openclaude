@@ -13,6 +13,35 @@ import * as actualAuth from './auth.js'
 import * as actualThinking from './thinking.js'
 import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
+import type { APIProvider } from './model/providers.js'
+
+type MockedThirdPartyCapability = 'effort' | 'max_effort' | 'xhigh_effort'
+
+const originalEnv = { ...process.env }
+const routingEnvKeys = [
+  'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+  'CLAUDE_CODE_EFFORT_LEVEL',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_GITHUB',
+  'CLAUDE_CODE_USE_MISTRAL',
+  'CLAUDE_CODE_USE_OPENAI',
+  'CLAUDE_CODE_USE_VERTEX',
+  'GEMINI_API_KEY',
+  'MIMO_API_KEY',
+  'MINIMAX_API_KEY',
+  'NVIDIA_API_KEY',
+  'NVIDIA_NIM',
+  'OPENAI_API_BASE',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_MODEL',
+  'XAI_API_KEY',
+  'ZAI_API_KEY',
+  'USER_TYPE',
+] as const
 
 function restoreMockedModulesToActual(): void {
   mock.module('./model/modelSupportOverrides.js', () => actualModelSupportOverrides)
@@ -21,31 +50,57 @@ function restoreMockedModulesToActual(): void {
   mock.module('src/services/analytics/growthbook.js', () => actualGrowthbook)
 }
 
+function restoreProcessEnv(): void {
+  for (const key of Object.keys(process.env)) {
+    if (!Object.hasOwn(originalEnv, key)) delete process.env[key]
+  }
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+}
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.codex.test.ts')
+  for (const key of routingEnvKeys) {
+    delete process.env[key]
+  }
 })
 
 afterEach(() => {
   try {
     mock.restore()
     restoreMockedModulesToActual()
+    restoreProcessEnv()
   } finally {
     releaseSharedMutationLock()
   }
 })
 
 async function importFreshEffortModule(options: {
-  provider: 'codex' | 'openai'
+  provider: APIProvider
   supportsCodexReasoningEffort: boolean
   routeId?: string
   catalogEntries?: any[]
   modelDescriptors?: Record<string, any>
   openaiShimConfig?: any
+  thirdPartyCapabilityOverrides?: {
+    apiProvider: APIProvider
+    capabilities: Partial<Record<MockedThirdPartyCapability, boolean>>
+  }
+  useRuntimeFallback?: boolean
 }) {
   mock.module('./model/modelSupportOverrides.js', () => ({
     ...actualModelSupportOverrides,
-    get3PModelCapabilityOverride: () => undefined,
+    get3PModelCapabilityOverride: (
+      _model: string,
+      capability: MockedThirdPartyCapability,
+      apiProvider?: APIProvider,
+    ) => {
+      const override = options.thirdPartyCapabilityOverrides
+      if (!override || apiProvider !== override.apiProvider) return undefined
+      return override.capabilities[capability]
+    },
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -70,7 +125,8 @@ async function importFreshEffortModule(options: {
     options.routeId !== undefined ||
     options.catalogEntries !== undefined ||
     options.modelDescriptors !== undefined ||
-    options.openaiShimConfig !== undefined
+    options.openaiShimConfig !== undefined ||
+    options.useRuntimeFallback !== undefined
   )
     ? {
         apiProvider: options.provider,
@@ -79,6 +135,7 @@ async function importFreshEffortModule(options: {
         catalogEntries: options.catalogEntries,
         modelDescriptors: options.modelDescriptors,
         openaiShimConfig: options.openaiShimConfig,
+        useRuntimeFallback: options.useRuntimeFallback,
       }
     : undefined
 
@@ -86,6 +143,17 @@ async function importFreshEffortModule(options: {
     ...effort,
     resolveModelReasoningControl: (model: string) =>
       effort.resolveModelReasoningControl(model, reasoningContext),
+    resolveModelReasoningControlWithCompatibility: (
+      model: string,
+      compatibilityOverrides: {
+        thinkingRequestFormat?: 'none' | 'deepseek-compatible' | 'zai-compatible'
+        removeBodyFields?: string[]
+      },
+    ) => effort.resolveModelReasoningControl(
+      model,
+      reasoningContext,
+      compatibilityOverrides,
+    ),
     modelSupportsEffort: (model: string) =>
       effort.modelSupportsEffort(model, reasoningContext),
     modelSupportsWireEffort: (model: string) =>
@@ -319,7 +387,7 @@ test('e2e: xhigh → persisted xhigh → resolveAppliedEffort → wire xhigh on 
 
 test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -328,7 +396,7 @@ test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
 
 test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude models are not', async () => {
   const { modelSupportsXHighEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -344,7 +412,7 @@ test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude 
 
 test('xhigh does not appear in available levels for non-supporting models', async () => {
   const { getAvailableEffortLevels } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -368,7 +436,7 @@ test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async 
   // effort for them would silently drop low/medium on the wire.
   const { modelSupportsEffort, getAvailableEffortLevels } =
     await importFreshEffortModule({
-      provider: 'firstParty' as unknown as 'openai',
+      provider: 'firstParty',
       supportsCodexReasoningEffort: false,
     })
 
@@ -398,7 +466,7 @@ test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async 
 
 test('xhigh clamps to high on non-supporting models so stale settings.json values do not produce API errors', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -412,6 +480,9 @@ test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable mode
   const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
     provider: 'openai',
     supportsCodexReasoningEffort: true,
+    routeId: 'opencode',
+    useRuntimeFallback: false,
+    openaiShimConfig: { endpointPath: '/messages' },
   })
 
   // ultracode isn't selectable off firstParty, so it clamps — but to xhigh
@@ -428,7 +499,7 @@ test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable mode
 
 test('clampUltracodeEffort: clamps to high on firstParty non-xhigh model', async () => {
   const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -1014,6 +1085,253 @@ test('explicit non-controllable metadata opts out even when the model matches le
   expect(resolveAppliedEffort('gpt-5.4', 'high')).toBeUndefined()
 })
 
+test('force enable cannot override non-effort metadata or transport contracts', async () => {
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const metadata = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+    routeId: 'custom-gateway',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
+    catalogEntries: [
+      {
+        id: 'metadata-no-effort',
+        apiName: 'metadata-no-effort',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'always-on',
+          wireFormat: 'none',
+        },
+      },
+    ],
+  })
+
+  expect(metadata.modelSupportsEffort('metadata-no-effort')).toBe(false)
+  expect(metadata.modelSupportsShimReasoningEffort('metadata-no-effort')).toBe(false)
+  expect(metadata.modelSupportsWireEffort('metadata-no-effort')).toBe(false)
+  expect(metadata.resolveAppliedEffort('metadata-no-effort', 'high')).toBeUndefined()
+
+  const transport = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+    routeId: 'custom',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
+    openaiShimConfig: { thinkingRequestFormat: 'none' },
+  })
+
+  expect(transport.modelSupportsEffort('transport-no-effort')).toBe(false)
+  expect(transport.modelSupportsShimReasoningEffort('transport-no-effort')).toBe(false)
+  expect(transport.modelSupportsWireEffort('transport-no-effort')).toBe(false)
+  expect(transport.resolveAppliedEffort('transport-no-effort', 'high')).toBeUndefined()
+
+  const metadataWithTransportVeto = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: true,
+    routeId: 'custom-gateway',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
+    openaiShimConfig: { thinkingRequestFormat: 'none' },
+    catalogEntries: [
+      {
+        id: 'metadata-with-transport-veto',
+        apiName: 'metadata-with-transport-veto',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high'],
+          wireFormat: 'reasoning_effort',
+        },
+      },
+    ],
+  })
+
+  expect(
+    metadataWithTransportVeto.modelSupportsEffort(
+      'metadata-with-transport-veto',
+    ),
+  ).toBe(false)
+  expect(
+    metadataWithTransportVeto.modelSupportsShimReasoningEffort(
+      'metadata-with-transport-veto',
+    ),
+  ).toBe(false)
+  expect(
+    metadataWithTransportVeto.modelSupportsWireEffort(
+      'metadata-with-transport-veto',
+    ),
+  ).toBe(false)
+})
+
+test('resolver and shim effort predicate accept explicit transport vetoes', async () => {
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const {
+    modelSupportsShimReasoningEffort,
+    resolveModelReasoningControlWithCompatibility,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom',
+    useRuntimeFallback: false,
+  })
+
+  expect(
+    resolveModelReasoningControlWithCompatibility(
+      'transport-no-effort',
+      { thinkingRequestFormat: 'none' },
+    ),
+  ).toMatchObject({
+    supportsReasoning: false,
+    controllable: false,
+    source: 'compat',
+  })
+
+  expect(
+    modelSupportsShimReasoningEffort('transport-no-effort', 'none'),
+  ).toBe(false)
+  expect(
+    modelSupportsShimReasoningEffort(
+      'transport-no-effort',
+      undefined,
+      ['reasoning_effort'],
+    ),
+  ).toBe(false)
+})
+
+test('third-party false beats force enable for unresolved models', async () => {
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const {
+    modelSupportsEffort,
+    modelSupportsShimReasoningEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: false },
+    },
+  })
+
+  expect(modelSupportsEffort('third-party-custom-model')).toBe(false)
+  expect(modelSupportsShimReasoningEffort('third-party-custom-model')).toBe(false)
+  expect(modelSupportsWireEffort('third-party-custom-model')).toBe(false)
+  expect(resolveAppliedEffort('third-party-custom-model', 'high')).toBeUndefined()
+})
+
+test('third-party effort overrides require the matching API provider', async () => {
+  const matchingProvider = await importFreshEffortModule({
+    provider: 'bedrock',
+    supportsCodexReasoningEffort: false,
+    routeId: 'bedrock',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'bedrock',
+      capabilities: {
+        effort: true,
+        max_effort: true,
+        xhigh_effort: false,
+      },
+    },
+  })
+
+  expect(
+    matchingProvider.modelSupportsEffort('provider-scoped-model'),
+  ).toBe(true)
+  expect(
+    matchingProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual(['low', 'medium', 'high', 'max'])
+
+  const xhighProvider = await importFreshEffortModule({
+    provider: 'foundry',
+    supportsCodexReasoningEffort: false,
+    routeId: 'foundry',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'foundry',
+      capabilities: {
+        effort: true,
+        max_effort: false,
+        xhigh_effort: true,
+      },
+    },
+  })
+
+  expect(
+    xhighProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual(['low', 'medium', 'high', 'xhigh'])
+
+  const differentProvider = await importFreshEffortModule({
+    provider: 'vertex',
+    supportsCodexReasoningEffort: false,
+    routeId: 'vertex',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'bedrock',
+      capabilities: {
+        effort: true,
+        max_effort: true,
+        xhigh_effort: false,
+      },
+    },
+  })
+
+  expect(
+    differentProvider.modelSupportsEffort('provider-scoped-model'),
+  ).toBe(false)
+  expect(
+    differentProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual([])
+})
+
+test('explicit effort metadata beats a third-party false override', async () => {
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const {
+    modelSupportsEffort,
+    modelSupportsShimReasoningEffort,
+    modelSupportsWireEffort,
+    resolveAppliedEffort,
+  } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    routeId: 'custom-gateway',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: false },
+    },
+    catalogEntries: [
+      {
+        id: 'metadata-effort-model',
+        apiName: 'metadata-effort-model',
+        capabilities: { supportsReasoning: true },
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'medium', 'high'],
+          wireFormat: 'reasoning_effort',
+        },
+      },
+    ],
+  })
+
+  expect(modelSupportsEffort('metadata-effort-model')).toBe(true)
+  expect(modelSupportsShimReasoningEffort('metadata-effort-model')).toBe(true)
+  expect(modelSupportsWireEffort('metadata-effort-model')).toBe(true)
+  expect(resolveAppliedEffort('metadata-effort-model', 'high')).toBe('high')
+})
+
 test('toggle reasoning metadata stays non-controllable until toggle serialization exists', async () => {
   const {
     getAvailableEffortLevels,
@@ -1108,7 +1426,8 @@ test('compat DeepSeek routes stay non-controllable when the runtime shim strips 
   expect(resolveModelReasoningControl('deepseek-r1-distill-llama-70b')).toMatchObject({
     supportsReasoning: false,
     controllable: false,
-    source: 'none',
+    source: 'compat',
+    levels: [],
   })
   expect(modelSupportsEffort('deepseek-r1-distill-llama-70b')).toBe(false)
   expect(modelSupportsWireEffort('deepseek-r1-distill-llama-70b')).toBe(false)
