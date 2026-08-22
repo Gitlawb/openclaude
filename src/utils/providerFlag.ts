@@ -32,6 +32,7 @@ import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
@@ -837,6 +838,13 @@ export function applyProviderFlag(
     default:
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
+      if (
+        provider === 'llmtr' &&
+        isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        clearUnsupportedOpenAIShimSettings('llmtr')
+        delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      }
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }

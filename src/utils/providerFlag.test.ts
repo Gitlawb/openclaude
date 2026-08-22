@@ -574,6 +574,46 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBe('http://proxy.local:8080/v1')
   })
 
+  test('LLMTR clears stale custom auth only on its canonical endpoint', () => {
+    process.env.LLMTR_API_KEY = 'llmtr-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('llmtr', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://llmtr.com/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('LLMTR preserves custom endpoint auth settings when the endpoint is explicit', () => {
+    process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('llmtr', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-secret')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Tenant-Secret: tenant-secret',
+    )
+  })
+
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
     process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
     process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
