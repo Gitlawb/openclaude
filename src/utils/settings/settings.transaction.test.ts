@@ -709,6 +709,68 @@ test(
 )
 
 test(
+  'retries when the owner releases after a pending publish loses its race',
+  async () => {
+    await withIsolatedUserSettings(async (root, settingsPath) => {
+      const holderEntered = join(root, 'holder-entered')
+      const holderCompleted = join(root, 'holder-completed')
+      const releaseHolder = join(root, 'release-holder')
+      const originalFs = getFsImplementation()
+      const children: CapturedChild[] = []
+      let removedContendedLock = false
+      try {
+        writeFileSync(settingsPath, '{}\n')
+        const holder = startWriter([
+          'hold-lock',
+          root,
+          'unused',
+          'unused',
+          holderEntered,
+          holderCompleted,
+          'unused',
+          releaseHolder,
+        ])
+        children.push(holder)
+        await waitForMarker(holderEntered, holder, 'holder')
+
+        setFsImplementation({
+          ...originalFs,
+          lstatSync(path) {
+            if (
+              !removedContendedLock &&
+              resolve(path) === resolve(`${settingsPath}.lock`)
+            ) {
+              removedContendedLock = true
+              holder.process.kill('SIGKILL')
+              rmSync(`${settingsPath}.lock`, {
+                recursive: true,
+                force: true,
+              })
+            }
+            return originalFs.lstatSync(path)
+          },
+        })
+
+        expect(
+          updateSettingsForSource('userSettings', {
+            env: { RETRIED_AFTER_RELEASE: 'yes' },
+          }),
+        ).toEqual({ error: null })
+        expect(removedContendedLock).toBe(true)
+        expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+          RETRIED_AFTER_RELEASE: 'yes',
+        })
+        expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+      } finally {
+        setFsImplementation(originalFs)
+        await Promise.all(children.map(terminateChild))
+      }
+    })
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
   'does not expire a live synchronous owner when its lock entry is old',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-live-owner-'))
@@ -769,7 +831,7 @@ test(
 )
 
 test(
-  'a waiting process can exit without leaving lock identity files',
+  'a waiting process can exit without blocking a later writer',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-dead-waiter-'))
     const settingsPath = join(root, 'settings.json')
@@ -778,6 +840,8 @@ test(
     const releaseHolder = join(root, 'release-holder')
     const writerEntered = join(root, 'writer-entered')
     const writerCompleted = join(root, 'writer-completed')
+    const laterEntered = join(root, 'later-entered')
+    const laterCompleted = join(root, 'later-completed')
     const children: CapturedChild[] = []
     try {
       writeFileSync(settingsPath, '{}\n')
@@ -810,9 +874,23 @@ test(
 
       writeFileSync(releaseHolder, '')
       expect(await finishWriter(holder, 'holder')).toEqual({ ok: true })
-      expect(
-        readdirSync(root).filter(name => name.startsWith('settings.json.lock')),
-      ).toEqual([])
+
+      const laterWriter = startWriter([
+        'normal',
+        root,
+        'AFTER_KILLED_WAITER',
+        'yes',
+        laterEntered,
+        laterCompleted,
+      ])
+      children.push(laterWriter)
+      expect(await finishWriter(laterWriter, 'later writer')).toEqual({
+        ok: true,
+      })
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+        AFTER_KILLED_WAITER: 'yes',
+      })
+      expect(existsSync(`${settingsPath}.lock`)).toBe(false)
     } finally {
       await Promise.all(children.map(terminateChild))
       rmSync(root, { recursive: true, force: true })
@@ -883,6 +961,64 @@ test(
         name.startsWith('settings.json.lock.recovered.'),
       )
       expect(recoveryGuards).toHaveLength(1)
+    } finally {
+      await Promise.all(children.map(terminateChild))
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'recovers after a process exits before publishing its lock owner',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-lock-claim-'))
+    const settingsPath = join(root, 'settings.json')
+    const interruptedEntered = join(root, 'interrupted-entered')
+    const interruptedCompleted = join(root, 'interrupted-completed')
+    const claimCreated = join(root, 'claim-created')
+    const releaseInterrupted = join(root, 'release-interrupted')
+    const writerEntered = join(root, 'writer-entered')
+    const writerCompleted = join(root, 'writer-completed')
+    const children: CapturedChild[] = []
+    try {
+      writeFileSync(settingsPath, '{}\n')
+      const interrupted = startWriter([
+        'pause-before-lock-owner',
+        root,
+        'MUST_NOT_APPLY',
+        'no',
+        interruptedEntered,
+        interruptedCompleted,
+        claimCreated,
+        releaseInterrupted,
+      ])
+      children.push(interrupted)
+      await waitForMarker(claimCreated, interrupted, 'interrupted claimant')
+      interrupted.process.kill('SIGKILL')
+      await interrupted.exited
+
+      const writer = startWriter([
+        'normal',
+        root,
+        'RECOVERED_AFTER_INCOMPLETE_CLAIM',
+        'yes',
+        writerEntered,
+        writerCompleted,
+      ])
+      children.push(writer)
+      expect(await finishWriter(writer, 'recovery writer')).toEqual({
+        ok: true,
+      })
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+        RECOVERED_AFTER_INCOMPLETE_CLAIM: 'yes',
+      })
+      expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+      expect(
+        readdirSync(root).filter(name =>
+          name.startsWith('settings.json.lock.pending.'),
+        ),
+      ).toHaveLength(1)
     } finally {
       await Promise.all(children.map(terminateChild))
       rmSync(root, { recursive: true, force: true })

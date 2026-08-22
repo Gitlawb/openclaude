@@ -22,6 +22,7 @@ const supportedRoles: ReadonlySet<string> = new Set([
   'hold-lock',
   'hold-path-for',
   'pause-after-read',
+  'pause-before-lock-owner',
 ])
 
 if (!role || !supportedRoles.has(role)) {
@@ -39,7 +40,11 @@ if (
 }
 
 const expectedArgumentCount =
-  role === 'hold-lock' || role === 'pause-after-read' ? 8 : 6
+  role === 'hold-lock' ||
+  role === 'pause-after-read' ||
+  role === 'pause-before-lock-owner'
+    ? 8
+    : 6
 if (fixtureArgs.length !== expectedArgumentCount) {
   throw new Error(
     `Invalid argument count for ${role}: expected ${expectedArgumentCount}, received ${fixtureArgs.length}`,
@@ -52,6 +57,12 @@ if (role === 'hold-lock' && !releaseMarker) {
 
 if (role === 'pause-after-read' && (!readMarker || !releaseMarker)) {
   throw new Error('Pause-after-read fixture requires read and release markers')
+}
+
+if (role === 'pause-before-lock-owner' && (!readMarker || !releaseMarker)) {
+  throw new Error(
+    'Pause-before-lock-owner fixture requires pause and release markers',
+  )
 }
 
 const holdMs = role === 'hold-path-for' ? Number(value) : undefined
@@ -100,6 +111,30 @@ if (role === 'pause-after-read') {
         waitForMarker(releaseMarker)
       }
       return content
+    },
+  })
+}
+
+if (role === 'pause-before-lock-owner') {
+  const originalFs = getFsImplementation()
+  let paused = false
+  setFsImplementation({
+    ...originalFs,
+    readlinkSync(path) {
+      const ownerPath = resolve(path)
+      const lockPath = `${settingsReadPath}.lock`
+      const ownerDirectory = dirname(ownerPath)
+      if (
+        !paused &&
+        basename(ownerPath) === 'owner.json' &&
+        (ownerDirectory === lockPath ||
+          ownerDirectory.startsWith(`${lockPath}.pending.`))
+      ) {
+        paused = true
+        writeFileSync(readMarker, '')
+        waitForMarker(releaseMarker)
+      }
+      return originalFs.readlinkSync(path)
     },
   })
 }

@@ -112,32 +112,65 @@ function isIdentityOwnerAlive(identity: SettingsLockIdentity): boolean {
   }
 }
 
-function tryCreateOwnedLock(
+function pendingLockPath(
   lockPath: string,
   owner: SettingsLockIdentity,
-): boolean {
-  try {
-    mkdirExclusiveSync(lockPath, { mode: 0o700 })
-  } catch (error) {
-    if (getErrnoCode(error) === 'EEXIST') return false
-    try {
-      getFsImplementation().lstatSync(lockPath)
-      return false
-    } catch (statError) {
-      if (getErrnoCode(statError) !== 'ENOENT') throw statError
-      throw error
-    }
-  }
+): string {
+  return `${lockPath}.pending.${owner.pid}.${owner.token}`
+}
 
+function removePendingLock(pendingPath: string): void {
+  try {
+    removeLockSync(pendingPath, { recursive: true, force: true })
+  } catch (error) {
+    logForDebugging(`Pending settings lock cleanup failed: ${error}`, {
+      level: 'error',
+    })
+  }
+}
+
+function preparePendingLock(
+  lockPath: string,
+  owner: SettingsLockIdentity,
+): string {
+  // A crash can leave this private path behind. Its UUID cannot block another
+  // claimant, and removing it later could race a creator paused before publish.
+  const pendingPath = pendingLockPath(lockPath, owner)
+  mkdirExclusiveSync(pendingPath, { mode: 0o700 })
   try {
     writeFileSyncAndFlush_DEPRECATED(
-      join(lockPath, SETTINGS_LOCK_OWNER_FILE),
+      join(pendingPath, SETTINGS_LOCK_OWNER_FILE),
       JSON.stringify(owner),
       { encoding: 'utf8', mode: 0o600 },
     )
+  } catch (error) {
+    removePendingLock(pendingPath)
+    throw error
+  }
+  return pendingPath
+}
+
+function tryPublishPendingLock(
+  pendingPath: string,
+  lockPath: string,
+): boolean {
+  try {
+    renameLockSync(pendingPath, lockPath)
     return true
   } catch (error) {
-    removeLockSync(lockPath, { recursive: true, force: true })
+    const code = getErrnoCode(error)
+    if (code === 'EEXIST' || code === 'ENOTEMPTY' || code === 'EPERM') {
+      try {
+        getFsImplementation().lstatSync(lockPath)
+        return false
+      } catch (statError) {
+        if (getErrnoCode(statError) === 'ENOENT') {
+          // The observed owner released between rename and confirmation.
+          return false
+        }
+        throw statError
+      }
+    }
     throw error
   }
 }
@@ -195,9 +228,9 @@ function tryRecoverDeadLock(
 
 function tryAcquireSettingsLock(
   lockPath: string,
-  owner: SettingsLockIdentity,
+  pendingPath: string,
 ): boolean {
-  if (tryCreateOwnedLock(lockPath, owner)) return true
+  if (tryPublishPendingLock(pendingPath, lockPath)) return true
 
   const currentOwner = readLockIdentity(lockPath)
   if (
@@ -208,7 +241,7 @@ function tryAcquireSettingsLock(
   }
 
   if (!tryRecoverDeadLock(lockPath, currentOwner.identity)) return false
-  return tryCreateOwnedLock(lockPath, owner)
+  return tryPublishPendingLock(pendingPath, lockPath)
 }
 
 function releaseOwnedLock(
@@ -250,39 +283,46 @@ function resolveSettingsMutationTarget(requestedPath: string): string {
 function acquireSettingsLock(targetPath: string): () => void {
   const lockPath = `${targetPath}.lock`
   const owner = createLockIdentity()
+  const pendingPath = preparePendingLock(lockPath, owner)
   const startedAt = performance.now()
   const deadline = startedAt + SETTINGS_LOCK_WAIT_MS
   let reportedContention = false
+  let acquired = false
 
-  while (true) {
-    if (tryAcquireSettingsLock(lockPath, owner)) {
-      return () => releaseOwnedLock(lockPath, owner)
-    }
+  try {
+    while (true) {
+      if (tryAcquireSettingsLock(lockPath, pendingPath)) {
+        acquired = true
+        return () => releaseOwnedLock(lockPath, owner)
+      }
 
-    const now = performance.now()
-    const elapsed = now - startedAt
-    if (!reportedContention && elapsed >= SETTINGS_LOCK_CONTENTION_LOG_MS) {
-      reportedContention = true
-      logForDebugging(
-        `Settings file lock contention has lasted ${Math.round(elapsed)}ms`,
-        { level: 'warn' },
+      const now = performance.now()
+      const elapsed = now - startedAt
+      if (!reportedContention && elapsed >= SETTINGS_LOCK_CONTENTION_LOG_MS) {
+        reportedContention = true
+        logForDebugging(
+          `Settings file lock contention has lasted ${Math.round(elapsed)}ms`,
+          { level: 'warn' },
+        )
+      }
+      const remaining = deadline - now
+      if (remaining <= 0) {
+        throw Object.assign(
+          new Error(
+            `Timed out after ${SETTINGS_LOCK_WAIT_MS}ms waiting for settings lock ${lockPath}, held by ${describeCurrentOwner(lockPath)}. If that process is known to have exited, remove the lock directory before retrying.`,
+          ),
+          { code: 'ELOCKED' },
+        )
+      }
+      Atomics.wait(
+        waitBuffer,
+        0,
+        0,
+        Math.min(SETTINGS_LOCK_RETRY_MS, remaining),
       )
     }
-    const remaining = deadline - now
-    if (remaining <= 0) {
-      throw Object.assign(
-        new Error(
-          `Timed out after ${SETTINGS_LOCK_WAIT_MS}ms waiting for settings lock ${lockPath}, held by ${describeCurrentOwner(lockPath)}. If that process is known to have exited, remove the lock directory before retrying.`,
-        ),
-        { code: 'ELOCKED' },
-      )
-    }
-    Atomics.wait(
-      waitBuffer,
-      0,
-      0,
-      Math.min(SETTINGS_LOCK_RETRY_MS, remaining),
-    )
+  } finally {
+    if (!acquired) removePendingLock(pendingPath)
   }
 }
 
