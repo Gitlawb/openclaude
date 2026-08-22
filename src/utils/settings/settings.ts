@@ -900,37 +900,6 @@ export function getSettingsWithSources(): SettingsWithSources {
 }
 
 /**
- * Find which enabled settings source defines a given key, or 'builtin' when
- * no source sets it. `sources` is ordered low→high priority, so the LAST
- * source that defines the key wins — mirroring how merge resolves the
- * effective value. A key explicitly set to `undefined` is treated as unset.
- *
- * Pass a pre-fetched `sources` list when calling from render paths, since
- * `getSettingsWithSources()` resets the settings cache on every call.
- */
-export function findSettingSource(
-  key: string,
-  sources: SettingsWithSources['sources'],
-): SettingSource | 'builtin' {
-  for (let i = sources.length - 1; i >= 0; i--) {
-    const { source, settings } = sources[i]
-    if (settings && key in settings && settings[key] !== undefined) {
-      return source
-    }
-  }
-  return 'builtin'
-}
-
-/**
- * Same as `findSettingSource`, but reads the current sources from disk. Not
- * for render paths — prefer `getSettingsWithSources()` once and pass the
- * result to `findSettingSource`.
- */
-export function getSettingSource(key: string): SettingSource | 'builtin' {
-  return findSettingSource(key, getSettingsWithSources().sources)
-}
-
-/**
  * Get merged settings and validation errors from all sources
  * This function now uses session-level caching to avoid repeated file I/O.
  * Settings changes require Claude Code restart, so cache is valid for entire session.
