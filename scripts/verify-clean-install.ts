@@ -35,16 +35,15 @@
  * intentionally reproduces the user's resolution, not the repo's.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { execaSync } from 'execa'
 
 import {
   validateInstallHygieneFields,
   validateRuntimeDependencyContract,
 } from './externalsValidation.js'
-import { resolveClaudeInChromeLaunches } from '../src/utils/claudeInChrome/launch.js'
 
 const PACKAGE_NAME = '@gitlawb/openclaude'
 const MAX_TARBALL_BYTES = 12_000_000 // current tarball is ~8.8MB; catch payload blowups
@@ -79,6 +78,24 @@ type VerificationReporter = {
   fail: (problem: string) => void
   pass: (what: string) => void
 }
+type ChromeSetupLaunch = {
+  command?: unknown
+  args?: unknown
+  requiredEntrypoint?: unknown
+}
+export type ChromeSetupLaunches = {
+  nativeHost?: ChromeSetupLaunch
+  mcpServer?: ChromeSetupLaunch
+}
+type InstalledChromeSetupRunner = (
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string
+    env: NodeJS.ProcessEnv
+    timeout: number
+  },
+) => { status: number; stdout: string; stderr: string }
 type SyncCommandRunner = (
   command: string,
   args: string[],
@@ -95,6 +112,8 @@ type SyncCommandRunner = (
   stderr?: unknown
 }
 const failures: Failure[] = []
+const CHROME_SETUP_LOG_PREFIX =
+  '[Claude in Chrome] Setup launch configuration: '
 function fail(scenario: string, problem: string): void {
   failures.push({ scenario, problem })
   console.error(`  ❌ [${scenario}] ${problem}`)
@@ -274,14 +293,164 @@ function checkInstalledContract(scenario: string, prefix: string): void {
   }
 }
 
+export function parseInstalledChromeSetupLaunches(
+  debugOutput: string,
+): ChromeSetupLaunches | null {
+  for (const line of debugOutput.split(/\r?\n/)) {
+    const markerIndex = line.indexOf(CHROME_SETUP_LOG_PREFIX)
+    if (markerIndex === -1) continue
+    try {
+      const value = JSON.parse(
+        line.slice(markerIndex + CHROME_SETUP_LOG_PREFIX.length),
+      )
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        return value as ChromeSetupLaunches
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+type ChromeWrapperPlatform = 'posix' | 'windows'
+
+function pathsMatch(
+  left: string,
+  right: string,
+  platform: ChromeWrapperPlatform,
+): boolean {
+  if (platform === 'windows') {
+    return win32.resolve(left).toLowerCase() === win32.resolve(right).toLowerCase()
+  }
+  return posix.resolve(left) === posix.resolve(right)
+}
+
+function getExpectedWrapperCommandLine(
+  launch: ChromeSetupLaunch | undefined,
+  platform: ChromeWrapperPlatform,
+): string | null {
+  if (
+    typeof launch?.command !== 'string' ||
+    !Array.isArray(launch.args) ||
+    launch.args.some(arg => typeof arg !== 'string')
+  ) {
+    return null
+  }
+
+  const values = [launch.command, ...(launch.args as string[])]
+  const quote =
+    platform === 'windows'
+      ? (value: string): string | null =>
+          /[\0\r\n"]/.test(value) ? null : `"${value.replaceAll('%', '%%')}"`
+      : (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`
+  const quoted = values.map(quote)
+  if (quoted.some(value => value === null)) return null
+  const command = quoted.join(' ')
+  return platform === 'windows' ? command : `exec ${command}`
+}
+
+export function getInstalledChromeSetupProblems({
+  installedLaunchers,
+  launches,
+  wrapperContent,
+  pathExists = existsSync,
+  platform = IS_WINDOWS ? 'windows' : 'posix',
+}: {
+  installedLaunchers: readonly string[]
+  launches: ChromeSetupLaunches
+  wrapperContent: string
+  pathExists?: (path: string) => boolean
+  platform?: ChromeWrapperPlatform
+}): string[] {
+  const problems: string[] = []
+
+  const checkLaunch = (
+    label: string,
+    launch: ChromeSetupLaunch | undefined,
+    flag: string,
+  ): string | undefined => {
+    if (
+      typeof launch?.command !== 'string' ||
+      launch.command.length === 0 ||
+      !Array.isArray(launch.args) ||
+      launch.args.length !== 2 ||
+      launch.args.some(arg => typeof arg !== 'string')
+    ) {
+      problems.push(`${label} setup did not emit a valid process launch`)
+      return undefined
+    }
+
+    const [target, actualFlag] = launch.args as string[]
+    if (
+      !target ||
+      !installedLaunchers.some(candidate => pathsMatch(candidate, target, platform)) ||
+      actualFlag !== flag
+    ) {
+      problems.push(
+        `${label} setup does not target an installed package launcher with ${flag}`,
+      )
+    }
+    if (target && !pathExists(target)) {
+      problems.push(`${label} setup target does not exist: ${target}`)
+    }
+    if (
+      typeof launch.requiredEntrypoint !== 'string' ||
+      !pathsMatch(launch.requiredEntrypoint, target, platform)
+    ) {
+      problems.push(
+        `${label} setup does not retain its launcher target as the required entrypoint`,
+      )
+    }
+    return target
+  }
+
+  const nativeHostTarget = checkLaunch(
+    'Chrome native-host',
+    launches.nativeHost,
+    '--chrome-native-host',
+  )
+  const mcpTarget = checkLaunch(
+    'Chrome MCP',
+    launches.mcpServer,
+    '--claude-in-chrome-mcp',
+  )
+
+  if (
+    nativeHostTarget === undefined ||
+    mcpTarget === undefined ||
+    !pathsMatch(nativeHostTarget, mcpTarget, platform)
+  ) {
+    problems.push(
+      'Chrome native-host and MCP setup do not share one installed package launcher',
+    )
+  }
+
+  const expectedWrapperLine = getExpectedWrapperCommandLine(
+    launches.nativeHost,
+    platform,
+  )
+  if (
+    expectedWrapperLine === null ||
+    !wrapperContent.split(/\r?\n/).includes(expectedWrapperLine)
+  ) {
+    problems.push(
+      'persisted Chrome native-host wrapper does not target the installed package launcher',
+    )
+  }
+
+  return problems
+}
+
 export function checkInstalledChromeEntrypoint(
   scenario: string,
   prefix: string,
-  checkBuiltResolver: boolean,
+  home: string,
   reporter: VerificationReporter = {
     fail: problem => fail(scenario, problem),
     pass: what => pass(scenario, what),
   },
+  runSetup: InstalledChromeSetupRunner = runCommand,
 ): void {
   const packageRoot = join(globalRoot(prefix), ...PACKAGE_NAME.split('/'))
   const manifestPath = join(packageRoot, 'package.json')
@@ -296,59 +465,81 @@ export function checkInstalledChromeEntrypoint(
     return
   }
 
-  const expectedEntrypoint = join(packageRoot, binEntry)
-  if (!existsSync(expectedEntrypoint)) {
+  const packageLauncher = join(packageRoot, binEntry)
+  if (!existsSync(packageLauncher)) {
+    reporter.fail(`installed OpenClaude launcher missing at ${packageLauncher}`)
+    return
+  }
+
+  const globalLauncher = binPath(prefix)
+  if (!existsSync(globalLauncher)) {
+    reporter.fail(`installed OpenClaude global launcher missing at ${globalLauncher}`)
+    return
+  }
+
+  const bundlePath = join(packageRoot, 'dist', 'cli.mjs')
+  if (!existsSync(bundlePath)) {
+    reporter.fail(`installed CLI bundle missing at ${bundlePath}`)
+    return
+  }
+
+  const setupConfigDir = join(home, 'chrome setup config')
+  mkdirSync(setupConfigDir, { recursive: true })
+  writeFileSync(
+    join(setupConfigDir, 'settings.json'),
+    `${JSON.stringify({ subscriptionType: 'pro' })}\n`,
+    { mode: 0o600 },
+  )
+  const setup = runSetup(
+    binPath(prefix),
+    ['--chrome', '--init-only', '--debug-to-stderr'],
+    {
+      cwd: home,
+      env: {
+        ...npmEnv(home),
+        APPDATA: join(home, 'AppData', 'Roaming'),
+        LOCALAPPDATA: join(home, 'AppData', 'Local'),
+        CLAUDE_CODE_DEBUG_LOG_LEVEL: 'debug',
+        OPENCLAUDE_CONFIG_DIR: setupConfigDir,
+        OPENCLAUDE_SKIP_CHROME_NATIVE_HOST_REGISTRATION: '1',
+      },
+      timeout: 2 * 60 * 1000,
+    },
+  )
+  if (setup.status !== 0) {
     reporter.fail(
-      `installed OpenClaude launcher missing at ${expectedEntrypoint}`,
+      `installed CLI Chrome setup exited ${setup.status}: ${setup.stderr.slice(0, 500)}`,
     )
     return
   }
 
-  try {
-    const launches = resolveClaudeInChromeLaunches({
-      isNativeBuild: false,
-      execPath: process.execPath,
-      cliEntrypoint: expectedEntrypoint,
-    })
-    const nativeHostEntrypoint = launches.nativeHost.args[0]
-    const mcpEntrypoint = launches.mcpServer.args[0]
-    if (
-      nativeHostEntrypoint !== expectedEntrypoint ||
-      mcpEntrypoint !== expectedEntrypoint
-    ) {
-      reporter.fail(
-        'Chrome native-host and MCP launches do not share the installed package launcher',
-      )
-      return
-    }
+  const launches = parseInstalledChromeSetupLaunches(setup.stderr)
+  if (launches === null) {
+    reporter.fail(
+      'installed CLI Chrome setup emitted no valid launch configuration receipt',
+    )
+    return
+  }
+
+  const wrapperName = IS_WINDOWS
+    ? 'chrome-native-host.bat'
+    : 'chrome-native-host'
+  const wrapperPath = join(setupConfigDir, 'chrome', wrapperName)
+  if (!existsSync(wrapperPath)) {
+    reporter.fail(`installed CLI Chrome setup created no wrapper at ${wrapperPath}`)
+    return
+  }
+
+  const problems = getInstalledChromeSetupProblems({
+    installedLaunchers: [...new Set([globalLauncher, packageLauncher])],
+    launches,
+    wrapperContent: readFileSync(wrapperPath, 'utf8'),
+  })
+  for (const problem of problems) reporter.fail(problem)
+  if (problems.length === 0) {
     reporter.pass(
-      `Chrome child launches resolve the installed ${expectedEntrypoint.slice(packageRoot.length + 1)}`,
+      'installed bundle setup generates Chrome targets for the global launcher',
     )
-  } catch (error) {
-    reporter.fail(
-      `Chrome child launch cannot resolve an installed CLI entrypoint: ${error}`,
-    )
-    return
-  }
-
-  if (checkBuiltResolver) {
-    const bundlePath = join(packageRoot, 'dist', 'cli.mjs')
-    if (!existsSync(bundlePath)) {
-      reporter.fail(`installed CLI bundle missing at ${bundlePath}`)
-      return
-    }
-    const bundle = readFileSync(bundlePath, 'utf8')
-    if (
-      bundle.includes('Unable to resolve the current OpenClaude CLI entrypoint.')
-    ) {
-      reporter.pass(
-        'the installed CLI bundle contains the Chrome entrypoint resolver',
-      )
-    } else {
-      reporter.fail(
-        'the installed CLI bundle does not contain the Chrome entrypoint resolver',
-      )
-    }
   }
 }
 
@@ -399,25 +590,6 @@ function checkBinBoots(scenario: string, prefix: string, home: string, expectedV
     pass(scenario, '--help loads the full bundle with silent stderr')
   }
 
-  // The open build stubs the proprietary Chrome server package, so this
-  // subprocess may fail after entering application code. The debug marker is
-  // the stable boundary: Node resolved the installed launcher and CLI bundle,
-  // then OpenClaude selected the Chrome MCP entrypoint.
-  const chromeMcp = runBin(prefix, home, [
-    '--claude-in-chrome-mcp',
-    '--debug-to-stderr',
-  ])
-  if (chromeMcp.stderr.includes('[Claude in Chrome] Starting MCP server')) {
-    pass(
-      scenario,
-      'the installed launcher reaches the Chrome MCP application entrypoint',
-    )
-  } else {
-    fail(
-      scenario,
-      `the installed launcher did not reach the Chrome MCP application entrypoint: ${chromeMcp.stderr.slice(0, 500)}`,
-    )
-  }
 }
 
 const REQUIRED_TARBALL_ENTRIES = [
@@ -564,7 +736,9 @@ function runScenarios(
       // Contract comparison only makes sense for the artifact built from THIS
       // tree; a published artifact predates contract bumps (version skew).
       if (checkContract) checkInstalledContract(scenario, prefix)
-      checkInstalledChromeEntrypoint(scenario, prefix, checkContract)
+      if (checkContract) {
+        checkInstalledChromeEntrypoint(scenario, prefix, home)
+      }
       checkBinBoots(scenario, prefix, home, expectedVersion)
     }
   }
@@ -588,7 +762,9 @@ function runScenarios(
     if (output !== null) {
       checkOutputWhitelist(scenario, output)
       checkNoInstallScripts(scenario, prefix)
-      checkInstalledChromeEntrypoint(scenario, prefix, checkContract)
+      if (checkContract) {
+        checkInstalledChromeEntrypoint(scenario, prefix, home)
+      }
       checkBinBoots(scenario, prefix, home, expectedVersion)
     }
   }

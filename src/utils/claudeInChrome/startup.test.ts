@@ -36,8 +36,9 @@ mock.module('@ant/claude-for-chrome-mcp', () => ({ BROWSER_TOOLS: [] }))
 const envUtilsUrl = process.env.TEST_ENV_UTILS_URL
 const setupUrl = process.env.TEST_SETUP_MODULE_URL
 if (!envUtilsUrl || !setupUrl) throw new Error('Missing fixture module URL')
+process.argv.push('--debug-to-stderr')
 const { setClaudeConfigHomeDirForTesting } = await import(envUtilsUrl)
-const { setupClaudeInChrome } = await import(setupUrl)
+const { setupClaudeInChrome, waitForClaudeInChromeSetup } = await import(setupUrl)
 
 test('isolated Claude-in-Chrome setup', async () => {
   const mode = process.env.TEST_SETUP_MODE
@@ -72,9 +73,7 @@ test('isolated Claude-in-Chrome setup', async () => {
     ? 'chrome-native-host.bat'
     : 'chrome-native-host'
   const wrapperPath = join(configDir, 'chrome', wrapperName)
-  for (let attempt = 0; attempt < 50 && !existsSync(wrapperPath); attempt++) {
-    await Bun.sleep(10)
-  }
+  await waitForClaudeInChromeSetup()
   expect(existsSync(wrapperPath)).toBe(true)
   const wrapper = await Bun.file(wrapperPath).text()
   expect(wrapper).toContain(resolvedTarget!)
@@ -92,6 +91,9 @@ test('isolated Claude-in-Chrome setup', async () => {
         NO_COLOR: '1',
         HOME: scratch,
         USERPROFILE: scratch,
+        APPDATA: join(scratch, 'AppData', 'Roaming'),
+        LOCALAPPDATA: join(scratch, 'AppData', 'Local'),
+        OPENCLAUDE_SKIP_CHROME_NATIVE_HOST_REGISTRATION: '1',
         TEST_CLI_ENTRYPOINT: cliEntrypoint,
         TEST_CONFIG_DIR: configDir,
         TEST_ENV_UTILS_URL: pathToFileURL(
@@ -106,6 +108,18 @@ test('isolated Claude-in-Chrome setup', async () => {
       throw new Error(
         `Isolated setup fixture failed (status=${result.status ?? 'none'}, signal=${result.signal ?? 'none'}, error=${result.error?.message ?? 'none'}):\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
       )
+    }
+    if (mode === 'existing') {
+      const marker = '[Claude in Chrome] Setup launch configuration: '
+      const receiptLine = (result.stderr ?? '')
+        .split(/\r?\n/)
+        .find(line => line.includes(marker))
+      expect(receiptLine).toBeDefined()
+      const receipt = JSON.parse(
+        receiptLine!.slice(receiptLine!.indexOf(marker) + marker.length),
+      )
+      expect(receipt.nativeHost.args[0]).toBe(cliEntrypoint)
+      expect(receipt.mcpServer.args[0]).toBe(cliEntrypoint)
     }
   } finally {
     await rm(scratch, { recursive: true, force: true })

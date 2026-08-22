@@ -67,6 +67,7 @@ export function shouldEnableClaudeInChrome(chromeFlag?: boolean): boolean {
 }
 
 let shouldAutoEnable: boolean | undefined = undefined
+let pendingClaudeInChromeSetup: Promise<void> | null = null
 
 export function shouldAutoEnableClaudeInChrome(): boolean {
   if (shouldAutoEnable !== undefined) {
@@ -79,6 +80,10 @@ export function shouldAutoEnableClaudeInChrome(): boolean {
     getFeatureValue_CACHED_MAY_BE_STALE('tengu_chrome_auto_enable', false)
 
   return shouldAutoEnable
+}
+
+export function waitForClaudeInChromeSetup(): Promise<void> {
+  return pendingClaudeInChromeSetup ?? Promise.resolve()
 }
 
 /**
@@ -106,10 +111,20 @@ export function setupClaudeInChrome(): {
   // The manifest path cannot contain arguments, so both runtime modes need a
   // wrapper. Launch selection above keeps the native mode flag-only and gives
   // non-native mode the validated current CLI entrypoint.
-  void createWrapperScript(launches.nativeHost)
-    .then(manifestBinaryPath =>
-      installChromeNativeHostManifest(manifestBinaryPath),
-    )
+  pendingClaudeInChromeSetup = createWrapperScript(launches.nativeHost)
+    .then(manifestBinaryPath => {
+      logForDebugging(
+        `[Claude in Chrome] Setup launch configuration: ${jsonStringify(launches)}`,
+      )
+      if (
+        isEnvTruthy(
+          process.env.OPENCLAUDE_SKIP_CHROME_NATIVE_HOST_REGISTRATION,
+        )
+      ) {
+        return
+      }
+      return installChromeNativeHostManifest(manifestBinaryPath)
+    })
     .catch(e =>
       logForDebugging(
         `[Claude in Chrome] Failed to install native host: ${e}`,
