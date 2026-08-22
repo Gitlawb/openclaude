@@ -19,9 +19,10 @@ import { readFileSync } from '../fileRead.js'
 import { getFsImplementation, safeResolvePath } from '../fsOperations.js'
 import { addFileGlobRuleToGitignore } from '../git/gitignore.js'
 import { safeParseJSON } from '../json.js'
+import { stripBOM } from '../jsonRead.js'
 import { logError } from '../log.js'
 import { getPlatform } from '../platform.js'
-import { clone, jsonStringify } from '../slowOperations.js'
+import { clone, jsonParse, jsonStringify } from '../slowOperations.js'
 import { profileCheckpoint } from '../startupProfiler.js'
 import {
   type EditableSettingSource,
@@ -44,6 +45,7 @@ import {
   setCachedSettingsForSource,
   setSessionSettingsCache,
 } from './settingsCache.js'
+import { withSettingsFileTransactionSync } from './settingsFileTransaction.js'
 import { type SettingsJson, SettingsSchema } from './types.js'
 import {
   filterInvalidModelPricing,
@@ -439,91 +441,97 @@ export function updateSettingsForSource(
   }
 
   try {
-    getFsImplementation().mkdirSync(dirname(filePath))
+    const validationError = withSettingsFileTransactionSync(
+      filePath,
+      targetPath => {
+        // The transaction merge base must bypass both process-local settings
+        // caches so a peer's completed update cannot be overwritten.
+        let existingSettings = parseSettingsFileUncached(targetPath).settings
 
-    // Try to get existing settings with validation. Bypass the per-source
-    // cache — mergeWith below mutates its target (including nested refs),
-    // and mutating the cached object would leak unpersisted state if the
-    // write fails before resetSettingsCache().
-    let existingSettings = getSettingsForSourceUncached(source)
-
-    // If validation failed, check if file exists with a JSON syntax error
-    if (!existingSettings) {
-      let content: string | null = null
-      try {
-        content = readFileSync(filePath)
-      } catch (e) {
-        if (!isENOENT(e)) {
-          throw e
-        }
-        // File doesn't exist — fall through to merge with empty settings
-      }
-      if (content !== null) {
-        const rawData = safeParseJSON(content)
-        if (rawData === null) {
-          // JSON syntax error - return validation error instead of overwriting
-          // safeParseJSON will already log the error, so we'll just return the error here
-          return {
-            error: new Error(
-              `Invalid JSON syntax in settings file at ${filePath}`,
-            ),
+        // If validation failed, distinguish syntax errors from schema-invalid
+        // objects whose unknown fields still need to survive the merge.
+        if (!existingSettings) {
+          let content: string | null = null
+          try {
+            content = readFileSync(targetPath)
+          } catch (e) {
+            if (!isENOENT(e)) throw e
+            // File doesn't exist — fall through to merge with empty settings.
+          }
+          if (content !== null) {
+            let rawData: unknown
+            try {
+              rawData = jsonParse(stripBOM(content))
+            } catch (parseError) {
+              logError(parseError)
+              return new Error(
+                `Invalid JSON syntax in settings file at ${filePath}`,
+              )
+            }
+            if (
+              rawData === null ||
+              typeof rawData !== 'object' ||
+              Array.isArray(rawData)
+            ) {
+              return new Error(
+                `Invalid settings document at ${filePath}: expected a JSON object`,
+              )
+            }
+            existingSettings = rawData as SettingsJson
+            logForDebugging(
+              `Using raw settings from ${filePath} due to validation failure`,
+            )
           }
         }
-        if (rawData && typeof rawData === 'object') {
-          existingSettings = rawData as SettingsJson
-          logForDebugging(
-            `Using raw settings from ${filePath} due to validation failure`,
-          )
-        }
-      }
-    }
 
-    const updatedSettings = mergeWith(
-      existingSettings || {},
-      settings,
-      (
-        _objValue: unknown,
-        srcValue: unknown,
-        key: string | number | symbol,
-        object: Record<string | number | symbol, unknown>,
-      ) => {
-        // Handle undefined as deletion
-        if (srcValue === undefined && object && typeof key === 'string') {
-          delete object[key]
-          return undefined
-        }
-        // For arrays, always replace with the provided array
-        // This puts the responsibility on the caller to compute the desired final state
-        if (Array.isArray(srcValue)) {
-          return srcValue
-        }
-        // For non-arrays, let lodash handle the default merge behavior
-        return undefined
+        const updatedSettings = mergeWith(
+          existingSettings || {},
+          settings,
+          (
+            _objValue: unknown,
+            srcValue: unknown,
+            key: string | number | symbol,
+            object: Record<string | number | symbol, unknown>,
+          ) => {
+            // Handle undefined as deletion
+            if (srcValue === undefined && object && typeof key === 'string') {
+              delete object[key]
+              return undefined
+            }
+            // For arrays, always replace with the provided array
+            // This puts the responsibility on the caller to compute the desired final state
+            if (Array.isArray(srcValue)) {
+              return srcValue
+            }
+            // For non-arrays, let lodash handle the default merge behavior
+            return undefined
+          },
+        )
+
+        writeFileSyncAndFlush_DEPRECATED(
+          targetPath,
+          jsonStringify(updatedSettings, null, 2) + '\n',
+        )
+        markInternalWrite(filePath)
+        resetSettingsCache()
+        return null
       },
     )
+    if (validationError) return { error: validationError }
 
-    // Mark this as an internal write before writing the file
-    markInternalWrite(filePath)
-
-    writeFileSyncAndFlush_DEPRECATED(
-      filePath,
-      jsonStringify(updatedSettings, null, 2) + '\n',
-    )
-
-    // Invalidate the session cache since settings have been updated
-    resetSettingsCache()
-
-    if (source === 'localSettings') {
+    if (source === 'localSettings' || source === 'projectSettings') {
       // Okay to add to gitignore async without awaiting
+      const relativePath = getRelativeSettingsFilePathForSource(source)
+      if (source === 'localSettings') {
+        void addFileGlobRuleToGitignore(relativePath, getOriginalCwd())
+      }
       void addFileGlobRuleToGitignore(
-        getRelativeSettingsFilePathForSource('localSettings'),
+        `${relativePath}.lock*`,
         getOriginalCwd(),
       )
     }
   } catch (e) {
-    const error = new Error(
-      `Failed to read raw settings from ${filePath}: ${e}`,
-    )
+    const error = new Error(`Failed to update settings at ${filePath}: ${e}`)
     logError(error)
     return { error }
   }
