@@ -193,26 +193,24 @@ test('navigates to the Nord themes and previews each one', async () => {
     await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
 
     // Nord entries are the final three options: dark-nord, light-nord,
-    // dark-nord-ansi. Press one at a time and wait for the intermediate
-    // preview each time — a batched write ('jjjjjj') coalesces into a
-    // single keypress in the test stdin harness.
-    const steps: Array<{ press: number; target: string }> = [
-      { press: 1, target: 'light' },
-      { press: 2, target: 'dark-daltonized' },
-      { press: 3, target: 'light-daltonized' },
-      { press: 4, target: 'dark-ansi' },
-      { press: 5, target: 'light-ansi' },
-      { press: 6, target: 'dark-nord' },
-      { press: 7, target: 'light-nord' },
-      { press: 8, target: 'dark-nord-ansi' },
-    ]
-    for (const step of steps) {
+    // dark-nord-ansi. Move focus down one row at a time and assert the
+    // preview updates after each keypress.
+    const steps = [
+      'light',
+      'dark-daltonized',
+      'light-daltonized',
+      'dark-ansi',
+      'light-ansi',
+      'dark-nord',
+      'light-nord',
+      'dark-nord-ansi',
+    ] as const
+    for (const target of steps) {
       stdin.write('j')
-      const frame = await waitForFrame(
-        getOutput,
-        f => f.includes(`Preview theme: ${step.target}`),
+      const frame = await waitForFrame(getOutput, f =>
+        f.includes(`Preview theme: ${target}`),
       )
-      expect(frame).toContain(`Preview theme: ${step.target}`)
+      expect(frame).toContain(`Preview theme: ${target}`)
     }
   } finally {
     root.unmount()
