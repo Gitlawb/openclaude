@@ -37,6 +37,62 @@ function mapInput(input_map: Array<[string, InputHandler]>): InputMapper {
   }
 }
 
+// Combining diacritical marks (U+0300-U+036F) — covers all Vietnamese
+// tone/breath marks when an IME emits NFD instead of precomposed forms.
+const COMBINING_MARK_RE = /^[\u0300-\u036f]/
+
+export type ComposedTextEdit = {
+  text: string
+  offset: number
+}
+
+/**
+ * Compose a standalone combining mark (NFD input) onto the character before
+ * the cursor. Returns null when the input is not a combining mark or there
+ * is nothing to compose with (#2018).
+ */
+export function composeCombiningMark(
+  text: string,
+  offset: number,
+  input: string,
+): ComposedTextEdit | null {
+  if (!COMBINING_MARK_RE.test(input) || offset <= 0 || offset > text.length) {
+    return null
+  }
+  const newBefore = (text.slice(0, offset) + input).normalize('NFC')
+  return {
+    text: newBefore + text.slice(offset),
+    offset: newBefore.length,
+  }
+}
+
+/**
+ * Telex/VNI compose pattern: some IMEs/terminals deliver composition as a
+ * backspace-flagged event carrying the precomposed replacement character.
+ * Replace the previous character instead of treating the pair as delete
+ * plus literal insert. Returns null when the input is not a printable
+ * non-ASCII replacement (#2018).
+ */
+export function replacePreviousWithChar(
+  text: string,
+  offset: number,
+  input: string,
+): ComposedTextEdit | null {
+  if (
+    input.length !== 1 ||
+    (input.codePointAt(0) ?? 0) <= 127 ||
+    offset <= 0 ||
+    offset > text.length
+  ) {
+    return null
+  }
+  const newBefore = text.slice(0, offset - 1) + input
+  return {
+    text: (newBefore + text.slice(offset)).normalize('NFC'),
+    offset: newBefore.normalize('NFC').length,
+  }
+}
+
 export function prepareTextInputEvent(input: string): {
   input: string
   shouldSubmit: boolean
@@ -84,7 +140,10 @@ export function applyPrintableInput(
     return cursor.endOfLine()
   }
 
-  const text = stripAnsi(input)
+  // Normalize to NFC so decomposed IME input composes into exactly what
+  // the cursor's MeasuredText stores, keeping returned offsets aligned
+  // when normalization shrinks code-unit length (#2018).
+  const text = stripAnsi(input).normalize('NFC')
   if (
     !options.modeCharacterIsText &&
     cursor.text.length === 0 &&
@@ -112,7 +171,9 @@ export function applyCoalescedDelInput(
   let shouldCommit = true
 
   for (let index = 0; index < input.length; index++) {
-    if (input[index] !== '\x7f') continue
+    // Both DEL bytes arrive from IMEs/terminals: \x7f is the common
+    // backspace, \b (Ctrl-H) is emitted by some Vietnamese IME setups.
+    if (input[index] !== '\x7f' && input[index] !== '\b') continue
 
     if (index > segmentStart) {
       const insertedCursor = insert(
@@ -128,7 +189,10 @@ export function applyCoalescedDelInput(
     }
 
     let delEnd = index + 1
-    while (delEnd < input.length && input[delEnd] === '\x7f') {
+    while (
+      delEnd < input.length &&
+      (input[delEnd] === '\x7f' || input[delEnd] === '\b')
+    ) {
       delEnd++
     }
     const delCount = delEnd - index
@@ -631,14 +695,53 @@ export function useTextInput({
       return
     }
 
+    // Vietnamese/CJK IME composition paths (#2018). Both bypass the \r /
+    // coalesced-Enter handling in prepareTextInputEvent, so they only run
+    // on inputs that carry no carriage returns.
+    if (!filteredInput.includes('\r')) {
+      // Telex/VNI backspace+replacement compose: a backspace-flagged event
+      // carrying a printable non-ASCII character replaces the previous one
+      // (a → ă) instead of deleting it.
+      if (key.backspace && !key.ctrl && !key.meta) {
+        const replaced = replacePreviousWithChar(
+          currentCursor.text,
+          currentCursor.offset,
+          filteredInput,
+        )
+        if (replaced) {
+          resetKillAccumulation()
+          resetYankState()
+          setValue(replaced.text, replaced.offset)
+          return
+        }
+      }
+
+      // Standalone combining mark (NFD input): compose onto the preceding
+      // character rather than inserting a bare mark that later renders,
+      // measures, and deletes as a separate unit.
+      const markComposed = composeCombiningMark(
+        currentCursor.text,
+        currentCursor.offset,
+        filteredInput,
+      )
+      if (markComposed) {
+        resetKillAccumulation()
+        resetYankState()
+        setValue(markComposed.text, markComposed.offset)
+        return
+      }
+    }
+
     const preparedInput = prepareTextInputEvent(filteredInput)
 
     // Fix Issue #1853: Filter DEL characters that interfere with backspace in SSH/tmux
-    // In SSH/tmux environments, backspace generates both key events and raw DEL chars
+    // In SSH/tmux environments, backspace generates both key events and raw DEL chars.
+    // \b (Ctrl-H) is included because Vietnamese IME setups emit it as the
+    // backside of their Telex/VNI backspace+replacement compose pattern (#2018).
     if (
       !key.backspace &&
       !key.delete &&
-      filteredInput.includes('\x7f')
+      /[\x7f\b]/.test(filteredInput)
     ) {
       let finalChangeContext: TextInputChangeContext | undefined
       let modeEntryChangeContext:
