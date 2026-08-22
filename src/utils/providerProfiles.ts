@@ -59,7 +59,9 @@ import {
   isCanonicalConcentrateInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
+  isMiniMaxBaseUrl,
   isNearaiBaseUrl,
+  isVeniceBaseUrl,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
   resolveEnvOnlyProviderRouteId,
@@ -656,6 +658,62 @@ function sameOptionalEnvValue(
   return trimOrUndefined(left) === trimOrUndefined(right)
 }
 
+/**
+ * Dedicated provider credential env vars a profile's API key must be mirrored
+ * into, for the family of vendors detected by exact base-URL host (and, where
+ * the caller has it, the resolved route id / vendor id). Single source of truth
+ * so live application, startup-env persistence, and env/profile alignment agree
+ * on which host owns which dedicated key — previously each path reconstructed
+ * the mapping independently and drifted (MiniMax was absent from the startup
+ * builder and the alignment check; MiMo used a substring match). Credentials
+ * detected by route id or profile shape (aimlapi, apismart, atlas, cloudflare,
+ * bankr, nvidia, …) keep their own predicates at each site.
+ */
+function getHostDedicatedCredentialEnv(
+  baseUrl: string | undefined,
+  apiKey: string,
+  route?: { routeId?: string; vendorId?: string },
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  if (route?.routeId === 'xai' || isXaiBaseUrl(baseUrl)) {
+    env.XAI_API_KEY = apiKey
+  }
+  if (route?.vendorId === 'minimax' || isMiniMaxBaseUrl(baseUrl)) {
+    env.MINIMAX_API_KEY = apiKey
+  }
+  if (route?.routeId === 'venice' || isVeniceBaseUrl(baseUrl)) {
+    env.VENICE_API_KEY = apiKey
+  }
+  if (
+    route?.routeId === 'xiaomi-mimo' ||
+    route?.routeId === 'xiaomi-mimo-token' ||
+    isXiaomiMimoBaseUrl(baseUrl)
+  ) {
+    env.MIMO_API_KEY = apiKey
+  }
+  return env
+}
+
+/**
+ * Whether the process env carries the profile-owned value for every dedicated
+ * host credential the profile expects. Uses getHostDedicatedCredentialEnv so
+ * the alignment contract can never fall behind what application/persistence
+ * mirror. Vacuously true when the key is excluded or the profile has none.
+ */
+function hostDedicatedCredentialsAligned(
+  processEnv: NodeJS.ProcessEnv,
+  profile: ProviderProfile,
+  includeApiKey: boolean,
+): boolean {
+  if (!includeApiKey || !profile.apiKey) {
+    return true
+  }
+  const dedicated = getHostDedicatedCredentialEnv(profile.baseUrl, profile.apiKey)
+  return Object.entries(dedicated).every(([key, value]) =>
+    sameOptionalEnvValue(processEnv[key], value),
+  )
+}
+
 function isProcessEnvAlignedWithProfile(
   processEnv: NodeJS.ProcessEnv,
   profile: ProviderProfile,
@@ -807,22 +865,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.BNKR_API_KEY, profile.apiKey)
       : true) &&
-    (isXaiBaseUrl(profile.baseUrl)
-      ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.XAI_API_KEY, profile.apiKey)
-      : true) &&
+    hostDedicatedCredentialsAligned(processEnv, profile, includeApiKey) &&
     (isAimlapiRoute
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.AIMLAPI_API_KEY, profile.apiKey)
-      : true) &&
-    (profile.baseUrl?.toLowerCase().includes('api.venice.ai')
-      ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.VENICE_API_KEY, profile.apiKey)
-      : true) &&
-    (profile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
-      profile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
-      ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.MIMO_API_KEY, profile.apiKey)
       : true) &&
     (profile.baseUrl?.toLowerCase().includes('atlascloud')
       ? !includeApiKey ||
@@ -1029,9 +1075,13 @@ export function applyProviderProfileToProcessEnv(
       !withholdRetargetedConcentrateCredential
     ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
-      if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
-        openAIProfileEnv.MINIMAX_API_KEY = profile.apiKey
-      }
+      // Host/route-detected dedicated keys (xai, minimax, venice, mimo) come
+      // from the shared mapping so this path, startup persistence, and env
+      // alignment stay in lockstep.
+      Object.assign(
+        openAIProfileEnv,
+        getHostDedicatedCredentialEnv(profile.baseUrl, profile.apiKey, route),
+      )
       if (
         route.gatewayId === 'nvidia-nim' ||
         normalizedProfileBaseUrl.toLowerCase().includes('nvidia') ||
@@ -1042,21 +1092,8 @@ export function applyProviderProfileToProcessEnv(
       if (route.routeId === 'bankr' || normalizedProfileBaseUrl.toLowerCase().includes('bankr')) {
         openAIProfileEnv.BNKR_API_KEY = profile.apiKey
       }
-      if (route.routeId === 'xai' || isXaiBaseUrl(profile.baseUrl)) {
-        openAIProfileEnv.XAI_API_KEY = profile.apiKey
-      }
       if (isAimlapiProfile) {
         openAIProfileEnv.AIMLAPI_API_KEY = profile.apiKey
-      }
-      if (route.routeId === 'venice' || normalizedProfileBaseUrl.toLowerCase().includes('api.venice.ai')) {
-        openAIProfileEnv.VENICE_API_KEY = profile.apiKey
-      }
-      if (
-        route.routeId === 'xiaomi-mimo' ||
-        route.routeId === 'xiaomi-mimo-token' ||
-        isXiaomiMimoBaseUrl(profile.baseUrl)
-      ) {
-        openAIProfileEnv.MIMO_API_KEY = profile.apiKey
       }
       if (route.routeId === 'atlas-cloud' || normalizedProfileBaseUrl.toLowerCase().includes('atlascloud')) {
         openAIProfileEnv.ATLAS_CLOUD_API_KEY = profile.apiKey
@@ -1460,6 +1497,17 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      // The strict env omitted the host-detected dedicated keys, so a keyed
+      // generic profile on a canonical MiniMax/Venice/xAI/MiMo host persisted
+      // only OPENAI_API_KEY and relaunched without its dedicated credential.
+      // Mirror them from the shared mapping, same as the fallback path below.
+      Object.assign(
+        strictEnv,
+        getHostDedicatedCredentialEnv(
+          activeProfile.baseUrl,
+          activeProfile.apiKey,
+        ),
+      )
       if (isAimlapiProfile) {
         strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
         strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
@@ -1539,23 +1587,18 @@ function buildOpenAICompatibleStartupEnv(
     !withholdRetargetedConcentrateCredential
   ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
+    // Host-detected dedicated keys (xai, minimax, venice, mimo) from the shared
+    // mapping — this adds the previously-absent MiniMax mirror and replaces the
+    // MiMo substring match with the exact-host predicate.
+    Object.assign(
+      env,
+      getHostDedicatedCredentialEnv(activeProfile.baseUrl, activeProfile.apiKey),
+    )
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
       env.BNKR_API_KEY = activeProfile.apiKey
     }
-    if (isXaiBaseUrl(activeProfile.baseUrl)) {
-      env.XAI_API_KEY = activeProfile.apiKey
-    }
     if (isAimlapiProfile) {
       env.AIMLAPI_API_KEY = activeProfile.apiKey
-    }
-    if (activeProfile.baseUrl?.toLowerCase().includes('api.venice.ai')) {
-      env.VENICE_API_KEY = activeProfile.apiKey
-    }
-    if (
-      activeProfile.baseUrl?.toLowerCase().includes('api.xiaomimimo.com') ||
-      activeProfile.baseUrl?.toLowerCase().includes('api.mimo-v2.com')
-    ) {
-      env.MIMO_API_KEY = activeProfile.apiKey
     }
     if (activeProfile.baseUrl?.toLowerCase().includes('atlascloud')) {
       env.ATLAS_CLOUD_API_KEY = activeProfile.apiKey

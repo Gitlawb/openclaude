@@ -1727,6 +1727,44 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).not.toBe('xai')
   })
 
+  test('does not mirror MINIMAX_API_KEY for a lookalike host containing "minimax"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    // A bare includes('minimax') matched any URL carrying that word — a proxy
+    // host or a lookalike like `api.minimax.io.evil.com` — and mirrored the key
+    // into MINIMAX_API_KEY, which providerAutoDetect then redirects to the real
+    // api.minimax.io. Match by hostname (isMiniMaxBaseUrl), not substring.
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://minimax-proxy.example.com/v1',
+        model: 'some-model',
+        apiKey: 'not-a-minimax-key',
+      }),
+    )
+
+    expect(process.env.MINIMAX_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-a-minimax-key')
+  })
+
+  test('does not mirror VENICE_API_KEY for a lookalike host containing "api.venice.ai"', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        baseUrl: 'https://api.venice.ai.evil.com/v1',
+        model: 'some-model',
+        apiKey: 'not-a-venice-key',
+      }),
+    )
+
+    expect(process.env.VENICE_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('not-a-venice-key')
+  })
+
   test('openai-compatible profile applies maxContextLength env override', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -2125,6 +2163,63 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(applied?.id).toBe('saved_moonshot')
     expect(process.env.OPENAI_BASE_URL!).toBe('https://api.moonshot.ai/v1')
     expect(process.env.OPENAI_MODEL!).toBe('kimi-k2.6')
+  })
+
+  test('reconciliation restores a cleared MINIMAX_API_KEY (dedicated cred is part of the alignment contract)', async () => {
+    // P2b: MiniMax's transport needs the dedicated key. After activation, if
+    // MINIMAX_API_KEY drifts (cleared/replaced), the env is no longer aligned
+    // with the profile, so reconciliation must reapply and restore it. The
+    // alignment check previously ignored MINIMAX_API_KEY, so it considered the
+    // env aligned and left the wrong/absent credential in place.
+    const { applyProviderProfileToProcessEnv, applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'minimax_generic',
+      name: 'MiniMax generic',
+      provider: 'openai',
+      baseUrl: 'https://api.minimax.io/v1',
+      model: 'MiniMax-M2',
+      apiKey: 'minimax-real-key',
+    })
+
+    applyProviderProfileToProcessEnv(profile)
+    expect(process.env.MINIMAX_API_KEY).toBe('minimax-real-key')
+
+    // Credential drift after activation.
+    delete process.env.MINIMAX_API_KEY
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [profile],
+      activeProviderProfileId: 'minimax_generic',
+    } as any)
+
+    expect(applied?.id).toBe('minimax_generic')
+    // Cast past control-flow narrowing: TS pins this to `undefined` after the
+    // delete above, since the reconciliation call is opaque to it.
+    expect(process.env.MINIMAX_API_KEY as string | undefined).toBe(
+      'minimax-real-key',
+    )
+  })
+
+  test('reconciliation never mirrors a MiniMax key for a lookalike host', async () => {
+    const { applyProviderProfileToProcessEnv, applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    const profile = buildProfile({
+      id: 'minimax_lookalike',
+      name: 'MiniMax lookalike',
+      provider: 'openai',
+      baseUrl: 'https://api.minimax.io.attacker.example/v1',
+      model: 'gpt-4o',
+      apiKey: 'attacker-key',
+    })
+
+    applyProviderProfileToProcessEnv(profile)
+    applyActiveProviderProfileFromConfig({
+      providerProfiles: [profile],
+      activeProviderProfileId: 'minimax_lookalike',
+    } as any)
+
+    expect(process.env.MINIMAX_API_KEY).toBeUndefined()
   })
 
   test('still respects complete shell selection with USE flag + BASE_URL', async () => {
@@ -3015,6 +3110,77 @@ describe('getProviderPresetDefaults', () => {
 })
 
 describe('setActiveProviderProfile', () => {
+  // P2a: a keyed generic OpenAI-compatible profile on a canonical dedicated
+  // host must persist its dedicated credential in the startup file, so a
+  // restart re-authenticates. The strict-env branch previously returned before
+  // mirroring these, so Venice persisted only OPENAI_API_KEY and MiniMax had no
+  // mirror at all.
+  for (const vendor of [
+    { name: 'Venice', baseUrl: 'https://api.venice.ai/api/v1', key: 'VENICE_API_KEY' },
+    { name: 'MiniMax', baseUrl: 'https://api.minimax.io/v1', key: 'MINIMAX_API_KEY' },
+  ]) {
+    test(`persists ${vendor.key} for a generic profile on the canonical ${vendor.name} host`, async () => {
+      const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+      process.env.CLAUDE_CONFIG_DIR = configDir
+      try {
+        const { setActiveProviderProfile } =
+          await importFreshProviderProfileModules()
+        const profile = buildProfile({
+          id: 'vendor_url_prof',
+          name: `${vendor.name} via URL`,
+          provider: 'openai',
+          baseUrl: vendor.baseUrl,
+          apiKey: 'vendor-url-key',
+        })
+        saveMockGlobalConfig(current => ({
+          ...current,
+          providerProfiles: [profile],
+        }))
+
+        const result = setActiveProviderProfile('vendor_url_prof', { configDir })
+        const persisted = JSON.parse(
+          readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+        )
+
+        expect(result?.id).toBe('vendor_url_prof')
+        expect(persisted.env[vendor.key]).toBe('vendor-url-key')
+      } finally {
+        rmSync(configDir, { recursive: true, force: true })
+      }
+    })
+  }
+
+  test('does not persist a dedicated key for a canonical-lookalike host', async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const profile = buildProfile({
+        id: 'lookalike_prof',
+        name: 'MiniMax lookalike',
+        provider: 'openai',
+        baseUrl: 'https://api.minimax.io.attacker.example/v1',
+        apiKey: 'attacker-key',
+      })
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [profile],
+      }))
+
+      const result = setActiveProviderProfile('lookalike_prof', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('lookalike_prof')
+      expect(persisted.env.MINIMAX_API_KEY).toBeUndefined()
+      expect(persisted.env.VENICE_API_KEY).toBeUndefined()
+    } finally {
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('sets OPENAI_MODEL env var when switching to an openai-type provider', async () => {
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
