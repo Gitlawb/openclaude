@@ -2,19 +2,19 @@ import { getGlobalConfig } from './config.js'
 import { logForDebugging } from './debug.js'
 import { InvalidArgumentError } from '@commander-js/extra-typings'
 
-export const DEFAULT_REPL_MAX_TURNS = 50
+export const DEFAULT_REPL_MAX_TURNS = 200
 export const MAX_TURNS_UNLIMITED_WARNING =
   'Warning: --max-turns 0 disables the local turn limit when applicable. Use with caution.'
 
 /** Preset values offered in `/config` (plus any current custom value). */
-export const REPL_MAX_TURNS_OPTIONS = [50, 100, 200, 500] as const
+export const REPL_MAX_TURNS_OPTIONS = [200, 100, 50, 500] as const
 
 /**
  * Shared `--max-turns` help text for Commander registration and behavior tests.
  * Keep remote-backed sessions explicitly out of scope in this string.
  */
 export const MAX_TURNS_CLI_DESCRIPTION =
-  'Maximum number of agentic turns per prompt. In local interactive mode, set to 0 for unlimited turns (use with caution). This overrides the default 50-turn REPL query cap and is also configurable via OPENCLAUDE_MAX_TURNS or /config. Does not apply to remote-backed sessions (connect/ssh/--remote). In --print mode this early-exits after the specified number of turns.'
+  'Maximum number of agentic turns per prompt. In local interactive mode, set to 0 for unlimited turns (use with caution). This overrides the default 200-turn REPL query cap and is also configurable via OPENCLAUDE_MAX_TURNS or /config. Does not apply to remote-backed sessions (connect/ssh/--remote). In --print mode this early-exits after the specified number of turns.'
 
 export function parseMaxTurnsCli(value: string): number {
   const parsed = value.trim() === '' ? Number.NaN : Number(value)
@@ -83,7 +83,7 @@ function resolveConfiguredReplMaxTurns(): number {
  *
  * Precedence: explicit prop (CLI `--max-turns`) → OPENCLAUDE_MAX_TURNS →
  * CLAUDE_CODE_MAX_TURNS (only if OPENCLAUDE_MAX_TURNS unset) →
- * `/config` `replMaxTurns` → DEFAULT_REPL_MAX_TURNS (50).
+ * `/config` `replMaxTurns` → DEFAULT_REPL_MAX_TURNS (200).
  *
  * Applies to local interactive query loops only. Remote-backed sessions
  * (connect/ssh/--remote) send prompts to a remote executor and are not
