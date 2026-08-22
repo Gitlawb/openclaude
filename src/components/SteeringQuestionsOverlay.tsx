@@ -24,42 +24,41 @@ type Question = SingleSelectQuestion | MultiSelectQuestion | TextInputQuestion
 
 const DEFAULT_QUESTIONS: Question[] = [
   {
-    type: 'single-select',
-    label: 'Task Type',
+    type: 'text-input',
+    label: 'Intent',
+    placeholder: 'What outcome do you want from this task?',
+  },
+  {
+    type: 'multi-select',
+    label: 'Blockers',
     options: [
-      'Implement feature',
-      'Fix bug',
-      'Refactor',
-      'Review code',
-      'Research/explore',
-      'Other',
+      'Waiting on your input',
+      'Requirements unclear',
+      'Blocked by a dependency',
+      'Current approach is not working',
+      'Scope has crept',
+      'Something else',
+    ],
+  },
+  {
+    type: 'single-select',
+    label: 'Scope',
+    options: [
+      'Narrow the scope',
+      'Keep the scope as-is',
+      'Expand the scope',
+      'Pause and reassess',
     ],
   },
   {
     type: 'single-select',
     label: 'Approach',
     options: [
-      'Code only',
-      'Code + explanation',
-      'Plan first then code',
-      'Ask me as you go',
+      'Keep the current approach',
+      'Try a different approach',
+      'Plan first, then act',
+      'Ask me as I go',
     ],
-  },
-  {
-    type: 'multi-select',
-    label: 'Constraints',
-    options: [
-      'Keep changes minimal',
-      'No new dependencies',
-      'Tests required',
-      'Follow existing patterns',
-      'Performance critical',
-    ],
-  },
-  {
-    type: 'text-input',
-    label: 'Additional context',
-    placeholder: 'Type any extra context here...',
   },
 ]
 

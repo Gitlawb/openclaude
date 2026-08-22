@@ -1,14 +1,13 @@
 import * as React from 'react'
-import type { CommandResultDisplay } from '../../commands.js'
 import { Pane } from '../../components/design-system/Pane.js'
 import { SteeringQuestionsOverlay } from '../../components/SteeringQuestionsOverlay.js'
-import type { LocalJSXCommandCall } from '../../types/command.js'
+import type {
+  LocalJSXCommandCall,
+  LocalJSXCommandOnDone,
+} from '../../types/command.js'
 
 type Props = {
-  onDone: (
-    result?: string,
-    options?: { display?: CommandResultDisplay; shouldQuery?: boolean },
-  ) => void
+  onDone: LocalJSXCommandOnDone
 }
 
 function SteerCommand({ onDone }: Props): React.ReactNode {
@@ -16,7 +15,14 @@ function SteerCommand({ onDone }: Props): React.ReactNode {
     <Pane color="permission">
       <SteeringQuestionsOverlay
         onSubmit={(formatted: string) => {
-          onDone(formatted, { display: 'user', shouldQuery: true })
+          // The formatted answers become the next prompt rather than a
+          // quoted transcript entry: display 'skip' adds no messages, and
+          // nextInput+submitNextInput queues the text as a real submission.
+          onDone('', {
+            display: 'skip',
+            nextInput: formatted,
+            submitNextInput: true,
+          })
         }}
         onCancel={() => {
           onDone('Steering questions dismissed', { display: 'system' })

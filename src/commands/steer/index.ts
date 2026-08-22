@@ -3,7 +3,7 @@ import type { Command } from '../../commands.js'
 const steer = {
   type: 'local-jsx',
   name: 'steer',
-  description: 'Answer pre-task clarification questions to guide the assistant',
+  description: 'Re-align an off-track task by answering steering questions',
   isEnabled: () => true,
   load: () => import('./steer.js'),
 } satisfies Command

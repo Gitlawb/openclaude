@@ -584,6 +584,10 @@ describe('builtInCommandNames', () => {
   test('includes the /dream command', () => {
     expect(builtInCommandNames()).toContain('dream')
   })
+
+  test('includes the /steer command', () => {
+    expect(builtInCommandNames()).toContain('steer')
+  })
 })
 
 describe('isCommand', () => {
