@@ -2174,7 +2174,8 @@ test('providerOverride custom shims do not infer native Claude or Gemini effort'
     max_tokens: 64,
     stream: false,
   })
-  expect(requestBodies[2]?.reasoning_effort).toBeUndefined()
+  expect(requestBodies).toHaveLength(3)
+  expect(requestBodies[2]!.reasoning_effort).toBeUndefined()
 })
 
 test('NVIDIA NIM does not infer native Claude effort from the model name', async () => {

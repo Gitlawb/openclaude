@@ -224,6 +224,7 @@ function resolveCompatibilityWireFormat(
   thinkingRequestFormat?: OpenAIShimThinkingRequestFormat,
   routeIdOverride?: string | null,
   useRuntimeFallback = true,
+  processEnv: NodeJS.ProcessEnv = process.env,
 ): ReasoningWireFormat | undefined {
   if (thinkingRequestFormat === 'deepseek-compatible') {
     return 'deepseek_compatible'
@@ -238,7 +239,7 @@ function resolveCompatibilityWireFormat(
   const routeId = routeIdOverride !== undefined
     ? routeIdOverride
     : useRuntimeFallback
-    ? resolveActiveRouteIdFromEnv(process.env)
+    ? resolveActiveRouteIdFromEnv(processEnv)
     : undefined
   if (!routeId || routeId === 'anthropic' || routeId === 'openai') {
     return undefined
@@ -259,9 +260,10 @@ function resolveCompatibilityReasoningControl(
   context?: ReasoningControlContext,
 ): ReasoningControlResolution | undefined {
   const useRuntimeFallback = context?.useRuntimeFallback ?? true
+  const processEnv = context?.processEnv ?? process.env
   const runtimeShimConfig = context?.openaiShimConfig ?? (useRuntimeFallback && thinkingRequestFormat === undefined && removeBodyFields === undefined
     ? resolveOpenAIShimRuntimeContext({
-      processEnv: process.env,
+      processEnv,
       model,
     }).openaiShimConfig
     : undefined)
@@ -285,6 +287,7 @@ function resolveCompatibilityReasoningControl(
     resolvedThinkingRequestFormat,
     context?.routeId,
     useRuntimeFallback,
+    processEnv,
   )
   if (!wireFormat) {
     return undefined
@@ -327,11 +330,12 @@ function resolveCatalogReasoningMetadata(
   capabilities?: CapabilityFlags
   reasoning?: ReasoningControlMetadata
 } | undefined {
+  const processEnv = context?.processEnv ?? process.env
   const routeId = context?.routeId !== undefined
     ? context.routeId
     : context?.useRuntimeFallback === false
     ? undefined
-    : resolveActiveRouteIdFromEnv(process.env)
+    : resolveActiveRouteIdFromEnv(processEnv)
   if (!routeId || routeId === 'anthropic') {
     return undefined
   }
@@ -348,7 +352,7 @@ function resolveCatalogReasoningMetadata(
   const entries = context?.catalogEntries ?? getCatalogEntriesForRoute(routeId)
   let entry = entries.find(matchesModel)
   const fallbackBaseUrl =
-    context?.baseUrl ?? context?.processEnv?.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+    context?.baseUrl ?? processEnv.OPENAI_BASE_URL ?? processEnv.OPENAI_API_BASE
   if (
     !entry &&
     routeId === 'custom' &&
@@ -553,7 +557,11 @@ function legacyModelSupportsEffort(
   ) {
     return false
   }
-  if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
+  if (
+    isEnvTruthy(
+      (context?.processEnv ?? process.env).CLAUDE_CODE_ALWAYS_ENABLE_EFFORT,
+    )
+  ) {
     return true
   }
 

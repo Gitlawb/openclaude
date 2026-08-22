@@ -231,6 +231,81 @@ describe('CLAUDE_CODE_ALWAYS_ENABLE_EFFORT precedence', () => {
     expect(resolveAppliedEffort(model, 'medium', context)).toBe('medium')
   })
 
+  test('uses the scoped routing environment for force enable', async () => {
+    const { modelSupportsEffort, resolveAppliedEffort } =
+      await importFreshEffortModule()
+    const model = 'gateway-custom-model'
+    const context = {
+      apiProvider: 'openai' as const,
+      routeId: 'custom',
+      useRuntimeFallback: false,
+      processEnv: {
+        CLAUDE_CODE_ALWAYS_ENABLE_EFFORT: '1',
+      } as NodeJS.ProcessEnv,
+    }
+
+    delete process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT
+    expect(modelSupportsEffort(model, context)).toBe(true)
+    expect(resolveAppliedEffort(model, 'medium', context)).toBe('medium')
+
+    process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+    context.processEnv = {}
+    expect(modelSupportsEffort(model, context)).toBe(false)
+    expect(resolveAppliedEffort(model, 'medium', context)).toBeUndefined()
+  })
+
+  test('uses the scoped environment for compatibility and catalog route fallbacks', async () => {
+    const { resolveModelReasoningControl } = await importFreshEffortModule()
+    const scopedOpenAIEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_KEY: 'scoped-key',
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+    } as NodeJS.ProcessEnv
+    const context = {
+      apiProvider: 'openai' as const,
+      processEnv: scopedOpenAIEnv,
+    }
+    const noControl = {
+      supportsReasoning: false,
+      controllable: false,
+      source: 'none',
+    }
+
+    process.env.LONGCAT_API_KEY = 'ambient-key'
+    expect(resolveModelReasoningControl('gateway-custom-model', context)).toMatchObject(
+      noControl,
+    )
+
+    delete process.env.LONGCAT_API_KEY
+    process.env.ZAI_API_KEY = 'ambient-key'
+    expect(
+      resolveModelReasoningControl('glm-5.2', {
+        ...context,
+        openaiShimConfig: {},
+      }),
+    ).toMatchObject(noControl)
+
+    delete process.env.ZAI_API_KEY
+    process.env.XAI_API_KEY = 'ambient-key'
+    expect(resolveModelReasoningControl('grok-4.6', context)).toMatchObject(
+      noControl,
+    )
+
+    delete process.env.XAI_API_KEY
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+    expect(
+      resolveModelReasoningControl('gpt-5.6', {
+        apiProvider: 'openai',
+        processEnv: {
+          CLAUDE_CODE_USE_OPENAI: '1',
+          OPENAI_API_KEY: 'scoped-key',
+          OPENAI_API_BASE: 'https://gateway.example.test/v1',
+        },
+        supportsCodexReasoningEffort: false,
+      }),
+    ).toMatchObject(noControl)
+  })
+
   test('ambient custom-route predicates do not advertise native transport effort', async () => {
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.GEMINI_API_KEY
