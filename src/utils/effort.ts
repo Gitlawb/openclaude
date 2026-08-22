@@ -427,6 +427,83 @@ function resolveMetadataReasoningControl(
   }
 }
 
+function resolveConfigured3PReasoningControl(
+  model: string,
+  context?: ReasoningControlContext,
+): ReasoningControlResolution | undefined {
+  const apiProvider = getReasoningApiProvider(context)
+  if (get3PModelCapabilityOverride(model, 'effort', apiProvider) !== true) {
+    return undefined
+  }
+
+  const levels: EffortLevel[] = ['low', 'medium', 'high']
+  if (
+    get3PModelCapabilityOverride(model, 'xhigh_effort', apiProvider) === true
+  ) {
+    levels.push('xhigh')
+  }
+  if (
+    get3PModelCapabilityOverride(model, 'max_effort', apiProvider) === true
+  ) {
+    levels.push('max')
+  }
+
+  return {
+    supportsReasoning: true,
+    controllable: true,
+    mode: 'levels',
+    levels,
+    defaultLevel: getLegacyDefaultEffortForModel(model, context),
+    wireFormat: 'reasoning_effort',
+    source: 'capability',
+  }
+}
+
+type NativeLegacyEffortTransport = 'anthropic' | 'gemini'
+
+function resolveNativeLegacyEffortTransport(
+  model: string,
+  context?: ReasoningControlContext,
+): NativeLegacyEffortTransport | undefined {
+  const useRuntimeFallback = context?.useRuntimeFallback ?? true
+  const runtimeShimConfig = context?.openaiShimConfig ?? (
+    useRuntimeFallback
+      ? resolveOpenAIShimRuntimeContext({
+        processEnv: context?.processEnv ?? process.env,
+        baseUrl: context?.baseUrl,
+        model,
+      }).openaiShimConfig
+      : undefined
+  )
+  const endpointPath = runtimeShimConfig?.endpointPath
+  if (endpointPath === '/messages') return 'anthropic'
+  if (endpointPath?.startsWith('/models/gemini-')) return 'gemini'
+
+  const apiProvider = getReasoningApiProvider(context)
+  if (
+    apiProvider === 'firstParty' ||
+    apiProvider === 'bedrock' ||
+    apiProvider === 'vertex' ||
+    apiProvider === 'foundry' ||
+    apiProvider === 'github'
+  ) {
+    return 'anthropic'
+  }
+  return apiProvider === 'gemini' ? 'gemini' : undefined
+}
+
+function modelMatchesNativeLegacyTransport(
+  model: string,
+  transport: NativeLegacyEffortTransport | undefined,
+): boolean {
+  const normalized = model.toLowerCase()
+  return transport === 'anthropic'
+    ? normalized.includes('haiku') ||
+      normalized.includes('sonnet') ||
+      normalized.includes('opus')
+    : transport === 'gemini' && normalized.includes('gemini-')
+}
+
 function legacyModelSupportsEffort(
   model: string,
   context?: ReasoningControlContext,
@@ -446,6 +523,7 @@ function legacyModelSupportsEffort(
   ) {
     return true
   }
+  const nativeTransport = resolveNativeLegacyEffortTransport(model, context)
   // Claude 4 models that support effort. Mirrors the Anthropic /messages
   // shim's isAdaptive || isOpus45 set (openaiShim.ts:2292-2297) — only
   // these models serialize low/medium as anthropicBody.effort. Older
@@ -453,17 +531,26 @@ function legacyModelSupportsEffort(
   // high/max, so advertising effort for them would silently drop
   // low/medium on the wire. The substring match also covers prefix
   // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
-  if (m.includes('opus-4-5') || m.includes('opus-4-6') ||
+  if (
+    nativeTransport === 'anthropic' &&
+    (m.includes('opus-4-5') || m.includes('opus-4-6') ||
       m.includes('opus-4-7') || m.includes('opus-4-8') ||
-      m.includes('sonnet-4-6')) {
+      m.includes('sonnet-4-6'))
+  ) {
     return true
   }
   // OpenCode Gemini models that support thinking via /models/gemini-* endpoint
-  if (m.includes('gemini-3')) {
+  if (nativeTransport === 'gemini' && m.includes('gemini-3')) {
     return true
   }
-  // Exclude any other known legacy models (haiku, older opus/sonnet variants)
-  if (m.includes('haiku') || m.includes('sonnet') || m.includes('opus')) {
+  // Native model names need an authorized native transport before force-enable
+  // or provider defaults may add an incompatible field to a generic shim.
+  if (
+    m.includes('haiku') ||
+    m.includes('sonnet') ||
+    m.includes('opus') ||
+    m.includes('gemini-')
+  ) {
     return false
   }
   if (isEnvTruthy(process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT)) {
@@ -525,6 +612,22 @@ export function resolveModelReasoningControl(
 
   if (compatibility) {
     return compatibility
+  }
+
+  const configured3P = resolveConfigured3PReasoningControl(model, context)
+  if (configured3P) {
+    return configured3P
+  }
+
+  const nativeTransport = resolveNativeLegacyEffortTransport(model, context)
+  if (
+    metadata?.source === 'capability' &&
+    modelMatchesNativeLegacyTransport(model, nativeTransport)
+  ) {
+    const nativeLegacy = resolveLegacyReasoningControl(model, context)
+    if (nativeLegacy.controllable) {
+      return nativeLegacy
+    }
   }
 
   if (metadata) {

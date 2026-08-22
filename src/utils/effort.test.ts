@@ -3,8 +3,19 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import {
+  ensureIntegrationsLoaded,
+  getCatalogEntriesForRoute,
+} from '../integrations/index.js'
 import * as realAuth from './auth.js'
 import * as realThinking from './thinking.js'
+const realModelSupportOverridesModule = await import(
+  `./model/modelSupportOverrides.js?real=${Date.now()}-${Math.random()}`,
+)
+const realModelSupportOverrides = {
+  get3PModelCapabilityOverride:
+    realModelSupportOverridesModule.get3PModelCapabilityOverride,
+}
 
 const originalEnv = { ...process.env }
 const routingEnvKeys = [
@@ -54,6 +65,10 @@ function restoreProcessEnv(): void {
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/effort.test.ts')
+  mock.module(
+    './model/modelSupportOverrides.js',
+    () => realModelSupportOverrides,
+  )
   for (const key of routingEnvKeys) {
     delete process.env[key]
   }
@@ -64,6 +79,10 @@ afterEach(() => {
     mock.restore()
     mock.module('./auth.js', () => realAuth)
     mock.module('./thinking.js', () => realThinking)
+    mock.module(
+      './model/modelSupportOverrides.js',
+      () => realModelSupportOverrides,
+    )
     restoreProcessEnv()
   } finally {
     releaseSharedMutationLock()
@@ -210,5 +229,137 @@ describe('CLAUDE_CODE_ALWAYS_ENABLE_EFFORT precedence', () => {
     process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
     expect(support()).toEqual([true, true, true])
     expect(resolveAppliedEffort(model, 'medium', context)).toBe('medium')
+  })
+
+  test('ambient custom-route predicates do not advertise native transport effort', async () => {
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.GEMINI_API_KEY
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'https://gateway.example.test/v1'
+    process.env.OPENAI_MODEL = 'claude-opus-4-5'
+
+    const { modelSupportsEffort, resolveAppliedEffort } =
+      await importFreshEffortModule()
+
+    for (const model of ['claude-opus-4-5', 'gemini-3-pro']) {
+      expect(modelSupportsEffort(model)).toBe(false)
+      expect(resolveAppliedEffort(model, 'medium')).toBeUndefined()
+    }
+    expect(modelSupportsEffort('gpt-5.4')).toBe(true)
+    expect(resolveAppliedEffort('gpt-5.4', 'medium')).toBe('medium')
+  })
+})
+
+describe('configured third-party effort precedence', () => {
+  test('supersedes descriptive LongCat catalog capabilities without bypassing route contracts', async () => {
+    ensureIntegrationsLoaded()
+    const longCatEntry = getCatalogEntriesForRoute('longcat').find(
+      entry => entry.apiName === 'LongCat-2.0',
+    )!
+    const {
+      getAvailableEffortLevels,
+      modelSupportsEffort,
+      modelSupportsWireEffort,
+      resolveAppliedEffort,
+      resolveModelReasoningControl,
+    } = await importFreshEffortModule()
+    const context = {
+      apiProvider: 'openai' as const,
+      routeId: 'longcat',
+      useRuntimeFallback: false,
+    }
+
+    expect(resolveModelReasoningControl('LongCat-2.0', context)).toMatchObject({
+      supportsReasoning: true,
+      controllable: false,
+      source: 'capability',
+      levels: [],
+    })
+
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'LongCat-2.0'
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES =
+      'effort,max_effort,xhigh_effort'
+
+    expect(resolveModelReasoningControl('LongCat-2.0', context)).toMatchObject({
+      supportsReasoning: true,
+      controllable: true,
+      source: 'capability',
+      levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      wireFormat: 'reasoning_effort',
+    })
+    expect(modelSupportsEffort('LongCat-2.0', context)).toBe(true)
+    expect(modelSupportsWireEffort('LongCat-2.0', context)).toBe(true)
+    expect(getAvailableEffortLevels('LongCat-2.0', context)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    expect(resolveAppliedEffort('LongCat-2.0', 'max', context)).toBe('max')
+
+    const transportVetoContext = {
+      ...context,
+      openaiShimConfig: { removeBodyFields: ['reasoning_effort'] },
+    }
+    expect(
+      resolveModelReasoningControl('LongCat-2.0', transportVetoContext),
+    ).toMatchObject({
+      controllable: false,
+      source: 'compat',
+    })
+    expect(
+      resolveAppliedEffort('LongCat-2.0', 'max', transportVetoContext),
+    ).toBeUndefined()
+
+    const explicitMetadataContext = {
+      ...context,
+      catalogEntries: [
+        {
+          ...longCatEntry,
+          reasoning: {
+            mode: 'always-on' as const,
+            wireFormat: 'none' as const,
+          },
+        },
+      ],
+    }
+    expect(
+      resolveModelReasoningControl('LongCat-2.0', explicitMetadataContext),
+    ).toMatchObject({
+      supportsReasoning: true,
+      controllable: false,
+      source: 'metadata',
+      wireFormat: 'none',
+    })
+  })
+
+  test('preserves the legacy default for a configured override', async () => {
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-4-6'
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES = 'effort'
+    mock.module('./auth.js', () => ({
+      ...realAuth,
+      isProSubscriber: () => true,
+      isMaxSubscriber: () => false,
+      isTeamSubscriber: () => false,
+    }))
+    mock.module('./thinking.js', () => ({
+      ...realThinking,
+      isUltrathinkEnabled: () => false,
+    }))
+
+    const { getDefaultEffortForModel, resolveAppliedEffort } =
+      await importFreshEffortModule()
+    const context = {
+      apiProvider: 'openai' as const,
+      routeId: 'custom',
+      useRuntimeFallback: false,
+    }
+
+    expect(getDefaultEffortForModel('claude-opus-4-6', context)).toBe('medium')
+    expect(
+      resolveAppliedEffort('claude-opus-4-6', undefined, context),
+    ).toBe('medium')
   })
 })

@@ -480,6 +480,9 @@ test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable mode
   const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
     provider: 'openai',
     supportsCodexReasoningEffort: true,
+    routeId: 'opencode',
+    useRuntimeFallback: false,
+    openaiShimConfig: { endpointPath: '/messages' },
   })
 
   // ultracode isn't selectable off firstParty, so it clamps — but to xhigh

@@ -2105,6 +2105,197 @@ test('providerOverride custom OpenAI-compatible gpt effort uses legacy support',
   expect(requestBody?.reasoning_effort).toBe('medium')
 })
 
+test('providerOverride custom shims do not infer native Claude or Gemini effort', async () => {
+  const requestBodies: Record<string, unknown>[] = []
+
+  globalThis.fetch = (async (_input, init) => {
+    const requestBody = JSON.parse(String(init?.body))
+    requestBodies.push(requestBody)
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-provider-override-native-name',
+        model: requestBody.model,
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  for (const model of ['claude-opus-4-5', 'gemini-3-pro']) {
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      effortValue: 'medium',
+      providerOverride: {
+        model,
+        baseURL: 'https://custom-openai-compatible.example.test/v1',
+        apiKey: 'provider-test-key',
+      },
+    })) as unknown as ShimClient
+
+    await client.beta.messages.create({
+      model: 'unused',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  }
+
+  expect(requestBodies.map(body => body.model)).toEqual([
+    'claude-opus-4-5',
+    'gemini-3-pro',
+  ])
+  for (const requestBody of requestBodies) {
+    expect(requestBody.reasoning_effort).toBeUndefined()
+  }
+
+  process.env.CLAUDE_CODE_ALWAYS_ENABLE_EFFORT = '1'
+  const forceEnabledGemini = (await getAnthropicClient({
+    maxRetries: 0,
+    effortValue: 'medium',
+    providerOverride: {
+      model: 'gemini-3-pro',
+      baseURL: 'https://custom-openai-compatible.example.test/v1',
+      apiKey: 'provider-test-key',
+    },
+  })) as unknown as ShimClient
+  await forceEnabledGemini.beta.messages.create({
+    model: 'unused',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+  expect(requestBodies[2]?.reasoning_effort).toBeUndefined()
+})
+
+test('NVIDIA NIM does not infer native Claude effort from the model name', async () => {
+  let requestBody: Record<string, unknown> | undefined
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  process.env.NVIDIA_NIM = '1'
+  process.env.NVIDIA_API_KEY = 'nvidia-test-key'
+  process.env.OPENAI_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  process.env.OPENAI_MODEL = 'claude-opus-4-5'
+
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-nvidia-native-name',
+        model: 'claude-opus-4-5',
+        choices: [
+          {
+            message: { role: 'assistant', content: 'ok' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 8,
+          completion_tokens: 3,
+          total_tokens: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'claude-opus-4-5',
+    effortValue: 'medium',
+  })) as unknown as ShimClient
+  await client.beta.messages.create({
+    model: 'claude-opus-4-5',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.reasoning_effort).toBeUndefined()
+})
+
+test('OpenCode native endpoints preserve authorized Claude and Gemini effort', async () => {
+  const requests: Array<{
+    url: string
+    body: Record<string, unknown>
+  }> = []
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_KEY = 'opencode-test-key'
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/v1'
+
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    requests.push({ url, body: JSON.parse(String(init?.body)) })
+    if (url.includes('/messages')) {
+      return new Response(
+        JSON.stringify({
+          id: 'msg_opencode_effort',
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-opus-4-5',
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: { input_tokens: 8, output_tokens: 3 },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: { role: 'model', parts: [{ text: 'ok' }] },
+            finishReason: 'STOP',
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 8,
+          candidatesTokenCount: 3,
+          totalTokenCount: 11,
+        },
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  for (const model of ['claude-opus-4-5', 'gemini-3.1-pro']) {
+    process.env.OPENAI_MODEL = model
+    const client = (await getAnthropicClient({
+      maxRetries: 0,
+      model,
+      effortValue: 'medium',
+    })) as unknown as ShimClient
+    await client.beta.messages.create({
+      model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  }
+
+  expect(requests[0]?.url).toEndWith('/messages')
+  expect(requests[0]?.body.effort).toBe('medium')
+  expect(requests[1]?.url).toContain('/models/gemini-3.1-pro')
+  expect(requests[1]?.body.generationConfig).toMatchObject({
+    thinkingConfig: {
+      includeThoughts: true,
+      thinkingLevel: 'medium',
+    },
+  })
+})
+
 test('force enable adds effort only for an otherwise unresolved custom shim model', async () => {
   const requestBodies: Record<string, unknown>[] = []
 
