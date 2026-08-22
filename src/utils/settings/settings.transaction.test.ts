@@ -1014,6 +1014,7 @@ test(
         RECOVERED_AFTER_INCOMPLETE_CLAIM: 'yes',
       })
       expect(existsSync(`${settingsPath}.lock`)).toBe(false)
+      // Pin the abandoned claim: reaping pending paths could race a paused creator.
       expect(
         readdirSync(root).filter(name =>
           name.startsWith('settings.json.lock.pending.'),
