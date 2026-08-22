@@ -17,7 +17,7 @@ The installed CLI runs on Node.js `>=22.0.0`. Bun is used for source builds, scr
 - Update docs when setup, commands, provider behavior, or user-facing behavior changes.
 - For new features, larger refactors, dependencies, or runtime changes, follow the issue-first guidance in [CONTRIBUTING.md](CONTRIBUTING.md).
 - Keep PR branches current with `main` — rebase onto `main` whenever resuming work or pushing follow-up fixes. Stale branches attract redundant fix-churn requests for issues already fixed on `main`.
-- Run the full local CI-equivalent validation suite (see [Validation](#validation)) and get it green before every push, not just the first one. Platform-specific checks you cannot run locally (e.g., Windows checks from macOS) are the only exception.
+- Run the authoritative pre-push validation contract defined in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) — the full CI-equivalent suite, green before every push to a PR, not just the first one. Platform-specific checks you cannot run locally (e.g., Windows checks from macOS) are the only exception.
 
 ## Stack And Conventions
 
@@ -48,7 +48,7 @@ Common libraries and patterns:
 
 ## Validation
 
-Run the narrowest useful checks while iterating on your change, and list the exact commands in the PR. Before every push to a PR — including follow-up fixes during review — run the core checks and get them green locally instead of waiting for GitHub CI. Platform-specific checks that cannot run on your OS are the only exception.
+The authoritative pre-push validation contract lives in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) — it mirrors `.github/workflows/pr-checks.yml` exactly and must be green locally before every push to a PR, including follow-up fixes during review. Platform-specific checks that cannot run on your OS are the only exception. The lists below are for narrowing checks while you iterate; they do not replace the pre-push contract.
 
 Core checks:
 

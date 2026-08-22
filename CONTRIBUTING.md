@@ -122,7 +122,7 @@ PRs may be closed without review if they:
 - drift from the approved scope of a linked issue
 - change the project's language, core runtime, or dependency stack without prior maintainer agreement
 - are drive-by contributions with no context, no tests, and no clear purpose
-- submit the [PR template](.github/pull_request_template.md) ignored — generic filler text or leftover template placeholders (`what changed`, `provider/model path tested:`, etc.) show the description was not written for your PR. These will not be reviewed until corrected and risk being closed without review
+- submit a PR with the [PR template](.github/pull_request_template.md) ignored — generic filler text or leftover template placeholders (`what changed`, `provider/model path tested:`, etc.) show the description was not written for your PR. These will not be reviewed until corrected and risk being closed without review
 - are automated bounty-hunting or mass-submitted PRs that provide little meaningful value to the codebase
 - are advertisements, sales pitches, or promotional submissions for a product or service — open an issue first to discuss with maintainers if you believe your product or service is relevant to this project
 
@@ -236,33 +236,32 @@ bun run dev:profile
 
 ## Validation
 
-CI runs the following checks on every PR. **Run the full suite locally and get it green before every push** — do not push commits with failing or unrun checks and wait for GitHub CI to discover the problem. Wasted Actions minutes on a repo this active are a real cost, and pushing red is how review queues back up.
+CI runs a fixed set of checks on every PR (see `.github/workflows/pr-checks.yml`). This section is the **authoritative pre-push validation contract** — `AGENTS.md` defers to it. **Run the full suite locally and get it green before every push to an open PR, including follow-up pushes during review.** Do not push commits with failing or unrun checks and wait for GitHub CI to discover the problem — wasted Actions minutes are a real cost on this repo.
 
-The full local pass (mirrors CI):
+The pre-push suite (mirrors CI exactly):
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run build
-bun run smoke
 bun run check
 bun run test:full
 bun run typecheck
 bun run typecheck:type-tests
+node bin/openclaude --version
+NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
 bun run test:provider
-bun run test:provider-recommendation
+npm run test:provider-recommendation
 bun run security:pr-scan
 ```
 
-If your PR touches `web/`, add:
+If your PR touches `web/`, add the web job's checks:
 
 ```bash
 bun run web:typecheck
 bun run web:build
 ```
 
-This applies to every push to an open PR, not just the first one. If you are iterating on review feedback, re-run the relevant subset at minimum before each push.
-
-Cross-platform exception: you are only required to run what is runnable on your platform. If you develop on macOS or Linux, Windows-specific verification is best-effort — do not hold back a push because you cannot execute another OS's checks locally. Everything else above is expected to be green on your machine before it reaches GitHub.
+Cross-platform exception: this is the only carve-out from the full suite. You are required to run what is runnable on your platform; platform-specific verification you cannot execute locally (e.g., Windows-specific behavior when developing on macOS) is best-effort and may be left to CI. Everything else above is expected to be green on your machine before it reaches GitHub.
 
 PRs that fail CI checks will not be merged.
 
