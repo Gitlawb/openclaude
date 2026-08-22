@@ -289,6 +289,33 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   },
 )
 
+test.each([
+  ['OPENAI_API_KEYS', 'SUA_CHAVE,real-looking-key'],
+  ['OPENAI_API_KEY', 'sua_chave'],
+  ['OPENAI_API_KEY', 'null'],
+  ['OPENAI_API_KEY', 'undefined'],
+] as const)(
+  'LLMTR validation rejects placeholder generic fallback in %s',
+  async (envVar, placeholder) => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+    process.env[envVar] = placeholder
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+    )
+  },
+)
+
+test('LLMTR validation prefers a usable dedicated key over an invalid generic fallback', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.LLMTR_API_KEY = 'valid-dedicated-key'
+  process.env.OPENAI_API_KEYS = 'SUA_CHAVE,stale-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
   'LLMTR validation rejects placeholder LLMTR_API_KEY %s',
   async placeholder => {

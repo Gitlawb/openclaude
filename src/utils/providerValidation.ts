@@ -420,6 +420,15 @@ async function getDescriptorValidationError(
 
   switch (validation.kind) {
     case 'credential-env':
+      // LLMTR's dedicated credential has precedence over its generic OpenAI
+      // fallback. A stale/placeholder fallback must not invalidate a usable
+      // dedicated key that request routing will select first.
+      if (
+        target.descriptor.id === 'llmtr' &&
+        hasUsableCredentialEnvValue(env, 'LLMTR_API_KEY')
+      ) {
+        return null
+      }
       return getCredentialEnvValidationError(validation, env, options.request)
 
     case 'gemini-credential': {

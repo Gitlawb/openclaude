@@ -43,6 +43,20 @@ export default defineGateway({
     ],
     missingCredentialMessage:
       'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+    invalidCredentialValues: [
+      {
+        envVar: 'OPENAI_API_KEYS',
+        value: 'SUA_CHAVE',
+        message:
+          'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+      },
+      {
+        envVar: 'OPENAI_API_KEY',
+        value: 'SUA_CHAVE',
+        message:
+          'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+      },
+    ],
   },
   catalog,
   usage: { supported: false },

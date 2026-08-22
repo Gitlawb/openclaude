@@ -50,6 +50,7 @@ import {
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
   getXiaomiMimoBaseUrlOverride,
+  resolveActiveRouteIdFromEnv,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
@@ -468,7 +469,32 @@ function applyLlmtrEnvOnlyDefaults(): void {
     isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)
   ) {
     process.env.OPENAI_API_KEY = apiKey
-  } else {
+  } else if (
+    hasUsableOpenAICredential(process.env.OPENAI_API_KEYS) &&
+    [
+      process.env.OPENGATEWAY_API_KEY,
+      process.env.NVIDIA_API_KEY,
+      process.env.BNKR_API_KEY,
+      process.env.XAI_API_KEY,
+      process.env.MIMO_API_KEY,
+      process.env.VENICE_API_KEY,
+      process.env.MINIMAX_API_KEY,
+      process.env.ATLAS_CLOUD_API_KEY,
+      process.env.APISMART_API_KEY,
+      process.env.CONCENTRATE_API_KEY,
+      process.env.AIMLAPI_API_KEY,
+      process.env.NEARAI_API_KEY,
+      process.env.FIREWORKS_API_KEY,
+      process.env.LONGCAT_API_KEY,
+      process.env.CLOUDFLARE_API_TOKEN,
+    ].some(value =>
+      value?.trim() === process.env.OPENAI_API_KEY?.trim()
+    )
+  ) {
+    // A singular key mirrored from another provider is stale routing state,
+    // not an LLMTR fallback. Let the explicitly configured pool win.
+    delete process.env.OPENAI_API_KEY
+  } else if (!isCanonicalLlmtrInferenceBaseUrl(process.env.OPENAI_BASE_URL)) {
     delete process.env.OPENAI_API_KEY
   }
   delete process.env.OPENAI_API_FORMAT
@@ -606,7 +632,12 @@ export async function getAnthropicClient({
   const useConcentrateEnvOnlyProvider =
     envOnlyProviderRouteId === 'concentrate' && !useMiniMaxEnvOnlyProvider
   const useLlmtrEnvOnlyProvider =
-    envOnlyProviderRouteId === 'llmtr' && !useMiniMaxEnvOnlyProvider
+    !useMiniMaxEnvOnlyProvider &&
+    (envOnlyProviderRouteId === 'llmtr' ||
+      (resolveActiveRouteIdFromEnv(process.env) === 'llmtr' &&
+        isCanonicalLlmtrInferenceBaseUrl(
+          process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+        )))
   if (useMiniMaxEnvOnlyProvider) applyMiniMaxEnvOnlyDefaults(model)
   if (useXiaomiMimoEnvOnlyProvider) applyXiaomiMimoEnvOnlyDefaults()
   if (useXaiEnvOnlyProvider) applyXaiEnvOnlyDefaults()
