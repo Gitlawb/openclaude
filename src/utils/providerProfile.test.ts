@@ -3148,6 +3148,44 @@ test('openai launch withholds ambient Concentrate credentials from a keyless pro
   assert.equal(canonical.CONCENTRATE_API_KEY, 'ambient-concentrate-key')
 })
 
+test('openai launch withholds ambient LLMTR credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'proxy-model',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-llmtr-key',
+      LLMTR_API_KEY: 'ambient-llmtr-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'llmtr')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.LLMTR_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'llmtr',
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://llmtr.com/v1',
+      LLMTR_API_KEY: 'ambient-llmtr-key',
+    },
+  })
+
+  assert.equal(canonical.OPENAI_API_KEY, undefined)
+  assert.equal(canonical.LLMTR_API_KEY, 'ambient-llmtr-key')
+})
+
 test('openai launch removes a legacy persisted Concentrate key from a noncanonical URL', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

@@ -591,6 +591,23 @@ test('selected LLMTR route sends LLMTR_API_KEY through the generic route credent
   expect(captured.authorization).toBe('Bearer llmtr-key')
 })
 
+test('selected LLMTR route prefers its dedicated key over a generic OPENAI_API_KEYS pool', async () => {
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('llmtr', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+  )
+
+  expect(captured.authorization).toBe('Bearer llmtr-key')
+})
+
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {
   process.env.OPENGATEWAY_BASE_URL = 'http://localhost:8181/v1'
   process.env.OPENAI_API_KEYS = 'fake-openai-pool-a,fake-openai-pool-b'

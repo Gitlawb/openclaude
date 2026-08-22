@@ -165,6 +165,26 @@ test('LLMTR validation rejects placeholder dedicated credentials', async () => {
   )
 })
 
+test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  process.env.OPENAI_API_KEY = 'llmtr-fallback-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEYS', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'SUA_CHAVE'
+  process.env.OPENAI_API_KEYS = 'llmtr-pool-key-a,llmtr-pool-key-b'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('LLMTR_API_KEY does not authenticate an unrelated OpenAI-compatible route', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'

@@ -102,6 +102,25 @@ test('LLMTR dedicated credentials require an already selected LLMTR route', () =
     }),
   ).toBeUndefined()
   expect(
+    resolveRouteCredentialValue({
+      routeId: 'llmtr',
+      baseUrl: 'https://proxy.example/v1',
+      processEnv,
+    }),
+  ).toBeUndefined()
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://proxy.example/v1',
+      },
+      {
+        activeProfileProvider: 'llmtr',
+        activeProfileBaseUrl: 'https://proxy.example/v1',
+      },
+    ),
+  ).toBe('custom')
+  expect(
     resolveActiveRouteIdFromEnv(processEnv),
   ).not.toBe('llmtr')
 })

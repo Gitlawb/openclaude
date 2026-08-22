@@ -468,6 +468,34 @@ export function isCanonicalConcentrateInferenceBaseUrl(
   }
 }
 
+const LLMTR_CANONICAL_INFERENCE_BASE_URL = 'https://llmtr.com/v1'
+
+export function isCanonicalLlmtrInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(LLMTR_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
 export function getConcentrateBaseUrlOverride(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -1118,6 +1146,13 @@ export function resolveRouteCredentialValue(
   ) {
     return undefined
   }
+  if (
+    routeId === 'llmtr' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalLlmtrInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
 
   return getRouteCredentialValue(routeId, processEnv)
 }
@@ -1281,6 +1316,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'apismart') {
     return isApismartBaseUrl(baseUrl)
+  }
+  if (routeId === 'llmtr') {
+    return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
   }
   return true
 }

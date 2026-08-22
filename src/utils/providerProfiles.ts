@@ -57,6 +57,7 @@ import {
   isClinePassBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
+  isCanonicalLlmtrInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -175,6 +176,15 @@ function isConcentrateProfile(profile: ProviderProfile): boolean {
   return !baseUrl || isCanonicalConcentrateInferenceBaseUrl(baseUrl)
 }
 
+function isLlmtrProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  if (route.routeId !== 'llmtr') {
+    return false
+  }
+  const baseUrl = profile.baseUrl?.trim()
+  return !baseUrl || isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+}
+
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl?.trim()) return undefined
   try {
@@ -259,13 +269,16 @@ function resolveProfileCapabilityRouteId(
   if (
     (providerRouteId === 'cloudflare' ||
       providerRouteId === 'longcat' ||
-      providerRouteId === 'concentrate') &&
+      providerRouteId === 'concentrate' ||
+      providerRouteId === 'llmtr') &&
     baseUrl &&
     !(providerRouteId === 'cloudflare'
       ? isCloudflareBaseUrl(baseUrl)
       : providerRouteId === 'longcat'
         ? isLongcatBaseUrl(baseUrl)
-        : isCanonicalConcentrateInferenceBaseUrl(baseUrl))
+        : providerRouteId === 'concentrate'
+          ? isCanonicalConcentrateInferenceBaseUrl(baseUrl)
+          : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
@@ -1023,10 +1036,13 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'apismart' && !isApismartProfile(profile)
     const withholdRetargetedConcentrateCredential =
       route.routeId === 'concentrate' && !isConcentrateProfile(profile)
+    const withholdRetargetedLlmtrCredential =
+      route.routeId === 'llmtr' && !isLlmtrProfile(profile)
     if (
       profile.apiKey &&
       !withholdRetargetedApismartCredential &&
-      !withholdRetargetedConcentrateCredential
+      !withholdRetargetedConcentrateCredential &&
+      !withholdRetargetedLlmtrCredential
     ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
@@ -1436,6 +1452,8 @@ function buildOpenAICompatibleStartupEnv(
   const withholdRetargetedConcentrateCredential =
     activeProfileRouteId === 'concentrate' &&
     !isConcentrateProfile(activeProfile)
+  const withholdRetargetedLlmtrCredential =
+    activeProfileRouteId === 'llmtr' && !isLlmtrProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
@@ -1444,7 +1462,8 @@ function buildOpenAICompatibleStartupEnv(
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
-    !withholdRetargetedConcentrateCredential
+    !withholdRetargetedConcentrateCredential &&
+    !withholdRetargetedLlmtrCredential
   ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
@@ -1533,10 +1552,14 @@ function buildOpenAICompatibleStartupEnv(
   if (activeProfileRouteId === 'concentrate') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'concentrate'
   }
+  if (activeProfileRouteId === 'llmtr') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+  }
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
-    !withholdRetargetedConcentrateCredential
+    !withholdRetargetedConcentrateCredential &&
+    !withholdRetargetedLlmtrCredential
   ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
@@ -1818,6 +1841,9 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'apismart' && !isApismartProfile(profile)) {
+    return
+  }
+  if (route.routeId === 'llmtr' && !isLlmtrProfile(profile)) {
     return
   }
 

@@ -294,6 +294,17 @@ function buildConcentrateProfile(overrides: Partial<ProviderProfile> = {}): Prov
   })
 }
 
+function buildLlmtrProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'llmtr',
+    name: 'LLMTR',
+    baseUrl: 'https://llmtr.com/v1',
+    model: 'deepseek/deepseek-v4-flash',
+    apiKey: 'llmtr-test-key',
+    ...overrides,
+  })
+}
+
 function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'clinepass',
@@ -1830,6 +1841,57 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBeUndefined()
   })
+
+  test('retargeted LLMTR profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildLlmtrProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('retargeted LLMTR profiles retain generic proxy capabilities', async () => {
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'proxy-model',
+      apiKey: 'llmtr-test-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    expect(saved).toMatchObject({
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
 })
 
 describe('getProviderProfiles', () => {
@@ -1946,6 +2008,7 @@ describe('clearActiveProviderProfile', () => {
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
   })
+
 })
 
 describe('Anthropic sentinel survives profile management (#1426)', () => {
