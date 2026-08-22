@@ -91,7 +91,6 @@ type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalI
 // config or app state are intentionally absent — a provenance badge would be
 // misleading there.
 const SETTINGS_FILE_KEYS: Record<string, string> = {
-  theme: 'theme',
   outputStyle: 'outputStyle',
   language: 'language',
   defaultView: 'defaultView',
