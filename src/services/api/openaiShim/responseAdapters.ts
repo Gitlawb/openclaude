@@ -22,6 +22,7 @@ import {
   type NonStreamingOpenAIResponse,
 } from './responseConversion.js'
 import { openaiStreamToAnthropic as convertOpenAIStream } from './streamConversion.js'
+import { stripMarkerEchoesFromStream } from './markerEchoGuard.js'
 import { geminiSseToAnthropic as convertGeminiStream } from './geminiStreamConversion.js'
 import {
   anthropicSsePassthrough as parseAnthropicSsePassthrough,
@@ -130,32 +131,34 @@ export async function* openaiStreamToAnthropic(
   requestUrl?: string,
   headersWithRequestUrl?: (headers: Headers, requestUrl?: string) => Headers,
 ): AsyncGenerator<AnthropicStreamEvent> {
-  yield* convertOpenAIStream(response, model, signal, isOllama, requestUrl, {
-    convertNonStreamingResponseToAnthropicMessage: (data, streamModel) =>
-      convertNonStreamingResponseToAnthropicMessage(
-        data as NonStreamingOpenAIResponse,
-        streamModel,
-      ),
-    couldBeRawToolCallsRequestedPrefix,
-    createProviderStreamTrace,
-    createReaderCanceller,
-    createStreamAbortError,
-    findXmlToolCallOpener,
-    geminiThoughtSignatureFromExtraContent,
-    getStreamIdleTimeoutMs,
-    headersWithRequestUrl: headersWithRequestUrl ?? ((headers) => headers),
-    isHy3Model,
-    makeMessageId,
-    mergeGeminiThoughtSignature,
-    parseRawToolCallsRequestedText,
-    parseTextToolCalls,
-    parseXmlToolCalls,
-    readWithIdleTimeout,
-    repairPossiblyTruncatedObjectJson,
-    stripRanges,
-    throwIfStreamAborted,
-    trailingXmlOpenerPrefixLen,
-  })
+  yield* stripMarkerEchoesFromStream(
+    convertOpenAIStream(response, model, signal, isOllama, requestUrl, {
+      convertNonStreamingResponseToAnthropicMessage: (data, streamModel) =>
+        convertNonStreamingResponseToAnthropicMessage(
+          data as NonStreamingOpenAIResponse,
+          streamModel,
+        ),
+      couldBeRawToolCallsRequestedPrefix,
+      createProviderStreamTrace,
+      createReaderCanceller,
+      createStreamAbortError,
+      findXmlToolCallOpener,
+      geminiThoughtSignatureFromExtraContent,
+      getStreamIdleTimeoutMs,
+      headersWithRequestUrl: headersWithRequestUrl ?? ((headers) => headers),
+      isHy3Model,
+      makeMessageId,
+      mergeGeminiThoughtSignature,
+      parseRawToolCallsRequestedText,
+      parseTextToolCalls,
+      parseXmlToolCalls,
+      readWithIdleTimeout,
+      repairPossiblyTruncatedObjectJson,
+      stripRanges,
+      throwIfStreamAborted,
+      trailingXmlOpenerPrefixLen,
+    }),
+  )
 }
 
 export function convertGeminiToAnthropicResponse(

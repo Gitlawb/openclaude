@@ -5069,13 +5069,11 @@ test('preserves valid tool_result and drops orphan tool_result', async () => {
 
   const orphanMessage = toolMessages.find(m => m.tool_call_id === 'orphan_call_2')
   expect(orphanMessage).toBeUndefined()
-  // Actually, the semantic message IS injected here because the user block with orphan
-  // tool result is converted to:
-  // 1. Tool result (valid_call_1) -> role 'tool'
-  // 2. User content ("What happened?") -> role 'user'
-  // This triggers the tool -> assistant injection.
+  // Tool results stay as role:"tool" messages; a follow-up user turn after
+  // them is valid chat-completions history and must not get a synthetic
+  // assistant bridge inserted before it (issue #2039).
   const assistantMessages = messages.filter(m => m.role === 'assistant')
-  expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(true)
+  expect(assistantMessages.some(m => m.content === '[Tool results received]')).toBe(false)
 })
 // openaiShim test extraction seam 133 end
 
@@ -5160,8 +5158,8 @@ test('drops empty assistant message when only redacted_thinking block was presen
 // openaiShim test extraction seam 135 end
 
 
-// openaiShim test extraction seam 136 start: injects semantic assistant message when tool result is followed by user message
-test('injects semantic assistant message when tool result is followed by user message', async () => {
+// openaiShim test extraction seam 136 start: passes tool results through as role:tool messages without synthetic assistant filler (issue #2039)
+test('passes tool results through as role:tool messages without synthetic assistant filler (issue #2039)', async () => {
   let requestBody: Record<string, unknown> | undefined
 
   globalThis.fetch = (async (_input, init) => {
@@ -5198,15 +5196,11 @@ test('injects semantic assistant message when tool result is followed by user me
   })
 
   const messages = requestBody?.messages as Array<Record<string, unknown>>
-  // Roles should be: assistant (tool_calls) -> tool -> assistant (semantic) -> user
+  // Roles should be: assistant (tool_calls) -> tool -> user — no synthetic
+  // assistant marker between the tool results and the next user query.
   const roles = messages.map(m => m.role)
-  expect(roles).toEqual(['assistant', 'tool', 'assistant', 'user'])
-
-  const semanticMsg = messages[2]
-  expect(semanticMsg.role).toBe('assistant')
-  expect(semanticMsg.content).toBe('[Tool results received]')
-  expect(semanticMsg.content).not.toContain('interrupted')
-  expect(semanticMsg.content).not.toContain('user')
+  expect(roles).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(m => m.content === '[Tool results received]')).toBe(false)
 })
 // openaiShim test extraction seam 156 end
 

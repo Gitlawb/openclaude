@@ -1,3 +1,8 @@
+import {
+  TOOL_RESULTS_RECEIVED_MARKER,
+  stripEchoedToolResultsMarker,
+} from './markerEchoGuard.js'
+
 export type NonStreamingOpenAIResponse = {
   id?: string
   model?: string
@@ -49,7 +54,11 @@ export function convertNonStreamingResponseToAnthropicMessage(
   if (typeof reasoning === 'string' && reasoning) content.push({ type: 'thinking', thinking: reasoning })
 
   const appendTextOrRecoveredToolCalls = (rawText: string) => {
-    const stripped = deps.stripThinkTags(rawText)
+    const stripped = stripEchoedToolResultsMarker(deps.stripThinkTags(rawText))
+    // A reply that only echoes the shim's old tool-results placeholder carries
+    // no information — emit nothing rather than an empty terminal message.
+    const echoedMarkerOnly =
+      rawText.includes(TOOL_RESULTS_RECEIVED_MARKER) && !stripped.trim()
     if (!hasStructuredToolCalls) {
       const { calls, toolCallRanges } = deps.parseXmlToolCalls(stripped, deps.isHy3Model(model))
       if (calls.length) {
@@ -62,7 +71,7 @@ export function convertNonStreamingResponseToAnthropicMessage(
     const rawToolCalls = hasStructuredToolCalls ? null : deps.parseRawToolCalls(stripped)
     if (rawToolCalls) {
       for (const call of rawToolCalls) content.push({ type: 'tool_use', id: call.id, name: call.name, input: JSON.parse(call.argumentsJson) })
-    } else content.push({ type: 'text', text: stripped })
+    } else if (!echoedMarkerOnly) content.push({ type: 'text', text: stripped })
   }
 
   const rawContent = choice?.message?.content !== '' && choice?.message?.content != null

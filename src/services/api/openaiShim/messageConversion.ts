@@ -1,3 +1,5 @@
+import { stripEchoedToolResultsMarker } from './markerEchoGuard.js'
+
 export type OpenAIContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
@@ -203,7 +205,9 @@ export function convertMessages(
     if (role !== 'assistant') continue
     if (!Array.isArray(content)) {
       const converted = convertContentBlocks(content, options)
-      const text = typeof converted === 'string' ? converted : joinTextContentParts(converted)
+      const text = stripEchoedToolResultsMarker(
+        typeof converted === 'string' ? converted : joinTextContentParts(converted),
+      )
       if (text) result.push({ role: 'assistant', content: text })
       continue
     }
@@ -224,7 +228,9 @@ export function convertMessages(
     const converted = convertContentBlocks(textContent, options)
     const assistantMsg: ConvertedOpenAIMessage = {
       role: 'assistant',
-      content: typeof converted === 'string' ? converted : joinTextContentParts(converted),
+      content: stripEchoedToolResultsMarker(
+        typeof converted === 'string' ? converted : joinTextContentParts(converted),
+      ),
     }
     if (options.preserveReasoningContent) {
       const thinking = thinkingBlock?.type === 'redacted_thinking' ? thinkingBlock.data : thinkingBlock?.thinking
@@ -260,10 +266,6 @@ export function convertMessages(
 
   const coalesced: ConvertedOpenAIMessage[] = []
   for (const msg of result) {
-    const prev = coalesced[coalesced.length - 1]
-    if (prev?.role === 'tool' && msg.role === 'user') {
-      coalesced.push({ role: 'assistant', content: '[Tool results received]' })
-    }
     const last = coalesced[coalesced.length - 1]
     if (!last || last.role !== msg.role || msg.role === 'tool' || msg.role === 'system') {
       coalesced.push(msg)
