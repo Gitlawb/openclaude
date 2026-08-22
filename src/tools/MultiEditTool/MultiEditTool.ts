@@ -15,6 +15,7 @@ import { buildTool, type ToolDef } from '../../Tool.js'
 import { getCwd } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { countLinesChanged } from '../../utils/diff.js'
+import type { StructuredPatchHunk } from 'diff'
 import { isEnvTruthy } from '../../utils/envUtils.js'
 import { isENOENT } from '../../utils/errors.js'
 import {
@@ -143,18 +144,50 @@ export const MultiEditTool = buildTool({
     }
   },
   async preparePermissionMatcher({ edits }) {
-    // Match if ANY edit's file_path matches the pattern
+    // Require EVERY edit's file_path to match the pattern so a single matching
+    // path can't satisfy the matcher for the whole batch.
     return (pattern: string) =>
-      edits.some((edit: { file_path: string }) =>
+      edits.every((edit: { file_path: string }) =>
         matchWildcardPattern(pattern, edit.file_path),
       )
   },
   async checkPermissions(input, context): Promise<PermissionDecision> {
     const appState = context.getAppState()
-    return checkWritePermissionForTool(
-      MultiEditTool,
-      input,
-      appState.toolPermissionContext,
+    // Fail closed: an empty batch is never allowed to proceed. (validateInput
+    // also rejects it, but the permission gate should not approve anything.)
+    if (!input.edits || input.edits.length === 0) {
+      return {
+        behavior: 'deny',
+        message: 'No edits provided.',
+        decisionReason: { type: 'other', reason: 'empty edits array' },
+      }
+    }
+    // Evaluate the permission decision for every distinct edit path and combine
+    // the results: any deny wins, then any ask, and allow only when every path
+    // allows. A batch whose first edit targets an allowed path must not write
+    // arbitrary other paths in the same call.
+    const paths = [
+      ...new Set(input.edits.map(e => expandPath(e.file_path))),
+    ]
+    let pendingAsk: PermissionDecision | undefined
+    for (const path of paths) {
+      const decision = checkWritePermissionForTool(
+        { ...MultiEditTool, getPath: () => path },
+        input,
+        appState.toolPermissionContext,
+      )
+      if (decision.behavior === 'deny') {
+        return decision
+      }
+      if (decision.behavior === 'ask' && !pendingAsk) {
+        pendingAsk = decision
+      }
+    }
+    return (
+      pendingAsk ?? {
+        behavior: 'allow',
+        updatedInput: input,
+      }
     )
   },
   renderToolUseMessage,
@@ -172,6 +205,10 @@ export const MultiEditTool = buildTool({
     }
 
     const errors: string[] = []
+    // Accumulated per-file content so edits to the same file validate against
+    // the result of earlier edits in the batch (mirrors how call() applies
+    // them in order).
+    const accumulatedContent = new Map<string, string>()
 
     for (let i = 0; i < edits.length; i++) {
       const edit = edits[i]!
@@ -230,28 +267,20 @@ export const MultiEditTool = buildTool({
         }
       }
 
-      // Read file
+      // Read file — reuse call()'s decode contract (full encoding detection)
+      // and the accumulated content from earlier edits to the same file.
       let fileContent: string | null
-      try {
-        const fileBuffer = await fs.readFileBytes(fullFilePath)
-        const encoding: BufferEncoding =
-          fileBuffer.length >= 2 &&
-          fileBuffer[0] === 0xff &&
-          fileBuffer[1] === 0xfe
-            ? 'utf16le'
-            : 'utf8'
-        fileContent = fileBuffer.toString(encoding).replaceAll('\r\n', '\n')
-      } catch (e) {
-        if (isENOENT(e)) {
-          fileContent = null
-        } else {
-          throw e
-        }
+      if (accumulatedContent.has(fullFilePath)) {
+        fileContent = accumulatedContent.get(fullFilePath)!
+      } else {
+        const { content, fileExists } = readFileForEdit(fullFilePath)
+        fileContent = fileExists ? content : null
       }
 
       // File doesn't exist
       if (fileContent === null) {
         if (old_string === '') {
+          accumulatedContent.set(fullFilePath, '')
           continue // New file creation is valid
         }
         const similarFilename = findSimilarFile(fullFilePath)
@@ -292,8 +321,10 @@ export const MultiEditTool = buildTool({
         continue
       }
 
-      // Check if file was modified since last read
-      if (readTimestamp) {
+      // Check if file was modified since last read (skipped for edits to a
+      // file already edited earlier in this batch — accumulatedContent is the
+      // source of truth for those, not the untouched disk copy).
+      if (readTimestamp && !accumulatedContent.has(fullFilePath)) {
         const lastWriteTime = getFileModificationTime(fullFilePath)
         if (lastWriteTime > readTimestamp.timestamp) {
           const isFullRead =
@@ -339,6 +370,15 @@ export const MultiEditTool = buildTool({
         errors.push(`${editLabel}: ${settingsValidationResult.message}`)
         continue
       }
+
+      // Apply the edit in memory so later edits to the same file validate
+      // against the result (same order call() will apply them in).
+      accumulatedContent.set(
+        fullFilePath,
+        replace_all
+          ? fileContent.replaceAll(actualOldString, new_string)
+          : fileContent.replace(actualOldString, new_string),
+      )
     }
 
     if (errors.length > 0) {
@@ -366,6 +406,27 @@ export const MultiEditTool = buildTool({
     const cwd = getCwd()
     const editedFilePaths = new Set<string>()
 
+    // Phase 1 — resolve every edit in memory. Edits to the same file are
+    // applied to an accumulated copy so they compose in order. Nothing is
+    // written to disk until every edit has resolved, keeping the batch
+    // atomic: any failure below leaves the codebase untouched.
+    type PendingFile = {
+      initialContent: string
+      content: string
+      fileExists: boolean
+      encoding: BufferEncoding
+      lineEndings: LineEndingType
+    }
+    const pendingFiles = new Map<string, PendingFile>()
+    const resolvedEdits: {
+      filePath: string
+      absoluteFilePath: string
+      oldString: string
+      newString: string
+      replaceAll: boolean
+      patch: StructuredPatchHunk[]
+    }[] = []
+
     for (const edit of edits) {
       const {
         file_path,
@@ -375,134 +436,176 @@ export const MultiEditTool = buildTool({
       } = edit
       const absoluteFilePath = expandPath(file_path)
 
-      // Discover skills (fire-and-forget)
-      if (!isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
-        const newSkillDirs = await discoverSkillDirsForPaths(
-          [absoluteFilePath],
-          cwd,
-        )
-        if (newSkillDirs.length > 0) {
-          for (const dir of newSkillDirs) {
-            dynamicSkillDirTriggers?.add(dir)
-          }
-          addSkillDirectories(newSkillDirs).catch(() => {})
+      let pending = pendingFiles.get(absoluteFilePath)
+      if (!pending) {
+        const read = readFileForEdit(absoluteFilePath)
+        pending = {
+          initialContent: read.content,
+          content: read.content,
+          fileExists: read.fileExists,
+          encoding: read.encoding,
+          lineEndings: read.lineEndings,
         }
-        activateConditionalSkillsForPaths([absoluteFilePath], cwd)
-      }
+        pendingFiles.set(absoluteFilePath, pending)
 
-      await diagnosticTracker.beforeFileEditedCompat(absoluteFilePath)
-
-      // Ensure parent directory exists
-      await fs.mkdir(dirname(absoluteFilePath))
-      if (fileHistoryEnabled()) {
-        await fileHistoryTrackEdit(
-          updateFileHistoryState,
-          absoluteFilePath,
-          parentMessage.uuid,
-        )
-      }
-
-      // Read current state
-      const {
-        content: originalFileContents,
-        fileExists,
-        encoding,
-        lineEndings: endings,
-      } = readFileForEdit(absoluteFilePath)
-
-      if (fileExists) {
-        const lastWriteTime = getFileModificationTime(absoluteFilePath)
-        const lastRead = readFileState.get(absoluteFilePath)
-        if (!lastRead || lastWriteTime > lastRead.timestamp) {
-          const isFullRead =
-            lastRead &&
-            lastRead.offset === undefined &&
-            lastRead.limit === undefined
-          const contentUnchanged =
-            isFullRead && originalFileContents === lastRead.content
-          if (!contentUnchanged) {
-            throw new Error(
-              'File has been unexpectedly modified. Read it again before attempting to write it.',
-            )
+        if (read.fileExists) {
+          const lastWriteTime = getFileModificationTime(absoluteFilePath)
+          const lastRead = readFileState.get(absoluteFilePath)
+          if (!lastRead || lastWriteTime > lastRead.timestamp) {
+            const isFullRead =
+              lastRead &&
+              lastRead.offset === undefined &&
+              lastRead.limit === undefined
+            const contentUnchanged =
+              isFullRead && read.content === lastRead.content
+            if (!contentUnchanged) {
+              throw new Error(
+                'File has been unexpectedly modified. Read it again before attempting to write it.',
+              )
+            }
           }
         }
       }
 
       // Handle quote normalization
       const actualOldString =
-        findActualString(originalFileContents, old_string) || old_string
+        findActualString(pending.content, old_string) || old_string
       const actualNewString = preserveQuoteStyle(
         old_string,
         actualOldString,
         new_string,
       )
 
-      // Generate patch and apply
+      // Generate patch against accumulated content
       const { patch, updatedFile } = getPatchForEdit({
         filePath: absoluteFilePath,
-        fileContents: originalFileContents,
+        fileContents: pending.content,
         oldString: actualOldString,
         newString: actualNewString,
         replaceAll: replace_all,
       })
 
-      // Write to disk
-      writeTextContent(absoluteFilePath, updatedFile, encoding, endings)
+      pending.content = updatedFile
+      resolvedEdits.push({
+        filePath: file_path,
+        absoluteFilePath,
+        oldString: old_string,
+        newString: new_string,
+        replaceAll: replace_all,
+        patch,
+      })
+    }
 
-      // Notify LSP servers
-      const lspManager = getLspServerManager()
-      if (lspManager) {
-        clearDeliveredDiagnosticsForFile(`file://${absoluteFilePath}`)
-        lspManager
-          .changeFile(absoluteFilePath, updatedFile)
-          .catch((err: Error) => {
+    // Phase 2 — every edit resolved, so apply them. Side effects for a given
+    // file run once (on its first edit), using the file's final accumulated
+    // content; per-edit telemetry is still emitted for every edit.
+    const appliedFiles = new Set<string>()
+
+    for (const {
+      filePath,
+      absoluteFilePath,
+      oldString,
+      newString,
+      replaceAll,
+      patch,
+    } of resolvedEdits) {
+      const pending = pendingFiles.get(absoluteFilePath)!
+
+      if (!appliedFiles.has(absoluteFilePath)) {
+        // Discover skills (fire-and-forget)
+        if (!isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
+          const newSkillDirs = await discoverSkillDirsForPaths(
+            [absoluteFilePath],
+            cwd,
+          )
+          if (newSkillDirs.length > 0) {
+            for (const dir of newSkillDirs) {
+              dynamicSkillDirTriggers?.add(dir)
+            }
+            addSkillDirectories(newSkillDirs).catch(() => {})
+          }
+          activateConditionalSkillsForPaths([absoluteFilePath], cwd)
+        }
+
+        await diagnosticTracker.beforeFileEditedCompat(absoluteFilePath)
+
+        // Ensure parent directory exists
+        await fs.mkdir(dirname(absoluteFilePath))
+        if (fileHistoryEnabled()) {
+          await fileHistoryTrackEdit(
+            updateFileHistoryState,
+            absoluteFilePath,
+            parentMessage.uuid,
+          )
+        }
+
+        // Write final accumulated content to disk
+        writeTextContent(
+          absoluteFilePath,
+          pending.content,
+          pending.encoding,
+          pending.lineEndings,
+        )
+
+        // Notify LSP servers
+        const lspManager = getLspServerManager()
+        if (lspManager) {
+          clearDeliveredDiagnosticsForFile(`file://${absoluteFilePath}`)
+          lspManager
+            .changeFile(absoluteFilePath, pending.content)
+            .catch((err: Error) => {
+              logForDebugging(
+                `LSP: Failed to notify server of file change for ${absoluteFilePath}: ${err.message}`,
+              )
+              logError(err)
+            })
+          lspManager.saveFile(absoluteFilePath).catch((err: Error) => {
             logForDebugging(
-              `LSP: Failed to notify server of file change for ${absoluteFilePath}: ${err.message}`,
+              `LSP: Failed to notify server of file save for ${absoluteFilePath}: ${err.message}`,
             )
             logError(err)
           })
-        lspManager.saveFile(absoluteFilePath).catch((err: Error) => {
-          logForDebugging(
-            `LSP: Failed to notify server of file save for ${absoluteFilePath}: ${err.message}`,
-          )
-          logError(err)
+        }
+
+        // Notify VSCode with the on-disk state it last saw -> final content
+        notifyVscodeFileUpdated(
+          absoluteFilePath,
+          pending.initialContent,
+          pending.content,
+        )
+
+        // Update read timestamp
+        readFileState.set(absoluteFilePath, {
+          content: pending.content,
+          timestamp: getFileModificationTime(absoluteFilePath),
+          offset: undefined,
+          limit: undefined,
         })
+
+        // Log events
+        if (
+          absoluteFilePath.endsWith(`${sep}CLAUDE.md`) ||
+          absoluteFilePath.endsWith(`${sep}AGENTS.md`)
+        ) {
+          logEvent('tengu_write_claudemd', {})
+        }
+
+        logFileOperation({
+          operation: 'edit',
+          tool: 'MultiEditTool',
+          filePath: absoluteFilePath,
+        })
+
+        editedFilePaths.add(filePath)
+        appliedFiles.add(absoluteFilePath)
       }
 
-      // Notify VSCode
-      notifyVscodeFileUpdated(
-        absoluteFilePath,
-        originalFileContents,
-        updatedFile,
-      )
-
-      // Update read timestamp
-      readFileState.set(absoluteFilePath, {
-        content: updatedFile,
-        timestamp: getFileModificationTime(absoluteFilePath),
-        offset: undefined,
-        limit: undefined,
-      })
-
-      // Log events
-      if (absoluteFilePath.endsWith(`${sep}CLAUDE.md`)) {
-        logEvent('tengu_write_claudemd', {})
-      }
       countLinesChanged(patch)
-
-      logFileOperation({
-        operation: 'edit',
-        tool: 'MultiEditTool',
-        filePath: absoluteFilePath,
-      })
-
       logEvent('tengu_edit_string_lengths', {
-        oldStringBytes: Buffer.byteLength(old_string, 'utf8'),
-        newStringBytes: Buffer.byteLength(new_string, 'utf8'),
-        replaceAll: replace_all,
+        oldStringBytes: Buffer.byteLength(oldString, 'utf8'),
+        newStringBytes: Buffer.byteLength(newString, 'utf8'),
+        replaceAll,
       })
-
-      editedFilePaths.add(file_path)
     }
 
     const filePaths = [...editedFilePaths]

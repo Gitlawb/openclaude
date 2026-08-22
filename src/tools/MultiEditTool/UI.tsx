@@ -83,9 +83,7 @@ export function renderToolResultMessage(
     <Text color="success">
       Applied {editCount} edit{editCount === 1 ? '' : 's'} across{' '}
       {filePaths.length} file{filePaths.length === 1 ? '' : 's'}
-      {verbose
-        ? ': ' + filePaths.map(fp => getDisplayPath(fp)).join(', ')
-        : ''}
+      {verbose ? ': ' + filePaths.join(', ') : ''}
     </Text>
   )
 }
