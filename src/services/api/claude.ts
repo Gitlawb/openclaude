@@ -28,6 +28,7 @@ import {
 import {
   getAttributionHeader,
   getCLISyspromptPrefix,
+  isAttributionHeaderEnabled,
 } from '../../constants/system.js'
 import {
   getEmptyToolPermissionContext,
@@ -163,6 +164,7 @@ import {
   modelSupportsAdvisor,
 } from 'src/utils/advisor.js'
 import { getAgentContext } from 'src/utils/agentContext.js'
+import { applyAnthropicAttributionPolicy } from 'src/utils/anthropicAttribution.js'
 import { isClaudeAISubscriber } from 'src/utils/auth.js'
 import {
   getToolSearchBetaHeader,
@@ -240,6 +242,7 @@ import {
 import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
+import { resolveCurrentAnthropicAttributionPolicy } from './authRouting.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
 import {
   API_ERROR_MESSAGE_PREFIX,
@@ -1564,10 +1567,12 @@ async function* queryModel(
   const injectChromeHere =
     useToolSearch && hasChromeTools && !isMcpInstructionsDeltaEnabled()
 
-  // filter(Boolean) works by converting each element to a boolean - empty strings become false and are filtered out.
+  const attributionEnabled = isAttributionHeaderEnabled()
+
+  // Build the stable prompt here, but delay attribution and request blocks
+  // until client creation has normalized the effective provider route.
   systemPrompt = asSystemPrompt(
     [
-      getAttributionHeader(fingerprint),
       getCLISyspromptPrefix({
         isNonInteractive: options.isNonInteractiveSession,
         hasAppendSystemPrompt: options.hasAppendSystemPrompt,
@@ -1577,16 +1582,6 @@ async function* queryModel(
       ...(injectChromeHere ? [CHROME_TOOL_SEARCH_INSTRUCTIONS] : []),
     ].filter(Boolean),
   )
-
-  // Prepend system prompt block for easy API identification
-  logAPIPrefix(systemPrompt)
-
-  const enablePromptCaching =
-    options.enablePromptCaching ?? getPromptCachingEnabled(options.model)
-  const system = buildSystemPromptBlocks(systemPrompt, enablePromptCaching, {
-    skipGlobalCacheForSystemPrompt: needsToolBasedCacheMarker,
-    querySource: options.querySource,
-  })
   const useBetas = betas.length > 0
 
   const extraToolSchemas = [...(options.extraToolSchemas ?? [])]
@@ -1669,34 +1664,6 @@ async function* queryModel(
 
   const effort = resolveAppliedEffort(options.model, options.effortValue)
 
-  if (feature('PROMPT_CACHE_BREAK_DETECTION')) {
-    // Exclude defer_loading tools from the hash -- the API strips them from the
-    // prompt, so they never affect the actual cache key. Including them creates
-    // false-positive "tool schemas changed" breaks when tools are discovered or
-    // MCP servers reconnect.
-    const toolsForCacheDetection = allTools.filter(
-      t => !('defer_loading' in t && t.defer_loading),
-    )
-    // Capture everything that could affect the server-side cache key.
-    // Pass latched header values (not live state) so break detection
-    // reflects what we actually send, not what the user toggled.
-    recordPromptState({
-      system,
-      toolSchemas: toolsForCacheDetection,
-      querySource: options.querySource,
-      model: options.model,
-      agentId: options.agentId,
-      fastMode: fastModeHeaderLatched,
-      globalCacheStrategy,
-      betas,
-      autoModeActive: afkHeaderLatched,
-      isUsingOverage: currentLimits.isUsingOverage ?? false,
-      cachedMCEnabled: cacheEditingHeaderLatched,
-      effortValue: effort,
-      extraBodyParams: getExtraBodyParams(),
-    })
-  }
-
   const startIncludingRetries = Date.now()
   let start = Date.now()
   let attemptNumber = 0
@@ -1744,6 +1711,8 @@ async function* queryModel(
   // Capture the betas sent in the last API request, including the ones that
   // were dynamically added, so we can log and send it to telemetry.
   let lastRequestBetas: string[] | undefined
+  let apiPrefixLogged = false
+  let promptStateRecorded = false
 
   const paramsFromContext = (retryContext: RetryContext) => {
     const betasParams = [...betas]
@@ -1844,6 +1813,54 @@ async function* queryModel(
 
     const enablePromptCaching =
       options.enablePromptCaching ?? getPromptCachingEnabled(retryContext.model)
+    const attributionPolicy = resolveCurrentAnthropicAttributionPolicy({
+      attributionEnabled,
+      providerOverride: options.providerOverride,
+    })
+    const requestSystemPrompt = asSystemPrompt(
+      applyAnthropicAttributionPolicy(
+        [
+          getAttributionHeader(fingerprint, attributionPolicy),
+          ...systemPrompt,
+        ].filter(Boolean),
+        attributionPolicy,
+      ),
+    )
+    const system = buildSystemPromptBlocks(
+      requestSystemPrompt,
+      enablePromptCaching,
+      {
+        skipGlobalCacheForSystemPrompt: needsToolBasedCacheMarker,
+        querySource: options.querySource,
+      },
+    )
+    if (!apiPrefixLogged) {
+      apiPrefixLogged = true
+      logAPIPrefix(requestSystemPrompt)
+    }
+    if (feature('PROMPT_CACHE_BREAK_DETECTION') && !promptStateRecorded) {
+      promptStateRecorded = true
+      // Exclude defer_loading tools from the hash. The API strips them from
+      // the prompt, so they never affect the actual cache key.
+      const toolsForCacheDetection = allTools.filter(
+        t => !('defer_loading' in t && t.defer_loading),
+      )
+      recordPromptState({
+        system,
+        toolSchemas: toolsForCacheDetection,
+        querySource: options.querySource,
+        model: options.model,
+        agentId: options.agentId,
+        fastMode: fastModeHeaderLatched,
+        globalCacheStrategy,
+        betas,
+        autoModeActive: afkHeaderLatched,
+        isUsingOverage: currentLimits.isUsingOverage ?? false,
+        cachedMCEnabled: cacheEditingHeaderLatched,
+        effortValue: effort,
+        extraBodyParams: getExtraBodyParams(),
+      })
+    }
 
     // Fast mode: header is latched session-stable (cache-safe), but
     // `speed='fast'` stays dynamic so cooldown still suppresses the actual

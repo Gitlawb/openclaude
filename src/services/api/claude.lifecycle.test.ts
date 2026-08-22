@@ -3,9 +3,14 @@ import type {
   BetaMessage,
   BetaMessageStreamParams,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import {
+  setAllowedSettingSources,
+  setFlagSettingsInline,
+  setFlagSettingsPath,
+} from '../../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -19,19 +24,51 @@ import {
   __resetInterruptionTraceForTests,
 } from '../../utils/interruptionTrace.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { getClaudeAIOAuthTokens } from '../../utils/auth.js'
+import { enableConfigs } from '../../utils/config.js'
+import { SETTING_SOURCES } from '../../utils/settings/constants.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 import {
-  executeNonStreamingRequest,
   type Options,
-  queryModelWithStreaming,
 } from './claude.js'
 import { EMPTY_USAGE } from './emptyUsage.js'
+import {
+  providerModuleIsMocked,
+  REAL_PROVIDER_TEST_CHILD_ENV,
+  REAL_PROVIDER_TEST_TIMEOUT_MS,
+  runTestFileWithRealProviders,
+} from '../../test/providerModuleIsolation.js'
+
+// Bun keeps mock.module() registrations process-global across test files.
+// Bind request modules only when the canonical provider module is real. When a
+// prior file replaced it, run this file in a clean child process instead.
+const _realProvidersModule = await import(
+  `../../utils/model/providers.js?attributionReal=${Date.now()}-${Math.random()}`
+)
+const _loadedProvidersModule = await import('src/utils/model/providers.js')
+const runInProviderIsolatedChild =
+  process.env[REAL_PROVIDER_TEST_CHILD_ENV] !== '1' &&
+  providerModuleIsMocked(_loadedProvidersModule, _realProvidersModule)
+type ClaudeModule = typeof import('./claude.js')
+let executeNonStreamingRequest!: ClaudeModule['executeNonStreamingRequest']
+let queryModelWithStreaming!: ClaudeModule['queryModelWithStreaming']
+if (!runInProviderIsolatedChild) {
+  ;({ executeNonStreamingRequest, queryModelWithStreaming } = await import(
+    `./claude.js?attributionReal=${Date.now()}-${Math.random()}`
+  ))
+}
 
 const envKeys = [
   'AIMLAPI_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_FIRST_PARTY_PROXY_HOSTS',
   'ANTHROPIC_MODEL',
+  'CLAUDE_CODE_ATTRIBUTION_HEADER',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_REMOTE',
   'CLAUDE_CODE_TEST_FIXTURES_ROOT',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
@@ -47,10 +84,13 @@ const envKeys = [
   'CLAUDE_FEATURE_FLAGS_FILE',
   'CLAUDE_STREAM_IDLE_TIMEOUT_MS',
   'GEMINI_API_KEY',
+  'GITHUB_TOKEN',
   'LONGCAT_API_KEY',
+  'MINIMAX_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
+  'OPENCLAUDE_CONFIG_DIR',
   'OPENCLAUDE_INTERRUPT_TRACE',
   'OPENCLAUDE_MAX_RETRIES',
   'VCR_RECORD',
@@ -59,6 +99,7 @@ const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
 const hadSavedMacro = Object.hasOwn(globalThis, 'MACRO')
 const savedMacro = (globalThis as Record<string, unknown>).MACRO
+const originalNodeEnv = process.env.NODE_ENV
 let fixturesRoot: string | undefined
 
 type FetchOverride = NonNullable<Options['fetchOverride']>
@@ -305,6 +346,74 @@ function makeOptions(
   }
 }
 
+async function capturePrimaryRequest({
+  model = 'claude-lifecycle-test',
+  systemPrompt = asSystemPrompt(['stable system prompt']),
+}: {
+  model?: string
+  systemPrompt?: ReturnType<typeof asSystemPrompt>
+} = {}): Promise<{ system: unknown[]; headers: Headers }> {
+  const queryLifecycle = new QueryLifecycleOperationTracker()
+  let requestBody: Record<string, unknown> | undefined
+  let requestHeaders: Headers | undefined
+  const fetchOverride: FetchOverride = async (_input, init) => {
+    requestBody = parseRequestBody(init)
+    requestHeaders = new Headers(init?.headers)
+    return makeErrorResponse(400, 'captured request')
+  }
+
+  const generator = queryModelWithStreaming({
+    messages: [
+      {
+        type: 'user',
+        uuid: '00000000-0000-0000-0000-000000000009',
+        timestamp: '2026-08-21T00:00:00.000Z',
+        message: { role: 'user', content: 'hello' },
+      } as Message,
+    ],
+    systemPrompt,
+    thinkingConfig: { type: 'disabled' },
+    tools: [],
+    signal: new AbortController().signal,
+    options: {
+      ...makeOptions(queryLifecycle),
+      model,
+      fetchOverride,
+    },
+  })
+
+  await generator.next()
+  await generator.return(undefined)
+
+  if (!Array.isArray(requestBody?.system)) {
+    throw new Error('expected captured Anthropic system blocks')
+  }
+  if (!requestHeaders) {
+    throw new Error('expected captured Anthropic request headers')
+  }
+  return { system: requestBody.system, headers: requestHeaders }
+}
+
+async function capturePrimarySystemBlocks(options: {
+  model?: string
+  systemPrompt?: ReturnType<typeof asSystemPrompt>
+} = {}): Promise<unknown[]> {
+  return (await capturePrimaryRequest(options)).system
+}
+
+function systemBlockTexts(blocks: unknown[]): string[] {
+  return blocks.flatMap(block => {
+    if (
+      typeof block === 'object' &&
+      block !== null &&
+      typeof (block as { text?: unknown }).text === 'string'
+    ) {
+      return [(block as { text: string }).text]
+    }
+    return []
+  })
+}
+
 function setTestMacro(): void {
   ;(globalThis as Record<string, unknown>).MACRO = {
     VERSION: '0.0.0-test',
@@ -323,17 +432,34 @@ function setClientTestEnv(): void {
     delete process.env[key]
   }
   process.env.ANTHROPIC_API_KEY = 'sk-test-lifecycle'
+  process.env.OPENCLAUDE_CONFIG_DIR = fixturesRoot
   process.env.CLAUDE_CODE_TEST_FIXTURES_ROOT = fixturesRoot
   process.env.CLAUDE_FEATURE_FLAGS_FILE = join(
     fixturesRoot,
     'feature-flags.json',
   )
   process.env.VCR_RECORD = '1'
+  getClaudeAIOAuthTokens.cache?.clear?.()
   resetGrowthBook()
+}
+
+function setIgnoredApiKeyHelper(): void {
+  delete process.env.ANTHROPIC_API_KEY
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline({ apiKeyHelper: 'ignored-test-helper' })
+  setAllowedSettingSources(['flagSettings'])
+  resetSettingsCache()
+  enableConfigs()
+  process.env.NODE_ENV = 'development'
 }
 
 beforeEach(async () => {
   await acquireSharedMutationLock('claude.lifecycle.test.ts')
+  setFlagSettingsPath(undefined)
+  setFlagSettingsInline(null)
+  setAllowedSettingSources([...SETTING_SOURCES])
+  resetSettingsCache()
+  getClaudeAIOAuthTokens.cache?.clear?.()
 })
 
 afterEach(() => {
@@ -351,6 +477,16 @@ afterEach(() => {
       delete (globalThis as Record<string, unknown>).MACRO
     }
     globalThis.fetch = originalFetch
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+    setFlagSettingsPath(undefined)
+    setFlagSettingsInline(null)
+    setAllowedSettingSources([...SETTING_SOURCES])
+    resetSettingsCache()
+    getClaudeAIOAuthTokens.cache?.clear?.()
     resetGrowthBook()
     if (fixturesRoot) {
       rmSync(fixturesRoot, { force: true, recursive: true })
@@ -361,7 +497,199 @@ afterEach(() => {
   }
 })
 
-describe('Claude API lifecycle tracking', () => {
+if (runInProviderIsolatedChild) {
+  test('runs Claude lifecycle cases with the real provider module', async () => {
+    await runTestFileWithRealProviders(import.meta.path)
+  }, { timeout: REAL_PROVIDER_TEST_TIMEOUT_MS + 5_000 })
+}
+
+const describeLifecycle = runInProviderIsolatedChild
+  ? describe.skip
+  : describe
+
+describeLifecycle('Claude API lifecycle tracking', () => {
+  for (const [label, envKey, envValue, ambientAuth] of [
+    ['remote', 'CLAUDE_CODE_REMOTE', '1', 'api-key'],
+    [
+      'Claude Desktop',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'claude-desktop',
+      'api-key-helper',
+    ],
+  ] as const) {
+    test(`uses OAuth headers and attribution in managed ${label} sessions`, async () => {
+      setClientTestEnv()
+      process.env[envKey] = envValue
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+      process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+      process.env.OPENCLAUDE_MAX_RETRIES = '0'
+      if (ambientAuth === 'api-key-helper') setIgnoredApiKeyHelper()
+      getClaudeAIOAuthTokens.cache?.clear?.()
+
+      const request = await capturePrimaryRequest()
+      const texts = systemBlockTexts(request.system)
+
+      expect(
+        texts.some(text => text.startsWith('x-anthropic-billing-header')),
+      ).toBe(true)
+      expect(request.headers.get('authorization')).toBe(
+        'Bearer oauth-test-token',
+      )
+      expect(request.headers.has('x-api-key')).toBe(false)
+    })
+  }
+
+  test('honors a trusted free-plan override in a managed OAuth context', async () => {
+    setClientTestEnv()
+    writeFileSync(
+      join(fixturesRoot!, 'settings.json'),
+      JSON.stringify({ subscriptionType: 'free' }),
+    )
+    resetSettingsCache()
+    process.env.CLAUDE_CODE_REMOTE = '1'
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const request = await capturePrimaryRequest()
+    const texts = systemBlockTexts(request.system)
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(request.headers.get('x-api-key')).toBe('sk-test-lifecycle')
+    expect(request.headers.has('authorization')).toBe(false)
+  })
+
+  test('strips Anthropic billing attribution from a custom native endpoint', async () => {
+    setClientTestEnv()
+    process.env.ANTHROPIC_BASE_URL = 'https://custom-anthropic.example/v1'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(texts).toContain('stable system prompt')
+  })
+
+  test('keeps required billing attribution for official OAuth when globally disabled', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(true)
+    expect(texts).toContain('stable system prompt')
+  })
+
+  test('preserves the disable setting for an official API key', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('does not trust an Anthropic lookalike host with leftover OAuth state', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.ANTHROPIC_BASE_URL =
+      'https://api.anthropic.com.attacker.example/secret/path'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('keeps OAuth attribution through an approved loopback first-party proxy', async () => {
+    setClientTestEnv()
+    delete process.env.ANTHROPIC_API_KEY
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:47821'
+    process.env.ANTHROPIC_FIRST_PARTY_PROXY_HOSTS = '127.0.0.1:47821'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const texts = systemBlockTexts(await capturePrimarySystemBlocks())
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(true)
+  })
+
+  test('uses the normalized MiniMax native route before building attribution', async () => {
+    setClientTestEnv()
+    process.env.MINIMAX_API_KEY = 'minimax-test-key'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({ model: 'MiniMax-M2.7' }),
+    )
+
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.minimax.io/anthropic',
+    )
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('strips attribution from GitHub native Anthropic transport', async () => {
+    setClientTestEnv()
+    process.env.CLAUDE_CODE_USE_GITHUB = '1'
+    process.env.GITHUB_TOKEN = 'github-test-token'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({ model: 'claude-sonnet-4-6' }),
+    )
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+  })
+
+  test('keeps the generated block first and drops later stale copies', async () => {
+    setClientTestEnv()
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+
+    const texts = systemBlockTexts(
+      await capturePrimarySystemBlocks({
+        systemPrompt: asSystemPrompt([
+          'stable system prompt',
+          'x-anthropic-billing-header: stale',
+          'second stable prompt',
+        ]),
+      }),
+    )
+
+    const attribution = texts.filter(text =>
+      text.startsWith('x-anthropic-billing-header'),
+    )
+    expect(attribution).toHaveLength(1)
+    expect(attribution[0]).not.toBe('x-anthropic-billing-header: stale')
+    expect(texts[1]).toStartWith('You are OpenClaude')
+    expect(texts[2]).toBe('stable system prompt\n\nsecond stable prompt')
+  })
+
   test('uses the original codexplan selection for custom-gateway defaults', async () => {
     setClientTestEnv()
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
