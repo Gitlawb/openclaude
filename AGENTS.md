@@ -16,6 +16,8 @@ The installed CLI runs on Node.js `>=22.0.0`. Bun is used for source builds, scr
 - Add or update tests when behavior changes.
 - Update docs when setup, commands, provider behavior, or user-facing behavior changes.
 - For new features, larger refactors, dependencies, or runtime changes, follow the issue-first guidance in [CONTRIBUTING.md](CONTRIBUTING.md).
+- Keep PR branches current with `main` — rebase onto `main` whenever resuming work or pushing follow-up fixes. Stale branches attract redundant fix-churn requests for issues already fixed on `main`.
+- Run the full local CI-equivalent validation suite (see [Validation](#validation)) and get it green before every push, not just the first one. Platform-specific checks you cannot run locally (e.g., Windows checks from macOS) are the only exception.
 
 ## Stack And Conventions
 
@@ -46,7 +48,7 @@ Common libraries and patterns:
 
 ## Validation
 
-Run the narrowest useful checks for your change, and list the exact commands in the PR.
+Run the narrowest useful checks while iterating on your change, and list the exact commands in the PR. Before every push to a PR — including follow-up fixes during review — run the core checks and get them green locally instead of waiting for GitHub CI. Platform-specific checks that cannot run on your OS are the only exception.
 
 Core checks:
 
@@ -100,5 +102,8 @@ When modifying provider behavior:
 - Do not introduce dependencies without clear project benefit.
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
-- Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review.
+- Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review. Before applying an automated review suggestion, verify it does not pull the PR away from its stated scope or intent — decline out-of-scope suggestions with justification, or ask a maintainer when unsure. Never silently ignore findings.
+- Do not push commits with failing, incomplete, or unrun local checks; do not wait for GitHub CI to discover failures you could have caught locally.
+- Do not submit a PR whose description still contains template placeholder text; fill in every section of the [PR template](.github/pull_request_template.md) for the actual change.
+- Do not surface-patch recurring review findings; repeated fix requests usually indicate a core design issue — investigate and fix the root cause instead of the reported symptom.
 - Do not add a manually maintained release-notes data source to the static site; link to GitHub Releases instead.
