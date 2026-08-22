@@ -76,6 +76,7 @@ import { TaskListTool } from './tools/TaskListTool/TaskListTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isToolSearchEnabledOptimistic } from './utils/toolSearch.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
+import { getGlobalConfig } from './utils/config.js'
 // Dead code elimination: conditional import for CLAUDE_CODE_VERIFY_PLAN
 /* eslint-disable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 const VerifyPlanExecutionTool =
@@ -319,6 +320,13 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
   // Filter out any null/undefined tools that might have slipped through
   // (defensive check against initialization timing issues)
   allowedTools = allowedTools.filter(Boolean)
+
+  // Respect per-tool 'off' modes set via /tools — a disabled tool is removed
+  // from the pool entirely. Other modes (always/ask/auto) are display-only.
+  const toolModes = getGlobalConfig().toolModes
+  if (toolModes) {
+    allowedTools = allowedTools.filter(tool => toolModes[tool.name] !== 'off')
+  }
 
   const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
   return allowedTools.filter((_, i) => isEnabled[i])

@@ -299,6 +299,11 @@ export type GlobalConfig = {
    * Overridden by CLI `--max-turns` and OPENCLAUDE_MAX_TURNS / CLAUDE_CODE_MAX_TURNS.
    */
   replMaxTurns?: number
+  /**
+   * Per-tool modes set via /tools. Only 'off' currently has runtime effect
+   * (removes the tool from the pool); always/ask/auto are display-only.
+   */
+  toolModes?: Record<string, 'always' | 'ask' | 'auto' | 'off'>
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
   // 'off'     — no display
