@@ -210,6 +210,7 @@ export type ProfileEnv = {
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
   LONGCAT_API_KEY?: string
+  LLMTR_API_KEY?: string
   CONCENTRATE_API_KEY?: string
   CONCENTRATE_BASE_URL?: string
   CONCENTRATE_MODEL?: string

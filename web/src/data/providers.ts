@@ -146,7 +146,7 @@ export const providers: Provider[] = [
     group: 'gateways',
     setup: '/provider or OpenAI-compatible env vars',
     envVars: ['LLMTR_API_KEY', 'OPENAI_API_KEY'],
-    notes: '/provider and --provider llmtr default to deepseek/deepseek-v4-flash; raw env setup must set OPENAI_MODEL. Uses https://llmtr.com/v1 with public discovery of tool-capable chat models.',
+    notes: '/provider and --provider llmtr default to deepseek/deepseek-v4-flash; raw env setup must set OPENAI_BASE_URL=https://llmtr.com/v1 and OPENAI_MODEL. Uses public discovery of tool-capable chat models.',
   },
   {
     id: 'near-ai',
