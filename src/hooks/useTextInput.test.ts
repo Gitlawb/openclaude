@@ -4,7 +4,9 @@ import { Cursor } from '../utils/Cursor.js'
 import {
   applyCoalescedDelInput,
   applyPrintableInput,
+  composeCombiningMark,
   prepareTextInputEvent,
+  replacePreviousWithChar,
 } from './useTextInput.js'
 
 const insert = (cursor: Cursor, text: string): Cursor => cursor.insert(text)
@@ -23,6 +25,71 @@ test('applyPrintableInput detects an ANSI-wrapped mode character', () => {
   expect(notifications).toEqual(['!'])
 })
 
+test('applyPrintableInput inserts NFD input fully composed', () => {
+  const result = applyPrintableInput(Cursor.fromText('', 80, 0), 'a\u0306')
+
+  expect(result?.text).toBe('ă')
+  expect(result?.offset).toBe(1)
+})
+
+describe('composeCombiningMark', () => {
+  test('composes a standalone breve onto the preceding vowel', () => {
+    expect(composeCombiningMark('a', 1, '\u0306')).toEqual({
+      text: 'ă',
+      offset: 1,
+    })
+  })
+
+  test('composes sequential IME marks into a single precomposed char', () => {
+    // tiếng: e + circumflex → ê, then acute → ế (U+1EBF, one code unit)
+    const stepOne = composeCombiningMark('tie', 3, '\u0302')
+    expect(stepOne?.text).toBe('tiê')
+
+    const stepTwo = composeCombiningMark(stepOne!.text, stepOne!.offset, '\u0301')
+    expect(stepTwo?.text).toBe('tiế')
+    expect([...(stepTwo?.text ?? '')].length).toBe(4)
+  })
+
+  test('composes mid-text without disturbing trailing characters', () => {
+    expect(composeCombiningMark('ab c', 2, '\u0306')).toEqual({
+      text: 'ăb c',
+      offset: 1,
+    })
+  })
+
+  test('returns null when nothing precedes the cursor', () => {
+    expect(composeCombiningMark('', 0, '\u0306')).toBeNull()
+  })
+
+  test('returns null for non-mark input', () => {
+    expect(composeCombiningMark('a', 1, 'w')).toBeNull()
+  })
+})
+
+describe('replacePreviousWithChar', () => {
+  test('replaces the previous character with the composed replacement', () => {
+    expect(replacePreviousWithChar('xin cha', 7, 'ò')).toEqual({
+      text: 'xin chà',
+      offset: 7,
+    })
+  })
+
+  test('replaces mid-text preserving surrounding characters', () => {
+    expect(replacePreviousWithChar('abc', 2, 'ă')).toEqual({
+      text: 'aăc',
+      offset: 2,
+    })
+  })
+
+  test('returns null when nothing precedes the cursor', () => {
+    expect(replacePreviousWithChar('a', 0, 'ă')).toBeNull()
+  })
+
+  test('ignores ASCII replacements', () => {
+    expect(replacePreviousWithChar('a', 1, 'b')).toBeNull()
+  })
+})
+
 function apply(
   text: string,
   input: string,
@@ -38,6 +105,14 @@ function apply(
 describe('applyCoalescedDelInput', () => {
   test('preserves the raw DEL workaround', () => {
     expect(apply('abc', '\x7f').cursor.text).toBe('ab')
+  })
+
+  test('treats Ctrl-H backspace bytes like DEL', () => {
+    expect(apply('a', '\bă').cursor.text).toBe('ă')
+  })
+
+  test('handles mixed DEL and Ctrl-H runs before inserting', () => {
+    expect(apply('abc', '\x7f\bă').cursor.text).toBe('aă')
   })
 
   test('inserts replacement text after DEL', () => {

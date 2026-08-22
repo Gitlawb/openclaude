@@ -186,6 +186,21 @@ function parseKey(keypress: ParsedKey): [Key, string] {
     key.shift = true
   }
 
+  // Printable non-ASCII characters (Vietnamese precomposed letters, CJK,
+  // accented Latin) arrive as plain text sequences with no keyName-map
+  // entry, leaving keypress.name empty. Record the character as the name
+  // so downstream consumers (keyboard-event dispatch, mode handlers) see
+  // the character instead of an empty string. This runs after the
+  // nonAlphanumericKeys clear above, and single-character names are never
+  // members of that list, so this cannot cause input to be cleared (#2018).
+  if (
+    !keypress.name &&
+    input.length === 1 &&
+    (input.codePointAt(0) ?? 0) > 127
+  ) {
+    keypress.name = input
+  }
+
   return [key, input]
 }
 
