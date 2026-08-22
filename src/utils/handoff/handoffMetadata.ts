@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, statSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, statSync, openSync, closeSync, readSync } from 'fs'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { getOriginalCwd } from '../../bootstrap/state.js'
@@ -116,10 +116,17 @@ export function getLogTail(handoffId: string, maxBytes = 8192): string {
   const path = getHandoffLogPath(handoffId)
   if (!existsSync(path)) return ''
   try {
-    const stat = statSync(path)
-    const buf = readFileSync(path)
-    if (stat.size <= maxBytes) return buf.toString('utf8')
-    return '...\n' + buf.subarray(stat.size - maxBytes).toString('utf8')
+    const size = statSync(path).size
+    const readOffset = Math.max(0, size - maxBytes)
+    const fd = openSync(path, 'r')
+    try {
+      const buf = Buffer.alloc(size - readOffset)
+      const bytesRead = readSync(fd, buf, 0, buf.length, readOffset)
+      const tail = buf.subarray(0, bytesRead).toString('utf8')
+      return readOffset > 0 ? '...\n' + tail : tail
+    } finally {
+      closeSync(fd)
+    }
   } catch {
     return ''
   }

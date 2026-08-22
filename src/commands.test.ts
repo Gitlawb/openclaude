@@ -584,6 +584,13 @@ describe('builtInCommandNames', () => {
   test('includes the /dream command', () => {
     expect(builtInCommandNames()).toContain('dream')
   })
+
+  test('includes the /handoff suite commands', () => {
+    const names = builtInCommandNames()
+    for (const name of ['handoff', 'handoffs', 'handoff-kill', 'handoff-status']) {
+      expect(names).toContain(name)
+    }
+  })
 })
 
 describe('isCommand', () => {

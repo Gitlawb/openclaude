@@ -13,7 +13,7 @@ function formatTimestamp(ms: number): string {
 const call: LocalCommandCall = async (args: string) => {
   const handoffId = args.trim()
   if (!handoffId) {
-    const all = listHandoffMetadata()
+    const all = listHandoffMetadata().map(refreshHandoffStatus)
     if (all.length === 0) {
       return { type: 'text', value: 'No handoffs found. Spawn one with /handoff <prompt>.' }
     }

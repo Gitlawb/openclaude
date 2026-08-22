@@ -43,8 +43,12 @@ function resolveSpawnTarget(invocationCwd: string): {
   const argv1 = process.argv[1] ?? ''
   const argv0Base = basename(argv0)
   if (argv0Base === 'bun' || argv0Base === 'bunx' || argv0Base === 'node') {
+    // Runtime invoked from PATH: argv[0] is just "node"/"bun", not a path,
+    // so resolving it against cwd yields a bogus /cwd/node. execPath is the
+    // absolute runtime location; resolve the script against the original
+    // invocation dir, since cwd may have changed (e.g. worktrees).
     return {
-      binary: toAbsolute(argv0, invocationCwd),
+      binary: process.execPath,
       prefixArgs: argv1 ? [toAbsolute(argv1, invocationCwd)] : [],
     }
   }
@@ -67,7 +71,7 @@ const call: LocalCommandCall = async (args: string) => {
   const cwd = getOriginalCwd()
   const parentSessionId = getSessionId() ?? null
   const logPath = getHandoffLogPath(handoffId)
-  const { binary, prefixArgs } = resolveSpawnTarget(process.cwd())
+  const { binary, prefixArgs } = resolveSpawnTarget(cwd)
 
   if (!existsSync(binary)) {
     return {
@@ -139,6 +143,22 @@ const call: LocalCommandCall = async (args: string) => {
   }
   writeHandoffMetadata(running)
 
+  // Async spawn failures (EACCES/ENOENT) surface as an 'error' event, not
+  // 'exit'; without a listener Node would crash the leader process and leave
+  // metadata stuck in 'spawning'/'running'. Mark it failed best-effort.
+  child.on('error', () => {
+    const failed: HandoffMetadata = {
+      ...initial,
+      status: 'failed',
+      finishedAt: Date.now(),
+    }
+    try {
+      writeHandoffMetadata(failed)
+    } catch {
+      // Best-effort; leader may have exited.
+    }
+  })
+
   child.on('exit', (code, signal) => {
     const finalStatus: HandoffMetadata['status'] =
       signal === 'SIGKILL' || signal === 'SIGTERM'
@@ -179,7 +199,8 @@ const handoff = {
   type: 'local',
   name: 'handoff',
   description:
-    'Spawn a detached background agent to run a prompt to completion. Survives quitting this CLI.',
+    'Spawn a detached background agent to run a prompt to completion. Survives quitting this CLI. ' +
+    'The agent runs non-interactively with --dangerously-skip-permissions, since it cannot answer permission prompts.',
   argumentHint: '<prompt>',
   isEnabled: () => true,
   supportsNonInteractive: true,
