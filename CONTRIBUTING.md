@@ -244,19 +244,24 @@ The pre-push suite (mirrors CI exactly):
 bun install --frozen-lockfile
 bun run build
 bun run check
-bun run test:full
 bun run typecheck
 bun run typecheck:type-tests
 node bin/openclaude --version
 NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
 bun run test:provider
 npm run test:provider-recommendation
-bun run security:pr-scan
+bun run security:pr-scan -- --base "$(git merge-base origin/main HEAD)" --head HEAD
 ```
 
-If your PR touches `web/`, add the web job's checks:
+Notes on that suite:
+
+- `bun run check` already includes smoke, deadcode, and the full unit pass (`test:full`) — do not run them separately, or you execute the suite twice.
+- The security scan is given explicit `--base`/`--head` refs to match CI, which scans against the PR's actual base SHA; the script's built-in defaults (`origin/main` / `HEAD`) can miss that target.
+
+If your PR touches `web/`, add the web job's checks (the web workspace has its own lockfile-driven install):
 
 ```bash
+bun install --cwd web --frozen-lockfile
 bun run web:typecheck
 bun run web:build
 ```
