@@ -585,7 +585,16 @@ describe('builtInCommandNames', () => {
     expect(builtInCommandNames()).toContain('dream')
   })
 
-  test('includes the /steer command', () => {
+  test('registers exactly one /steer command and exposes it as built-in', async () => {
+    // Assert on the raw registry (getCommands) before Set-based deduplication,
+    // so a duplicate /steer definition cannot hide behind builtInCommandNames().
+    const cwd = await mkdtemp(join(tmpdir(), 'oc-test-steer-'))
+    try {
+      const cmds = await getCommands(cwd)
+      expect(cmds.filter(c => c.name === 'steer')).toHaveLength(1)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
     expect(builtInCommandNames()).toContain('steer')
   })
 })
