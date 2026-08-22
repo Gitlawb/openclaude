@@ -301,6 +301,20 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "merge-gateway",
+    "routeKind": "gateway",
+    "routeId": "merge-gateway",
+    "vendorId": "openai",
+    "gatewayId": "merge-gateway",
+    "description": "Merge Gateway multi-provider model router",
+    "apiKeyEnvVars": [
+      "MERGE_GATEWAY_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "minimax",
     "routeKind": "vendor",
     "routeId": "minimax",
@@ -576,6 +590,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "atomic-chat",
   "ollama",
   "longcat",
+  "merge-gateway",
   "minimax",
   "mistral",
   "moonshotai",
