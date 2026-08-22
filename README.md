@@ -308,6 +308,7 @@ Advanced and source-build guides:
 | OpenAI-compatible | `/provider` or env vars | Works with OpenAI, OpenRouter, DeepSeek, Groq, Mistral, LM Studio, and other compatible `/v1` servers |
 | Z.AI GLM Coding Plan | `/provider` or OpenAI-compatible env vars | Uses `OPENAI_API_KEY` at `https://api.z.ai/api/coding/paas/v4` and defaults to `glm-5.2` |
 | AI/ML API | `/provider` or `AIMLAPI_API_KEY` ([setup guide](docs/aimlapi-setup.md)) | Uses `https://api.aimlapi.com/v1`, auto-detects the OpenAI-compatible route from `AIMLAPI_API_KEY`, sends OpenClaude attribution headers, and discovers chat-capable models from the public `/models` catalog |
+| Merge Gateway | `/provider` or `MERGE_GATEWAY_API_KEY` ([setup guide](docs/merge-gateway-setup.md)) | Multi-provider model router at `https://api-gateway.merge.dev/v1/openai`; supports Chat Completions, Responses, authenticated model discovery, and routing policies |
 | Concentrate | `/provider` or `CONCENTRATE_API_KEY` | Unified OpenAI-compatible gateway at `https://api.concentrate.ai/v1`; defaults to `deepseek-v4-flash` and auto-discovers the chat model catalog |
 | ApiSmart | `/provider` or `APISMART_API_KEY` | Uses `https://gw.apismart.ai/v1`, defaults to `DEEPSEEK_V4_FLASH`, and supports optional `APISMART_MODEL` plus authenticated model discovery |
 | Hicap | `/provider` or OpenAI-compatible env vars | Uses `api-key` auth, discovers models from unauthenticated `/models`, and supports Responses mode for `gpt-` models |

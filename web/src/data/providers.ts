@@ -1,5 +1,5 @@
 // Mirrors the provider preset manifest in
-// src/integrations/generated/integrationManifest.generated.ts (v0.26.0)
+// src/integrations/generated/integrationManifest.generated.ts (v0.29.1)
 // plus the OAuth/special entries injected by the /provider picker.
 
 export type ProviderGroup =
@@ -139,6 +139,14 @@ export const providers: Provider[] = [
     setup: '/provider or env vars',
     envVars: ['OPENROUTER_API_KEY'],
     notes: 'OpenAI-compatible aggregation across hundreds of hosted models.',
+  },
+  {
+    id: 'merge-gateway',
+    name: 'Merge Gateway',
+    group: 'gateways',
+    setup: '/provider or env vars',
+    envVars: ['MERGE_GATEWAY_API_KEY'],
+    notes: 'Multi-provider model router with Chat Completions, Responses, authenticated catalog discovery, and routing policies.',
   },
   {
     id: 'near-ai',

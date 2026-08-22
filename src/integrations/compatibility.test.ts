@@ -31,6 +31,8 @@ const EXPECTED_PRESETS = [
   'together',
   'groq',
   'hicap',
+  'merge-gateway',
+  'concentrate',
   'azure-openai',
   'openrouter',
   'lmstudio',
