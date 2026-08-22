@@ -900,13 +900,30 @@ export function getSettingsWithSources(): SettingsWithSources {
 }
 
 /**
+ * Read a possibly-dotted settings key (e.g. `permissions.defaultMode`) from a
+ * source's raw settings, returning `undefined` when the path is absent.
+ * Walks with `hasOwnProperty` so inherited `Object.prototype` keys
+ * (`constructor`, `hasOwnProperty`, …) never count as "set".
+ */
+function readSettingAtPath(settings: SettingsJson, key: string): unknown {
+  let current: unknown = settings
+  for (const part of key.split('.')) {
+    if (current === null || typeof current !== 'object') return undefined
+    if (!Object.prototype.hasOwnProperty.call(current, part)) return undefined
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+/**
  * Find which enabled settings source defines a given key, or 'builtin' when
  * no source sets it. `sources` is ordered low→high priority, so the LAST
  * source that defines the key wins — mirroring how merge resolves the
  * effective value. A key explicitly set to `undefined` is treated as unset.
  *
- * Pass a pre-fetched `sources` list when calling from render paths, since
- * `getSettingsWithSources()` resets the settings cache on every call.
+ * Keys may be dotted paths (`permissions.defaultMode`) to match nested
+ * settings. Pass a pre-fetched `sources` list when calling from render paths,
+ * since `getSettingsWithSources()` resets the settings cache on every call.
  */
 export function findSettingSource(
   key: string,
@@ -914,7 +931,7 @@ export function findSettingSource(
 ): SettingSource | 'builtin' {
   for (let i = sources.length - 1; i >= 0; i--) {
     const { source, settings } = sources[i]
-    if (settings && key in settings && settings[key] !== undefined) {
+    if (settings && readSettingAtPath(settings, key) !== undefined) {
       return source
     }
   }

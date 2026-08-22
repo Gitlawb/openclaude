@@ -32,6 +32,31 @@ describe('findSettingSource', () => {
     expect(findSettingSource('theme', withUndefined)).toBe('flagSettings')
   })
 
+  test('falls through when the highest-priority source sets undefined', () => {
+    // Higher-priority source (later in the array) explicitly sets undefined —
+    // the lookup must skip it and report the lower-priority source.
+    const undefinedAtTop = [
+      { source: 'userSettings', settings: { theme: 'light' } },
+      { source: 'flagSettings', settings: { theme: undefined } },
+    ] as unknown as SettingsWithSources['sources']
+    expect(findSettingSource('theme', undefinedAtTop)).toBe('userSettings')
+  })
+
+  test('resolves dotted keys to nested settings paths', () => {
+    const nested = [
+      { source: 'userSettings', settings: { permissions: { defaultMode: 'acceptEdits' } } },
+    ] as unknown as SettingsWithSources['sources']
+    expect(findSettingSource('permissions.defaultMode', nested)).toBe('userSettings')
+  })
+
+  test('does not match inherited Object.prototype keys', () => {
+    const plain = [
+      { source: 'userSettings', settings: { theme: 'dark' } },
+    ] as unknown as SettingsWithSources['sources']
+    expect(findSettingSource('hasOwnProperty', plain)).toBe('builtin')
+    expect(findSettingSource('constructor', plain)).toBe('builtin')
+  })
+
   test('returns builtin for an empty sources list', () => {
     expect(findSettingSource('theme', [])).toBe('builtin')
   })

@@ -86,6 +86,20 @@ type Setting = (SettingBase & {
   type: 'managedEnum';
 });
 type SubMenu = 'Theme' | 'Model' | 'TeammateModel' | 'CompactModel' | 'ExternalIncludes' | 'OutputStyle' | 'ChannelDowngrade' | 'Language' | 'EnableAutoUpdates';
+// Row ids whose displayed value is read from (and written to) settings files,
+// mapped to the actual settings-file key path. Row ids backed only by global
+// config or app state are intentionally absent — a provenance badge would be
+// misleading there.
+const SETTINGS_FILE_KEYS: Record<string, string> = {
+  theme: 'theme',
+  outputStyle: 'outputStyle',
+  language: 'language',
+  defaultView: 'defaultView',
+  autoUpdatesChannel: 'autoUpdatesChannel',
+  thinkingEnabled: 'alwaysThinkingEnabled',
+  fastMode: 'fastMode',
+  defaultPermissionMode: 'permissions.defaultMode',
+};
 export function Config({
   onClose,
   context,
@@ -156,7 +170,7 @@ export function Config({
   const [settingsSources, setSettingsSources] = useState(() => getSettingsWithSources().sources);
   React.useEffect(() => {
     setSettingsSources(getSettingsWithSources().sources);
-  }, [settingsData]);
+  }, [settingsData, currentOutputStyle, currentLanguage, thinkingEnabled, isFastMode, themeSetting]);
   const initialThemeSetting = React.useRef(themeSetting);
   // AppState fields Config may modify — snapshot once at mount.
   const store = useAppStateStore();
@@ -1932,7 +1946,12 @@ export function Config({
                                 {setting_2.value.toString()}
                               </Text>}
                           </Box>
-                          <SourceBadge source={findSettingSource(setting_2.id, settingsSources)} />
+                          {(() => {
+                            const settingsKey = SETTINGS_FILE_KEYS[setting_2.id];
+                            return settingsKey ? (
+                              <SourceBadge source={findSettingSource(settingsKey, settingsSources)} />
+                            ) : null;
+                          })()}
                         </Box>
                       </React.Fragment>;
           })}
