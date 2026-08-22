@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { readFile, stat } from 'fs/promises';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { getLastAPIRequest } from 'src/bootstrap/state.js';
@@ -14,7 +13,6 @@ import { startsWithApiErrorPrefix } from '../services/api/errors.js';
 import type { Message } from '../types/message.js';
 import { checkAndRefreshOAuthTokenIfNeeded } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
-import { logForDebugging } from '../utils/debug.js';
 import { env } from '../utils/env.js';
 import { type GitRepoState, getGitState, getIsGit } from '../utils/git.js';
 import { getAuthHeaders, getUserAgent } from '../utils/http.js';
@@ -25,7 +23,7 @@ import {
 } from '../utils/model/providers.js';
 import { isEssentialTrafficOnly } from '../utils/privacyLevel.js';
 import { jsonRedactor, redactJsonLines, redactSensitiveInfo } from '../utils/redaction.js';
-import { extractTeammateTranscriptsFromTasks, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, MAX_TRANSCRIPT_READ_BYTES } from '../utils/sessionStorage.js';
+import { extractTeammateTranscriptsFromTasks, filterMessagesForExternalEgress, filterSubagentTranscriptsForExternalEgress, getTranscriptPath, loadAllSubagentTranscriptsFromDisk, readFilteredTranscriptJsonlForExternalEgress } from '../utils/sessionStorage.js';
 import { jsonStringify } from '../utils/slowOperations.js';
 import { asSystemPrompt } from '../utils/systemPromptType.js';
 import { ConfigurableShortcutHint } from './ConfigurableShortcutHint.js';
@@ -64,13 +62,77 @@ type FeedbackData = {
   description: string;
   platform: string;
   gitRepo: boolean;
+  terminal?: string | null;
   version: string | null;
   transcript: Message[];
+  errors?: Array<{
+    error?: string;
+    timestamp?: string;
+  }>;
+  lastApiRequest?: unknown;
   subagentTranscripts?: {
     [agentId: string]: Message[];
   };
   rawTranscriptJsonl?: string;
 };
+
+type FeedbackBackgroundTasks = NonNullable<Props['backgroundTasks']>;
+
+/**
+ * Assembles the Feedback upload payload with the same egress filters used by
+ * the interactive Feedback dialog (main transcript, subagents, raw JSONL).
+ * Exported for a focused intercepted-upload regression test.
+ */
+export async function assembleFeedbackEgressReportData(args: {
+  messages: Message[];
+  description: string;
+  backgroundTasks?: FeedbackBackgroundTasks;
+  gitRepo?: boolean;
+  /** @internal test seam — avoid mock.module of sessionStorage */
+  transcriptPathForTesting?: string;
+  /** @internal test seam — avoid mock.module of sessionStorage */
+  subagentTranscriptsForTesting?: Record<string, Message[]>;
+}): Promise<FeedbackData> {
+  const backgroundTasks = args.backgroundTasks ?? {};
+  const lastAssistantMessage = getLastAssistantMessage(args.messages);
+  const lastAssistantMessageId = lastAssistantMessage?.requestId ?? null;
+  const [diskTranscripts, rawTranscriptJsonl] = await Promise.all([
+    args.subagentTranscriptsForTesting !== undefined
+      ? Promise.resolve(args.subagentTranscriptsForTesting)
+      : loadAllSubagentTranscriptsFromDisk(),
+    loadRawTranscriptJsonl(args.transcriptPathForTesting),
+  ]);
+  const teammateTranscripts = extractTeammateTranscriptsFromTasks(backgroundTasks);
+  const subagentTranscripts = filterSubagentTranscriptsForExternalEgress({
+    ...diskTranscripts,
+    ...teammateTranscripts,
+  });
+  const redactedTranscriptJsonl = rawTranscriptJsonl
+    ? redactJsonLines(rawTranscriptJsonl)
+    : undefined;
+  return {
+    latestAssistantMessageId: lastAssistantMessageId,
+    message_count: args.messages.length,
+    datetime: new Date().toISOString(),
+    description: args.description,
+    platform: env.platform,
+    gitRepo: args.gitRepo ?? false,
+    terminal: env.terminal,
+    version: MACRO.VERSION,
+    transcript: normalizeMessagesForAPI(
+      filterMessagesForExternalEgress(args.messages),
+    ),
+    errors: getSanitizedErrorLogs(),
+    lastApiRequest: getLastAPIRequest(),
+    ...(Object.keys(subagentTranscripts).length > 0 && {
+      subagentTranscripts,
+    }),
+    ...(rawTranscriptJsonl &&
+      redactedTranscriptJsonl && {
+        rawTranscriptJsonl: redactedTranscriptJsonl,
+      }),
+  };
+}
 
 // Get sanitized error logs with sensitive information redacted
 function getSanitizedErrorLogs(): Array<{
@@ -94,19 +156,13 @@ function getSanitizedErrorLogs(): Array<{
     return errorCopy;
   });
 }
-async function loadRawTranscriptJsonl(): Promise<string | null> {
+async function loadRawTranscriptJsonl(
+  transcriptPath?: string,
+): Promise<string | null> {
   try {
-    const transcriptPath = getTranscriptPath();
-    const {
-      size
-    } = await stat(transcriptPath);
-    if (size > MAX_TRANSCRIPT_READ_BYTES) {
-      logForDebugging(`Skipping raw transcript read: file too large (${size} bytes)`, {
-        level: 'warn'
-      });
-      return null;
-    }
-    return await readFile(transcriptPath, 'utf-8');
+    return await readFilteredTranscriptJsonlForExternalEgress(
+      transcriptPath ?? getTranscriptPath(),
+    );
   } catch {
     return null;
   }
@@ -153,40 +209,13 @@ export function Feedback({
     setFeedbackId(null);
     setCompletionMode('submitted');
 
-    // Get sanitized errors for the report
-    const sanitizedErrors = getSanitizedErrorLogs();
-
-    // Extract last assistant message ID from messages array
-    const lastAssistantMessage = getLastAssistantMessage(messages);
-    const lastAssistantMessageId = lastAssistantMessage?.requestId ?? null;
-    const [diskTranscripts, rawTranscriptJsonl] = await Promise.all([loadAllSubagentTranscriptsFromDisk(), loadRawTranscriptJsonl()]);
-    const teammateTranscripts = extractTeammateTranscriptsFromTasks(backgroundTasks);
-    const subagentTranscripts = {
-      ...diskTranscripts,
-      ...teammateTranscripts
-    };
-    const redactedTranscriptJsonl = rawTranscriptJsonl
-      ? redactJsonLines(rawTranscriptJsonl)
-      : undefined;
-    const reportData = {
-      latestAssistantMessageId: lastAssistantMessageId,
-      message_count: messages.length,
-      datetime: new Date().toISOString(),
+    const reportData = await assembleFeedbackEgressReportData({
+      messages,
       description,
-      platform: env.platform,
+      backgroundTasks,
       gitRepo: envInfo.isGit,
-      terminal: env.terminal,
-      version: MACRO.VERSION,
-      transcript: normalizeMessagesForAPI(messages),
-      errors: sanitizedErrors,
-      lastApiRequest: getLastAPIRequest(),
-      ...(Object.keys(subagentTranscripts).length > 0 && {
-        subagentTranscripts
-      }),
-      ...(rawTranscriptJsonl && redactedTranscriptJsonl && {
-        rawTranscriptJsonl: redactedTranscriptJsonl
-      })
-    };
+    });
+    const lastAssistantMessageId = reportData.latestAssistantMessageId;
     const [result, t] = await Promise.all([submitFeedback(reportData, abortSignal), generateTitle(description, abortSignal)]);
     setTitle(t);
     if (result.success) {
@@ -208,7 +237,7 @@ export function Feedback({
       // Stay on userInput step so user can retry with their content preserved
       setStep('userInput');
     }
-  }, [description, envInfo.isGit, messages]);
+  }, [abortSignal, backgroundTasks, description, envInfo.isGit, messages]);
 
   // Handle cancel - this will be called by Dialog's automatic Esc handling
   const handleCancel = useCallback(() => {
@@ -477,7 +506,8 @@ function sanitizeAndLogError(err: unknown): void {
     logError(new Error(errorString));
   }
 }
-async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise<{
+/** Exported for intercepted Feedback upload regression tests. */
+export async function submitFeedback(data: FeedbackData, signal?: AbortSignal): Promise<{
   success: boolean;
   feedbackId?: string;
   isZdrOrg?: boolean;

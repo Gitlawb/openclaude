@@ -4,7 +4,7 @@ import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
 // with the async-suffixed names.
-import { closeSync, fstatSync, openSync, readSync } from 'fs'
+import { appendFileSync, closeSync, fstatSync, openSync, readSync, writeFileSync } from 'fs'
 import {
   appendFile as fsAppendFile,
   open as fsOpen,
@@ -464,12 +464,19 @@ const SKIP_FIRST_PROMPT_PATTERN =
  * chain. Including them caused chain forks that orphaned real conversation
  * messages on resume (see #14373, #23537).
  */
-export function isTranscriptMessage(entry: Entry): entry is TranscriptMessage {
+export function isTranscriptMessage(entry: unknown): entry is TranscriptMessage {
+  // Runtime boundary for untrusted JSONL values: jsonParse can yield null,
+  // primitives, or arrays. Dereferencing .type on those throws inside the
+  // rebuild / on-demand parsers and poisons an otherwise-recoverable scan.
+  if (typeof entry !== 'object' || entry === null) {
+    return false
+  }
+  const type = (entry as { type?: unknown }).type
   return (
-    entry.type === 'user' ||
-    entry.type === 'assistant' ||
-    entry.type === 'attachment' ||
-    entry.type === 'system'
+    type === 'user' ||
+    type === 'assistant' ||
+    type === 'attachment' ||
+    type === 'system'
   )
 }
 
@@ -552,6 +559,25 @@ export function getTranscriptPathForSession(sessionId: string): string {
 // 50 MB — session JSONL can grow to multiple GB (inc-3930). Callers that
 // read the raw transcript must bail out above this threshold to avoid OOM.
 export const MAX_TRANSCRIPT_READ_BYTES = 50 * 1024 * 1024
+
+// Omission-map rebuild only needs recent withheld ancestry for post-resume
+// reparenting — not the full 50 MiB product-transcript budget. Keep this
+// tail small so oversized sessions avoid a large synchronous startup read.
+export const OMISSION_REBUILD_TAIL_BYTES = 2 * 1024 * 1024
+
+// Live omission map must stay bounded: only withheld UUIDs that can still
+// be selected as a local parent need to remain. Excess oldest keys are
+// evicted and must never be emitted as a remote parentUuid.
+export const MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE = 64
+
+// Maximum retry attempts to reconstruct an incomplete omission rebuild
+// during subsequent appends before suppressing further attempts.
+export const MAX_REMOTE_EGRESS_REBUILD_RETRIES = 3
+
+// Bounded scan budget for on-demand ancestry walks during appendEntry (8 MiB).
+// Bounded to avoid synchronous blocking on multi-GB transcripts while allowing
+// multi-window lookups across non-transcript snapshots.
+export const MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES = 8 * 1024 * 1024
 
 // In-memory map of agentId → subdirectory for grouping related subagent
 // transcripts (e.g. workflow runs write to subagents/workflows/<runId>/).
@@ -836,6 +862,38 @@ export function setSessionFileForTesting(path: string): void {
   getProject().sessionFile = path
 }
 
+/** @internal Rebuild remote egress omission map from sessionFile (tests). */
+export function rebuildRemoteEgressOmittedParentsForTesting(
+  scanBudget?: number,
+): void {
+  getProject().rebuildRemoteEgressOmittedParentsFromLocalTranscript(scanBudget)
+}
+
+/** @internal Snapshot remote egress omission map (tests). */
+export function getRemoteEgressOmittedParentsForTesting(): Map<
+  UUID,
+  UUID | null
+> {
+  return getProject()._getRemoteEgressOmittedParentsForTesting()
+}
+
+/** @internal Snapshot incomplete-rebuild fail-closed flag (tests). */
+export function getRemoteEgressOmissionRebuildIncompleteForTesting(): boolean {
+  return getProject()._getRemoteEgressOmissionRebuildIncompleteForTesting()
+}
+
+/** @internal Snapshot incomplete-rebuild retry count (tests). */
+export function getRemoteEgressRebuildRetryCountForTesting(): number {
+  return getProject()._getRemoteEgressRebuildRetryCountForTesting()
+}
+
+/** @internal Register verified-remote hydration delivery witnesses (tests). */
+export function markRemoteEgressHydratedForTesting(
+  entries: readonly unknown[],
+): void {
+  getProject().markRemoteEgressHydrated(entries)
+}
+
 type InternalEventWriter = (
   eventType: string,
   payload: Record<string, unknown>,
@@ -918,6 +976,56 @@ class Project {
   private activeDrain: Promise<void> | null = null
   private FLUSH_INTERVAL_MS = 100
   private readonly MAX_CHUNK_BYTES = 100 * 1024 * 1024
+  /**
+   * UUIDs withheld from remote/CCR egress. Maps omitted uuid → nearest
+   * ancestor still present on the remote projection so subsequent
+   * persistToRemote calls can reparent instead of dangling.
+   */
+  private remoteEgressOmittedParents = new Map<UUID, UUID | null>()
+  // Bounded with the same policy as remoteEgressOmittedParents: only recent
+  // evictions can still appear as an incoming parentUuid.
+  private evictedRemoteEgressOmissions = new Set<UUID>()
+  // Bounded: omitted uuid → actual nearest external ancestor at eviction
+  // from remoteEgressOmittedParents. Do not store uuid-only keys that all
+  // share lastRemoteEgressUuid (that steals a later sibling's children).
+  private remoteEgressCompactAncestry = new Map<UUID, UUID | null>()
+  // UUIDs dropped from both bounded maps. Scan-gate only — not an ancestor
+  // source. Keeps on-demand walks off parents that were never omitted.
+  private remoteEgressKnownOmitted = new Set<UUID>()
+  // Negative cache for on-demand walks that returned { status: 'not_found' }.
+  private remoteEgressResolvedMisses = new Set<UUID>()
+  // Positive cache: locally safe ancestors confirmed via on-demand scan.
+  private remoteEgressSafeLocalParents = new Set<UUID>()
+  // Confirmed remote delivery witnesses: UUIDs verified to exist on remote
+  // via successful persistToRemote or verified remote hydration.
+  private remoteEgressDeliveredParents = new Set<UUID>()
+  private lastRemoteEgressUuid: UUID | null = null
+  // Authoritative hydration baseline: UUIDs confirmed to exist on the remote
+  // sink by hydration (Session Ingress / CCR v2). resetSessionFile clears the
+  // transient delivered set + tip when the session pointer is reset during
+  // --resume, but this baseline survives so the first post-resume child can
+  // still reparent to a verified remote parent instead of the null root.
+  // Keyed to the hydrated session so a different-session reset (/clear,
+  // regenerateSessionId) drops stale witnesses instead of inheriting them.
+  private remoteEgressHydrationBaseline = new Set<UUID>()
+  private remoteEgressHydrationBaselineTip: UUID | null = null
+  private remoteEgressHydrationBaselineSessionId: UUID | null = null
+  // True when rebuild could not establish complete ancestor closure
+  // (oversized mid-line skip, scan budget exhausted, unresolved tips).
+  private remoteEgressOmissionRebuildIncomplete = false
+  // One-shot guard: emit the suppression diagnostic only the first time an
+  // entry is withheld under an incomplete rebuild, not on every later entry.
+  private remoteEgressRebuildIncompleteWarned = false
+  // Bounded retry counter: avoid repeated synchronous disk scans on every
+  // append when a transcript is permanently unrecoverable.
+  private remoteEgressRebuildRetryCount = 0
+  // Serializes remote projection + delivery + witness mutation per process.
+  // recordTranscript is fire-and-forget at the UI boundary, so concurrent
+  // appends can otherwise race lastRemoteEgressUuid / delivery witnesses and
+  // export a linear chain as out-of-order roots. Each step runs after the
+  // prior step settles; the stored tail always resolves so one rejection does
+  // not poison later appends.
+  private remoteEgressChain: Promise<void> = Promise.resolve()
 
   constructor() {}
 
@@ -929,6 +1037,20 @@ class Project {
     this.flushTimer = null
     this.activeDrain = null
     this.writeQueues = new Map()
+    this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
+    this.remoteEgressDeliveredParents.clear()
+    this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
+    this.lastRemoteEgressUuid = null
+    this.remoteEgressHydrationBaseline = new Set()
+    this.remoteEgressHydrationBaselineTip = null
+    this.remoteEgressHydrationBaselineSessionId = null
     this.rewriteBarrierFiles = new Set()
     this.pendingRewriteCounts = new Map()
     this.pendingDirectAppends = new Map()
@@ -1227,9 +1349,245 @@ class Project {
     )
   }
 
+  /**
+   * True when a remote/CCR sink is registered so persistToRemote can deliver.
+   * Used to avoid unbounded growth of remoteEgressOmittedParents when no
+   * remote path will consume the map (hydrate-before-sink still uses rebuild).
+   */
+  private hasActiveRemoteEgressSink(): boolean {
+    return (
+      this.internalEventWriter !== null ||
+      (!!this.remoteIngressUrl &&
+        isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE))
+    )
+  }
+
+  /**
+   * Single authoritative external-projection parent contract. Given a policy-safe
+   * transcript entry, resolve the parentUuid that the remote projection should
+   * carry, separating five facts that must not be conflated: locally persisted,
+   * policy safe, intentionally omitted, delivered to the remote sink, and
+   * recovered via a verified remote baseline (hydration).
+   *
+   * A parent is used remotely only when it is a confirmed remote tip/delivery
+   * witness, a verified hydrated parent, or an explicit projected root. Omitted
+   * parents are reparented across the omission chain to their nearest egressed
+   * ancestor. A locally safe parent WITHOUT a delivery witness is projected to
+   * the confirmed remote tip or null root (never emitted as if delivered).
+   * Unknown ancestry is resolved on-demand from the local transcript within the
+   * resolver's bounded scan; when it cannot be established, parentConfirmedSafe
+   * stays false and the caller fails closed (withholds the child).
+   *
+   * Returns the entry to persist (parentUuid possibly rewritten) and whether
+   * the projected parent is confirmed safe to emit.
+   */
+  private resolveRemoteEgressParentProjection(
+    entry: TranscriptMessage,
+  ): { remoteEntry: TranscriptMessage; parentConfirmedSafe: boolean } {
+    let remoteEntry = projectTranscriptParentForExternalEgress(
+      entry,
+      this.remoteEgressOmittedParents,
+    )
+    let targetParentUuid = remoteEntry.parentUuid
+    let parentConfirmedSafe = targetParentUuid === null
+    const seenAncestors = new Set<UUID>()
+    while (
+      targetParentUuid &&
+      !parentConfirmedSafe &&
+      !seenAncestors.has(targetParentUuid)
+    ) {
+      seenAncestors.add(targetParentUuid)
+      if (
+        targetParentUuid === this.lastRemoteEgressUuid ||
+        this.isRemoteEgressDelivered(targetParentUuid)
+      ) {
+        parentConfirmedSafe = true
+        break
+      }
+      if (this.remoteEgressSafeLocalParents.has(targetParentUuid)) {
+        // No delivery witness (checked at the top of the loop): project to
+        // the confirmed remote tip or the null root.
+        targetParentUuid = this.lastRemoteEgressUuid ?? null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        parentConfirmedSafe = true
+        break
+      }
+      if (this.remoteEgressOmittedParents.has(targetParentUuid)) {
+        targetParentUuid =
+          this.remoteEgressOmittedParents.get(targetParentUuid) ??
+          null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        if (targetParentUuid === null) {
+          parentConfirmedSafe = true
+          break
+        }
+        continue
+      }
+      if (this.remoteEgressCompactAncestry.has(targetParentUuid)) {
+        targetParentUuid =
+          this.remoteEgressCompactAncestry.get(targetParentUuid) ??
+          null
+        remoteEntry = { ...entry, parentUuid: targetParentUuid }
+        if (targetParentUuid === null) {
+          parentConfirmedSafe = true
+          break
+        }
+        continue
+      }
+      if (!this.remoteEgressResolvedMisses.has(targetParentUuid)) {
+        const queue = this.sessionFile
+          ? this.writeQueues.get(this.sessionFile)
+          : undefined
+        const resolved =
+          resolveCompactOmissionAncestorFromLocalTranscript(
+            this.sessionFile,
+            targetParentUuid,
+            queue,
+            MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES,
+          )
+        if (resolved.status === 'resolved') {
+          this.remoteEgressCompactAncestry.set(
+            targetParentUuid,
+            resolved.ancestor,
+          )
+          boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+          targetParentUuid = resolved.ancestor
+          remoteEntry = {
+            ...entry,
+            parentUuid: targetParentUuid,
+          }
+          if (targetParentUuid === null) {
+            parentConfirmedSafe = true
+            break
+          }
+          continue
+        }
+        if (resolved.status === 'parent_safe') {
+          this.remoteEgressSafeLocalParents.add(targetParentUuid)
+          boundUuidSet(
+            this.remoteEgressSafeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          // No delivery witness (checked at the top of the loop): this parent
+          // is safe in the local transcript but was never confirmed delivered
+          // (e.g. written before sink installation, or unconfirmed delivery).
+          // Project the child to the confirmed remote tip or null root so no
+          // undelivered parent UUID is emitted to the remote sink.
+          targetParentUuid = this.lastRemoteEgressUuid ?? null
+          remoteEntry = {
+            ...entry,
+            parentUuid: targetParentUuid,
+          }
+          parentConfirmedSafe = true
+          if (targetParentUuid) {
+            this.evictedRemoteEgressOmissions.delete(targetParentUuid)
+            this.remoteEgressKnownOmitted.delete(targetParentUuid)
+          }
+          break
+        }
+        if (!queueHasPendingTranscriptAppends(queue)) {
+          // Only cache durable misses — queued parents may land soon.
+          this.remoteEgressResolvedMisses.add(targetParentUuid)
+          boundUuidSet(
+            this.remoteEgressResolvedMisses,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
+      }
+      // Target ancestor could not be confirmed safe or resolved
+      break
+    }
+    return { remoteEntry, parentConfirmedSafe }
+  }
+
+  /** @internal Expose omission map size/contents for egress regression tests. */
+  _getRemoteEgressOmittedParentsForTesting(): Map<UUID, UUID | null> {
+    return this.remoteEgressOmittedParents
+  }
+
+  /** @internal Expose fail-closed incomplete-rebuild flag for egress tests. */
+  _getRemoteEgressOmissionRebuildIncompleteForTesting(): boolean {
+    return this.remoteEgressOmissionRebuildIncomplete
+  }
+
+  /** @internal Expose incomplete-rebuild retry count for egress tests. */
+  _getRemoteEgressRebuildRetryCountForTesting(): number {
+    return this.remoteEgressRebuildRetryCount
+  }
+
+  /**
+   * After --resume / --continue, remoteEgressOmittedParents starts empty
+   * (resetSessionFile clears it). Rebuild from the adopted local transcript
+   * so the first post-resume remote append whose parentUuid pointed at a
+   * withheld entry can reparent instead of dangling on CCR / session-ingress.
+   *
+   * Reads the full file when under OMISSION_REBUILD_TAIL_BYTES. For larger
+   * sessions (can reach GBs), starts with a bounded tail read of that same
+   * budget, then walks earlier windows until every tail/chain-tip parent
+   * resolves to a known egressed ancestor (or file start). Metadata-only
+   * tails must not leave the map empty and dangle the first post-resume
+   * append on a withheld parentUuid.
+   */
+  rebuildRemoteEgressOmittedParentsFromLocalTranscript(
+    scanBudget?: number,
+  ): void {
+    this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
+    this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
+    const path = this.sessionFile
+    if (!path) return
+    const result = ingestRemoteEgressOmissionsFromTranscriptFile(
+      path,
+      this.remoteEgressOmittedParents,
+      {
+        evicted: this.evictedRemoteEgressOmissions,
+        compactAncestry: this.remoteEgressCompactAncestry,
+        knownOmitted: this.remoteEgressKnownOmitted,
+        safeLocalParents: this.remoteEgressSafeLocalParents,
+      },
+      scanBudget,
+    )
+    this.remoteEgressOmissionRebuildIncomplete = !result.complete
+  }
+
   resetSessionFile(): void {
     this.sessionFile = null
     this.pendingEntries = []
+    this.remoteEgressOmittedParents.clear()
+    this.evictedRemoteEgressOmissions.clear()
+    this.remoteEgressCompactAncestry.clear()
+    this.remoteEgressKnownOmitted.clear()
+    this.remoteEgressResolvedMisses.clear()
+    this.remoteEgressSafeLocalParents.clear()
+    this.remoteEgressDeliveredParents.clear()
+    this.remoteEgressOmissionRebuildIncomplete = false
+    this.remoteEgressRebuildIncompleteWarned = false
+    this.remoteEgressRebuildRetryCount = 0
+    this.lastRemoteEgressUuid = null
+    // Re-seed delivery witnesses from the hydration baseline when the reset
+    // targets the hydrated session (non-fork --resume). For a different
+    // session (/clear, regenerateSessionId) the baseline is stale and must be
+    // dropped so a fresh session never inherits another session's witnesses.
+    const currentSessionId = getSessionId() as UUID
+    if (
+      this.remoteEgressHydrationBaselineSessionId !== null &&
+      this.remoteEgressHydrationBaselineSessionId === currentSessionId
+    ) {
+      for (const uuid of this.remoteEgressHydrationBaseline) {
+        this.remoteEgressDeliveredParents.add(uuid)
+      }
+      this.lastRemoteEgressUuid = this.remoteEgressHydrationBaselineTip
+    } else {
+      this.remoteEgressHydrationBaseline = new Set()
+      this.remoteEgressHydrationBaselineTip = null
+      this.remoteEgressHydrationBaselineSessionId = null
+    }
   }
 
   /**
@@ -1897,8 +2255,15 @@ class Project {
             // UUID the main thread hasn't written yet → 409 when main writes it.
             messageSet.add(entry.uuid)
 
-            if (isTranscriptMessage(entry)) {
-              await this.persistToRemote(sessionId, entry)
+            // Remote / CCR / public ingress must not receive listing catalogs
+            // or other unsafe attachments (privacy boundary). When a chain
+            // participant is withheld, record it in remoteEgressOmittedParents
+            // and reparent the next remote entry so hydrateRemoteSession /
+            // buildConversationChain do not stop at a missing parentUuid.
+            if (isTranscriptMessage(entry) && this.hasActiveRemoteEgressSink()) {
+              await this.runSerializedRemoteEgress(() =>
+                this.persistRemoteEgressEntry(sessionId, entry),
+              )
             }
           }
         }
@@ -1948,9 +2313,200 @@ class Project {
     }
   }
 
-  private async persistToRemote(sessionId: UUID, entry: TranscriptMessage) {
+
+  /**
+   * Persist one transcript entry to the remote sink under the projection
+   * contract. Runs inside the serialized remoteEgressChain so a child sees
+   * its predecessor's confirmed delivery result (transcript order, not
+   * network completion order).
+   */
+  private async persistRemoteEgressEntry(
+    sessionId: UUID,
+    entry: TranscriptMessage,
+  ): Promise<void> {
+    if (!shouldOmitFromExternalEgress(entry)) {
+      // Bounded rebuild retry: if a prior resume rebuild was left
+      // incomplete, attempt bounded retries before resolving ancestry
+      // for this entry. When reconstruction succeeds the session resumes
+      // remote persistence instead of latching fail-closed for life.
+      if (
+        this.remoteEgressOmissionRebuildIncomplete &&
+        this.sessionFile &&
+        this.remoteEgressRebuildRetryCount <
+          MAX_REMOTE_EGRESS_REBUILD_RETRIES
+      ) {
+        this.remoteEgressRebuildRetryCount++
+        const retryOmitted = new Map<UUID, UUID | null>()
+        const retryEvicted = new Set<UUID>()
+        const retryCompactAncestry = new Map<UUID, UUID | null>()
+        const retryKnownOmitted = new Set<UUID>()
+        const retrySafeLocalParents = new Set<UUID>()
+        const result = ingestRemoteEgressOmissionsFromTranscriptFile(
+          this.sessionFile,
+          retryOmitted,
+          {
+            evicted: retryEvicted,
+            compactAncestry: retryCompactAncestry,
+            knownOmitted: retryKnownOmitted,
+            safeLocalParents: retrySafeLocalParents,
+          },
+          OMISSION_REBUILD_TAIL_BYTES,
+        )
+        if (result.complete) {
+          this.remoteEgressOmissionRebuildIncomplete = false
+          this.remoteEgressRebuildIncompleteWarned = false
+          this.remoteEgressRebuildRetryCount = 0
+          this.remoteEgressResolvedMisses.clear()
+          for (const [k, v] of retryOmitted) {
+            this.remoteEgressOmittedParents.set(k, v)
+          }
+          boundRemoteEgressOmissionMap(
+            this.remoteEgressOmittedParents,
+            this.evictedRemoteEgressOmissions,
+            this.remoteEgressCompactAncestry,
+            this.remoteEgressKnownOmitted,
+          )
+          for (const uuid of retryEvicted) {
+            this.evictedRemoteEgressOmissions.add(uuid)
+          }
+          for (const [k, v] of retryCompactAncestry) {
+            this.remoteEgressCompactAncestry.set(k, v)
+          }
+          for (const uuid of retryKnownOmitted) {
+            this.remoteEgressKnownOmitted.add(uuid)
+          }
+          for (const uuid of retrySafeLocalParents) {
+            this.remoteEgressSafeLocalParents.add(uuid)
+          }
+          boundCompactAncestryMap(this.remoteEgressCompactAncestry)
+          boundUuidSet(
+            this.evictedRemoteEgressOmissions,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          boundUuidSet(
+            this.remoteEgressKnownOmitted,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          boundUuidSet(
+            this.remoteEgressSafeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
+      }
+
+      const originalParentUuid = entry.parentUuid ?? null
+      const { remoteEntry, parentConfirmedSafe } =
+        this.resolveRemoteEgressParentProjection(entry)
+      // Fail closed: do not emit a remote child whose target parent
+      // cannot be confirmed safe, or under an incomplete rebuild.
+      const parentStillUnresolved =
+        !!originalParentUuid &&
+        (!parentConfirmedSafe ||
+          this.remoteEgressOmissionRebuildIncomplete)
+      if (!parentStillUnresolved) {
+        const delivered = await this.persistToRemote(
+          sessionId,
+          remoteEntry,
+        )
+        if (delivered && remoteEntry.uuid) {
+          this.lastRemoteEgressUuid = remoteEntry.uuid
+          this.remoteEgressDeliveredParents.add(remoteEntry.uuid)
+          boundUuidSet(
+            this.remoteEgressDeliveredParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+          // Durably record the confirmed delivery so a branch target of this
+          // UUID remains recoverable after the bounded set evicts it.
+          this.appendRemoteEgressDeliveryJournal(remoteEntry.uuid)
+        } else if (!delivered && entry.uuid) {
+          this.remoteEgressOmittedParents.set(
+            entry.uuid,
+            this.lastRemoteEgressUuid,
+          )
+          boundRemoteEgressOmissionMap(
+            this.remoteEgressOmittedParents,
+            this.evictedRemoteEgressOmissions,
+            this.remoteEgressCompactAncestry,
+            this.remoteEgressKnownOmitted,
+          )
+        }
+      } else if (entry.uuid) {
+        // Emit a one-time diagnostic the first time an entry is
+        // withheld under an incomplete rebuild, so the degraded
+        // session is observable instead of silently root-only.
+        // Ordinary unresolved-parent suppressions must not consume
+        // the incomplete-rebuild warning slot.
+        if (
+          this.remoteEgressOmissionRebuildIncomplete &&
+          !this.remoteEgressRebuildIncompleteWarned
+        ) {
+          this.remoteEgressRebuildIncompleteWarned = true
+          logForDiagnosticsNoPII(
+            'warn',
+            'remote_egress_parent_unresolved',
+            {
+              rebuildIncomplete: true,
+            },
+          )
+        }
+        // Fail-closed persist still owns this UUID: later children
+        // must rematch through the map instead of treating B as
+        // egressed (grandchild C would otherwise dangle on B).
+        this.remoteEgressOmittedParents.set(
+          entry.uuid,
+          this.lastRemoteEgressUuid,
+        )
+        boundRemoteEgressOmissionMap(
+          this.remoteEgressOmittedParents,
+          this.evictedRemoteEgressOmissions,
+          this.remoteEgressCompactAncestry,
+          this.remoteEgressKnownOmitted,
+        )
+      }
+      // Keep omitted parents in the bounded map so a second branch
+      // child of the same withheld UUID can still reparent. Size is
+      // enforced by boundRemoteEgressOmissionMap on the omit path.
+    } else {
+      // Only grow the map when a remote sink can consume reparents.
+      // Resume rebuild (adoptResumedSessionFile) still hydrates from
+      // disk before the sink is registered.
+      recordExternalEgressOmission(
+        this.remoteEgressOmittedParents,
+        entry.uuid,
+        entry.parentUuid,
+      )
+      boundRemoteEgressOmissionMap(
+        this.remoteEgressOmittedParents,
+        this.evictedRemoteEgressOmissions,
+        this.remoteEgressCompactAncestry,
+        this.remoteEgressKnownOmitted,
+      )
+    }
+  }
+
+  /**
+   * Run the remote egress transition serialized behind any prior step. The
+   * stored tail always settles so a rejected step never poisons later
+   * appends; callers still observe their own step's outcome.
+   */
+  private async runSerializedRemoteEgress(
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const prev = this.remoteEgressChain
+    const next = prev.then(run, run)
+    this.remoteEgressChain = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    await next
+  }
+
+  private async persistToRemote(
+    sessionId: UUID,
+    entry: TranscriptMessage,
+  ): Promise<boolean> {
     if (isShuttingDown()) {
-      return
+      return false
     }
 
     // CCR v2 path: write as internal worker event
@@ -1964,11 +2520,12 @@ class Project {
             ...(entry.agentId && { agentId: entry.agentId }),
           },
         )
+        return true
       } catch {
         logEvent('tengu_session_persistence_failed', {})
         logForDebugging('Failed to write transcript as internal event')
+        return false
       }
-      return
     }
 
     // v1 Session Ingress path
@@ -1976,19 +2533,160 @@ class Project {
       !isEnvTruthy(process.env.ENABLE_SESSION_PERSISTENCE) ||
       !this.remoteIngressUrl
     ) {
-      return
+      return false
     }
 
-    const success = await sessionIngress.appendSessionLog(
-      sessionId,
-      entry,
-      this.remoteIngressUrl,
-    )
+    try {
+      const success = await sessionIngress.appendSessionLog(
+        sessionId,
+        entry,
+        this.remoteIngressUrl,
+      )
 
-    if (!success) {
+      if (!success) {
+        logEvent('tengu_session_persistence_failed', {})
+        gracefulShutdownSync(1, 'other')
+        return false
+      }
+      return true
+    } catch {
       logEvent('tengu_session_persistence_failed', {})
       gracefulShutdownSync(1, 'other')
+      return false
     }
+  }
+
+  /**
+   * Register delivery provenance for entries recovered from a verified
+   * remote baseline (hydrateRemoteSession / CCR v2 internal events). Entries
+   * fetched from the remote sink are confirmed to exist remotely, so they are
+   * authoritative remote parents: subsequent children may reparent to them
+   * without projecting to the null root. The last fetched UUID becomes the
+   * confirmed remote tip.
+   */
+  markRemoteEgressHydrated(entries: readonly unknown[]): void {
+    const all = new Set<UUID>()
+    let last: UUID | null = null
+    for (const entry of entries) {
+      const uuid =
+        entry !== null && typeof entry === 'object'
+          ? (entry as { uuid?: unknown }).uuid
+          : undefined
+      if (typeof uuid !== 'string') continue
+      all.add(uuid as UUID)
+      last = uuid as UUID
+    }
+    // Durably journal the FULL hydrated set (hydration replaces the
+    // transcript, so the prior journal is stale). The journal is the durable
+    // recovery source for branch targets beyond the in-memory bound.
+    this.replaceRemoteEgressDeliveryJournal(all)
+    // The in-memory baseline + delivered set stay bounded performance indexes.
+    const baseline = new Set(all)
+    boundUuidSet(baseline, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+    // A fresh hydration supersedes any prior baseline for this process.
+    this.remoteEgressHydrationBaseline = baseline
+    this.remoteEgressHydrationBaselineTip = last
+    this.remoteEgressHydrationBaselineSessionId = getSessionId() as UUID
+    // Seed the transient delivered set + tip for the pre-reset window; the
+    // subsequent resetSessionFile re-seeds them from the baseline again.
+    for (const uuid of baseline) {
+      this.remoteEgressDeliveredParents.add(uuid)
+    }
+    boundUuidSet(
+      this.remoteEgressDeliveredParents,
+      MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+    )
+    if (last !== null) {
+      this.lastRemoteEgressUuid = last
+    }
+  }
+
+  /**
+   * Durable delivery provenance: an append-only journal next to the session
+   * file recording every UUID confirmed delivered (live writes and hydration).
+   * remoteEgressDeliveredParents is a bounded performance index; once a
+   * delivered UUID is evicted it remains recoverable here, so a branch target
+   * can still be recognized as delivered (vs a pre-sink / local-only parent).
+   * A journal miss never asserts delivery ? the resolver fails closed.
+   */
+  private remoteEgressDeliveredJournalPath(): string | null {
+    return this.sessionFile ? `${this.sessionFile}.remote-delivered` : null
+  }
+
+  private appendRemoteEgressDeliveryJournal(uuid: UUID): void {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return
+    try {
+      appendFileSync(path, `${uuid}\n`, { mode: 0o600 })
+    } catch {
+      // Best-effort: a missed journal line only degrades evicted-witness
+      // recovery; in-process witnesses and fail-closed remain authoritative.
+    }
+  }
+
+  private replaceRemoteEgressDeliveryJournal(uuids: Iterable<UUID>): void {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return
+    try {
+      const lines: string[] = []
+      for (const uuid of uuids) lines.push(`${uuid}\n`)
+      writeFileSync(path, lines.join(''), { mode: 0o600 })
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  private resolveRemoteEgressDeliveredFromJournal(uuid: UUID): boolean {
+    const path = this.remoteEgressDeliveredJournalPath()
+    if (!path) return false
+    let fd: number | undefined
+    try {
+      fd = openSync(path, 'r')
+      const size = fstatSync(fd).size
+      if (size === 0) return false
+      // Evicted witnesses are the OLDEST deliveries, earliest in the
+      // append-only journal; scan forward within the on-demand budget.
+      let cursor = 0
+      let scanned = 0
+      const windowBytes = OMISSION_REBUILD_TAIL_BYTES
+      while (cursor < size && scanned < MAX_ON_DEMAND_ANCESTRY_SCAN_BYTES) {
+        const end = Math.min(size, cursor + windowBytes)
+        const buf = Buffer.allocUnsafe(end - cursor)
+        const bytesRead = readSync(fd, buf, 0, end - cursor, cursor)
+        const content = buf.toString('utf8', 0, bytesRead)
+        for (const line of content.split('\n')) {
+          if (line.length > 0 && line.trim() === uuid) return true
+        }
+        scanned += end - cursor
+        cursor = end
+      }
+      return false
+    } catch {
+      return false
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd)
+        } catch {
+          // closeSync can throw; treat as miss
+        }
+      }
+    }
+  }
+
+  private isRemoteEgressDelivered(uuid: UUID): boolean {
+    if (this.remoteEgressDeliveredParents.has(uuid)) return true
+    if (this.resolveRemoteEgressDeliveredFromJournal(uuid)) {
+      // Re-promote into the bounded index so repeated branch targets of the
+      // same delivered UUID avoid re-scanning the journal.
+      this.remoteEgressDeliveredParents.add(uuid)
+      boundUuidSet(
+        this.remoteEgressDeliveredParents,
+        MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+      )
+      return true
+    }
+    return false
   }
 
   setRemoteIngressUrl(url: string): void {
@@ -2192,6 +2890,10 @@ export async function resetSessionFilePointer() {
 export function adoptResumedSessionFile(): void {
   const project = getProject()
   project.sessionFile = getTranscriptPath()
+  // Resume clears remoteEgressOmittedParents via resetSessionFilePointer.
+  // Rebuild from the adopted JSONL so post-resume remote appends reparent
+  // across entries withheld from egress.
+  project.rebuildRemoteEgressOmittedParentsFromLocalTranscript()
   project.reAppendSessionMetadata(true)
 }
 
@@ -2276,6 +2978,11 @@ export async function hydrateRemoteSession(
       sessionFile,
       serializeTranscriptEntries(remoteLogs),
     )
+    // Entries fetched from the remote sink are confirmed to exist remotely:
+    // register them as authoritative delivery witnesses so post-hydration
+    // children can reparent to a verified remote parent instead of the null
+    // root. The last fetched UUID becomes the confirmed remote tip.
+    project.markRemoteEgressHydrated(remoteLogs)
 
     logForDebugging(`Hydrated ${remoteLogs.length} entries from remote`)
     return remoteLogs.length > 0
@@ -2329,6 +3036,14 @@ export async function hydrateFromCCRv2InternalEvents(
     await project.replaceTranscriptFile(
       sessionFile,
       serializeTranscriptEntries(events.map(event => event.payload)),
+    )
+    // Foreground entries fetched from the CCR sink are confirmed to exist
+    // remotely: register them as authoritative delivery witnesses so
+    // post-hydration children can reparent to a verified remote parent
+    // instead of the null root. The last fetched UUID becomes the confirmed
+    // remote tip.
+    project.markRemoteEgressHydrated(
+      events.map(event => event.payload as { uuid?: UUID | null }),
     )
 
     logForDebugging(
@@ -3533,6 +4248,500 @@ function appendEntryToFile(
   withTranscriptFileLockSync(fullPath, () => {
     fs.appendFileSync(fullPath, line, { mode: 0o600 })
   })
+}
+
+/**
+ * Parse transcript JSONL lines into an omission map for remote egress
+ * reparenting. Shared by full-file and bounded-tail rebuild paths.
+ */
+function ingestRemoteEgressOmissionsFromTranscriptContent(
+  content: string,
+  omittedParents: Map<UUID, UUID | null>,
+  extras?: {
+    egressed?: Set<UUID>
+    parentRefs?: Set<UUID>
+  },
+): boolean {
+  let sawTranscript = false
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue
+    let parsed: unknown
+    try {
+      parsed = jsonParse(line)
+    } catch {
+      continue
+    }
+    if (!isTranscriptMessage(parsed)) continue
+    const entry = parsed as TranscriptMessage
+    sawTranscript = true
+    // Always apply current external egress policy. hook_additional_context is
+    // never safe for remote even when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT
+    // allows local persistence — local save ≠ upload consent.
+    if (shouldOmitFromExternalEgress(entry)) {
+      recordExternalEgressOmission(
+        omittedParents,
+        entry.uuid,
+        entry.parentUuid ?? null,
+      )
+    } else if (extras?.egressed && entry.uuid) {
+      extras.egressed.add(entry.uuid)
+    }
+    if (extras?.parentRefs && entry.parentUuid) {
+      extras.parentRefs.add(entry.parentUuid)
+    }
+  }
+  return sawTranscript
+}
+
+/**
+ * Collapse omission-map values to the nearest egressed ancestor (or null).
+ * Leaves dangling tips (non-egressed, non-omitted) unchanged so incomplete
+ * rebuild detection can still see unresolved chain ends.
+ */
+function pathCompressOmissionMap(
+  omittedParents: Map<UUID, UUID | null>,
+  egressed: Set<UUID>,
+): void {
+  for (const uuid of [...omittedParents.keys()]) {
+    let current: UUID | null = omittedParents.get(uuid) ?? null
+    const seen = new Set<UUID>([uuid])
+    while (current && omittedParents.has(current) && !seen.has(current)) {
+      seen.add(current)
+      current = omittedParents.get(current) ?? null
+    }
+    if (current === null || (current !== null && egressed.has(current))) {
+      omittedParents.set(uuid, current)
+    }
+  }
+}
+
+function isOmissionAncestryClosed(
+  referencedParents: Set<UUID>,
+  omittedParents: Map<UUID, UUID | null>,
+  egressed: Set<UUID>,
+): boolean {
+  for (const parent of referencedParents) {
+    let current: UUID | null = parent
+    const seen = new Set<UUID>()
+    while (current && omittedParents.has(current) && !seen.has(current)) {
+      seen.add(current)
+      current = omittedParents.get(current) ?? null
+    }
+    if (current !== null && !egressed.has(current)) {
+      return false
+    }
+  }
+  return true
+}
+
+function readTranscriptRangeForOmissionRebuild(
+  fd: number,
+  start: number,
+  end: number,
+): { content: string; nextEnd: number; skippedMidLine: boolean } {
+  const readSize = end - start
+  if (readSize <= 0) {
+    return { content: '', nextEnd: start, skippedMidLine: false }
+  }
+  const buf = Buffer.allocUnsafe(readSize)
+  const bytesRead = readSync(fd, buf, 0, readSize, start)
+  let content = buf.toString('utf8', 0, bytesRead)
+  const previousByte = Buffer.alloc(1)
+  const startsAtLineBoundary =
+    start === 0 ||
+    (readSync(fd, previousByte, 0, 1, start - 1) === 1 &&
+      previousByte[0] === 0x0a)
+  let nextEnd = start
+  let skippedMidLine = false
+  if (!startsAtLineBoundary) {
+    const nl = content.indexOf('\n')
+    if (nl < 0) {
+      // Entire window is inside one oversized line — cannot ingest it.
+      return { content: '', nextEnd: start, skippedMidLine: true }
+    }
+    nextEnd = start + nl + 1
+    content = content.slice(nl + 1)
+    skippedMidLine = true
+  }
+  return { content, nextEnd, skippedMidLine }
+}
+
+/**
+ * Rebuild the omission map from disk. Start at the tail
+ * (OMISSION_REBUILD_TAIL_BYTES, or scanBudget when smaller). If the tail
+ * is metadata-only or any chain-tip parent is still unresolved, walk
+ * earlier windows of the same budget until ancestry closes or scanBudget
+ * (default MAX_TRANSCRIPT_READ_BYTES) is scanned. Returns complete=false
+ * when ancestry cannot be closed (oversized mid-line skip, scan budget
+ * exhausted, or unresolved tips).
+ */
+function ingestRemoteEgressOmissionsFromTranscriptFile(
+  fullPath: string,
+  omittedParents: Map<UUID, UUID | null>,
+  boundState?: {
+    evicted: Set<UUID>
+    compactAncestry: Map<UUID, UUID | null>
+    knownOmitted: Set<UUID>
+    safeLocalParents?: Set<UUID>
+  },
+  scanBudget: number = MAX_TRANSCRIPT_READ_BYTES,
+): { complete: boolean } {
+  let fd: number | undefined
+  try {
+    fd = openSync(fullPath, 'r')
+    const size = fstatSync(fd).size
+    if (size === 0) return { complete: true }
+
+    const budget = Math.max(1, scanBudget)
+    const windowBytes = Math.min(OMISSION_REBUILD_TAIL_BYTES, budget)
+    const egressed = new Set<UUID>()
+    const referencedParents = new Set<UUID>()
+    let sawTranscript = false
+    let cursor = size
+    let scanned = 0
+    let sawUnrecoverableMidLineSkip = false
+    let closed = false
+
+    while (cursor > 0 && scanned < budget) {
+      const start = Math.max(0, cursor - windowBytes)
+      const { content, nextEnd, skippedMidLine } =
+        readTranscriptRangeForOmissionRebuild(fd, start, cursor)
+      // Recoverable window alignment (slice to the next newline) is not
+      // incomplete. Only an oversized line with no newline in the window is.
+      if (skippedMidLine && content.length === 0) {
+        sawUnrecoverableMidLineSkip = true
+      }
+      scanned += cursor - start
+      const collectRefs = !sawTranscript
+      const chunkSaw = ingestRemoteEgressOmissionsFromTranscriptContent(
+        content,
+        omittedParents,
+        {
+          egressed,
+          parentRefs: collectRefs ? referencedParents : undefined,
+        },
+      )
+      if (chunkSaw) {
+        sawTranscript = true
+      }
+      pathCompressOmissionMap(omittedParents, egressed)
+      if (boundState) {
+        boundRemoteEgressOmissionMap(
+          omittedParents,
+          boundState.evicted,
+          boundState.compactAncestry,
+          boundState.knownOmitted,
+        )
+        boundUuidSetPreserving(
+          egressed,
+          MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          collectOmissionClosureWitnesses(
+            referencedParents,
+            omittedParents,
+            egressed,
+          ),
+        )
+        boundUuidSet(referencedParents, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+        if (boundState.safeLocalParents) {
+          for (const uuid of egressed) {
+            boundState.safeLocalParents.add(uuid)
+          }
+          boundUuidSet(
+            boundState.safeLocalParents,
+            MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+          )
+        }
+      }
+      if (
+        sawTranscript &&
+        isOmissionAncestryClosed(
+          referencedParents,
+          omittedParents,
+          egressed,
+        )
+      ) {
+        closed = true
+        break
+      }
+      if (nextEnd < cursor) {
+        cursor = nextEnd
+      } else if (start < cursor) {
+        cursor = start
+      } else {
+        break
+      }
+    }
+
+    pathCompressOmissionMap(omittedParents, egressed)
+    if (boundState) {
+      boundRemoteEgressOmissionMap(
+        omittedParents,
+        boundState.evicted,
+        boundState.compactAncestry,
+        boundState.knownOmitted,
+      )
+      if (boundState.safeLocalParents) {
+        for (const uuid of egressed) {
+          boundState.safeLocalParents.add(uuid)
+        }
+        boundUuidSet(
+          boundState.safeLocalParents,
+          MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE,
+        )
+      }
+    }
+
+    const hitScanCap = scanned >= budget && cursor > 0 && !closed
+    const complete =
+      (!sawTranscript || closed) &&
+      !sawUnrecoverableMidLineSkip &&
+      !hitScanCap
+    return { complete }
+  } catch {
+    return { complete: false }
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // closeSync can throw; preserve empty-map rebuild
+      }
+    }
+  }
+}
+
+function boundCompactAncestryMap(
+  compactAncestry: Map<UUID, UUID | null>,
+): void {
+  while (compactAncestry.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = compactAncestry.keys().next().value
+    if (oldest === undefined) break
+    compactAncestry.delete(oldest)
+  }
+}
+
+function boundUuidSet(ids: Set<UUID>, maxSize: number): void {
+  while (ids.size > maxSize) {
+    const oldest = ids.values().next().value
+    if (oldest === undefined) break
+    ids.delete(oldest)
+  }
+}
+
+/** Egressed UUIDs that close a referenced parent walk — keep them at bound. */
+function collectOmissionClosureWitnesses(
+  referencedParents: Set<UUID>,
+  omittedParents: Map<UUID, UUID | null>,
+  egressed: Set<UUID>,
+): Set<UUID> {
+  const preserve = new Set<UUID>()
+  for (const parent of referencedParents) {
+    let current: UUID | null = parent
+    const seen = new Set<UUID>()
+    while (current && omittedParents.has(current) && !seen.has(current)) {
+      seen.add(current)
+      current = omittedParents.get(current) ?? null
+    }
+    if (current !== null && egressed.has(current)) {
+      preserve.add(current)
+    }
+  }
+  return preserve
+}
+
+function boundUuidSetPreserving(
+  ids: Set<UUID>,
+  maxSize: number,
+  preserve: Set<UUID>,
+): void {
+  if (ids.size <= maxSize) return
+  const evict: UUID[] = []
+  for (const id of ids) {
+    if (!preserve.has(id)) evict.push(id)
+  }
+  let extra = ids.size - maxSize
+  for (const id of evict) {
+    if (extra <= 0) break
+    ids.delete(id)
+    extra--
+  }
+}
+
+function boundRemoteEgressOmissionMap(
+  omittedParents: Map<UUID, UUID | null>,
+  evicted: Set<UUID>,
+  compactAncestry: Map<UUID, UUID | null>,
+  knownOmitted: Set<UUID>,
+): void {
+  while (omittedParents.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = omittedParents.keys().next().value
+    if (oldest === undefined) break
+    const ancestor = omittedParents.get(oldest) ?? null
+    omittedParents.delete(oldest)
+    evicted.add(oldest)
+    compactAncestry.set(oldest, ancestor)
+  }
+  while (evicted.size > MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE) {
+    const oldest = evicted.values().next().value
+    if (oldest === undefined) break
+    evicted.delete(oldest)
+    compactAncestry.delete(oldest)
+    knownOmitted.add(oldest)
+  }
+  boundUuidSet(knownOmitted, MAX_REMOTE_EGRESS_OMISSION_MAP_SIZE)
+  boundCompactAncestryMap(compactAncestry)
+}
+
+function ingestCompactAncestryNodesFromTranscriptContent(
+  content: string,
+  byUuid: Map<UUID, { parentUuid: UUID | null; safe: boolean }>,
+): void {
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue
+    let parsed: unknown
+    try {
+      parsed = jsonParse(line)
+    } catch {
+      continue
+    }
+    if (!isTranscriptMessage(parsed)) continue
+    const entry = parsed as TranscriptMessage
+    if (!entry.uuid) continue
+    byUuid.set(entry.uuid, {
+      parentUuid: entry.parentUuid ?? null,
+      safe: !shouldOmitFromExternalEgress(entry),
+    })
+  }
+}
+
+function ingestCompactAncestryNodesFromWriteQueue(
+  queue: TranscriptWriteOperation[] | undefined,
+  byUuid: Map<UUID, { parentUuid: UUID | null; safe: boolean }>,
+): void {
+  if (!queue) return
+  for (const op of queue) {
+    if (op.kind !== 'append') continue
+    if (!isTranscriptMessage(op.entry)) continue
+    const entry = op.entry as TranscriptMessage
+    if (!entry.uuid) continue
+    byUuid.set(entry.uuid, {
+      parentUuid: entry.parentUuid ?? null,
+      safe: !shouldOmitFromExternalEgress(entry),
+    })
+  }
+}
+
+function queueHasPendingTranscriptAppends(
+  queue: TranscriptWriteOperation[] | undefined,
+): boolean {
+  if (!queue) return false
+  return queue.some(
+    op => op.kind === 'append' && isTranscriptMessage(op.entry),
+  )
+}
+
+type CompactOmissionResolveResult =
+  | { status: 'resolved'; ancestor: UUID | null }
+  | { status: 'parent_safe' }
+  | { status: 'not_found' }
+
+function resolveAncestorFromCompactAncestryNodes(
+  byUuid: Map<UUID, { parentUuid: UUID | null; safe: boolean }>,
+  omittedUuid: UUID,
+): CompactOmissionResolveResult | null {
+  const target = byUuid.get(omittedUuid)
+  if (!target) {
+    return null
+  }
+  if (target.safe) {
+    return { status: 'parent_safe' }
+  }
+  let current = target.parentUuid
+  const seen = new Set<UUID>()
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    const node = byUuid.get(current)
+    if (!node) {
+      return null
+    }
+    if (node.safe) {
+      return { status: 'resolved', ancestor: current }
+    }
+    current = node.parentUuid
+  }
+  // Cycle or exhausted unsafe chain: never project a withheld UUID.
+  return { status: 'resolved', ancestor: null }
+}
+
+/**
+ * On-demand ancestry when an omitted parent has fallen out of both bounded
+ * maps. Starts at the tail (OMISSION_REBUILD_TAIL_BYTES) and walks earlier
+ * windows until the omitted UUID and its nearest safe ancestor are visible,
+ * or MAX_TRANSCRIPT_READ_BYTES is scanned. Never lastRemoteEgressUuid.
+ * Pending write-queue appends are merged so parents not yet flushed to disk
+ * are still visible.
+ */
+function resolveCompactOmissionAncestorFromLocalTranscript(
+  sessionFile: string | null,
+  omittedUuid: UUID,
+  queue?: TranscriptWriteOperation[],
+  scanBudget: number = MAX_TRANSCRIPT_READ_BYTES,
+): CompactOmissionResolveResult {
+  const byUuid = new Map<UUID, { parentUuid: UUID | null; safe: boolean }>()
+  ingestCompactAncestryNodesFromWriteQueue(queue, byUuid)
+  const queuedHit = resolveAncestorFromCompactAncestryNodes(byUuid, omittedUuid)
+  if (queuedHit) {
+    return queuedHit
+  }
+  if (!sessionFile) {
+    return { status: 'not_found' }
+  }
+  let fd: number | undefined
+  try {
+    fd = openSync(sessionFile, 'r')
+    const size = fstatSync(fd).size
+    if (size === 0) {
+      return { status: 'not_found' }
+    }
+    const budget = Math.max(1, scanBudget)
+    let cursor = size
+    let scanned = 0
+    while (cursor > 0 && scanned < budget) {
+      const start = Math.max(0, cursor - OMISSION_REBUILD_TAIL_BYTES)
+      const { content, nextEnd } = readTranscriptRangeForOmissionRebuild(
+        fd,
+        start,
+        cursor,
+      )
+      scanned += cursor - start
+      ingestCompactAncestryNodesFromTranscriptContent(content, byUuid)
+      const resolved = resolveAncestorFromCompactAncestryNodes(
+        byUuid,
+        omittedUuid,
+      )
+      if (resolved) {
+        return resolved
+      }
+      if (nextEnd < cursor) {
+        cursor = nextEnd
+      } else if (start < cursor) {
+        cursor = start
+      } else {
+        break
+      }
+    }
+    return { status: 'not_found' }
+  } catch {
+    return { status: 'not_found' }
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd)
+      } catch {
+        // closeSync can throw; treat as unresolved
+      }
+    }
+  }
 }
 
 /**
@@ -5342,6 +6551,80 @@ export async function loadAllSubagentTranscriptsFromDisk(): Promise<{
   return loadSubagentTranscripts(agentIds)
 }
 
+/** Listing attachment types that must never cross remote/share/feedback paths. */
+export const EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES: ReadonlySet<string> =
+  new Set([
+    'skill_listing',
+    'skill_discovery',
+    'agent_listing_delta',
+    'deferred_tools_delta',
+    'mcp_instructions_delta',
+  ])
+
+function attachmentTypeOf(m: {
+  type?: string
+  attachment?: unknown
+}): string | null {
+  if (m.type !== 'attachment') return null
+  if (!m.attachment || typeof m.attachment !== 'object') return null
+  const t = (m.attachment as { type?: unknown }).type
+  return typeof t === 'string' && t.trim().length > 0 ? t : null
+}
+
+/**
+ * Record a UUID withheld from remote/public egress. Chain-resolves through
+ * consecutive omissions so one lookup yields the nearest ancestor that still
+ * exists on the projected chain.
+ */
+export function recordExternalEgressOmission(
+  omittedParents: Map<UUID, UUID | null>,
+  uuid: UUID,
+  parentUuid: UUID | null,
+): void {
+  omittedParents.set(
+    uuid,
+    parentUuid && omittedParents.has(parentUuid)
+      ? (omittedParents.get(parentUuid) ?? null)
+      : parentUuid,
+  )
+}
+
+/**
+ * Reparent a transcript entry whose parentUuid points at a UUID omitted from
+ * the external/remote projection. Walks the omission chain with a cycle guard
+ * so one-hop rebuild maps (O2→O1, O1→A) still resolve to the egressed tip.
+ * Returns the same reference when no rewrite is needed so callers can keep
+ * original JSONL bytes where possible.
+ */
+export function projectTranscriptParentForExternalEgress<
+  T extends { parentUuid: UUID | null },
+>(entry: T, omittedParents: Map<UUID, UUID | null>): T {
+  if (!entry.parentUuid || !omittedParents.has(entry.parentUuid)) {
+    return entry
+  }
+  let current: UUID | null = entry.parentUuid
+  const seen = new Set<UUID>()
+  while (current && omittedParents.has(current) && !seen.has(current)) {
+    seen.add(current)
+    current = omittedParents.get(current) ?? null
+  }
+  if (current !== null && omittedParents.has(current)) {
+    current = null
+  }
+  return {
+    ...entry,
+    parentUuid: current,
+  }
+}
+
+export function isExternalEgressListingAttachment(m: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  const t = attachmentTypeOf(m)
+  return t !== null && EXTERNAL_EGRESS_LISTING_ATTACHMENT_TYPES.has(t)
+}
+
 // Exported so useLogMessages can sync-compute the last loggable uuid
 // without awaiting recordTranscript's return value (race-free hint tracking).
 export function isLoggableMessage(m: Message): boolean {
@@ -5360,6 +6643,260 @@ export function isLoggableMessage(m: Message): boolean {
     return false
   }
   return true
+}
+
+/**
+ * Privacy gate for remote ingress / CCR / public sharing paths.
+ * Listing catalogs (and other unsafe attachments) must not cross this
+ * boundary — including the ant fast path below.
+ *
+ * Local transcript persistence (`isLoggableMessage`) may keep
+ * hook_additional_context when CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT is
+ * set. That flag must NOT widen this gate for external users: local save ≠
+ * consent to upload to CCR / share / feedback.
+ */
+export function isSafeForExternalEgress(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  if (isMalformedAttachmentBearingEgressRecord(entry)) {
+    return false
+  }
+  if (entry.type === 'progress') {
+    return false
+  }
+  // Listings must never cross remote / share / feedback — including ant.
+  if (isExternalEgressListingAttachment(entry)) {
+    return false
+  }
+  if (getUserType() === 'ant') {
+    // Ant keeps valid non-listing attachments (incl. hook_additional_context) on
+    // remote for internal tooling. Progress stays out of the chain.
+    return true
+  }
+  // External: never allow hook_additional_context even when the local-save
+  // env flag is on.
+  if (attachmentTypeOf(entry) === 'hook_additional_context') {
+    return false
+  }
+  if (entry.type !== 'attachment') return true
+  // Every remaining attachment type is blocked on egress for external users.
+  return false
+}
+
+/**
+ * Size-guarded read of a session JSONL file, then project through
+ * filterJsonlForExternalEgress. Shared by Feedback and transcript share so
+ * both paths stay byte-policy aligned (and cannot drift on the size cap).
+ */
+export async function readFilteredTranscriptJsonlForExternalEgress(
+  transcriptPath: string,
+): Promise<string | null> {
+  try {
+    const { size } = await stat(transcriptPath)
+    if (size > MAX_TRANSCRIPT_READ_BYTES) {
+      logForDebugging(
+        `Skipping raw transcript read: file too large (${size} bytes)`,
+        { level: 'warn' },
+      )
+      return null
+    }
+    return filterJsonlForExternalEgress(await readFile(transcriptPath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Parseable records that carry an attachment payload on a non-attachment
+ * outer type must fail closed for egress — they would otherwise bypass the
+ * listing classifier (isSafeForExternalEgress only inspects type===attachment).
+ */
+export function isMalformedAttachmentBearingEgressRecord(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  if (entry.attachment !== undefined && entry.attachment !== null) {
+    if (entry.type !== 'attachment') {
+      return true
+    }
+    return attachmentTypeOf(entry) === null
+  }
+  if (entry.type === 'attachment') {
+    return true
+  }
+  return false
+}
+
+/**
+ * Authoritative fail-closed classifier for external transcript records across
+ * all egress consumers (live CCR/session-ingress, feedback, share, rebuild,
+ * and on-demand ancestry lookup).
+ *
+ * Returns true if the entry MUST be omitted from external egress.
+ */
+export function shouldOmitFromExternalEgress(entry: {
+  type?: string
+  attachment?: unknown
+}): boolean {
+  if (isMalformedAttachmentBearingEgressRecord(entry)) {
+    return true
+  }
+  return !isSafeForExternalEgress(entry)
+}
+
+/**
+ * Drop entries that must not leave the local machine (share, feedback,
+ * analytics payloads built from in-memory messages). Relinks parentUuid
+ * across omitted listing attachments so the projected array remains a
+ * valid chain (remote-hydrate / buildConversationChain safe) without
+ * carrying listing payloads.
+ */
+export function filterMessagesForExternalEgress<
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
+>(messages: readonly T[]): T[] {
+  const omittedParents = new Map<UUID, UUID | null>()
+  const kept: T[] = []
+  for (const message of messages) {
+    if (shouldOmitFromExternalEgress(message)) {
+      if (typeof message.uuid === 'string') {
+        recordExternalEgressOmission(
+          omittedParents,
+          message.uuid,
+          message.parentUuid ?? null,
+        )
+      }
+      continue
+    }
+    if (
+      message.parentUuid !== undefined &&
+      message.parentUuid !== null &&
+      omittedParents.has(message.parentUuid)
+    ) {
+      kept.push(
+        projectTranscriptParentForExternalEgress(
+          {
+            ...message,
+            parentUuid: message.parentUuid,
+          },
+          omittedParents,
+        ),
+      )
+    } else {
+      kept.push(message)
+    }
+  }
+  return kept
+}
+
+/**
+ * Project every subagent transcript through filterMessagesForExternalEgress.
+ * Shared by Feedback submit and submitTranscriptShare so the egress rule
+ * cannot drift between upload paths.
+ */
+export function filterSubagentTranscriptsForExternalEgress<
+  T extends {
+    type?: string
+    attachment?: unknown
+    uuid?: UUID
+    parentUuid?: UUID | null
+  },
+>(transcripts: { [agentId: string]: T[] }): { [agentId: string]: T[] } {
+  const filtered: { [agentId: string]: T[] } = {}
+  for (const [agentId, msgs] of Object.entries(transcripts)) {
+    filtered[agentId] = filterMessagesForExternalEgress(msgs)
+  }
+  return filtered
+}
+
+/**
+ * Strip unsafe attachment lines from a raw session JSONL string before any
+ * public upload. Unparseable non-empty lines fail closed (dropped) so a
+ * corrupt listing fragment cannot bypass attachment classification.
+ * Surviving lines whose parentUuid pointed at an omitted listing are
+ * rewritten to the nearest kept ancestor so a shared/hydrated log stays a
+ * continuous parentUuid chain.
+ */
+export function filterJsonlForExternalEgress(jsonl: string): string {
+  if (jsonl.length === 0) return jsonl
+  const lines = jsonl.split('\n')
+  const kept: string[] = []
+  const omittedParents = new Map<UUID, UUID | null>()
+  for (const line of lines) {
+    if (line.length === 0) {
+      kept.push(line)
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(line)
+      // Non-record JSON values (null / primitives / arrays) carry no valid
+      // ancestry; drop them fail-closed instead of emitting an invalid link.
+      if (typeof parsed !== 'object' || parsed === null) {
+        continue
+      }
+      const entry = parsed as {
+        type?: string
+        attachment?: unknown
+        uuid?: unknown
+        parentUuid?: unknown
+      }
+      // Runtime-validate chain fields: a parent must be a valid UUID or null.
+      // The JSONL filter admits untrusted bytes, so the TypeScript UUID cast
+      // alone is not a boundary ? numeric / malformed-string parent links must
+      // not enter the omission map or be emitted as ancestry.
+      const uuid =
+        typeof entry.uuid === 'string' ? validateUuid(entry.uuid) : null
+      const parentUuid =
+        entry.parentUuid === null || entry.parentUuid === undefined
+          ? null
+          : typeof entry.parentUuid === 'string'
+            ? validateUuid(entry.parentUuid)
+            : null
+      const parentIsMalformed =
+        entry.parentUuid !== null &&
+        entry.parentUuid !== undefined &&
+        parentUuid === null
+      if (shouldOmitFromExternalEgress(entry)) {
+        if (uuid !== null) {
+          // A malformed parent is safely re-rooted to null so the omission
+          // map never stores a non-UUID ancestor and survivors reparent to
+          // the root instead of a dangling / numeric link.
+          recordExternalEgressOmission(
+            omittedParents,
+            uuid,
+            parentIsMalformed ? null : parentUuid,
+          )
+        }
+        continue
+      }
+      if (parentIsMalformed) {
+        // Fail closed: emit the survivor re-rooted to null so the exported
+        // chain never carries an invalid / dangling parent link.
+        kept.push(jsonStringify({ ...entry, parentUuid: null }))
+        continue
+      }
+      if (parentUuid && omittedParents.has(parentUuid)) {
+        const projected = projectTranscriptParentForExternalEgress(
+          {
+            ...entry,
+            parentUuid,
+          },
+          omittedParents,
+        )
+        kept.push(jsonStringify(projected))
+      } else {
+        kept.push(line)
+      }
+    } catch {
+      // Fail closed: corrupt / partial lines must not reach share or feedback.
+    }
+  }
+  return kept.join('\n')
 }
 
 function collectReplIds(messages: readonly Message[]): Set<string> {
