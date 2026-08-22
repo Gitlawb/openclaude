@@ -136,7 +136,7 @@ test('preserves valid tool_result and drops orphan tool_result', () => {
 
   expect(tools).toHaveLength(1)
   expect(tools[0]?.tool_call_id).toBe('valid_call_1')
-  expect(messages.some(message => message.content === '[Tool results received]')).toBe(true)
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
   expect(logs).toContain('Dropping orphan tool_result for ID: orphan_call_2 to prevent API error')
 })
 
@@ -160,7 +160,7 @@ test('drops empty assistant message when only redacted_thinking block was presen
   expect(messages).toEqual([{ role: 'user', content: 'Initial\nInterrupting query' }])
 })
 
-test('injects semantic assistant message when tool result is followed by user message', () => {
+test('passes tool results through as role:tool messages without synthetic assistant filler (issue #2039)', () => {
   const messages = convert([
     {
       role: 'assistant',
@@ -173,9 +173,65 @@ test('injects semantic assistant message when tool result is followed by user me
     { role: 'user', content: 'Next user query' },
   ])
 
-  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'assistant', 'user'])
-  expect(messages[2]?.content).toBe('[Tool results received]')
-  expect(messages[2]?.content).not.toContain('interrupted')
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'user'])
+  expect(messages.some(message => message.content === '[Tool results received]')).toBe(false)
+})
+
+test('keeps parallel tool results as consecutive role:tool messages before the next user turn (issue #2039)', () => {
+  const messages = convert([
+    {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: 'call_a', name: 'Read', input: { file_path: 'a.ts' } },
+        { type: 'tool_use', id: 'call_b', name: 'Read', input: { file_path: 'b.ts' } },
+      ],
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: 'call_a', content: 'A contents' },
+        { type: 'tool_result', tool_use_id: 'call_b', content: 'B contents' },
+      ],
+    },
+    { role: 'user', content: 'Summarize both files' },
+  ])
+
+  expect(messages.map(message => message.role)).toEqual(['assistant', 'tool', 'tool', 'user'])
+  expect(messages.filter(message => message.role === 'tool').map(message => message.tool_call_id))
+    .toEqual(['call_a', 'call_b'])
+  expect(messages[messages.length - 1]).toEqual({ role: 'user', content: 'Summarize both files' })
+})
+
+test('strips echoed [Tool results received] markers from legacy assistant history (issue #2039)', () => {
+  const messages = convert([
+    { role: 'user', content: 'go' },
+    { role: 'assistant', content: [{ type: 'text', text: '[Tool results received]' }] },
+    { role: 'user', content: 'ok' },
+  ])
+
+  expect(messages).toEqual([{ role: 'user', content: 'go\nok' }])
+})
+
+test('strips inline [Tool results received] echoes while keeping surrounding assistant prose', () => {
+  const messages = convert([
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Working.\n[Tool results received]\nDone.' }],
+    },
+    { role: 'user', content: 'next' },
+  ])
+
+  expect(messages[0]).toEqual({ role: 'assistant', content: 'Working.\n\nDone.' })
+})
+
+test('drops legacy string assistant messages containing only the marker echo', () => {
+  const messages = convert([
+    { role: 'user', content: 'run' },
+    { role: 'assistant', content: '[Tool results received]' },
+    { role: 'user', content: 'done?' },
+  ])
+
+  expect(messages).toEqual([{ role: 'user', content: 'run\ndone?' }])
 })
 
 test('collapses multiple text blocks in tool_result to string for DeepSeek compatibility (issue #774)', () => {
