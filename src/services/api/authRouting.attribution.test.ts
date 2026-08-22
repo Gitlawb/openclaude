@@ -91,12 +91,54 @@ describeAttribution('current Anthropic attribution route resolution', () => {
         resolveAnthropicAttributionAuthFromSources({
           apiKeySource,
           authTokenSource: 'CLAUDE_CODE_OAUTH_TOKEN',
+          bareMode: false,
           isSubscriber: true,
           managedOAuthContext: true,
         }),
       ).toBe('oauth_subscription')
     })
   }
+
+  for (const [apiKeySource, authTokenSource] of [
+    ['ANTHROPIC_API_KEY', 'none'],
+    ['apiKeyHelper', 'apiKeyHelper'],
+  ] as const) {
+    test(`preserves bare-mode ${apiKeySource} in a managed context`, () => {
+      expect(
+        resolveAnthropicAttributionAuthFromSources({
+          apiKeySource,
+          authTokenSource,
+          bareMode: true,
+          isSubscriber: false,
+          managedOAuthContext: true,
+        }),
+      ).toBe('api_key')
+    })
+  }
+
+  test('preserves a managed API key when managed OAuth is not effective', () => {
+    expect(
+      resolveAnthropicAttributionAuthFromSources({
+        apiKeySource: '/login managed key',
+        authTokenSource: 'none',
+        bareMode: false,
+        isSubscriber: false,
+        managedOAuthContext: true,
+      }),
+    ).toBe('api_key')
+  })
+
+  test('does not force managed OAuth past an explicit non-subscriber result', () => {
+    expect(
+      resolveAnthropicAttributionAuthFromSources({
+        apiKeySource: 'none',
+        authTokenSource: 'CLAUDE_CODE_OAUTH_TOKEN',
+        bareMode: false,
+        isSubscriber: false,
+        managedOAuthContext: true,
+      }),
+    ).toBe('unknown')
+  })
 
   for (const [label, envKey, envValue] of [
     ['remote', 'CLAUDE_CODE_REMOTE', '1'],

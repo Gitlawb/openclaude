@@ -3,7 +3,7 @@ import type {
   BetaMessage,
   BetaMessageStreamParams,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -523,7 +523,11 @@ afterEach(() => {
       delete (globalThis as Record<string, unknown>).MACRO
     }
     globalThis.fetch = originalFetch
-    process.env.NODE_ENV = originalNodeEnv
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
     setFlagSettingsPath(undefined)
     setFlagSettingsInline(null)
     setAllowedSettingSources([...SETTING_SOURCES])
@@ -616,6 +620,29 @@ describeLifecycle('Claude API lifecycle tracking', () => {
     expect(requestBody).not.toHaveProperty('reasoning_effort')
     expect(requestBody).not.toHaveProperty('effort')
     expect(requestHeaders?.get('anthropic-beta')).not.toContain('effort')
+  })
+
+  test('honors a trusted free-plan override in a managed OAuth context', async () => {
+    setClientTestEnv()
+    writeFileSync(
+      join(fixturesRoot!, 'settings.json'),
+      JSON.stringify({ subscriptionType: 'free' }),
+    )
+    resetSettingsCache()
+    process.env.CLAUDE_CODE_REMOTE = '1'
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const request = await capturePrimaryRequest()
+    const texts = systemBlockTexts(request.system)
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(request.headers.get('x-api-key')).toBe('sk-test-lifecycle')
+    expect(request.headers.has('authorization')).toBe(false)
   })
 
   test('strips Anthropic billing attribution from a custom native endpoint', async () => {
