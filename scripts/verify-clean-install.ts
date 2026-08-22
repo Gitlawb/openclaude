@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { execaSync } from 'execa'
 
+import { renderWrapperScript } from '../src/utils/claudeInChrome/launch.js'
 import {
   validateInstallHygieneFields,
   validateRuntimeDependencyContract,
@@ -307,7 +308,7 @@ export function parseInstalledChromeSetupLaunches(
         return value as ChromeSetupLaunches
       }
     } catch {
-      return null
+      continue
     }
   }
   return null
@@ -326,7 +327,7 @@ function pathsMatch(
   return posix.resolve(left) === posix.resolve(right)
 }
 
-function getExpectedWrapperCommandLine(
+function getExpectedWrapperContent(
   launch: ChromeSetupLaunch | undefined,
   platform: ChromeWrapperPlatform,
 ): string | null {
@@ -338,16 +339,17 @@ function getExpectedWrapperCommandLine(
     return null
   }
 
-  const values = [launch.command, ...(launch.args as string[])]
-  const quote =
-    platform === 'windows'
-      ? (value: string): string | null =>
-          /[\0\r\n"]/.test(value) ? null : `"${value.replaceAll('%', '%%')}"`
-      : (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`
-  const quoted = values.map(quote)
-  if (quoted.some(value => value === null)) return null
-  const command = quoted.join(' ')
-  return platform === 'windows' ? command : `exec ${command}`
+  try {
+    return renderWrapperScript(
+      {
+        command: launch.command,
+        args: launch.args as string[],
+      },
+      platform === 'windows' ? 'windows' : 'linux',
+    )
+  } catch {
+    return null
+  }
 }
 
 export function getInstalledChromeSetupProblems({
@@ -426,13 +428,13 @@ export function getInstalledChromeSetupProblems({
     )
   }
 
-  const expectedWrapperLine = getExpectedWrapperCommandLine(
+  const expectedWrapperContent = getExpectedWrapperContent(
     launches.nativeHost,
     platform,
   )
   if (
-    expectedWrapperLine === null ||
-    !wrapperContent.split(/\r?\n/).includes(expectedWrapperLine)
+    expectedWrapperContent === null ||
+    wrapperContent !== expectedWrapperContent
   ) {
     problems.push(
       'persisted Chrome native-host wrapper does not target the installed package launcher',
