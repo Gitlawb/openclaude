@@ -366,6 +366,9 @@ export function applyProviderFlag(
                           process.env.OPENAI_API_KEY === process.env.CONCENTRATE_API_KEY
                         ? 'concentrate'
                         : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
+                        ? 'llmtr'
+                        : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                         ? 'nearai'
                         : process.env.OPENAI_API_KEY !== undefined &&

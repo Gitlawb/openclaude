@@ -410,19 +410,25 @@ function makeChatCompletionResponse(model: string): Response {
 
 async function captureChatCompletionRequest(
   model = 'mimo-v2.5-pro',
-): Promise<{ authorization: string | null; url: string | null }> {
+  defaultHeaders: Record<string, string> = {},
+): Promise<{
+  authorization: string | null
+  headers: Record<string, string>
+  url: string | null
+}> {
   let authorization: string | null = null
+  let headers: Record<string, string> = {}
   let url: string | null = null
 
   globalThis.fetch = (async (input, init) => {
     url = String(input)
-    const headers = init?.headers as Record<string, string> | undefined
-    authorization = headers?.Authorization ?? headers?.authorization ?? null
+    headers = (init?.headers as Record<string, string> | undefined) ?? {}
+    authorization = headers.Authorization ?? headers.authorization ?? null
 
     return makeChatCompletionResponse(model)
   }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const client = createOpenAIShimClient({ defaultHeaders }) as OpenAIShimClient
 
   await client.beta.messages.create({
     model,
@@ -431,7 +437,7 @@ async function captureChatCompletionRequest(
     stream: false,
   })
 
-  return { authorization, url }
+  return { authorization, headers, url }
 }
 
 function makeCodexSseResponse(responseData: Record<string, unknown>): Response {
@@ -606,6 +612,51 @@ test('selected LLMTR route prefers its dedicated key over a generic OPENAI_API_K
   )
 
   expect(captured.authorization).toBe('Bearer llmtr-key')
+})
+
+test('raw-env LLMTR ignores unsupported custom auth and custom headers', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.OPENAI_API_KEY
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+    { 'X-Tenant-Secret': 'tenant-secret' },
+  )
+
+  expect(captured.url).toBe('https://llmtr.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer llmtr-key')
+  expect(captured.headers['X-Proxy-Key']).toBeUndefined()
+  expect(captured.headers['X-Tenant-Secret']).toBeUndefined()
+})
+
+test('custom endpoints preserve configured auth and custom headers', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://proxy.example/v1'
+  process.env.OPENAI_MODEL = 'proxy-model'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+  process.env.OPENAI_AUTH_SCHEME = 'raw'
+  process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+  process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.OPENAI_API_KEY
+
+  const captured = await captureChatCompletionRequest('proxy-model', {
+    'X-Tenant-Secret': 'tenant-secret',
+  })
+
+  expect(captured.url).toBe('https://proxy.example/v1/chat/completions')
+  expect(captured.authorization).toBeNull()
+  expect(captured.headers['X-Proxy-Key']).toBe('proxy-secret')
+  expect(captured.headers['X-Tenant-Secret']).toBe('tenant-secret')
 })
 
 test('gitlawb opengateway provider flag uses generic OPENAI_API_KEYS pool before generic OPENAI_API_KEY fallback', async () => {
