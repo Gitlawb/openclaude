@@ -17,7 +17,7 @@ export function WelcomeV2() {
     }
     return t0;
   }
-  if (["light", "light-daltonized", "light-ansi"].includes(theme)) {
+  if (["light", "light-daltonized", "light-ansi", "light-nord"].includes(theme)) {
     let t0;
     let t1;
     let t2;
@@ -206,7 +206,7 @@ function AppleTerminalWelcomeV2(t0) {
     theme,
     welcomeMessage
   } = t0;
-  const isLightTheme = ["light", "light-daltonized", "light-ansi"].includes(theme);
+  const isLightTheme = ["light", "light-daltonized", "light-ansi", "light-nord"].includes(theme);
   if (isLightTheme) {
     let t1;
     if ($[0] !== welcomeMessage) {

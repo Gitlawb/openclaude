@@ -743,7 +743,7 @@ const lightNordTheme: Theme = {
   subtle: 'rgb(216,222,233)', // nord4 — light gray
   suggestion: 'rgb(94,129,172)', // nord10
   remember: 'rgb(94,129,172)', // nord10
-  background: 'rgb(143,188,187)', // nord7 — bright cyan
+  background: 'rgb(58,140,140)', // darkened nord7 for white bg
   success: 'rgb(90,130,70)', // darkened nord14
   error: 'rgb(180,80,90)', // darkened nord11
   warning: 'rgb(160,120,40)', // darkened nord13
