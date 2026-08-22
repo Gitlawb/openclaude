@@ -13,6 +13,9 @@ import * as actualAuth from './auth.js'
 import * as actualThinking from './thinking.js'
 import * as actualGrowthbook from 'src/services/analytics/growthbook.js'
 import * as actualModelSupportOverrides from './model/modelSupportOverrides.js'
+import type { APIProvider } from './model/providers.js'
+
+type MockedThirdPartyCapability = 'effort' | 'max_effort' | 'xhigh_effort'
 
 const originalEnv = { ...process.env }
 const routingEnvKeys = [
@@ -75,21 +78,29 @@ afterEach(() => {
 })
 
 async function importFreshEffortModule(options: {
-  provider: 'codex' | 'openai'
+  provider: APIProvider
   supportsCodexReasoningEffort: boolean
   routeId?: string
   catalogEntries?: any[]
   modelDescriptors?: Record<string, any>
   openaiShimConfig?: any
-  thirdPartyEffortOverride?: boolean
+  thirdPartyCapabilityOverrides?: {
+    apiProvider: APIProvider
+    capabilities: Partial<Record<MockedThirdPartyCapability, boolean>>
+  }
   useRuntimeFallback?: boolean
 }) {
   mock.module('./model/modelSupportOverrides.js', () => ({
     ...actualModelSupportOverrides,
     get3PModelCapabilityOverride: (
       _model: string,
-      capability: string,
-    ) => capability === 'effort' ? options.thirdPartyEffortOverride : undefined,
+      capability: MockedThirdPartyCapability,
+      apiProvider?: APIProvider,
+    ) => {
+      const override = options.thirdPartyCapabilityOverrides
+      if (!override || apiProvider !== override.apiProvider) return undefined
+      return override.capabilities[capability]
+    },
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
@@ -376,7 +387,7 @@ test('e2e: xhigh → persisted xhigh → resolveAppliedEffort → wire xhigh on 
 
 test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -385,7 +396,7 @@ test('e2e: max on non-Opus Anthropic model still clamps to high', async () => {
 
 test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude models are not', async () => {
   const { modelSupportsXHighEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -401,7 +412,7 @@ test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude 
 
 test('xhigh does not appear in available levels for non-supporting models', async () => {
   const { getAvailableEffortLevels } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -425,7 +436,7 @@ test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async 
   // effort for them would silently drop low/medium on the wire.
   const { modelSupportsEffort, getAvailableEffortLevels } =
     await importFreshEffortModule({
-      provider: 'firstParty' as unknown as 'openai',
+      provider: 'firstParty',
       supportsCodexReasoningEffort: false,
     })
 
@@ -455,7 +466,7 @@ test('effort allowlist is narrowed to the shim isAdaptive||isOpus45 set', async 
 
 test('xhigh clamps to high on non-supporting models so stale settings.json values do not produce API errors', async () => {
   const { resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -485,7 +496,7 @@ test('clampUltracodeEffort: clamps to xhigh on non-firstParty xhigh-capable mode
 
 test('clampUltracodeEffort: clamps to high on firstParty non-xhigh model', async () => {
   const { clampUltracodeEffort, resolveAppliedEffort } = await importFreshEffortModule({
-    provider: 'firstParty' as unknown as 'openai',
+    provider: 'firstParty',
     supportsCodexReasoningEffort: false,
   })
 
@@ -1078,7 +1089,10 @@ test('force enable cannot override non-effort metadata or transport contracts', 
     supportsCodexReasoningEffort: true,
     routeId: 'custom-gateway',
     useRuntimeFallback: false,
-    thirdPartyEffortOverride: true,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
     catalogEntries: [
       {
         id: 'metadata-no-effort',
@@ -1102,7 +1116,10 @@ test('force enable cannot override non-effort metadata or transport contracts', 
     supportsCodexReasoningEffort: true,
     routeId: 'custom',
     useRuntimeFallback: false,
-    thirdPartyEffortOverride: true,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
     openaiShimConfig: { thinkingRequestFormat: 'none' },
   })
 
@@ -1116,7 +1133,10 @@ test('force enable cannot override non-effort metadata or transport contracts', 
     supportsCodexReasoningEffort: true,
     routeId: 'custom-gateway',
     useRuntimeFallback: false,
-    thirdPartyEffortOverride: true,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: true },
+    },
     openaiShimConfig: { thinkingRequestFormat: 'none' },
     catalogEntries: [
       {
@@ -1196,13 +1216,81 @@ test('third-party false beats force enable for unresolved models', async () => {
     supportsCodexReasoningEffort: false,
     routeId: 'custom',
     useRuntimeFallback: false,
-    thirdPartyEffortOverride: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: false },
+    },
   })
 
   expect(modelSupportsEffort('third-party-custom-model')).toBe(false)
   expect(modelSupportsShimReasoningEffort('third-party-custom-model')).toBe(false)
   expect(modelSupportsWireEffort('third-party-custom-model')).toBe(false)
   expect(resolveAppliedEffort('third-party-custom-model', 'high')).toBeUndefined()
+})
+
+test('third-party effort overrides require the matching API provider', async () => {
+  const matchingProvider = await importFreshEffortModule({
+    provider: 'bedrock',
+    supportsCodexReasoningEffort: false,
+    routeId: 'bedrock',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'bedrock',
+      capabilities: {
+        effort: true,
+        max_effort: true,
+        xhigh_effort: false,
+      },
+    },
+  })
+
+  expect(
+    matchingProvider.modelSupportsEffort('provider-scoped-model'),
+  ).toBe(true)
+  expect(
+    matchingProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual(['low', 'medium', 'high', 'max'])
+
+  const xhighProvider = await importFreshEffortModule({
+    provider: 'foundry',
+    supportsCodexReasoningEffort: false,
+    routeId: 'foundry',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'foundry',
+      capabilities: {
+        effort: true,
+        max_effort: false,
+        xhigh_effort: true,
+      },
+    },
+  })
+
+  expect(
+    xhighProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual(['low', 'medium', 'high', 'xhigh'])
+
+  const differentProvider = await importFreshEffortModule({
+    provider: 'vertex',
+    supportsCodexReasoningEffort: false,
+    routeId: 'vertex',
+    useRuntimeFallback: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'bedrock',
+      capabilities: {
+        effort: true,
+        max_effort: true,
+        xhigh_effort: false,
+      },
+    },
+  })
+
+  expect(
+    differentProvider.modelSupportsEffort('provider-scoped-model'),
+  ).toBe(false)
+  expect(
+    differentProvider.getAvailableEffortLevels('provider-scoped-model'),
+  ).toEqual([])
 })
 
 test('explicit effort metadata beats a third-party false override', async () => {
@@ -1217,7 +1305,10 @@ test('explicit effort metadata beats a third-party false override', async () => 
     supportsCodexReasoningEffort: false,
     routeId: 'custom-gateway',
     useRuntimeFallback: false,
-    thirdPartyEffortOverride: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { effort: false },
+    },
     catalogEntries: [
       {
         id: 'metadata-effort-model',
