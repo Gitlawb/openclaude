@@ -133,7 +133,16 @@ export function ThemePicker({
         value: "dark-ansi" as const 
       }, {
         label: "Light mode (ANSI colors only)",
-        value: "light-ansi" as const 
+        value: "light-ansi" as const
+      }, {
+        label: "Dark mode (Nord)",
+        value: "dark-nord" as const
+      }, {
+        label: "Light mode (Nord)",
+        value: "light-nord" as const
+      }, {
+        label: "Dark mode (Nord, ANSI colors only)",
+        value: "dark-nord-ansi" as const
       },],
     [],
   )

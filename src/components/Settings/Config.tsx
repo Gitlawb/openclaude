@@ -1976,7 +1976,10 @@ const THEME_LABELS: Record<string, string> = {
   'dark-daltonized': 'Dark mode (colorblind-friendly)',
   'light-daltonized': 'Light mode (colorblind-friendly)',
   'dark-ansi': 'Dark mode (ANSI colors only)',
-  'light-ansi': 'Light mode (ANSI colors only)'
+  'light-ansi': 'Light mode (ANSI colors only)',
+  'dark-nord': 'Dark mode (Nord)',
+  'light-nord': 'Light mode (Nord)',
+  'dark-nord-ansi': 'Dark mode Nord (ANSI colors only)'
 };
 function NotifChannelLabel(t0) {
   const $ = _c(4);

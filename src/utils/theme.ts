@@ -103,6 +103,9 @@ export const THEME_NAMES = [
   'dark-daltonized',
   'light-ansi',
   'dark-ansi',
+  'dark-nord',
+  'light-nord',
+  'dark-nord-ansi',
 ] as const
 
 /** A renderable theme. Always resolvable to a concrete color palette. */
@@ -627,6 +630,264 @@ const darkDaltonizedTheme: Theme = {
   ultracodeShimmer: 'rgb(77,215,255)', // Brighter cyan-blue shimmer
 }
 
+/**
+ * Dark Nord theme — arctic, low-contrast palette (nord0–nord15) using
+ * explicit RGB values. Deliberately quieter than `dark`: desaturated
+ * frost blues replace bright accents, and muted grays carry structure.
+ */
+const darkNordTheme: Theme = {
+  autoAccept: 'rgb(180,142,173)', // nord15 — muted purple accent
+  bashBorder: 'rgb(208,135,112)', // nord12 — warm orange
+  claude: 'rgb(208,135,112)', // nord12 — brand warm orange
+  claudeShimmer: 'rgb(233,175,142)', // lighter nord12 for shimmer effect
+  brand: 'rgb(208,135,112)', // nord12 — brand warm orange
+  brandShimmer: 'rgb(233,175,142)', // lighter nord12 for shimmer effect
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(129,161,193)', // nord9 — frost blue
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(163,192,221)', // lighter nord9 for shimmer
+  permission: 'rgb(136,192,208)', // nord8 — bright frost blue
+  permissionShimmer: 'rgb(186,222,232)', // lighter nord8 for shimmer effect
+  planMode: 'rgb(94,129,172)', // nord10 — muted deep blue
+  ide: 'rgb(129,161,193)', // nord9 — frost blue
+  promptBorder: 'rgb(76,86,106)', // nord3 — mid gray-blue
+  promptBorderShimmer: 'rgb(130,142,165)', // lighter nord3 for shimmer
+  text: 'rgb(236,239,244)', // nord6 — lightest, for text
+  inverseText: 'rgb(46,52,64)', // nord0 — darkest, for inverse text
+  inactive: 'rgb(76,86,106)', // nord3
+  inactiveShimmer: 'rgb(150,160,180)', // lighter nord3 for shimmer effect
+  subtle: 'rgb(67,76,94)', // nord2 — dark gray-blue
+  suggestion: 'rgb(136,192,208)', // nord8 — bright frost blue
+  remember: 'rgb(129,161,193)', // nord9 — frost blue
+  background: 'rgb(143,188,187)', // nord7 — bright cyan (frost)
+  success: 'rgb(163,190,140)', // nord14 — aurora green
+  error: 'rgb(191,97,106)', // nord11 — aurora red
+  warning: 'rgb(235,203,139)', // nord13 — aurora yellow
+  merged: 'rgb(180,142,173)', // nord15 (matches autoAccept)
+  warningShimmer: 'rgb(245,222,175)', // lighter nord13 for shimmer
+  diffAdded: 'rgb(58,102,72)', // darkened nord14 for background
+  diffRemoved: 'rgb(102,52,58)', // darkened nord11 for background
+  diffAddedDimmed: 'rgb(48,72,58)', // very dark green
+  diffRemovedDimmed: 'rgb(82,62,66)', // very dark red
+  diffAddedWord: 'rgb(163,190,140)', // nord14 — aurora green
+  diffRemovedWord: 'rgb(214,127,135)', // softened nord11
+  // Agent colors (Nord-frost set)
+  red_FOR_SUBAGENTS_ONLY: 'rgb(191,97,106)', // nord11
+  blue_FOR_SUBAGENTS_ONLY: 'rgb(129,161,193)', // nord9
+  green_FOR_SUBAGENTS_ONLY: 'rgb(163,190,140)', // nord14
+  yellow_FOR_SUBAGENTS_ONLY: 'rgb(235,203,139)', // nord13
+  purple_FOR_SUBAGENTS_ONLY: 'rgb(180,142,173)', // nord15
+  orange_FOR_SUBAGENTS_ONLY: 'rgb(208,135,112)', // nord12
+  pink_FOR_SUBAGENTS_ONLY: 'rgb(222,150,190)', // lightened nord15
+  cyan_FOR_SUBAGENTS_ONLY: 'rgb(143,188,187)', // nord7
+  // Grove colors
+  professionalBlue: 'rgb(129,161,193)', // nord9
+  // Chrome colors
+  chromeYellow: 'rgb(235,203,139)', // nord13
+  // TUI V2 colors
+  clawd_body: 'rgb(208,135,112)', // nord12 (matches brand)
+  clawd_background: 'rgb(46,52,64)', // nord0 — dark arctic background
+  userMessageBackground: 'rgb(59,66,82)', // nord1 — elevated surface
+  userMessageBackgroundHover: 'rgb(67,76,94)', // nord2 — hover surface
+  messageActionsBackground: 'rgb(80,94,118)', // cool gray-blue, slightly toward nord9
+  selectionBg: 'rgb(94,129,172)', // nord10 — classic dark selection blue
+  bashMessageBackgroundColor: 'rgb(67,76,94)', // nord2
+  memoryBackgroundColor: 'rgb(63,75,92)', // nord1 with slight teal cast
+  rate_limit_fill: 'rgb(136,192,208)', // nord8
+  rate_limit_empty: 'rgb(55,77,98)', // dark blue
+  fastMode: 'rgb(208,135,112)', // nord12 — warm orange
+  fastModeShimmer: 'rgb(233,175,142)', // lighter nord12 for shimmer
+  // Brief/assistant mode
+  briefLabelYou: 'rgb(136,192,208)', // nord8
+  briefLabelClaude: 'rgb(208,135,112)', // nord12 (matches brand)
+  rainbow_red: 'rgb(210,110,118)', // nord11-leaning
+  rainbow_orange: 'rgb(208,135,112)', // nord12
+  rainbow_yellow: 'rgb(235,203,139)', // nord13
+  rainbow_green: 'rgb(163,190,140)', // nord14
+  rainbow_blue: 'rgb(129,161,193)', // nord9
+  rainbow_indigo: 'rgb(160,140,190)', // nord15-leaning
+  rainbow_violet: 'rgb(180,142,173)', // nord15
+  rainbow_red_shimmer: 'rgb(240,150,155)',
+  rainbow_orange_shimmer: 'rgb(238,175,150)',
+  rainbow_yellow_shimmer: 'rgb(245,222,175)',
+  rainbow_green_shimmer: 'rgb(195,215,175)',
+  rainbow_blue_shimmer: 'rgb(170,195,225)',
+  rainbow_indigo_shimmer: 'rgb(195,180,220)',
+  rainbow_violet_shimmer: 'rgb(215,180,205)',
+  ultracode: 'rgb(136,192,208)', // nord8
+  ultracodeShimmer: 'rgb(186,222,232)', // lighter nord8
+}
+
+/**
+ * Light Nord theme — same arctic palette as `dark-nord`, re-weighted for a
+ * light background: mid-tone accents are darkened for contrast, surface
+ * grays shift to the light end (nord4–nord6), and text inverts to nord0.
+ */
+const lightNordTheme: Theme = {
+  autoAccept: 'rgb(155,110,150)', // darkened nord15 for white bg
+  bashBorder: 'rgb(191,97,106)', // nord11 — aurora red
+  claude: 'rgb(180,104,80)', // darkened nord12 for white bg
+  claudeShimmer: 'rgb(220,150,120)', // lighter nord12 for shimmer
+  brand: 'rgb(180,104,80)', // darkened nord12 for white bg
+  brandShimmer: 'rgb(220,150,120)', // lighter nord12 for shimmer
+  claudeBlue_FOR_SYSTEM_SPINNER: 'rgb(94,129,172)', // nord10
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'rgb(130,165,210)', // lighter nord10
+  permission: 'rgb(94,129,172)', // nord10
+  permissionShimmer: 'rgb(130,165,210)', // lighter nord10 for shimmer
+  planMode: 'rgb(58,120,120)', // muted teal
+  ide: 'rgb(94,129,172)', // nord10
+  promptBorder: 'rgb(216,222,233)', // nord4 — light gray-blue
+  promptBorderShimmer: 'rgb(229,233,240)', // nord5 for shimmer
+  text: 'rgb(46,52,64)', // nord0 — darkest, for text
+  inverseText: 'rgb(236,239,244)', // nord6 — for inverse text
+  inactive: 'rgb(76,86,106)', // nord3
+  inactiveShimmer: 'rgb(130,142,165)', // lighter nord3 for shimmer
+  subtle: 'rgb(216,222,233)', // nord4 — light gray
+  suggestion: 'rgb(94,129,172)', // nord10
+  remember: 'rgb(94,129,172)', // nord10
+  background: 'rgb(58,140,140)', // darkened nord7 for white bg
+  success: 'rgb(90,130,70)', // darkened nord14
+  error: 'rgb(180,80,90)', // darkened nord11
+  warning: 'rgb(160,120,40)', // darkened nord13
+  merged: 'rgb(155,110,150)', // darkened nord15 (matches autoAccept)
+  warningShimmer: 'rgb(200,160,80)', // lighter warning for shimmer
+  diffAdded: 'rgb(188,224,176)', // light green
+  diffRemoved: 'rgb(240,196,200)', // light red
+  diffAddedDimmed: 'rgb(220,238,212)', // very light green
+  diffRemovedDimmed: 'rgb(250,224,226)', // very light red
+  diffAddedWord: 'rgb(76,130,60)', // medium green
+  diffRemovedWord: 'rgb(200,90,100)', // medium red
+  // Agent colors (Nord, darkened for light bg)
+  red_FOR_SUBAGENTS_ONLY: 'rgb(191,97,106)', // nord11
+  blue_FOR_SUBAGENTS_ONLY: 'rgb(94,129,172)', // nord10
+  green_FOR_SUBAGENTS_ONLY: 'rgb(90,130,70)', // darkened nord14
+  yellow_FOR_SUBAGENTS_ONLY: 'rgb(180,140,50)', // darkened nord13
+  purple_FOR_SUBAGENTS_ONLY: 'rgb(155,110,150)', // darkened nord15
+  orange_FOR_SUBAGENTS_ONLY: 'rgb(180,104,80)', // darkened nord12
+  pink_FOR_SUBAGENTS_ONLY: 'rgb(200,120,160)', // pink-leaning nord15
+  cyan_FOR_SUBAGENTS_ONLY: 'rgb(58,140,140)', // darkened nord7
+  // Grove colors
+  professionalBlue: 'rgb(94,129,172)', // nord10
+  // Chrome colors
+  chromeYellow: 'rgb(200,160,60)', // darkened nord13
+  // TUI V2 colors
+  clawd_body: 'rgb(180,104,80)', // matches brand
+  clawd_background: 'rgb(236,239,244)', // nord6 — light surface
+  userMessageBackground: 'rgb(229,233,240)', // nord5 — elevated surface
+  userMessageBackgroundHover: 'rgb(216,222,233)', // nord4 — hover surface
+  messageActionsBackground: 'rgb(205,212,226)', // cool gray, slightly toward nord9
+  selectionBg: 'rgb(174,206,240)', // nord9-tinted light selection blue
+  bashMessageBackgroundColor: 'rgb(235,238,244)', // near-nord5
+  memoryBackgroundColor: 'rgb(226,238,240)', // nord5 with teal cast
+  rate_limit_fill: 'rgb(94,129,172)', // nord10
+  rate_limit_empty: 'rgb(60,80,110)', // dark blue
+  fastMode: 'rgb(200,120,60)', // warmed nord12
+  fastModeShimmer: 'rgb(230,160,100)', // lighter for shimmer
+  // Brief/assistant mode
+  briefLabelYou: 'rgb(94,129,172)', // nord10
+  briefLabelClaude: 'rgb(180,104,80)', // matches brand
+  rainbow_red: 'rgb(200,105,110)',
+  rainbow_orange: 'rgb(208,135,112)', // nord12
+  rainbow_yellow: 'rgb(200,160,60)', // darkened nord13
+  rainbow_green: 'rgb(110,150,90)', // darkened nord14
+  rainbow_blue: 'rgb(94,129,172)', // nord10
+  rainbow_indigo: 'rgb(140,120,180)',
+  rainbow_violet: 'rgb(155,110,150)', // darkened nord15
+  rainbow_red_shimmer: 'rgb(230,150,155)',
+  rainbow_orange_shimmer: 'rgb(238,175,150)',
+  rainbow_yellow_shimmer: 'rgb(235,205,140)',
+  rainbow_green_shimmer: 'rgb(160,190,140)',
+  rainbow_blue_shimmer: 'rgb(150,180,220)',
+  rainbow_indigo_shimmer: 'rgb(180,160,210)',
+  rainbow_violet_shimmer: 'rgb(200,160,195)',
+  ultracode: 'rgb(60,150,180)', // darkened nord8
+  ultracodeShimmer: 'rgb(110,190,215)', // lighter nord8
+}
+
+/**
+ * Dark Nord ANSI theme — same structural mapping as `dark-nord` but using
+ * only the 16 standard ANSI colors for terminals without truecolor support.
+ * The frost blues lean on cyanBright, and warm accents fall back to
+ * redBright (there is no orange in the base 16-color palette).
+ */
+const darkNordAnsiTheme: Theme = {
+  autoAccept: 'ansi:magentaBright', // nearest to nord15 purple
+  bashBorder: 'ansi:redBright',
+  claude: 'ansi:redBright', // no orange in 16-color palette; nearest warm hue
+  claudeShimmer: 'ansi:yellowBright',
+  brand: 'ansi:redBright', // no orange in 16-color palette; nearest warm hue
+  brandShimmer: 'ansi:yellowBright',
+  claudeBlue_FOR_SYSTEM_SPINNER: 'ansi:blueBright',
+  claudeBlueShimmer_FOR_SYSTEM_SPINNER: 'ansi:cyanBright',
+  permission: 'ansi:cyanBright', // frost blue
+  permissionShimmer: 'ansi:cyanBright',
+  planMode: 'ansi:cyan',
+  ide: 'ansi:blue',
+  promptBorder: 'ansi:white',
+  promptBorderShimmer: 'ansi:whiteBright',
+  text: 'ansi:whiteBright',
+  inverseText: 'ansi:black',
+  inactive: 'ansi:white',
+  inactiveShimmer: 'ansi:whiteBright',
+  subtle: 'ansi:white',
+  suggestion: 'ansi:cyanBright',
+  remember: 'ansi:cyanBright',
+  background: 'ansi:cyanBright',
+  success: 'ansi:greenBright',
+  error: 'ansi:redBright',
+  warning: 'ansi:yellowBright',
+  merged: 'ansi:magentaBright',
+  warningShimmer: 'ansi:yellowBright',
+  diffAdded: 'ansi:green',
+  diffRemoved: 'ansi:red',
+  diffAddedDimmed: 'ansi:green',
+  diffRemovedDimmed: 'ansi:red',
+  diffAddedWord: 'ansi:greenBright',
+  diffRemovedWord: 'ansi:redBright',
+  // Agent colors
+  red_FOR_SUBAGENTS_ONLY: 'ansi:redBright',
+  blue_FOR_SUBAGENTS_ONLY: 'ansi:blueBright',
+  green_FOR_SUBAGENTS_ONLY: 'ansi:greenBright',
+  yellow_FOR_SUBAGENTS_ONLY: 'ansi:yellowBright',
+  purple_FOR_SUBAGENTS_ONLY: 'ansi:magentaBright',
+  orange_FOR_SUBAGENTS_ONLY: 'ansi:redBright',
+  pink_FOR_SUBAGENTS_ONLY: 'ansi:magentaBright',
+  cyan_FOR_SUBAGENTS_ONLY: 'ansi:cyanBright',
+  // Grove colors
+  professionalBlue: 'ansi:blueBright',
+  // Chrome colors
+  chromeYellow: 'ansi:yellowBright',
+  // TUI V2 colors
+  clawd_body: 'ansi:redBright',
+  clawd_background: 'ansi:black',
+  userMessageBackground: 'ansi:blackBright',
+  userMessageBackgroundHover: 'ansi:white',
+  messageActionsBackground: 'ansi:blackBright',
+  selectionBg: 'ansi:blue',
+  bashMessageBackgroundColor: 'ansi:black',
+  memoryBackgroundColor: 'ansi:blackBright',
+  rate_limit_fill: 'ansi:cyanBright',
+  rate_limit_empty: 'ansi:white',
+  fastMode: 'ansi:redBright',
+  fastModeShimmer: 'ansi:redBright',
+  briefLabelYou: 'ansi:cyanBright',
+  briefLabelClaude: 'ansi:redBright',
+  rainbow_red: 'ansi:red',
+  rainbow_orange: 'ansi:redBright',
+  rainbow_yellow: 'ansi:yellow',
+  rainbow_green: 'ansi:green',
+  rainbow_blue: 'ansi:cyan',
+  rainbow_indigo: 'ansi:blue',
+  rainbow_violet: 'ansi:magenta',
+  rainbow_red_shimmer: 'ansi:redBright',
+  rainbow_orange_shimmer: 'ansi:yellow',
+  rainbow_yellow_shimmer: 'ansi:yellowBright',
+  rainbow_green_shimmer: 'ansi:greenBright',
+  rainbow_blue_shimmer: 'ansi:cyanBright',
+  rainbow_indigo_shimmer: 'ansi:blueBright',
+  rainbow_violet_shimmer: 'ansi:magentaBright',
+  ultracode: 'ansi:cyanBright',
+  ultracodeShimmer: 'ansi:cyanBright',
+}
+
 export function getTheme(themeName: ThemeName): Theme {
   switch (themeName) {
     case 'light':
@@ -639,6 +900,12 @@ export function getTheme(themeName: ThemeName): Theme {
       return lightDaltonizedTheme
     case 'dark-daltonized':
       return darkDaltonizedTheme
+    case 'dark-nord':
+      return darkNordTheme
+    case 'light-nord':
+      return lightNordTheme
+    case 'dark-nord-ansi':
+      return darkNordAnsiTheme
     default:
       return darkTheme
   }

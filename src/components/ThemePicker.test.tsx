@@ -169,3 +169,55 @@ test('updates the preview when keyboard focus moves to another theme', async () 
     await Bun.sleep(0)
   }
 })
+
+test('navigates to the Nord themes and previews each one', async () => {
+  const { ThemePicker } = await import('./ThemePicker.js')
+  const { stdout, stdin, getOutput } = createTestStreams()
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(
+    <AppStateProvider>
+      <KeybindingSetup>
+        <ThemeProvider initialState="dark">
+          <ThemePicker onThemeSelect={() => {}} />
+        </ThemeProvider>
+      </KeybindingSetup>
+    </AppStateProvider>,
+  )
+
+  try {
+    await waitForFrame(getOutput, frame => frame.includes('Preview theme: dark'))
+
+    // Nord entries are the final three options: dark-nord, light-nord,
+    // dark-nord-ansi. Press one at a time and wait for the intermediate
+    // preview each time — a batched write ('jjjjjj') coalesces into a
+    // single keypress in the test stdin harness.
+    const steps: Array<{ press: number; target: string }> = [
+      { press: 1, target: 'light' },
+      { press: 2, target: 'dark-daltonized' },
+      { press: 3, target: 'light-daltonized' },
+      { press: 4, target: 'dark-ansi' },
+      { press: 5, target: 'light-ansi' },
+      { press: 6, target: 'dark-nord' },
+      { press: 7, target: 'light-nord' },
+      { press: 8, target: 'dark-nord-ansi' },
+    ]
+    for (const step of steps) {
+      stdin.write('j')
+      const frame = await waitForFrame(
+        getOutput,
+        f => f.includes(`Preview theme: ${step.target}`),
+      )
+      expect(frame).toContain(`Preview theme: ${step.target}`)
+    }
+  } finally {
+    root.unmount()
+    stdin.end()
+    stdout.end()
+    await Bun.sleep(0)
+  }
+})
