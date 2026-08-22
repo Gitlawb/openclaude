@@ -1474,6 +1474,7 @@ function buildOpenAICompatibleStartupEnv(
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
   const isConcentrateProfileFlag = isConcentrateProfile(activeProfile)
+  const isLlmtrProfileFlag = isLlmtrProfile(activeProfile)
 
   if (
     activeProfile.apiKey &&
@@ -1510,6 +1511,9 @@ function buildOpenAICompatibleStartupEnv(
       }
       if (isConcentrateProfileFlag) {
         strictEnv.CONCENTRATE_API_KEY = activeProfile.apiKey
+      }
+      if (isLlmtrProfileFlag) {
+        strictEnv.LLMTR_API_KEY = activeProfile.apiKey
       }
       if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
@@ -1604,6 +1608,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isConcentrateProfileFlag) {
       env.CONCENTRATE_API_KEY = activeProfile.apiKey
+    }
+    if (isLlmtrProfileFlag) {
+      env.LLMTR_API_KEY = activeProfile.apiKey
     }
     if (isClinePassProfile(activeProfile)) {
       env.CLINE_API_KEY = activeProfile.apiKey

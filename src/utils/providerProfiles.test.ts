@@ -3754,6 +3754,66 @@ describe('setActiveProviderProfile', () => {
     }
   })
 
+  test('keyed canonical LLMTR profiles persist their saved dedicated credential across restart', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const llmtrProfile = buildLlmtrProfile({ id: 'llmtr_profile' })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [llmtrProfile],
+      }))
+
+      const result = setActiveProviderProfile('llmtr_profile', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('llmtr_profile')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toMatchObject({
+        OPENAI_BASE_URL: 'https://llmtr.com/v1',
+        OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+        OPENAI_API_KEY: 'llmtr-test-key',
+        LLMTR_API_KEY: 'llmtr-test-key',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          LLMTR_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(startupEnv.OPENAI_API_KEY).toBe('llmtr-test-key')
+      expect(startupEnv.LLMTR_API_KEY).toBe('llmtr-test-key')
+
+      delete persisted.env.LLMTR_API_KEY
+      const migratedStartupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          LLMTR_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(migratedStartupEnv.OPENAI_API_KEY).toBe('llmtr-test-key')
+      expect(migratedStartupEnv.LLMTR_API_KEY).toBe('llmtr-test-key')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
   test('persists Xiaomi MiMo profiles using a legacy-compatible openai startup profile', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
     const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))

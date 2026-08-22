@@ -2299,9 +2299,23 @@ export async function buildLaunchEnv(options: {
       persistedOpenAICredential?.kind === 'usable'
         ? sanitizeApiKey(persistedOpenAICredential.value)
         : undefined
+    // A selected canonical LLMTR profile owns its saved credential. Prefer it
+    // over an unrelated ambient LLMTR_API_KEY on restart, and migrate startup
+    // files written before LLMTR_API_KEY was persisted explicitly.
+    const persistedLlmtrProfileKey =
+      dedicatedKey === 'LLMTR_API_KEY' &&
+      effectiveOpenAIRouteId === 'llmtr' &&
+      !!dedicatedBaseUrl &&
+      isCanonicalLlmtrInferenceBaseUrl(dedicatedBaseUrl)
+        ? sanitizeApiKey(persistedEnv.LLMTR_API_KEY) ||
+          (persistedOpenAICredential?.kind === 'usable'
+            ? sanitizeApiKey(persistedOpenAICredential.value)
+            : undefined)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
+        persistedLlmtrProfileKey ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
         backfillLegacyApismartProfileKey ||
