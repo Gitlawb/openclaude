@@ -165,6 +165,25 @@ test('LLMTR validation rejects placeholder dedicated credentials', async () => {
   )
 })
 
+test('LLMTR validation rejects an invalid generic fallback credential', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'LLMTR auth is required. Set LLMTR_API_KEY or OPENAI_API_KEY.',
+  )
+})
+
+test('LLMTR validation accepts a dedicated credential despite an invalid generic fallback', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'
+  process.env.LLMTR_API_KEY = 'llmtr-key'
+  process.env.OPENAI_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEY', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'

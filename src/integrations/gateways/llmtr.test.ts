@@ -88,6 +88,10 @@ test('LLMTR dedicated credentials require an already selected LLMTR route', () =
   expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1')).toBe('llmtr')
   expect(resolveRouteIdFromBaseUrl('https://llmtr.com/proxy/v1')).toBeNull()
   expect(
+    resolveRouteIdFromBaseUrl('https://llmtr.com/v1?tenant=proxy'),
+  ).toBeNull()
+  expect(resolveRouteIdFromBaseUrl('https://llmtr.com/v1#proxy')).toBeNull()
+  expect(
     resolveRouteCredentialValue({
       routeId: 'llmtr',
       baseUrl: 'https://llmtr.com/v1',

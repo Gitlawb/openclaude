@@ -1207,6 +1207,62 @@ test('ProviderManager adds LLMTR with only model selection and API key', async (
   }
 })
 
+test('ProviderManager edits query-bearing LLMTR endpoints with generic proxy controls', async () => {
+  const llmtrProxyProfile = {
+    id: 'provider_llmtr_proxy',
+    provider: 'llmtr',
+    name: 'LLMTR query proxy',
+    baseUrl: 'https://llmtr.com/v1?tenant=proxy',
+    model: 'proxy-model',
+    apiKey: undefined,
+    apiFormat: 'responses',
+    authHeader: 'X-Proxy-Key',
+    authScheme: 'raw',
+    authHeaderValue: 'proxy-auth-value',
+    customHeaders: { 'X-Proxy-Trace': 'enabled' },
+  }
+
+  mockProviderManagerDependencies(
+    () => undefined,
+    async () => undefined,
+    {
+      getProviderProfiles: () => [llmtrProxyProfile],
+      getActiveProviderProfile: () => llmtrProxyProfile,
+    },
+  )
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager') && frame.includes('Edit provider'),
+    )
+
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('j')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider') &&
+      frame.includes('LLMTR query proxy') &&
+      !frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    const editOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Edit provider profile') && frame.includes('Step 1 of 8'),
+    )
+
+    expect(editOutput).toContain('Advanced: this provider supports custom request headers')
+  } finally {
+    await mounted.dispose()
+  }
+})
+
 test('ProviderManager saves OpenAI preset GPT-5 models with Responses API', async () => {
   const addProviderProfile = mock((payload: any) => ({
     id: 'openai_profile',

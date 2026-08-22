@@ -356,6 +356,24 @@ describe('applyProviderProfileToProcessEnv', () => {
     ).toBe('selected-new')
   }, 20_000)
 
+  test('keyless canonical LLMTR profile adopts its ambient dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+
+    applyProviderProfileToProcessEnv(buildLlmtrProfile({ apiKey: undefined }))
+
+    expect(process.env.LLMTR_API_KEY).toBe('ambient-llmtr-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-llmtr-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'llmtr',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('ambient-llmtr-key')
+  }, 20_000)
+
   test('applies Azure-style routing from a saved OpenAI-compatible profile', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -1851,6 +1869,36 @@ describe('applyProviderProfileToProcessEnv', () => {
     )
 
     expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.LLMTR_API_KEY).toBeUndefined()
+  })
+
+  test('query-bearing LLMTR profiles retain generic proxy capabilities', async () => {
+    const { addProviderProfile, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.LLMTR_API_KEY = 'ambient-llmtr-key'
+
+    const saved = addProviderProfile({
+      provider: 'llmtr',
+      name: 'LLMTR query proxy',
+      baseUrl: 'https://llmtr.com/v1?tenant=proxy',
+      model: 'proxy-model',
+      apiKey: 'saved-llmtr-key',
+      apiFormat: 'responses',
+      authHeader: 'X-Proxy-Key',
+      authScheme: 'raw',
+      authHeaderValue: 'proxy-auth-value',
+      customHeaders: { 'X-Proxy-Trace': 'enabled' },
+    })
+
+    applyProviderProfileToProcessEnv(saved!)
+
+    expect(process.env.OPENAI_API_FORMAT).toBe('responses')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('proxy-auth-value')
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+      'X-Proxy-Trace: enabled',
+    )
     expect(process.env.OPENAI_API_KEY).toBeUndefined()
     expect(process.env.LLMTR_API_KEY).toBeUndefined()
   })

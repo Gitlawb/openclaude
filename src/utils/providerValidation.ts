@@ -345,11 +345,21 @@ function getCredentialEnvValidationError(
   if (usesOpenAIFallback) {
     const openAIState = resolveOpenAICredentialEnvState(env)
     if (openAIState.invalid) {
-      return (
-        validation.invalidCredentialValues?.find(
-          invalidValue => invalidValue.envVar === openAIState.envVar,
-        )?.message ?? null
+      const hasUsableDedicatedCredential = credentialEnvVars.some(
+        envVar =>
+          envVar !== 'OPENAI_API_KEYS' &&
+          envVar !== 'OPENAI_API_KEY' &&
+          hasUsableCredentialEnvValue(env, envVar),
       )
+      if (!hasUsableDedicatedCredential) {
+        return (
+          validation.invalidCredentialValues?.find(
+            invalidValue => invalidValue.envVar === openAIState.envVar,
+          )?.message ??
+          validation.missingCredentialMessage ??
+          null
+        )
+      }
     }
   }
 

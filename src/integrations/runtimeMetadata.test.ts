@@ -293,6 +293,24 @@ describe('resolveModelRuntimeLimits', () => {
   })
 })
 
+describe('LLMTR runtime attribution', () => {
+  it('keeps query-bearing endpoints on the generic custom transport', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      activeProfileProvider: 'llmtr',
+      baseUrl: 'https://llmtr.com/v1?tenant=proxy',
+      model: 'proxy-model',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_API_FORMAT: 'responses',
+      },
+    })
+
+    expect(result.routeId).not.toBe('llmtr')
+    expect(result.openaiShimConfig.requiredApiFormat).toBeUndefined()
+    expect(result.openaiShimConfig.maxTokensField).toBeUndefined()
+  })
+})
+
 describe('AIMLAPI runtime attribution', () => {
   it('sends the fixed partner id on the canonical endpoint only', () => {
     const previous = process.env.AIMLAPI_PARTNER_ID

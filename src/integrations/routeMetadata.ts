@@ -1261,6 +1261,16 @@ export function resolveRouteIdFromBaseUrl(
       normalizedBaseUrl &&
       normalizedDefaultBaseUrl === normalizedBaseUrl
     ) {
+      // LLMTR's dedicated credential and fixed transport contract are valid
+      // only for the exact inference URL. The generic comparable-URL helper
+      // intentionally ignores query/hash components for other providers, but a
+      // query-bearing LLMTR URL is a retargeted/custom endpoint.
+      if (
+        route.id === 'llmtr' &&
+        !isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+      ) {
+        continue
+      }
       return route.id
     }
   }
@@ -1277,7 +1287,9 @@ export function resolveRouteIdFromBaseUrl(
           (route.id === 'longcat' && !isLongcatBaseUrl(baseUrl)) ||
           (route.id === 'apismart' && !isApismartBaseUrl(baseUrl)) ||
           (route.id === 'concentrate' &&
-            !isCanonicalConcentrateInferenceBaseUrl(baseUrl))
+            !isCanonicalConcentrateInferenceBaseUrl(baseUrl)) ||
+          (route.id === 'llmtr' &&
+            !isCanonicalLlmtrInferenceBaseUrl(baseUrl))
         ) {
           continue
         }

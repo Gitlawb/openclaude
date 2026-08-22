@@ -249,7 +249,7 @@ function normalizeBaseUrl(value: string): string {
   return trimValue(value).replace(/\/+$/, '')
 }
 
-function resolveProfileCapabilityRouteId(
+export function resolveProfileCapabilityRouteId(
   provider: string,
   baseUrl?: string,
 ): string {
@@ -1161,6 +1161,22 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY =
             openAIProfileEnv.OPENAI_API_KEY ?? ambientConcentrateKey
           openAIProfileEnv.CONCENTRATE_API_KEY = ambientConcentrateKey
+        }
+      }
+    }
+    // A keyless canonical LLMTR profile may use the dedicated credential from
+    // the ambient environment. Profile application clears all managed provider
+    // variables before installing this object, so adopt it here while the
+    // canonical endpoint boundary is still known. Never carry it to a
+    // retargeted profile.
+    if (route.routeId === 'llmtr') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
+      if (isLlmtrProfile(profile) && !profile.apiKey) {
+        const ambientLlmtrKey = sanitizeApiKey(process.env.LLMTR_API_KEY)
+        if (ambientLlmtrKey) {
+          openAIProfileEnv.OPENAI_API_KEY =
+            openAIProfileEnv.OPENAI_API_KEY ?? ambientLlmtrKey
+          openAIProfileEnv.LLMTR_API_KEY = ambientLlmtrKey
         }
       }
     }
