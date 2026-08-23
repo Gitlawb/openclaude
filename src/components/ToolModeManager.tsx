@@ -5,13 +5,34 @@ import type { Tool } from '../Tool.js'
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js'
 import { Pane } from './design-system/Pane.js'
 
-type ToolMode = 'always' | 'ask' | 'auto' | 'off'
+export type ToolMode = 'always' | 'ask' | 'auto' | 'off'
 
 const MODES: ToolMode[] = ['auto', 'always', 'ask', 'off']
 
-function nextMode(current: ToolMode): ToolMode {
+export function nextMode(current: ToolMode): ToolMode {
   const idx = MODES.indexOf(current)
   return MODES[(idx + 1) % MODES.length]!
+}
+
+/**
+ * Pure next-state computation for cycling a tool's mode.
+ *
+ * Returns the updated modes map. Cycling back to 'auto' removes the entry,
+ * which is what lets a persisted 'off' mode be re-enabled — and when the map
+ * empties, callers persist `undefined` instead of an empty object.
+ */
+export function applyModeCycle(
+  modes: Record<string, ToolMode>,
+  toolName: string,
+): Record<string, ToolMode> {
+  const next = nextMode(modes[toolName] ?? 'auto')
+  const updated = { ...modes }
+  if (next === 'auto') {
+    delete updated[toolName]
+  } else {
+    updated[toolName] = next
+  }
+  return updated
 }
 
 function modeBadge(mode: ToolMode): React.ReactNode {
@@ -46,14 +67,7 @@ export function ToolModeManager({ tools, onClose }: Props): React.ReactNode {
 
   const cycleMode = useCallback(
     (toolName: string) => {
-      const current = getMode(toolName)
-      const next = nextMode(current)
-      const updated = { ...modes }
-      if (next === 'auto') {
-        delete updated[toolName]
-      } else {
-        updated[toolName] = next
-      }
+      const updated = applyModeCycle(modes, toolName)
       setModes(updated)
       saveGlobalConfig(config => ({
         ...config,

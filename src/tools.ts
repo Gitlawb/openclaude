@@ -260,7 +260,24 @@ export function filterToolsByDenyRules<
   return tools.filter(tool => !getDenyRuleForTool(permissionContext, tool))
 }
 
-export const getTools = (permissionContext: ToolPermissionContext): Tools => {
+export const getTools = (
+  permissionContext: ToolPermissionContext,
+  options: { includeOffTools?: boolean; mcpTools?: Tools } = {},
+): Tools => {
+  const { includeOffTools = false, mcpTools = [] } = options
+
+  // Respect per-tool 'off' modes set via /tools — a disabled tool is removed
+  // from the pool entirely. Other modes (always/ask/auto) are display-only.
+  // Skipped when includeOffTools so the /tools manager can list (and re-enable)
+  // tools that are currently off. Applied on every return path, including the
+  // CLAUDE_CODE_SIMPLE early returns below.
+  const applyToolModesFilter = (tools: Tool[]): Tool[] => {
+    if (includeOffTools) return tools
+    const toolModes = getGlobalConfig().toolModes
+    if (!toolModes) return tools
+    return tools.filter(tool => toolModes[tool.name] !== 'off')
+  }
+
   // Simple mode: only Bash, Read, and Edit tools
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
     // --bare + REPL mode: REPL wraps Bash/Read/Edit/etc inside the VM, so
@@ -275,7 +292,10 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
         const sendMessageTool = getSendMessageTool()
         if (sendMessageTool) replSimple.push(TaskStopTool, sendMessageTool)
       }
-      return filterToolsByDenyRules(replSimple, permissionContext)
+      return filterToolsByDenyRules(
+        applyToolModesFilter(replSimple),
+        permissionContext,
+      )
     }
     const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
     // When coordinator mode is also active, include AgentTool and TaskStopTool
@@ -289,7 +309,10 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
       const sendMessageTool = getSendMessageTool()
       if (sendMessageTool) simpleTools.push(sendMessageTool)
     }
-    return filterToolsByDenyRules(simpleTools, permissionContext)
+    return filterToolsByDenyRules(
+      applyToolModesFilter(simpleTools),
+      permissionContext,
+    )
   }
 
   // Get all base tools and filter out special tools that get added conditionally
@@ -321,15 +344,35 @@ export const getTools = (permissionContext: ToolPermissionContext): Tools => {
   // (defensive check against initialization timing issues)
   allowedTools = allowedTools.filter(Boolean)
 
-  // Respect per-tool 'off' modes set via /tools — a disabled tool is removed
-  // from the pool entirely. Other modes (always/ask/auto) are display-only.
-  const toolModes = getGlobalConfig().toolModes
-  if (toolModes) {
-    allowedTools = allowedTools.filter(tool => toolModes[tool.name] !== 'off')
-  }
+  allowedTools = applyToolModesFilter(allowedTools)
 
   const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
-  return allowedTools.filter((_, i) => isEnabled[i])
+  allowedTools = allowedTools.filter((_, i) => isEnabled[i])
+
+  // When mcpTools are provided (the /tools manager), merge them in after the
+  // built-in pool so every tool in the active pool can be managed. Deny-rule
+  // filtered and deduplicated with built-ins taking precedence, matching
+  // assembleToolPool().
+  if (mcpTools.length > 0) {
+    const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext).filter(Boolean)
+    allowedTools = uniqBy([...allowedTools, ...allowedMcpTools], 'name')
+  }
+
+  return allowedTools
+}
+
+/**
+ * Build the tool list for the /tools mode manager.
+ *
+ * Unlike getTools(), this keeps tools configured to 'off' (so they stay
+ * visible and can be cycled back to auto/always/ask) and includes MCP tools
+ * from the active pool. Environment and permission filtering still applies.
+ */
+export function getToolsForModeManager(
+  permissionContext: ToolPermissionContext,
+  mcpTools: Tools,
+): Tools {
+  return getTools(permissionContext, { includeOffTools: true, mcpTools })
 }
 
 /**
