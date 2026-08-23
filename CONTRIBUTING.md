@@ -88,7 +88,13 @@ The PR author is responsible for keeping their branch current with `main`. Rebas
 
 Stale branches cause real problems: maintainers end up requesting fixes for issues that are already resolved on `main`, which produces endless fix-churn requests for work nobody needs to do again. A quick rebase before each update keeps review feedback relevant and avoids wasted rounds on both sides.
 
-Before rebasing an already-pushed PR branch, fetch both the current remote PR head and upstream `main`, and incorporate any commits that were added to the remote branch. After the rebase, publish with `git push --force-with-lease`, never an unguarded `--force`; the lease prevents overwriting a maintainer, bot, or collaborator update that arrived after your fetch. If the branch is shared or does not allow force-pushes, coordinate with a maintainer and use a repository-approved non-rewriting update path instead of discarding remote work.
+Before rebasing an already-pushed PR branch, fetch the current remote PR head, record its exact commit SHA, and incorporate any commits that were added to the remote branch. Then fetch upstream `main` and rebase. Publish with an explicit lease pinned to the PR-head SHA you recorded, never an unguarded `--force` or an unqualified lease:
+
+```bash
+git push --force-with-lease=refs/heads/<pr-branch>:<recorded-pr-head-sha> <pr-remote> HEAD:refs/heads/<pr-branch>
+```
+
+Pinning the expected SHA prevents a background fetch from silently moving a remote-tracking ref and weakening the lease. If the lease is rejected, stop: fetch and inspect the new remote PR head, incorporate its commits, redo the rebase, and retry with that newly recorded SHA. If the branch is shared or does not allow force-pushes, coordinate with a maintainer and use a repository-approved non-rewriting update path instead of discarding remote work.
 
 Note that PRs with merge conflicts will not be reviewed or approved regardless (see [Pull Requests](#pull-requests)) — staying current prevents that state entirely.
 

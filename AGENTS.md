@@ -82,8 +82,9 @@ Diagnostics and PR hygiene:
 
 ```bash
 bun run doctor:runtime
-bun run security:pr-scan
 ```
+
+For PR intent scanning, use the canonical upstream fetch and explicit-ref invocation in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation); the scanner's default `origin/main` base is not portable to fork checkouts.
 
 ## Provider Changes
 

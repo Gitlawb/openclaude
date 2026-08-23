@@ -441,7 +441,7 @@ Day-to-day commands:
 - `bun test path/to/file.test.ts` — focused runs for the areas you touch
 - `bun run test:coverage` — coverage to `coverage/lcov.info` plus a visual report at `coverage/index.html` (`bun run test:coverage:ui` rebuilds just the UI)
 - `bun run smoke` — smoke checks
-- `bun run doctor:runtime`, `bun run verify:privacy`, `bun run security:pr-scan -- --base origin/main`
+- `bun run doctor:runtime`, `bun run verify:privacy`; for PR intent scanning, use the fresh-upstream, explicit-ref workflow in the [local pre-push validation contract](CONTRIBUTING.md#validation)
 
 Focused suites: `bun run test:provider`, `bun run test:provider-recommendation`.
 
