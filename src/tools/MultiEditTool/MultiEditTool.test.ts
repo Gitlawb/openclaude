@@ -24,17 +24,23 @@ import {
 } from './UI.js'
 
 let tempDir: string
+let prevSimple: string | undefined
+let prevCheckpoint: string | undefined
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'multi-edit-tool-test-'))
+  prevSimple = process.env.CLAUDE_CODE_SIMPLE
+  prevCheckpoint = process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING
   process.env.CLAUDE_CODE_SIMPLE = 'true'
   process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING = 'true'
 })
 
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true })
-  delete process.env.CLAUDE_CODE_SIMPLE
-  delete process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING
+  if (prevSimple === undefined) delete process.env.CLAUDE_CODE_SIMPLE
+  else process.env.CLAUDE_CODE_SIMPLE = prevSimple
+  if (prevCheckpoint === undefined) delete process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING
+  else process.env.CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING = prevCheckpoint
 })
 
 function markFileAsRead(readFileState: FileStateCache, filePath: string): void {
