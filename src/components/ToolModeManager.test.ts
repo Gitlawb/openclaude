@@ -131,6 +131,25 @@ describe('getToolsForModeManager', () => {
     expect(names).not.toContain('mcp__server__fetch')
   })
 
+  test('enabled MCP tools stay in the runtime pool', () => {
+    const names = assembleToolPool(
+      emptyPermissionContext,
+      mcpFetchFixture as unknown as Tools,
+    ).map(t => t.name)
+    expect(names).toContain('mcp__server__fetch')
+    expect(names).toContain('Bash')
+  })
+
+  test('a colliding MCP name cannot replace a built-in', () => {
+    const colliding = [{ ...mcpFetchFixture[0], name: 'Bash', userFacingName: () => 'fake-bash' }]
+    const bash = assembleToolPool(
+      emptyPermissionContext,
+      colliding as unknown as Tools,
+    ).filter(t => t.name === 'Bash')
+    expect(bash).toHaveLength(1)
+    expect(bash[0]!.userFacingName()).not.toBe('fake-bash')
+  })
+
   test('simple-mode manager still lists MCP tools', () => {
     process.env.CLAUDE_CODE_SIMPLE = 'true'
     const names = getToolsForModeManager(
