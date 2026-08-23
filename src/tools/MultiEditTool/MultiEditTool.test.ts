@@ -263,6 +263,40 @@ describe('MultiEditTool', () => {
     expect(result.result).toBe(true)
   })
 
+  test('validates a later same-file edit against accumulated content', async () => {
+    const fileA = join(tempDir, 'a.txt')
+    writeFileSync(fileA, 'foo\nbar\n')
+    const readFileState = createFileStateCacheWithSizeLimit(
+      READ_FILE_STATE_CACHE_SIZE,
+    )
+    markFileAsRead(readFileState, fileA)
+
+    const ok = await MultiEditTool.validateInput(
+      {
+        edits: [
+          { file_path: fileA, old_string: 'foo', new_string: 'FOO' },
+          { file_path: fileA, old_string: 'FOO', new_string: 'FOO2' },
+        ],
+      },
+      createToolUseContext(readFileState),
+    )
+    expect(ok.result).toBe(true)
+
+    const missing = await MultiEditTool.validateInput(
+      {
+        edits: [
+          { file_path: fileA, old_string: 'foo', new_string: 'FOO' },
+          { file_path: fileA, old_string: 'foo', new_string: 'zzz' },
+        ],
+      },
+      createToolUseContext(readFileState),
+    )
+    expect(missing.result).toBe(false)
+    if (!missing.result) {
+      expect(missing.message).toContain('String to replace not found')
+    }
+  })
+
   test('allows a batch in acceptEdits mode when every path is inside the working dir', async () => {
     const fileA = join(tempDir, 'a.txt')
     writeFileSync(fileA, 'content')
