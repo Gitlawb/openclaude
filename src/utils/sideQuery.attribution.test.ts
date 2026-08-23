@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -43,6 +43,7 @@ const envKeys = [
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_UNIX_SOCKET',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -205,7 +206,11 @@ afterEach(() => {
       }
     }
     globalThis.fetch = originalFetch
-    process.env.NODE_ENV = originalNodeEnv
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
     setFlagSettingsPath(undefined)
     setFlagSettingsInline(null)
     setAllowedSettingSources([...SETTING_SOURCES])
@@ -245,12 +250,21 @@ describeAttribution('sideQuery Anthropic attribution', () => {
       'claude-desktop',
       'api-key-helper',
     ],
+    [
+      'Unix-socket OAuth proxy',
+      'ANTHROPIC_UNIX_SOCKET',
+      '/tmp/openclaude-auth-test.sock',
+      'auth-token',
+    ],
   ] as const) {
     test(`uses OAuth headers and attribution in managed ${label} sessions`, async () => {
       process.env[envKey] = envValue
       process.env.CLAUDE_CODE_OAUTH_TOKEN = 'oauth-test-token'
       process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
       if (ambientAuth === 'api-key-helper') setIgnoredApiKeyHelper()
+      if (ambientAuth === 'auth-token') {
+        process.env.ANTHROPIC_AUTH_TOKEN = 'ignored-test-auth-token'
+      }
       getClaudeAIOAuthTokens.cache?.clear?.()
 
       const request = await captureSideQueryRequest()
@@ -265,6 +279,34 @@ describeAttribution('sideQuery Anthropic attribution', () => {
       expect(request.headers.has('x-api-key')).toBe(false)
     })
   }
+
+  test('keeps Unix-socket API-key auth when the OAuth placeholder is absent', async () => {
+    writeFileSync(
+      join(configRoot!, '.credentials.json'),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: 'stored-test-oauth-token',
+          refreshToken: null,
+          expiresAt: null,
+          scopes: ['user:inference'],
+          subscriptionType: null,
+          rateLimitTier: null,
+        },
+      }),
+    )
+    process.env.ANTHROPIC_UNIX_SOCKET = '/tmp/openclaude-auth-test.sock'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const request = await captureSideQueryRequest()
+    const texts = blockTexts(request.system)
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(request.headers.get('x-api-key')).toBe('sk-test-side-query')
+    expect(request.headers.has('authorization')).toBe(false)
+  })
 
   test('strips the block from a custom native endpoint', async () => {
     process.env.ANTHROPIC_BASE_URL = 'https://custom-anthropic.example/v1'

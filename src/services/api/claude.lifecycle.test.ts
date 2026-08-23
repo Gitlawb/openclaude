@@ -67,6 +67,7 @@ const envKeys = [
   'ANTHROPIC_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL',
   'CLAUDE_CODE_ALWAYS_ENABLE_EFFORT',
+  'ANTHROPIC_UNIX_SOCKET',
   'CLAUDE_CODE_ATTRIBUTION_HEADER',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_OAUTH_TOKEN',
@@ -562,6 +563,12 @@ describeLifecycle('Claude API lifecycle tracking', () => {
       'claude-desktop',
       'api-key-helper',
     ],
+    [
+      'Unix-socket OAuth proxy',
+      'ANTHROPIC_UNIX_SOCKET',
+      '/tmp/openclaude-auth-test.sock',
+      'auth-token',
+    ],
   ] as const) {
     test(`uses OAuth headers and attribution in managed ${label} sessions`, async () => {
       setClientTestEnv()
@@ -570,6 +577,9 @@ describeLifecycle('Claude API lifecycle tracking', () => {
       process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
       process.env.OPENCLAUDE_MAX_RETRIES = '0'
       if (ambientAuth === 'api-key-helper') setIgnoredApiKeyHelper()
+      if (ambientAuth === 'auth-token') {
+        process.env.ANTHROPIC_AUTH_TOKEN = 'ignored-test-auth-token'
+      }
       getClaudeAIOAuthTokens.cache?.clear?.()
 
       const request = await capturePrimaryRequest()
@@ -620,6 +630,36 @@ describeLifecycle('Claude API lifecycle tracking', () => {
     expect(requestBody).not.toHaveProperty('reasoning_effort')
     expect(requestBody).not.toHaveProperty('effort')
     expect(requestHeaders?.get('anthropic-beta')).not.toContain('effort')
+  })
+
+  test('keeps Unix-socket API-key auth when the OAuth placeholder is absent', async () => {
+    setClientTestEnv()
+    writeFileSync(
+      join(fixturesRoot!, '.credentials.json'),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: 'stored-test-oauth-token',
+          refreshToken: null,
+          expiresAt: null,
+          scopes: ['user:inference'],
+          subscriptionType: null,
+          rateLimitTier: null,
+        },
+      }),
+    )
+    process.env.ANTHROPIC_UNIX_SOCKET = '/tmp/openclaude-auth-test.sock'
+    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '0'
+    process.env.OPENCLAUDE_MAX_RETRIES = '0'
+    getClaudeAIOAuthTokens.cache?.clear?.()
+
+    const request = await capturePrimaryRequest()
+    const texts = systemBlockTexts(request.system)
+
+    expect(
+      texts.some(text => text.startsWith('x-anthropic-billing-header')),
+    ).toBe(false)
+    expect(request.headers.get('x-api-key')).toBe('sk-test-lifecycle')
+    expect(request.headers.has('authorization')).toBe(false)
   })
 
   test('honors a trusted free-plan override in a managed OAuth context', async () => {
