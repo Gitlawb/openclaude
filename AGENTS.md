@@ -17,7 +17,7 @@ The installed CLI runs on Node.js `>=22.0.0`. Bun is used for source builds, scr
 - Update docs when setup, commands, provider behavior, or user-facing behavior changes.
 - For new features, larger refactors, dependencies, or runtime changes, follow the issue-first guidance in [CONTRIBUTING.md](CONTRIBUTING.md).
 - Keep PR branches current with `main` — rebase onto `main` whenever resuming work or pushing follow-up fixes. Stale branches attract redundant fix-churn requests for issues already fixed on `main`.
-- Run the authoritative pre-push validation contract defined in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) — the full CI-equivalent suite, green before every push to a PR, not just the first one. Platform-specific checks you cannot run locally (e.g., Windows checks from macOS) are the only exception.
+- Run the authoritative local pre-push validation contract defined in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) before every push to a PR, not just the first one. CI adds clean-runner and supported-Node-matrix coverage that is not practical to reproduce in one local shell.
 
 ## Stack And Conventions
 
@@ -48,7 +48,7 @@ Common libraries and patterns:
 
 ## Validation
 
-The authoritative pre-push validation contract lives in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) — it mirrors `.github/workflows/pr-checks.yml` exactly and must be green locally before every push to a PR, including follow-up fixes during review. Platform-specific checks that cannot run on your OS are the only exception. The lists below are for narrowing checks while you iterate; they do not replace the pre-push contract.
+The authoritative local pre-push validation contract lives in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) and must be run before every push to a PR, including follow-up fixes during review. It covers the same command families as `.github/workflows/pr-checks.yml`; CI remains authoritative for clean-runner, supported-Node-matrix, and platform-specific coverage. The lists below are for narrowing checks while you iterate; they do not replace the pre-push contract.
 
 Core checks:
 
@@ -103,7 +103,7 @@ When modifying provider behavior:
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review. Before applying an automated review suggestion, verify it does not pull the PR away from its stated scope or intent — decline out-of-scope suggestions with justification, or ask a maintainer when unsure. Never silently ignore findings.
-- Do not push commits with failing, incomplete, or unrun local checks; do not wait for GitHub CI to discover failures you could have caught locally.
+- Do not push commits with failing, incomplete, or unrun local checks. A platform limitation or failure reproduced unchanged on the PR base must be documented with evidence and agreed to by a maintainer; it is not an automatic waiver.
 - Do not submit a PR whose description still contains template placeholder text; fill in every section of the [PR template](.github/pull_request_template.md) for the actual change.
 - Do not surface-patch recurring review findings; repeated fix requests usually indicate a core design issue — investigate and fix the root cause instead of the reported symptom.
 - Do not add a manually maintained release-notes data source to the static site; link to GitHub Releases instead.

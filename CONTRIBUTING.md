@@ -53,7 +53,7 @@ Before opening a PR:
 - Read [`AGENTS.md`](AGENTS.md) for repo-specific coding-agent conventions, validation commands, provider guidance, and architecture rules.
 - Re-check open and recently closed PRs for duplicates.
 - Keep the branch focused on one issue or one clearly scoped improvement.
-- Run the narrowest meaningful validation command for the touched area.
+- Run narrow checks while iterating, then complete the required [Validation](#validation) contract before opening the PR.
 
 Every PR needs a reason. Your PR description must include:
 
@@ -236,38 +236,49 @@ bun run dev:profile
 
 ## Validation
 
-CI runs a fixed set of checks on every PR (see `.github/workflows/pr-checks.yml`). This section is the **authoritative pre-push validation contract** — `AGENTS.md` defers to it. **Run the full suite locally and get it green before every push to an open PR, including follow-up pushes during review.** Do not push commits with failing or unrun checks and wait for GitHub CI to discover the problem — wasted Actions minutes are a real cost on this repo.
+CI runs a fixed set of checks on every PR (see `.github/workflows/pr-checks.yml`). This section is the **authoritative local pre-push validation contract** — `AGENTS.md` defers to it. **Run every locally applicable check before every push to an open PR, including follow-up pushes during review.** Do not wait for GitHub CI to discover failures you could have caught locally — wasted Actions minutes are a real cost on this repo.
 
-The pre-push suite (mirrors CI exactly):
+Required local preflight:
 
 ```bash
 bun install --frozen-lockfile
-bun run build
 bun run check
 bun run typecheck
 bun run typecheck:type-tests
 node bin/openclaude --version
-NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
 bun run test:provider
 npm run test:provider-recommendation
-PR_SCAN_BASE="$(gh api repos/Gitlawb/openclaude/pulls/<PR-number> --jq .base.sha)"
-bun run security:pr-scan -- --base "$PR_SCAN_BASE" --head HEAD
-```
-
-Notes on that suite:
-
-- `bun run check` already includes smoke, deadcode, and the full unit pass (`test:full`) — do not run them separately, or you execute the suite twice.
-- The security scan is given explicit `--base`/`--head` refs to match CI, which scans against the PR's actual base commit. Replace `<PR-number>` with your pull request number; the GitHub API query returns that PR's base SHA, including when your fork's `main` is stale. The script's built-in defaults (`origin/main` / `HEAD`) are only an approximation for pull requests.
-
-If your PR touches `web/`, add the web job's checks (the web workspace has its own lockfile-driven install):
-
-```bash
+git fetch https://github.com/Gitlawb/openclaude.git main
+bun run security:pr-scan -- --base FETCH_HEAD --head HEAD
 bun install --cwd web --frozen-lockfile
 bun run web:typecheck
 bun run web:build
 ```
 
-Cross-platform exception: this is the only carve-out from the full suite. You are required to run what is runnable on your platform; platform-specific verification you cannot execute locally (e.g., Windows-specific behavior when developing on macOS) is best-effort and may be left to CI. Everything else above is expected to be green on your machine before it reaches GitHub.
+Also run the compile-cache-disabled launcher check using the syntax for your shell.
+
+Bash, zsh, and similar shells:
+
+```bash
+NODE_DISABLE_COMPILE_CACHE=1 node bin/openclaude --version
+```
+
+PowerShell:
+
+```powershell
+$env:NODE_DISABLE_COMPILE_CACHE = '1'
+node bin/openclaude --version
+Remove-Item Env:NODE_DISABLE_COMPILE_CACHE
+```
+
+Notes on the local preflight:
+
+- `bun run check` already builds the CLI and includes smoke, deadcode, and the full unit pass (`test:full`) — do not run those separately, or you execute work twice.
+- Fetching upstream `main` by URL avoids assuming that a fork checkout's `origin` points at Gitlawb/openclaude. `FETCH_HEAD` is the fetched upstream tip. The scan deliberately uses local `HEAD` so it includes commits that have not been pushed yet; CI uses the pushed PR head SHA after the push.
+- Web checks are required for every PR because the `web` CI job is unconditional, even when the changed files are outside `web/`.
+- This preflight covers the same command families as CI, but it does not reproduce CI exactly in one shell. CI runs the main checks under Node 22 and 24.11.x, separately builds and launches under exact Node 22.0.0, and executes every job on a clean runner.
+
+If a required check cannot run on your platform, document the limitation and leave that coverage to CI. If a check fails identically on the PR base and your branch, record the exact command, base commit, and comparison in the PR, then obtain maintainer agreement before treating it as waived. A pre-existing failure is not an automatic waiver, and PR-owned failures must be fixed.
 
 PRs that fail CI checks will not be merged.
 
