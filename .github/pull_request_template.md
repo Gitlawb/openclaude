@@ -13,7 +13,7 @@
 - [ ] I ran the required [local preflight](https://github.com/Gitlawb/openclaude/blob/main/CONTRIBUTING.md#validation).
 - exact commands and results:
 - focused tests:
-- documented platform limitations or base-reproduced failures:
+- documented skipped checks, platform limitations, or verified pre-existing failures:
 
 ## Notes
 

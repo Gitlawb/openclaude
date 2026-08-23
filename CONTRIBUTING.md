@@ -250,9 +250,6 @@ bun run test:provider
 npm run test:provider-recommendation
 git fetch https://github.com/Gitlawb/openclaude.git main
 bun run security:pr-scan -- --base FETCH_HEAD --head HEAD
-bun install --cwd web --frozen-lockfile
-bun run web:typecheck
-bun run web:build
 ```
 
 Also run the compile-cache-disabled launcher check using the syntax for your shell.
@@ -271,16 +268,32 @@ node bin/openclaude --version
 Remove-Item Env:NODE_DISABLE_COMPILE_CACHE
 ```
 
+If the PR can affect the website — including changes under `web/`, root or web dependency and lock files, shared site assets or content, or build/toolchain configuration used by the site — also run:
+
+```bash
+bun install --cwd web --frozen-lockfile
+bun run web:typecheck
+bun run web:build
+```
+
 Notes on the local preflight:
 
 - `bun run check` already builds the CLI and includes smoke, deadcode, and the full unit pass (`test:full`) — do not run those separately, or you execute work twice.
 - Fetching upstream `main` by URL avoids assuming that a fork checkout's `origin` points at Gitlawb/openclaude. `FETCH_HEAD` is the fetched upstream tip. The scan deliberately uses local `HEAD` so it includes commits that have not been pushed yet; CI uses the pushed PR head SHA after the push.
-- Web checks are required for every PR because the `web` CI job is unconditional, even when the changed files are outside `web/`.
+- The web CI job remains unconditional as an integration backstop. Contributors do not need to run the web suite locally for changes that cannot affect the site.
 - This preflight covers the same command families as CI, but it does not reproduce CI exactly in one shell. CI runs the main checks under Node 22 and 24.11.x, separately builds and launches under exact Node 22.0.0, and executes every job on a clean runner.
 
-If a required check cannot run on your platform, document the limitation and leave that coverage to CI. If a check fails identically on the PR base and your branch, record the exact command, base commit, and comparison in the PR, then obtain maintainer agreement before treating it as waived. A pre-existing failure is not an automatic waiver, and PR-owned failures must be fixed.
+If a local or GitHub CI check fails, first determine whether the PR owns the failure. Treat a failure as pre-existing only when you can reproduce it on the PR's current base (or link to the same failure on a current `main` CI run) and the PR neither changes the causal surface nor claims to fix that problem.
 
-PRs that fail CI checks will not be merged.
+For a verified pre-existing failure:
+
+- record the failing check, relevant output, and base commit or `main` CI run in the PR
+- note the pre-existing failure in the PR summary or testing notes so maintainers can track it separately; link an existing issue when one is already available
+- explain briefly why the failure is unrelated to the PR
+
+The contributor may then proceed and is not responsible for repairing that failure in the current PR. A maintainer may still need to rerun or waive a required GitHub check, or land the separate fix, before branch protection permits a merge. Failures caused by the PR, or in behavior the PR claims to fix, remain the author's responsibility and must be resolved.
+
+PRs with unresolved PR-owned CI failures will not be merged. Verified pre-existing failures follow the exception above.
 
 ### Recommended Local Checks
 

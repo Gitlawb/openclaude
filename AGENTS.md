@@ -69,7 +69,7 @@ bun run test:provider
 bun run test:provider-recommendation
 ```
 
-Web checks, when touching `web/`:
+Web checks, when changes can affect the site:
 
 ```bash
 bun run web:typecheck
@@ -103,7 +103,7 @@ When modifying provider behavior:
 - Do not skip tests for behavior changes.
 - Do not silently change provider tags; maintainers control them during review.
 - Do not ignore CodeRabbit or maintainer feedback; address it before requesting more review. Before applying an automated review suggestion, verify it does not pull the PR away from its stated scope or intent — decline out-of-scope suggestions with justification, or ask a maintainer when unsure. Never silently ignore findings.
-- Do not push commits with failing, incomplete, or unrun local checks. A platform limitation or failure reproduced unchanged on the PR base must be documented with evidence and agreed to by a maintainer; it is not an automatic waiver.
+- Do not push commits with failing, incomplete, or unrun local checks unless an exception in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) applies. Verify pre-existing failures against the current PR base and document the evidence in the PR; PR-owned failures must still be fixed.
 - Do not submit a PR whose description still contains template placeholder text; fill in every section of the [PR template](.github/pull_request_template.md) for the actual change.
 - Do not surface-patch recurring review findings; repeated fix requests usually indicate a core design issue — investigate and fix the root cause instead of the reported symptom.
 - Do not add a manually maintained release-notes data source to the static site; link to GitHub Releases instead.
