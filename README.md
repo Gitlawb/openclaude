@@ -469,7 +469,7 @@ OpenClaude leaves Node's standard compile-cache controls authoritative. Set
 `NODE_DISABLE_COMPILE_CACHE=1` to disable the optimization, including for V8
 coverage runs that require uncached compilation.
 
-Recommended validation before opening a PR:
+Before opening or updating a PR, run the authoritative [local pre-push validation contract](CONTRIBUTING.md#validation). The commands below are useful for narrow iteration, but they do not replace that required preflight:
 
 - `bun run build`
 - `bun run smoke`

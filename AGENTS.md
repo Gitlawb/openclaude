@@ -16,7 +16,7 @@ The installed CLI runs on Node.js `>=22.0.0`. Bun is used for source builds, scr
 - Add or update tests when behavior changes.
 - Update docs when setup, commands, provider behavior, or user-facing behavior changes.
 - For new features, larger refactors, dependencies, or runtime changes, follow the issue-first guidance in [CONTRIBUTING.md](CONTRIBUTING.md).
-- Keep PR branches current with `main` — rebase onto `main` whenever resuming work or pushing follow-up fixes. Stale branches attract redundant fix-churn requests for issues already fixed on `main`.
+- Keep PR branches current with `main` using the synchronization and guarded-push workflow in [CONTRIBUTING.md § Keep Your Branch Current](CONTRIBUTING.md#keep-your-branch-current). Rebase whenever resuming work or pushing follow-up fixes, but never overwrite remote PR-head updates with an unguarded force-push.
 - Run the authoritative local pre-push validation contract defined in [CONTRIBUTING.md § Validation](CONTRIBUTING.md#validation) before every push to a PR, not just the first one. CI adds clean-runner and supported-Node-matrix coverage that is not practical to reproduce in one local shell.
 
 ## Stack And Conventions
