@@ -119,3 +119,33 @@ test('keeps DEL plus replacement intact for downstream coalescing', () => {
   expect(event.input).toBe('\x7fă')
   expect(event.key.backspace).toBe(false)
 })
+
+test('names astral-plane characters typed as plain text', () => {
+  // 😀 is one code point but two UTF-16 units; the printable non-ASCII
+  // branch must count code points so the key still gets a name.
+  const event = parseInputEvent('😀')
+
+  expect(event.input).toBe('😀')
+  expect(event.keypress.name).toBe('😀')
+})
+
+test('InputEvent names astral sequences that reach it without a name', () => {
+  const unnamedAstral: ParsedKey = {
+    kind: 'key',
+    fn: false,
+    name: '',
+    ctrl: false,
+    meta: false,
+    shift: false,
+    option: false,
+    super: false,
+    sequence: '😀',
+    raw: '😀',
+    isPasted: false,
+  }
+
+  const event = new InputEvent(unnamedAstral)
+
+  expect(event.input).toBe('😀')
+  expect(event.keypress.name).toBe('😀')
+})

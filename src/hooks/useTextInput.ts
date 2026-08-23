@@ -37,9 +37,11 @@ function mapInput(input_map: Array<[string, InputHandler]>): InputMapper {
   }
 }
 
-// Combining diacritical marks (U+0300-U+036F) — covers all Vietnamese
-// tone/breath marks when an IME emits NFD instead of precomposed forms.
-const COMBINING_MARK_RE = /^[\u0300-\u036f]/
+// Any Unicode combining mark (general category M) — covers Vietnamese
+// tone/breath marks plus marks outside the U+0300-U+036F block (Hebrew
+// points, Devanagari matras, ...) when an IME emits NFD instead of
+// precomposed forms.
+const COMBINING_MARK_RE = /^\p{M}/u
 
 export type ComposedTextEdit = {
   text: string
