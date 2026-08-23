@@ -98,6 +98,8 @@ const SETTINGS_FILE_KEYS: Record<string, string> = {
   thinkingEnabled: 'alwaysThinkingEnabled',
   fastMode: 'fastMode',
   defaultPermissionMode: 'permissions.defaultMode',
+  spinnerTipsEnabled: 'spinnerTipsEnabled',
+  prefersReducedMotion: 'prefersReducedMotion',
 };
 export function Config({
   onClose,
