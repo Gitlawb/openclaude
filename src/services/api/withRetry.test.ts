@@ -190,3 +190,42 @@ describe('getRateLimitResetDelayMs - providers without reset headers', () => {
     expect(getRateLimitResetDelayMs(error)).toBeNull()
   })
 })
+
+// --- getDefaultMaxRetries ---
+describe('getDefaultMaxRetries', () => {
+  afterEach(() => {
+    delete process.env.CLAUDE_CODE_MAX_RETRIES
+  })
+
+  test('returns DEFAULT_MAX_RETRIES when env var is unset', async () => {
+    const { getDefaultMaxRetries, DEFAULT_MAX_RETRIES } =
+      await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(DEFAULT_MAX_RETRIES)
+  })
+
+  test('returns parsed value for a valid numeric env var', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = '5'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(5)
+  })
+
+  test('returns 0 for zero (valid — disables retries explicitly)', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = '0'
+    const { getDefaultMaxRetries } = await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(0)
+  })
+
+  test('falls back to default for non-numeric env var', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = 'abc'
+    const { getDefaultMaxRetries, DEFAULT_MAX_RETRIES } =
+      await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(DEFAULT_MAX_RETRIES)
+  })
+
+  test('falls back to default for negative env var', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = '-3'
+    const { getDefaultMaxRetries, DEFAULT_MAX_RETRIES } =
+      await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(DEFAULT_MAX_RETRIES)
+  })
+})
