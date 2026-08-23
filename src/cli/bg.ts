@@ -25,8 +25,11 @@ import {
   type BackgroundSessionProcessIdentityOptions,
 } from './bgRegistry.js'
 import {
+  backgroundProcessMarkerToken,
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
+  generateBackgroundProcessMarker,
+  stripBackgroundProcessMarkerArgs,
 } from './bgRouting.js'
 
 export type ParsedBackgroundInvocation = {
@@ -56,6 +59,7 @@ export type BuildBackgroundChildProcessConfigInput = {
   sessionName?: string
   stdoutLogPath: string
   backgroundSessionId: string
+  processMarker: string
   launcherPid?: number
 }
 
@@ -233,6 +237,7 @@ export function buildBackgroundChildProcessConfig(
   // launcher otherwise relaunches itself before finalizer ownership is checked.
   // Node-only heap flags are still supplied by safeNodeExecArgvForBackground.
   env[HEAP_RELAUNCHED_ENV] = '1'
+  const childArgs = stripBackgroundProcessMarkerArgs(input.childArgs)
 
   return {
     command: input.execPath,
@@ -243,7 +248,8 @@ export function buildBackgroundChildProcessConfig(
         input.processEnv,
       ),
       input.entrypoint,
-      ...input.childArgs,
+      backgroundProcessMarkerToken(input.processMarker),
+      ...childArgs,
     ],
     env,
   }
@@ -432,7 +438,7 @@ export async function buildBackgroundSessionLaunch(
 export function parseBackgroundInvocation(
   args: string[],
 ): ParsedBackgroundInvocation {
-  let childArgs = stripBackgroundFlag(args)
+  let childArgs = stripBackgroundProcessMarkerArgs(stripBackgroundFlag(args))
   const name = findSessionName(childArgs)?.trim() || undefined
   const promptIndex = findPromptIndex(childArgs)
   const prompt = promptIndex === -1 ? undefined : childArgs[promptIndex]
@@ -480,6 +486,21 @@ function formatCommand(command: string[]): string {
   return command
     .map(part => (/\s/.test(part) ? JSON.stringify(part) : part))
     .join(' ')
+}
+
+export function buildBackgroundSessionDisplayCommand(
+  command: string[],
+  processMarker: string,
+): string[] {
+  const markerToken = backgroundProcessMarkerToken(processMarker)
+  const delimiterIndex = command.indexOf('--')
+  const optionEnd = delimiterIndex === -1 ? command.length : delimiterIndex
+  const markerIndex = command.findIndex(
+    (arg, index) => index < optionEnd && arg === markerToken,
+  )
+  return markerIndex === -1
+    ? [...command]
+    : [...command.slice(0, markerIndex), ...command.slice(markerIndex + 1)]
 }
 
 function printSessionTable(
@@ -839,8 +860,12 @@ function unverifiedProcessError(
   session: BackgroundSession,
   reason: string,
 ): Error {
+  const action =
+    session.processMarker === undefined
+      ? `This older background session could not be verified safely. Restart it to use stronger process identity, or terminate PID ${session.pid} manually after confirming ownership.`
+      : 'Re-run `openclaude ps` and retry after confirming the session identity.'
   return new Error(
-    `OpenClaude refused to signal an unverified process for background session ${session.id} (PID ${session.pid}): ${reason}. Re-run \`openclaude ps\` and retry after confirming the session identity.`,
+    `OpenClaude refused to signal an unverified process for background session ${session.id} (PID ${session.pid}): ${reason}. ${action}`,
   )
 }
 
@@ -921,10 +946,23 @@ export async function killBackgroundSession(
     (async (selected: BackgroundSession) =>
       await markBackgroundSessionKilled(selected.id))
 
-  if (isTerminalBackgroundSession(session)) return await markKilled(session)
+  if (session.status !== 'stale' && isTerminalBackgroundSession(session)) {
+    return await markKilled(session)
+  }
 
   const identity = verifySelectedBackgroundSessionIdentity(session, options)
-  if (authorizeBackgroundSessionSignal(session, identity) === 'matches') {
+  const authorization = authorizeBackgroundSessionSignal(session, identity)
+  if (
+    authorization === 'matches' &&
+    session.status === 'stale' &&
+    session.processMarker === undefined
+  ) {
+    throw unverifiedProcessError(
+      session,
+      'this older session was already stale, so its PID ownership cannot be re-established safely',
+    )
+  }
+  if (authorization === 'matches') {
     await terminateBackgroundSessionProcessTree(session, options)
   }
 
@@ -1032,6 +1070,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
   }
 
   const id = backgroundSessionId()
+  const processMarker = generateBackgroundProcessMarker()
   const { childArgs, sessionId } = await buildBackgroundSessionLaunch(
     parsed.childArgs,
     randomUUID(),
@@ -1053,6 +1092,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     sessionName: parsed.name,
     stdoutLogPath: logPaths.stdoutLogPath,
     backgroundSessionId: id,
+    processMarker,
     launcherPid: process.pid,
   })
 
@@ -1108,6 +1148,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     provider: findFlagValue(childArgs, '--provider'),
     model: findFlagValue(childArgs, '--model'),
     sessionId,
+    processMarker,
     stdoutLogPath: logPaths.stdoutLogPath,
     stderrLogPath: logPaths.stderrLogPath,
     logFilesPrecreated: true,
@@ -1131,6 +1172,11 @@ export async function handleBgFlag(args: string[]): Promise<void> {
   console.log(`Logs: ${session.stdoutLogPath}`)
   console.log(`Follow: openclaude logs ${session.id} -f`)
   console.log(
-    `Command: ${formatCommand([basename(childConfig.command), ...childConfig.args])}`,
+    `Command: ${formatCommand(
+      buildBackgroundSessionDisplayCommand([
+        basename(childConfig.command),
+        ...childConfig.args,
+      ], processMarker),
+    )}`,
   )
 }

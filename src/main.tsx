@@ -49,6 +49,7 @@ import type { ToolInputJSONSchema } from './Tool.js';
 import { createSyntheticOutputTool, isSyntheticOutputToolEnabled } from './tools/SyntheticOutputTool/SyntheticOutputTool.js';
 import { registerTaskReportCommand } from './cli/commands/taskReport.js';
 import { registerAimlapiCommand } from './cli/aimlapiCommand.js';
+import { BACKGROUND_PROCESS_MARKER_FLAG, isValidBackgroundProcessMarker } from './cli/bgRouting.js';
 import { getTools } from './tools.js';
 import { canUserConfigureAdvisor, getInitialAdvisorSetting, isAdvisorEnabled, isValidAdvisorModel, modelSupportsAdvisor } from './utils/advisor.js';
 import { isAgentSwarmsEnabled } from './utils/agentSwarmsEnabled.js';
@@ -3643,6 +3644,13 @@ async function run(): Promise<CommanderCommand> {
       }, renderAndRun);
     }
   }).version(`${MACRO.DISPLAY_VERSION ?? MACRO.VERSION} (OpenClaude)`, '-v, --version', 'Output the version number');
+
+  program.addOption(new Option(`${BACKGROUND_PROCESS_MARKER_FLAG} <marker>`, 'Internal background process identity marker').argParser(value => {
+    if (!isValidBackgroundProcessMarker(value)) {
+      throw new InvalidArgumentError('Invalid background process marker');
+    }
+    return value;
+  }).hideHelp());
 
   // Worktree flags
   program.option('-w, --worktree [name]', 'Create a new git worktree for this session (optionally specify a name)');

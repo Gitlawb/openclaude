@@ -27,6 +27,10 @@ import {
   isProcessRunning,
 } from '../utils/genericProcessUtils.js'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
+import {
+  backgroundProcessMarkerToken,
+  isValidBackgroundProcessMarker,
+} from './bgRouting.js'
 
 export type BackgroundSessionStatus =
   | 'running'
@@ -45,6 +49,7 @@ export type BackgroundSession = {
   provider?: string
   model?: string
   sessionId: string
+  processMarker?: string
   startedAt: string
   updatedAt: string
   command: string[]
@@ -85,6 +90,7 @@ export type CreateBackgroundSessionInput = {
   provider?: string
   model?: string
   sessionId: string
+  processMarker?: string
   now?: Date
   stdoutLogPath?: string
   stderrLogPath?: string
@@ -426,6 +432,8 @@ function isBackgroundSession(
       typeof candidate.provider === 'string') &&
     (candidate.model === undefined || typeof candidate.model === 'string') &&
     typeof candidate.sessionId === 'string' &&
+    (candidate.processMarker === undefined ||
+      isValidBackgroundProcessMarker(candidate.processMarker)) &&
     typeof candidate.startedAt === 'string' &&
     typeof candidate.updatedAt === 'string' &&
     isStringArray(candidate.command) &&
@@ -682,6 +690,12 @@ export async function createBackgroundSession(
   if (!Number.isInteger(input.pid) || input.pid <= 0) {
     throw new Error(`Invalid background session pid: ${input.pid}`)
   }
+  if (
+    input.processMarker !== undefined &&
+    !isValidBackgroundProcessMarker(input.processMarker)
+  ) {
+    throw new Error('Invalid background process marker')
+  }
   await assertBackgroundSessionNameAvailable(input.name)
   const timestamp = iso(input.now)
   const logPaths = getBackgroundSessionLogPaths(input.id)
@@ -694,6 +708,9 @@ export async function createBackgroundSession(
     ...(input.provider ? { provider: input.provider } : {}),
     ...(input.model ? { model: input.model } : {}),
     sessionId: input.sessionId,
+    ...(input.processMarker
+      ? { processMarker: input.processMarker }
+      : {}),
     startedAt: timestamp,
     updatedAt: timestamp,
     command: input.command,
@@ -897,6 +914,35 @@ function commandLineMatchesBackgroundSession(
   return commandLineContainsArgs(commandLine, session.command)
 }
 
+function markedCommandLineIdentity(
+  commandLine: string,
+  session: BackgroundSession,
+  processMarker: string,
+): 'matches' | 'mismatch' | 'unreadable' {
+  const markerToken = backgroundProcessMarkerToken(processMarker)
+  const storedTokens = session.command.flatMap(tokenizeCommandLine)
+  const expectedIndex = storedTokens.indexOf(markerToken)
+  if (expectedIndex === -1) return 'unreadable'
+
+  const liveTokens = tokenizeCommandLine(commandLine)
+  const comparablePrefixLength = Math.min(expectedIndex, liveTokens.length)
+  for (let index = 0; index < comparablePrefixLength; index += 1) {
+    if (liveTokens[index] !== storedTokens[index]) return 'mismatch'
+  }
+
+  if (liveTokens.length <= expectedIndex) return 'unreadable'
+  const candidate = liveTokens[expectedIndex]!
+  if (candidate === markerToken) return 'matches'
+  if (
+    expectedIndex === liveTokens.length - 1 &&
+    candidate.length > 0 &&
+    markerToken.startsWith(candidate)
+  ) {
+    return 'unreadable'
+  }
+  return 'mismatch'
+}
+
 export function verifyBackgroundSessionProcessIdentity(
   session: BackgroundSession,
   options?: BackgroundSessionProcessIdentityOptions,
@@ -927,6 +973,11 @@ export function verifyBackgroundSessionProcessIdentity(
   if (latestLiveness !== 'alive') return result(latestLiveness)
   if (command == null || command.trim() === '') {
     return result('unreadable')
+  }
+  if (session.processMarker !== undefined) {
+    return result(
+      markedCommandLineIdentity(command, session, session.processMarker),
+    )
   }
   return result(
     commandLineMatchesBackgroundSession(command, session)

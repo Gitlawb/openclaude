@@ -17,6 +17,15 @@ import {
   type BackgroundSession,
 } from './bgRegistry.js'
 
+const TEST_PROCESS_MARKER = 'a'.repeat(64)
+const OTHER_PROCESS_MARKER = 'b'.repeat(64)
+// Keep this test-only constructor available on the pre-marker base so the
+// marker-authoritative regression can prove red there. Production identity
+// constructs its expected token independently, so token-format drift still
+// fails the marked-match tests below.
+const backgroundProcessMarkerToken = (marker: string) =>
+  `--openclaude-bg-session-marker=${marker}`
+
 const {
   recordBackgroundSessionNaturalTermination,
   recordBackgroundSessionNaturalTerminationSync,
@@ -82,10 +91,16 @@ describe('background session registry', () => {
       name: 'auth-refactor',
       pid: 12345,
       cwd: '/repo',
-      command: ['openclaude', '--print', 'refactor auth'],
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'refactor auth',
+      ],
       provider: 'openai',
       model: 'gpt-5',
       sessionId: 'conversation-1',
+      processMarker: TEST_PROCESS_MARKER,
       now: new Date('2026-06-15T08:00:00.000Z'),
     })
 
@@ -98,9 +113,15 @@ describe('background session registry', () => {
       provider: 'openai',
       model: 'gpt-5',
       sessionId: 'conversation-1',
+      processMarker: TEST_PROCESS_MARKER,
       startedAt: '2026-06-15T08:00:00.000Z',
       updatedAt: '2026-06-15T08:00:00.000Z',
-      command: ['openclaude', '--print', 'refactor auth'],
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'refactor auth',
+      ],
     })
     expect(session.stdoutLogPath).toBe(
       join(configDir, 'bg-sessions', 'logs', 'bg-test-1.out.log'),
@@ -111,6 +132,87 @@ describe('background session registry', () => {
 
     const sessions = await listBackgroundSessions()
     expect(sessions.map(s => s.id)).toEqual(['bg-test-1'])
+    expect(sessions[0]?.processMarker).toBe(TEST_PROCESS_MARKER)
+  })
+
+  it('loads legacy session metadata without a process marker', async () => {
+    await mkdir(join(configDir, 'bg-sessions', 'sessions'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-legacy.json'),
+      JSON.stringify({
+        id: 'bg-legacy',
+        pid: 123,
+        cwd: '/repo',
+        status: 'running',
+        sessionId: 'conversation-legacy',
+        startedAt: '2026-06-15T08:00:00.000Z',
+        updatedAt: '2026-06-15T08:00:00.000Z',
+        command: ['openclaude', '--print', 'work'],
+        stdoutLogPath: '/tmp/stdout.log',
+        stderrLogPath: '/tmp/stderr.log',
+      }),
+    )
+
+    const [session] = await listBackgroundSessions()
+    expect(session?.id).toBe('bg-legacy')
+    expect(session?.processMarker).toBeUndefined()
+  })
+
+  it('rejects malformed process markers on creation', async () => {
+    await expect(
+      createBackgroundSession({
+        id: 'bg-invalid-marker',
+        pid: 123,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'work'],
+        sessionId: 'conversation-invalid-marker',
+        processMarker: 'not-valid',
+      }),
+    ).rejects.toThrow('Invalid background process marker')
+
+    expect(await listBackgroundSessions()).toEqual([])
+  })
+
+  it('ignores metadata containing malformed process markers', async () => {
+    await mkdir(join(configDir, 'bg-sessions', 'sessions'), {
+      recursive: true,
+    })
+    const invalidMarkers = [
+      '',
+      'a'.repeat(63),
+      'a'.repeat(65),
+      'A'.repeat(64),
+      `${'a'.repeat(63)} `,
+      `${'a'.repeat(63)}/`,
+      `${'a'.repeat(63)};`,
+      `${'a'.repeat(63)}\u0000`,
+    ]
+
+    await Promise.all(
+      invalidMarkers.map(async (processMarker, index) => {
+        const id = `bg-invalid-marker-${index}`
+        await writeFile(
+          join(configDir, 'bg-sessions', 'sessions', `${id}.json`),
+          JSON.stringify({
+            id,
+            pid: 123 + index,
+            cwd: '/repo',
+            status: 'running',
+            sessionId: `conversation-${index}`,
+            processMarker,
+            startedAt: '2026-06-15T08:00:00.000Z',
+            updatedAt: '2026-06-15T08:00:00.000Z',
+            command: ['openclaude', '--print', 'work'],
+            stdoutLogPath: '/tmp/stdout.log',
+            stderrLogPath: '/tmp/stderr.log',
+          }),
+        )
+      }),
+    )
+
+    expect(await listBackgroundSessions()).toEqual([])
   })
 
   it('resolves exact live names before session id prefixes', async () => {
@@ -1130,6 +1232,108 @@ describe('background session registry', () => {
     )
   })
 
+  it('keeps a marked Windows session running when its exact early token matches', async () => {
+    const markerToken = backgroundProcessMarkerToken(TEST_PROCESS_MARKER)
+    await createBackgroundSession({
+      id: 'bg-marked-windows',
+      name: 'marked-windows',
+      pid: 333,
+      cwd: 'C:\\repo path',
+      command: [
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\repo path\\dist\\cli.mjs',
+        markerToken,
+        '--session-id',
+        'conversation-marked',
+        '--print',
+        'work',
+      ],
+      sessionId: 'conversation-marked',
+      processMarker: TEST_PROCESS_MARKER,
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        `"C:\\Program Files\\nodejs\\node.exe" "C:\\repo path\\dist\\cli.mjs" ${markerToken} --session-id conversation-marked --print work`,
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-marked-windows',
+      status: 'running',
+      updatedAt: '2026-06-15T08:00:00.000Z',
+    })
+    await expect(
+      createBackgroundSession({
+        id: 'bg-marked-windows-contender',
+        name: 'marked-windows',
+        pid: 334,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'contender'],
+        sessionId: 'conversation-contender',
+      }),
+    ).rejects.toThrow('already exists')
+  })
+
+  it('marks a marked session stale when the same session id has a different marker', async () => {
+    const markerToken = backgroundProcessMarkerToken(TEST_PROCESS_MARKER)
+    await createBackgroundSession({
+      id: 'bg-marked-wrong-marker',
+      pid: 333,
+      cwd: '/repo',
+      command: [
+        'node',
+        '/repo/openclaude',
+        markerToken,
+        '--session-id',
+        'conversation-marked',
+      ],
+      sessionId: 'conversation-marked',
+      processMarker: TEST_PROCESS_MARKER,
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        `node /repo/openclaude ${backgroundProcessMarkerToken(OTHER_PROCESS_MARKER)} --session-id conversation-marked`,
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-marked-wrong-marker',
+      status: 'stale',
+      updatedAt: '2026-06-15T08:05:00.000Z',
+    })
+  })
+
+  it('keeps a marked session unknown when its live command is unreadable', async () => {
+    const markerToken = backgroundProcessMarkerToken(TEST_PROCESS_MARKER)
+    await createBackgroundSession({
+      id: 'bg-marked-unreadable',
+      pid: 333,
+      cwd: '/repo',
+      command: ['node', '/repo/openclaude', markerToken, '--print', 'work'],
+      sessionId: 'conversation-marked',
+      processMarker: TEST_PROCESS_MARKER,
+      now: new Date('2026-06-15T08:00:00.000Z'),
+    })
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => true,
+      getProcessCommand: () => null,
+      now: new Date('2026-06-15T08:05:00.000Z'),
+    })
+
+    expect(refreshed[0]).toMatchObject({
+      id: 'bg-marked-unreadable',
+      status: 'unknown',
+      updatedAt: '2026-06-15T08:05:00.000Z',
+    })
+  })
+
   it('keeps running sessions fresh when their process identity still matches', async () => {
     await createBackgroundSession({
       id: 'bg-running',
@@ -1331,6 +1535,20 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
     stdoutLogPath: '/tmp/stdout.log',
     stderrLogPath: '/tmp/stderr.log',
   }
+  const markerToken = backgroundProcessMarkerToken(TEST_PROCESS_MARKER)
+  const markedSession: BackgroundSession = {
+    ...session,
+    processMarker: TEST_PROCESS_MARKER,
+    command: [
+      '/opt/Open Claude/node',
+      '/repo path/dist/cli.mjs',
+      markerToken,
+      '--session-id',
+      session.sessionId,
+      '--print',
+      'work',
+    ],
+  }
 
   it('does not treat a reused PID whose command merely contains the arg as alive (#1770)', () => {
     // The live process at this PID is unrelated: its final token "16420" only
@@ -1358,6 +1576,100 @@ describe('isBackgroundSessionProcessAlive process identity', () => {
       getProcessCommand: () => 'node openclaude conversation-identity',
     })
     expect(alive).toBe(true)
+  })
+
+  it('does not fall back to the session id when marked process identity is missing', () => {
+    const result = verifyBackgroundSessionProcessIdentity(markedSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        '/opt/Open Claude/node /repo path/dist/cli.mjs --session-id conversation-identity --print work',
+    })
+
+    expect(result.state).toBe('mismatch')
+  })
+
+  it('matches a marked Unix command with spaced executable and entrypoint paths', () => {
+    const result = verifyBackgroundSessionProcessIdentity(markedSession, {
+      isProcessAlive: () => true,
+      getProcessCommand: () =>
+        `/opt/Open Claude/node /repo path/dist/cli.mjs ${markerToken} --session-id conversation-identity --print work`,
+    })
+
+    expect(result.state).toBe('matches')
+  })
+
+  it('does not accept a missing, wrong, or shifted marker for a marked session', () => {
+    const prefix = '/opt/Open Claude/node /repo path/dist/cli.mjs'
+    const commands = [
+      `${prefix} --print work --session-id conversation-identity`,
+      `${prefix} ${backgroundProcessMarkerToken(OTHER_PROCESS_MARKER)} --session-id conversation-identity --print work`,
+      `${prefix} --print ${markerToken} --session-id conversation-identity work`,
+    ]
+
+    expect(
+      commands.map(
+        command =>
+          verifyBackgroundSessionProcessIdentity(markedSession, {
+            isProcessAlive: () => true,
+            getProcessCommand: () => command,
+          }).state,
+      ),
+    ).toEqual(['mismatch', 'mismatch', 'mismatch'])
+  })
+
+  it('does not match marker prefix, suffix, or prompt-only collisions', () => {
+    const prefix = '/opt/Open Claude/node /repo path/dist/cli.mjs'
+    const commands = [
+      `${prefix} prefix-${markerToken} --session-id conversation-identity`,
+      `${prefix} ${markerToken}-suffix --session-id conversation-identity`,
+      `${prefix} --print -- ${markerToken}`,
+    ]
+
+    expect(
+      commands.map(
+        command =>
+          verifyBackgroundSessionProcessIdentity(markedSession, {
+            isProcessAlive: () => true,
+            getProcessCommand: () => command,
+          }).state,
+      ),
+    ).toEqual(['mismatch', 'mismatch', 'mismatch'])
+  })
+
+  it('distinguishes truncated marked identity from a shorter unrelated command', () => {
+    const prefix = '/opt/Open Claude/node /repo path/dist/cli.mjs'
+    const withinMarker = markerToken.slice(0, -8)
+    const states = [
+      verifyBackgroundSessionProcessIdentity(markedSession, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => prefix,
+      }).state,
+      verifyBackgroundSessionProcessIdentity(markedSession, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => `${prefix} ${withinMarker}`,
+      }).state,
+      verifyBackgroundSessionProcessIdentity(markedSession, {
+        isProcessAlive: () => true,
+        getProcessCommand: () => 'unrelated short command',
+      }).state,
+    ]
+
+    expect(states).toEqual(['unreadable', 'unreadable', 'mismatch'])
+  })
+
+  it('treats a marked session whose stored command omits its marker as unreadable', () => {
+    const result = verifyBackgroundSessionProcessIdentity(
+      {
+        ...markedSession,
+        command: ['node', 'openclaude', '--print', 'work'],
+      },
+      {
+        isProcessAlive: () => true,
+        getProcessCommand: () => 'node openclaude --print work',
+      },
+    )
+
+    expect(result.state).toBe('unreadable')
   })
 
   it('does not match the session id as a substring of a larger token (#1770)', () => {
