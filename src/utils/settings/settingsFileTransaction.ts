@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import {
   mkdirSync as mkdirExclusiveSync,
+  readFileSync as readProcessFileSync,
   renameSync as renameLockSync,
   rmSync as removeLockSync,
 } from 'node:fs'
@@ -22,13 +24,24 @@ const SETTINGS_LOCK_WAIT_MS = 2_000
 const SETTINGS_LOCK_HOST = hostname()
 const SETTINGS_LOCK_OWNER_FILE = 'owner.json'
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4))
+let settingsLockProcessStartId: string | undefined
 
-type SettingsLockIdentity = {
+type SettingsLockIdentityV1 = {
   version: 1
   host: string
   pid: number
   token: string
 }
+
+type SettingsLockIdentityV2 = {
+  version: 2
+  host: string
+  pid: number
+  token: string
+  processStartId: string
+}
+
+type SettingsLockIdentity = SettingsLockIdentityV1 | SettingsLockIdentityV2
 
 type SettingsLockIdentityRead =
   | { state: 'missing' }
@@ -39,12 +52,19 @@ function sameIdentity(
   left: SettingsLockIdentity,
   right: SettingsLockIdentity,
 ): boolean {
-  return (
+  if (
     left.version === right.version &&
     left.host === right.host &&
     left.pid === right.pid &&
     left.token === right.token
-  )
+  ) {
+    return (
+      left.version === 1 ||
+      (right.version === 2 &&
+        left.processStartId === right.processStartId)
+    )
+  }
+  return false
 }
 
 function readLockIdentity(lockPath: string): SettingsLockIdentityRead {
@@ -67,14 +87,15 @@ function readLockIdentity(lockPath: string): SettingsLockIdentityRead {
   }
 
   try {
-    const candidate = JSON.parse(raw) as Partial<SettingsLockIdentity>
+    const candidate = JSON.parse(raw) as Record<string, unknown>
     if (
-      candidate.version !== 1 ||
+      (candidate.version !== 1 && candidate.version !== 2) ||
       typeof candidate.host !== 'string' ||
       candidate.host.length === 0 ||
       candidate.host.length > 255 ||
+      typeof candidate.pid !== 'number' ||
       !Number.isSafeInteger(candidate.pid) ||
-      (candidate.pid ?? 0) <= 0 ||
+      candidate.pid <= 0 ||
       typeof candidate.token !== 'string' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
         candidate.token,
@@ -82,34 +103,159 @@ function readLockIdentity(lockPath: string): SettingsLockIdentityRead {
     ) {
       return { state: 'invalid' }
     }
+    if (
+      candidate.version === 2 &&
+      (typeof candidate.processStartId !== 'string' ||
+        candidate.processStartId.length === 0 ||
+        candidate.processStartId.length > 512)
+    ) {
+      return { state: 'invalid' }
+    }
     return {
       state: 'valid',
-      identity: candidate as SettingsLockIdentity,
+      identity:
+        candidate.version === 1
+          ? {
+              version: 1,
+              host: candidate.host,
+              pid: candidate.pid,
+              token: candidate.token,
+            }
+          : {
+              version: 2,
+              host: candidate.host,
+              pid: candidate.pid,
+              token: candidate.token,
+              processStartId: candidate.processStartId as string,
+            },
     }
   } catch {
     return { state: 'invalid' }
   }
 }
 
+function readLinuxProcessStartId(pid: number): string | null {
+  try {
+    const bootId = readProcessFileSync(
+      '/proc/sys/kernel/random/boot_id',
+      'utf8',
+    ).trim()
+    const stat = readProcessFileSync(`/proc/${pid}/stat`, 'utf8')
+    const commandEnd = stat.lastIndexOf(')')
+    if (commandEnd < 0) return null
+    const fields = stat.slice(commandEnd + 1).trim().split(/\s+/)
+    const startTicks = fields[19]
+    if (
+      !/^[0-9a-f-]{36}$/i.test(bootId) ||
+      startTicks === undefined ||
+      !/^\d+$/.test(startTicks)
+    ) {
+      return null
+    }
+    return `linux:${bootId}:${startTicks}`
+  } catch {
+    return null
+  }
+}
+
+function readCommandProcessStartId(
+  command: string,
+  args: string[],
+  prefix: string,
+): string | null {
+  try {
+    const result = spawnSync(command, args, {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        LANG: 'C',
+        LC_ALL: 'C',
+        TZ: 'UTC',
+      },
+      timeout: 1_000,
+      windowsHide: true,
+    })
+    if (result.error || result.status !== 0) return null
+    const value = result.stdout.trim().replace(/\s+/g, ' ')
+    return value.length > 0 && value.length <= 480
+      ? `${prefix}:${value}`
+      : null
+  } catch {
+    return null
+  }
+}
+
+function readProcessStartId(pid: number): string | null {
+  if (process.platform === 'linux') return readLinuxProcessStartId(pid)
+  if (process.platform === 'win32') {
+    return readCommandProcessStartId(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
+      ],
+      'windows',
+    )
+  }
+  return readCommandProcessStartId(
+    'ps',
+    ['-p', String(pid), '-o', 'lstart='],
+    'posix',
+  )
+}
+
+function currentProcessStartId(): string | null {
+  if (settingsLockProcessStartId !== undefined) {
+    return settingsLockProcessStartId
+  }
+  const processStartId = readProcessStartId(process.pid)
+  if (processStartId !== null) settingsLockProcessStartId = processStartId
+  return processStartId
+}
+
 function createLockIdentity(): SettingsLockIdentity {
-  return {
-    version: 1,
+  const common = {
     host: SETTINGS_LOCK_HOST,
     pid: process.pid,
     token: randomUUID(),
   }
+  const processStartId = currentProcessStartId()
+  if (processStartId === null) {
+    throw Object.assign(
+      new Error('Unable to determine process identity for settings lock'),
+      { code: 'EIDENTITY' },
+    )
+  }
+  return { version: 2, ...common, processStartId }
 }
 
-function isIdentityOwnerAlive(identity: SettingsLockIdentity): boolean {
+function isIdentityOwnerAlive(
+  identity: SettingsLockIdentity,
+  processStartIds: Map<string, string | null>,
+): boolean {
   // A different host may share this filesystem, but its process namespace is
   // not observable here. Never reclaim that ownership on local PID evidence.
   if (identity.host !== SETTINGS_LOCK_HOST) return true
   try {
     process.kill(identity.pid, 0)
-    return true
   } catch (error) {
-    return getErrnoCode(error) !== 'ESRCH'
+    if (getErrnoCode(error) === 'ESRCH') return false
   }
+  if (identity.version === 1) return true
+  const cacheKey = `${identity.host}:${identity.pid}:${identity.token}:${identity.processStartId}`
+  let currentProcessStartId: string | null
+  if (processStartIds.has(cacheKey)) {
+    currentProcessStartId = processStartIds.get(cacheKey) ?? null
+  } else {
+    currentProcessStartId = readProcessStartId(identity.pid)
+    processStartIds.set(cacheKey, currentProcessStartId)
+  }
+  return (
+    currentProcessStartId === null ||
+    currentProcessStartId === identity.processStartId
+  )
 }
 
 function pendingLockPath(
@@ -229,13 +375,14 @@ function tryRecoverDeadLock(
 function tryAcquireSettingsLock(
   lockPath: string,
   pendingPath: string,
+  processStartIds: Map<string, string | null>,
 ): boolean {
   if (tryPublishPendingLock(pendingPath, lockPath)) return true
 
   const currentOwner = readLockIdentity(lockPath)
   if (
     currentOwner.state !== 'valid' ||
-    isIdentityOwnerAlive(currentOwner.identity)
+    isIdentityOwnerAlive(currentOwner.identity, processStartIds)
   ) {
     return false
   }
@@ -288,10 +435,11 @@ function acquireSettingsLock(targetPath: string): () => void {
   const deadline = startedAt + SETTINGS_LOCK_WAIT_MS
   let reportedContention = false
   let acquired = false
+  const processStartIds = new Map<string, string | null>()
 
   try {
     while (true) {
-      if (tryAcquireSettingsLock(lockPath, pendingPath)) {
+      if (tryAcquireSettingsLock(lockPath, pendingPath, processStartIds)) {
         acquired = true
         return () => releaseOwnedLock(lockPath, owner)
       }

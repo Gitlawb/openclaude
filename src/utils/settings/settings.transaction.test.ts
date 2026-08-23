@@ -11,7 +11,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
 import { expect, spyOn, test } from 'bun:test'
@@ -965,6 +965,110 @@ test(
       await Promise.all(children.map(terminateChild))
       rmSync(root, { recursive: true, force: true })
     }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'persists process incarnation identity for real lock owners',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'openclaude-settings-owner-id-'))
+    const settingsPath = join(root, 'settings.json')
+    const holderEntered = join(root, 'holder-entered')
+    const holderCompleted = join(root, 'holder-completed')
+    const releaseHolder = join(root, 'release-holder')
+    const children: CapturedChild[] = []
+    try {
+      writeFileSync(settingsPath, '{}\n')
+      const holder = startWriter([
+        'hold-lock',
+        root,
+        'unused',
+        'unused',
+        holderEntered,
+        holderCompleted,
+        'unused',
+        releaseHolder,
+      ])
+      children.push(holder)
+      await waitForMarker(holderEntered, holder, 'holder')
+
+      const owner = JSON.parse(
+        readFileSync(join(`${settingsPath}.lock`, 'owner.json'), 'utf8'),
+      ) as Record<string, unknown>
+      expect(owner.version).toBe(2)
+      expect(owner.pid).toBe(holder.process.pid)
+      expect(owner.processStartId).toBeString()
+      expect(owner.processStartId).toMatch(/^(linux|posix|windows):/)
+
+      writeFileSync(releaseHolder, '')
+      expect(await finishWriter(holder, 'holder')).toEqual({ ok: true })
+    } finally {
+      await Promise.all(children.map(terminateChild))
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'recovers when a live process has reused the recorded owner PID',
+  async () => {
+    await withIsolatedUserSettings((_root, settingsPath) => {
+      const lockPath = `${settingsPath}.lock`
+      const staleToken = '00000000-0000-4000-8000-000000000001'
+      mkdirSync(lockPath)
+      writeFileSync(
+        join(lockPath, 'owner.json'),
+        JSON.stringify({
+          version: 2,
+          host: hostname(),
+          pid: process.pid,
+          token: staleToken,
+          processStartId: 'test:previous-process-instance',
+        }),
+      )
+
+      expect(
+        updateSettingsForSource('userSettings', {
+          env: { RECOVERED_AFTER_PID_REUSE: 'yes' },
+        }),
+      ).toEqual({ error: null })
+      expect(JSON.parse(readFileSync(settingsPath, 'utf8')).env).toEqual({
+        RECOVERED_AFTER_PID_REUSE: 'yes',
+      })
+      expect(existsSync(lockPath)).toBe(false)
+      expect(
+        existsSync(`${lockPath}.recovered.${process.pid}.${staleToken}`),
+      ).toBe(true)
+    })
+  },
+  TEST_TIMEOUT_MS,
+)
+
+test(
+  'keeps a live legacy owner record protected',
+  async () => {
+    await withIsolatedUserSettings((_root, settingsPath) => {
+      const lockPath = `${settingsPath}.lock`
+      mkdirSync(lockPath)
+      writeFileSync(
+        join(lockPath, 'owner.json'),
+        JSON.stringify({
+          version: 1,
+          host: hostname(),
+          pid: process.pid,
+          token: '00000000-0000-4000-8000-000000000002',
+        }),
+      )
+
+      const result = updateSettingsForSource('userSettings', {
+        env: { MUST_NOT_RECLAIM_LIVE_V1: 'no' },
+      })
+      expect(result.error?.message).toContain('Timed out after 2000ms')
+      expect(existsSync(lockPath)).toBe(true)
+      expect(existsSync(settingsPath)).toBe(false)
+    })
   },
   TEST_TIMEOUT_MS,
 )
