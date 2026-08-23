@@ -260,23 +260,35 @@ export function filterToolsByDenyRules<
   return tools.filter(tool => !getDenyRuleForTool(permissionContext, tool))
 }
 
+/** Drop tools the user turned off via /tools. */
+function filterOffModeTools<T extends { name: string }>(
+  tools: T[],
+  includeOffTools = false,
+): T[] {
+  if (includeOffTools) return tools
+  const toolModes = getGlobalConfig().toolModes
+  if (!toolModes) return tools
+  return tools.filter(tool => toolModes[tool.name] !== 'off')
+}
+
+function mergeMcpTools(
+  tools: Tool[],
+  mcpTools: Tools,
+  permissionContext: ToolPermissionContext,
+): Tool[] {
+  if (mcpTools.length === 0) return tools
+  const allowedMcpTools = filterToolsByDenyRules(
+    mcpTools,
+    permissionContext,
+  ).filter(Boolean)
+  return uniqBy([...tools, ...allowedMcpTools], 'name')
+}
+
 export const getTools = (
   permissionContext: ToolPermissionContext,
   options: { includeOffTools?: boolean; mcpTools?: Tools } = {},
 ): Tools => {
   const { includeOffTools = false, mcpTools = [] } = options
-
-  // Respect per-tool 'off' modes set via /tools — a disabled tool is removed
-  // from the pool entirely. Other modes (always/ask/auto) are display-only.
-  // Skipped when includeOffTools so the /tools manager can list (and re-enable)
-  // tools that are currently off. Applied on every return path, including the
-  // CLAUDE_CODE_SIMPLE early returns below.
-  const applyToolModesFilter = (tools: Tool[]): Tool[] => {
-    if (includeOffTools) return tools
-    const toolModes = getGlobalConfig().toolModes
-    if (!toolModes) return tools
-    return tools.filter(tool => toolModes[tool.name] !== 'off')
-  }
 
   // Simple mode: only Bash, Read, and Edit tools
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
@@ -292,9 +304,13 @@ export const getTools = (
         const sendMessageTool = getSendMessageTool()
         if (sendMessageTool) replSimple.push(TaskStopTool, sendMessageTool)
       }
-      return filterToolsByDenyRules(
-        applyToolModesFilter(replSimple),
-        permissionContext,
+      return filterOffModeTools(
+        mergeMcpTools(
+          filterToolsByDenyRules(replSimple, permissionContext),
+          mcpTools,
+          permissionContext,
+        ),
+        includeOffTools,
       )
     }
     const simpleTools: Tool[] = [BashTool, FileReadTool, FileEditTool]
@@ -309,9 +325,13 @@ export const getTools = (
       const sendMessageTool = getSendMessageTool()
       if (sendMessageTool) simpleTools.push(sendMessageTool)
     }
-    return filterToolsByDenyRules(
-      applyToolModesFilter(simpleTools),
-      permissionContext,
+    return filterOffModeTools(
+      mergeMcpTools(
+        filterToolsByDenyRules(simpleTools, permissionContext),
+        mcpTools,
+        permissionContext,
+      ),
+      includeOffTools,
     )
   }
 
@@ -344,21 +364,16 @@ export const getTools = (
   // (defensive check against initialization timing issues)
   allowedTools = allowedTools.filter(Boolean)
 
-  allowedTools = applyToolModesFilter(allowedTools)
-
   const isEnabled = allowedTools.map(_ => typeof _.isEnabled === 'function' ? _.isEnabled() : true)
   allowedTools = allowedTools.filter((_, i) => isEnabled[i])
 
-  // When mcpTools are provided (the /tools manager), merge them in after the
-  // built-in pool so every tool in the active pool can be managed. Deny-rule
-  // filtered and deduplicated with built-ins taking precedence, matching
-  // assembleToolPool().
-  if (mcpTools.length > 0) {
-    const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext).filter(Boolean)
-    allowedTools = uniqBy([...allowedTools, ...allowedMcpTools], 'name')
-  }
-
-  return allowedTools
+  // Merge MCP tools (deny-filtered, built-ins win on name), then drop anything
+  // the user turned off — including off-mode MCP tools. includeOffTools skips
+  // that last step so /tools can list and re-enable them.
+  return filterOffModeTools(
+    mergeMcpTools(allowedTools, mcpTools, permissionContext),
+    includeOffTools,
+  )
 }
 
 /**
@@ -410,9 +425,11 @@ export function assembleToolPool(
   // Keep copy-then-sort because builtInTools is readonly; allowedMcpTools is a
   // fresh .filter() result.
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
-  return uniqBy(
-    [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
-    'name',
+  return filterOffModeTools(
+    uniqBy(
+      [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
+      'name',
+    ),
   )
 }
 

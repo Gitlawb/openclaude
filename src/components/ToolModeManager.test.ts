@@ -3,9 +3,23 @@ import { getEmptyToolPermissionContext } from '../Tool.js'
 import { applyModeCycle, nextMode } from './ToolModeManager.js'
 import { saveGlobalConfig } from '../utils/config.js'
 import type { Tools } from '../Tool.js'
-import { getTools, getToolsForModeManager } from '../tools.js'
+import { assembleToolPool, getTools, getToolsForModeManager } from '../tools.js'
 
 const emptyPermissionContext = getEmptyToolPermissionContext()
+
+const mcpFetchFixture = [
+  {
+    name: 'mcp__server__fetch',
+    description: 'mcp tool',
+    inputSchema: { type: 'object', properties: {} },
+    isEnabled: () => true,
+    call: async () => ({}),
+    isConcurrencySafe: true,
+    isReadOnly: true,
+    maxResultSizeChars: 1000,
+    userFacingName: () => 'fetch',
+  },
+]
 
 function resetToolModes(): void {
   saveGlobalConfig(config => ({ ...config, toolModes: undefined }))
@@ -85,20 +99,44 @@ describe('getToolsForModeManager', () => {
   })
 
   test('includes MCP tools from the active pool', () => {
-    const mcpTools = [
-      {
-        name: 'mcp__server__fetch',
-        description: 'mcp tool',
-        inputSchema: { type: 'object', properties: {} },
-        isEnabled: () => true,
-        call: async () => ({}),
-        isConcurrencySafe: true,
-        isReadOnly: true,
-        maxResultSizeChars: 1000,
-        userFacingName: () => 'fetch',
-      },
-    ]
-    const names = getToolsForModeManager(emptyPermissionContext, mcpTools as unknown as Tools).map(t => t.name)
+    const names = getToolsForModeManager(
+      emptyPermissionContext,
+      mcpFetchFixture as unknown as Tools,
+    ).map(t => t.name)
+    expect(names).toContain('mcp__server__fetch')
+    expect(names).toContain('Bash')
+  })
+
+  test('off-mode MCP tools stay visible in the manager', () => {
+    saveGlobalConfig(config => ({
+      ...config,
+      toolModes: { 'mcp__server__fetch': 'off' },
+    }))
+    const names = getToolsForModeManager(
+      emptyPermissionContext,
+      mcpFetchFixture as unknown as Tools,
+    ).map(t => t.name)
+    expect(names).toContain('mcp__server__fetch')
+  })
+
+  test('off-mode MCP tools are stripped from the runtime pool', () => {
+    saveGlobalConfig(config => ({
+      ...config,
+      toolModes: { 'mcp__server__fetch': 'off' },
+    }))
+    const names = assembleToolPool(
+      emptyPermissionContext,
+      mcpFetchFixture as unknown as Tools,
+    ).map(t => t.name)
+    expect(names).not.toContain('mcp__server__fetch')
+  })
+
+  test('simple-mode manager still lists MCP tools', () => {
+    process.env.CLAUDE_CODE_SIMPLE = 'true'
+    const names = getToolsForModeManager(
+      emptyPermissionContext,
+      mcpFetchFixture as unknown as Tools,
+    ).map(t => t.name)
     expect(names).toContain('mcp__server__fetch')
     expect(names).toContain('Bash')
   })
