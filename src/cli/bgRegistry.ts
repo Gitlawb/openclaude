@@ -1,5 +1,6 @@
 import {
   link,
+  lstat,
   mkdir,
   open,
   readFile,
@@ -18,6 +19,8 @@ import {
   readFileSync,
   unlinkSync,
   writeFileSync,
+  type Dirent,
+  type Stats,
 } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
@@ -26,6 +29,7 @@ import {
   getProcessCommand,
   isProcessRunning,
 } from '../utils/genericProcessUtils.js'
+import * as lockfile from '../utils/lockfile.js'
 import { jsonParse, jsonStringify } from '../utils/slowOperations.js'
 import {
   backgroundProcessMarkerToken,
@@ -104,6 +108,12 @@ type BackgroundSessionNameReservation = {
   createdAt?: string
 }
 
+export type BackgroundCleanupResult = {
+  sessionsRemoved: number
+  artifactsRemoved: number
+  errors: number
+}
+
 const TERMINAL_STATUSES = new Set<BackgroundSessionStatus>([
   'exited',
   'failed',
@@ -117,6 +127,20 @@ const ALL_STATUSES = new Set<BackgroundSessionStatus>([
 ])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
 const SAFE_SIGNAL_RE = /^SIG[A-Z0-9]{1,24}$/
+const NAME_RESERVATION_LOCK_OPTIONS = {
+  realpath: false,
+  retries: {
+    retries: 20,
+    factor: 1,
+    minTimeout: 5,
+    maxTimeout: 25,
+    randomize: true,
+  },
+} satisfies NonNullable<Parameters<typeof lockfile.lock>[1]>
+const NAME_RESERVATION_SYNC_LOCK_OPTIONS = {
+  realpath: false,
+  retries: 0,
+} satisfies NonNullable<Parameters<typeof lockfile.lockSync>[1]>
 let backgroundSessionsRootForTesting: string | undefined
 
 export function _setBackgroundSessionsRootForTesting(
@@ -179,6 +203,119 @@ function isErrno(error: unknown, code: string): boolean {
     'code' in error &&
     error.code === code
   )
+}
+
+type CleanupJsonRead<T> =
+  | { state: 'missing' }
+  | { state: 'valid'; value: T; identity?: CleanupFileIdentity }
+  | { state: 'invalid' }
+  | { state: 'error' }
+
+type CleanupFileIdentity = { dev: number; ino: number }
+
+type CleanupDirectorySnapshot =
+  | { state: 'missing'; path: string }
+  | { state: 'directory'; path: string; dev: number; ino: number }
+
+type BackgroundCleanupFileSystem = {
+  lstatFile: (path: string) => Promise<Stats>
+  readTextFile: (path: string) => Promise<string>
+  unlinkFile: (path: string) => Promise<void>
+}
+
+async function snapshotCleanupDirectory(
+  path: string,
+  lstatFile: BackgroundCleanupFileSystem['lstatFile'],
+): Promise<CleanupJsonRead<CleanupDirectorySnapshot>> {
+  try {
+    const stats = await lstatFile(path)
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      return { state: 'invalid' }
+    }
+    return {
+      state: 'valid',
+      value: { state: 'directory', path, dev: stats.dev, ino: stats.ino },
+    }
+  } catch (error) {
+    return isErrno(error, 'ENOENT')
+      ? { state: 'valid', value: { state: 'missing', path } }
+      : { state: 'error' }
+  }
+}
+
+async function inspectCleanupDirectory(
+  snapshot: CleanupDirectorySnapshot,
+  lstatFile: BackgroundCleanupFileSystem['lstatFile'],
+): Promise<'same' | 'missing' | 'changed' | 'error'> {
+  try {
+    const stats = await lstatFile(snapshot.path)
+    if (snapshot.state === 'missing') return 'changed'
+    return stats.isDirectory() &&
+      !stats.isSymbolicLink() &&
+      stats.dev === snapshot.dev &&
+      stats.ino === snapshot.ino
+      ? 'same'
+      : 'changed'
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return 'missing'
+    return 'error'
+  }
+}
+
+async function readCleanupJson<T>(
+  path: string,
+  validate: (value: unknown) => value is T,
+  directory: CleanupDirectorySnapshot,
+  fileSystem: BackgroundCleanupFileSystem,
+): Promise<CleanupJsonRead<T>> {
+  const directoryState = await inspectCleanupDirectory(
+    directory,
+    fileSystem.lstatFile,
+  )
+  if (directoryState === 'missing') return { state: 'missing' }
+  if (directoryState !== 'same') return { state: 'error' }
+
+  let before: Stats
+  try {
+    before = await fileSystem.lstatFile(path)
+    if (!before.isFile() || before.isSymbolicLink()) return { state: 'invalid' }
+  } catch (error) {
+    return isErrno(error, 'ENOENT') ? { state: 'missing' } : { state: 'error' }
+  }
+
+  let content: string
+  try {
+    content = await fileSystem.readTextFile(path)
+  } catch (error) {
+    return isErrno(error, 'ENOENT') ? { state: 'missing' } : { state: 'error' }
+  }
+  const latestDirectoryState = await inspectCleanupDirectory(
+    directory,
+    fileSystem.lstatFile,
+  )
+  if (latestDirectoryState !== 'same') return { state: 'error' }
+  try {
+    const after = await fileSystem.lstatFile(path)
+    if (!after.isFile() || after.isSymbolicLink()) return { state: 'invalid' }
+    if (after.dev !== before.dev || after.ino !== before.ino) {
+      return { state: 'error' }
+    }
+  } catch (error) {
+    return isErrno(error, 'ENOENT') ? { state: 'missing' } : { state: 'error' }
+  }
+  let parsed: unknown
+  try {
+    parsed = jsonParse(content)
+  } catch {
+    return { state: 'invalid' }
+  }
+  return validate(parsed)
+    ? {
+        state: 'valid',
+        value: parsed,
+        identity: { dev: before.dev, ino: before.ino },
+      }
+    : { state: 'invalid' }
 }
 
 function iso(now: Date | undefined): string {
@@ -266,29 +403,69 @@ async function readNameReservation(
 ): Promise<BackgroundSessionNameReservation | null> {
   try {
     const parsed = jsonParse(await readFile(path, 'utf8'))
-    const candidate = parsed as Partial<BackgroundSessionNameReservation>
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof candidate.name === 'string' &&
-      typeof candidate.id === 'string' &&
-      SAFE_ID_RE.test(candidate.id) &&
-      (candidate.creatorPid === undefined ||
-        (typeof candidate.creatorPid === 'number' &&
-          Number.isInteger(candidate.creatorPid) &&
-          candidate.creatorPid > 1)) &&
-      (candidate.createdAt === undefined ||
-        typeof candidate.createdAt === 'string')
-    ) {
-      return parsed as BackgroundSessionNameReservation
-    }
+    if (isBackgroundSessionNameReservation(parsed)) return parsed
   } catch {
     // Malformed reservations are treated as recoverable orphans below.
   }
   return null
 }
 
-async function releaseNameReservation(
+async function withNameReservationLock<T>(
+  name: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const release = await lockfile.lock(
+    nameReservationPathForName(name),
+    NAME_RESERVATION_LOCK_OPTIONS,
+  )
+  let value: T
+  try {
+    value = await operation()
+  } catch (error) {
+    await release().catch(() => {})
+    throw error
+  }
+  await release()
+  return value
+}
+
+function withNameReservationLockSync<T>(name: string, operation: () => T): T {
+  const release = lockfile.lockSync(
+    nameReservationPathForName(name),
+    NAME_RESERVATION_SYNC_LOCK_OPTIONS,
+  )
+  let value: T
+  try {
+    value = operation()
+  } catch (error) {
+    try {
+      release()
+    } catch {}
+    throw error
+  }
+  release()
+  return value
+}
+
+function isBackgroundSessionNameReservation(
+  value: unknown,
+): value is BackgroundSessionNameReservation {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<BackgroundSessionNameReservation>
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.id === 'string' &&
+    SAFE_ID_RE.test(candidate.id) &&
+    (candidate.creatorPid === undefined ||
+      (typeof candidate.creatorPid === 'number' &&
+        Number.isInteger(candidate.creatorPid) &&
+        candidate.creatorPid > 1)) &&
+    (candidate.createdAt === undefined ||
+      typeof candidate.createdAt === 'string')
+  )
+}
+
+async function releaseNameReservationUnlocked(
   name: string,
   id: string,
 ): Promise<void> {
@@ -298,7 +475,16 @@ async function releaseNameReservation(
   await unlink(path).catch(() => {})
 }
 
-function releaseNameReservationSync(name: string, id: string): void {
+async function releaseNameReservation(
+  name: string,
+  id: string,
+): Promise<void> {
+  await withNameReservationLock(name, async () => {
+    await releaseNameReservationUnlocked(name, id)
+  }).catch(() => {})
+}
+
+function releaseNameReservationSyncUnlocked(name: string, id: string): void {
   const path = nameReservationPathForName(name)
   try {
     const parsed = jsonParse(
@@ -310,6 +496,16 @@ function releaseNameReservationSync(name: string, id: string): void {
   }
 }
 
+function releaseNameReservationSync(name: string, id: string): void {
+  try {
+    withNameReservationLockSync(name, () => {
+      releaseNameReservationSyncUnlocked(name, id)
+    })
+  } catch {
+    // A stale reservation is recoverable on the next name claim.
+  }
+}
+
 async function unlinkStaleNameReservation(path: string): Promise<void> {
   try {
     await unlink(path)
@@ -318,7 +514,7 @@ async function unlinkStaleNameReservation(path: string): Promise<void> {
   }
 }
 
-async function releaseStaleNameReservation(
+async function releaseStaleNameReservationUnlocked(
   name: string,
   id: string,
 ): Promise<void> {
@@ -354,38 +550,40 @@ async function reserveBackgroundSessionName(
   name: string,
   id: string,
 ): Promise<() => Promise<void>> {
-  const path = nameReservationPathForName(name)
-  const reservation = jsonStringify({
-    name,
-    id,
-    creatorPid: process.pid,
-    createdAt: iso(undefined),
-  })
+  return await withNameReservationLock(name, async () => {
+    const path = nameReservationPathForName(name)
+    const reservation = jsonStringify({
+      name,
+      id,
+      creatorPid: process.pid,
+      createdAt: iso(undefined),
+    })
 
-  while (true) {
-    try {
-      await writeFile(path, reservation, { flag: 'wx' })
-      return () => releaseNameReservation(name, id)
-    } catch (error) {
-      if (!isErrno(error, 'EEXIST')) throw error
+    while (true) {
+      try {
+        await writeFile(path, reservation, { flag: 'wx' })
+        return () => releaseNameReservation(name, id)
+      } catch (error) {
+        if (!isErrno(error, 'EEXIST')) throw error
 
-      const existing = await readNameReservation(path)
-      if (!(await isLiveNameReservation(name, existing))) {
-        if (existing) {
-          await releaseStaleNameReservation(name, existing.id)
-        } else {
-          await unlinkStaleNameReservation(path)
+        const existing = await readNameReservation(path)
+        if (!(await isLiveNameReservation(name, existing))) {
+          if (existing) {
+            await releaseStaleNameReservationUnlocked(name, existing.id)
+          } else {
+            await unlinkStaleNameReservation(path)
+          }
+          continue
         }
-        continue
-      }
 
-      const suffix =
-        existing && existing.name === name ? ` (${existing.id})` : ''
-      throw new Error(
-        `Background session name "${name}" already exists${suffix}`,
-      )
+        const suffix =
+          existing && existing.name === name ? ` (${existing.id})` : ''
+        throw new Error(
+          `Background session name "${name}" already exists${suffix}`,
+        )
+      }
     }
-  }
+  })
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -535,6 +733,14 @@ async function applyAuthoritativeTerminalFacts(
 ): Promise<BackgroundSession> {
   const natural = await readTerminalFact(session.id, 'natural')
   const killed = await readTerminalFact(session.id, 'killed')
+  return applyTerminalFacts(session, natural, killed)
+}
+
+function applyTerminalFacts(
+  session: BackgroundSession,
+  natural: BackgroundSessionTerminalFact | null,
+  killed: BackgroundSessionTerminalFact | null,
+): BackgroundSession {
   let effective = session
 
   if (
@@ -661,6 +867,331 @@ export async function listBackgroundSessions(): Promise<BackgroundSession[]> {
   }
 
   return sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+}
+
+type CleanupArtifactRemoval = 'removed' | 'missing' | 'error'
+
+async function removeCleanupArtifact(
+  path: string,
+  result: BackgroundCleanupResult,
+  directory: CleanupDirectorySnapshot,
+  fileSystem: BackgroundCleanupFileSystem,
+  expectedIdentity?: CleanupFileIdentity,
+): Promise<CleanupArtifactRemoval> {
+  const directoryState = await inspectCleanupDirectory(
+    directory,
+    fileSystem.lstatFile,
+  )
+  if (directoryState === 'missing') return 'missing'
+  if (directoryState !== 'same') {
+    result.errors++
+    return 'error'
+  }
+  if (expectedIdentity) {
+    try {
+      const stats = await fileSystem.lstatFile(path)
+      if (
+        !stats.isFile() ||
+        stats.isSymbolicLink() ||
+        stats.dev !== expectedIdentity.dev ||
+        stats.ino !== expectedIdentity.ino
+      ) {
+        result.errors++
+        return 'error'
+      }
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return 'missing'
+      result.errors++
+      return 'error'
+    }
+  }
+  try {
+    await fileSystem.unlinkFile(path)
+    result.artifactsRemoved++
+    return 'removed'
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return 'missing'
+    result.errors++
+    return 'error'
+  }
+}
+
+function cleanupReadBlocksRemoval<T>(
+  read: CleanupJsonRead<T>,
+  result: BackgroundCleanupResult,
+): boolean {
+  if (read.state === 'error') {
+    result.errors++
+    return true
+  }
+  return read.state === 'invalid'
+}
+
+export async function cleanupBackgroundSessionsBefore(
+  cutoff: Date,
+  options: {
+    lstatFile?: BackgroundCleanupFileSystem['lstatFile']
+    readTextFile?: BackgroundCleanupFileSystem['readTextFile']
+    unlinkFile?: BackgroundCleanupFileSystem['unlinkFile']
+    _beforeMetadataDirectoryReadForTesting?: () => Promise<void>
+    _beforeReservationRemovalForTesting?: (path: string) => Promise<void>
+  } = {},
+): Promise<BackgroundCleanupResult> {
+  const result: BackgroundCleanupResult = {
+    sessionsRemoved: 0,
+    artifactsRemoved: 0,
+    errors: 0,
+  }
+  const cutoffMs = cutoff.getTime()
+  if (!Number.isFinite(cutoffMs)) {
+    result.errors++
+    return result
+  }
+
+  const fileSystem: BackgroundCleanupFileSystem = {
+    lstatFile: options.lstatFile ?? lstat,
+    readTextFile:
+      options.readTextFile ?? (async path => await readFile(path, 'utf8')),
+    unlinkFile: options.unlinkFile ?? (async path => await unlink(path)),
+  }
+  const directoryReads = await Promise.all(
+    [
+      getBackgroundSessionMetadataDir(),
+      getBackgroundSessionLogsDir(),
+      getBackgroundSessionNamesDir(),
+      getBackgroundSessionTerminalDir(),
+    ].map(async path =>
+      await snapshotCleanupDirectory(path, fileSystem.lstatFile),
+    ),
+  )
+  const [metadataRead, logsRead, namesRead, terminalRead] = directoryReads
+  const requiredDirectoryReads = [metadataRead, logsRead, terminalRead]
+  const requiredDirectoryErrors = requiredDirectoryReads.filter(
+    read => read.state === 'error' || read.state === 'invalid',
+  ).length
+  if (requiredDirectoryErrors > 0) {
+    result.errors += requiredDirectoryErrors
+    return result
+  }
+  if (namesRead.state === 'error' || namesRead.state === 'invalid') {
+    result.errors++
+  }
+  const metadataDirectory =
+    metadataRead.state === 'valid' ? metadataRead.value : undefined
+  const logsDirectory =
+    logsRead.state === 'valid' ? logsRead.value : undefined
+  const namesDirectory =
+    namesRead.state === 'valid' ? namesRead.value : undefined
+  const terminalDirectory =
+    terminalRead.state === 'valid' ? terminalRead.value : undefined
+  if (
+    !metadataDirectory ||
+    !logsDirectory ||
+    !terminalDirectory ||
+    metadataDirectory.state === 'missing'
+  ) {
+    return result
+  }
+  const metadataDirectoryState = await inspectCleanupDirectory(
+    metadataDirectory,
+    fileSystem.lstatFile,
+  )
+  if (metadataDirectoryState !== 'same') {
+    if (metadataDirectoryState !== 'missing') result.errors++
+    return result
+  }
+
+  let entries: Dirent<string>[]
+  try {
+    await options._beforeMetadataDirectoryReadForTesting?.()
+    entries = await readdir(getBackgroundSessionMetadataDir(), {
+      withFileTypes: true,
+    })
+  } catch (error) {
+    if (!isErrno(error, 'ENOENT')) result.errors++
+    return result
+  }
+  const metadataDirectoryAfterRead = await inspectCleanupDirectory(
+    metadataDirectory,
+    fileSystem.lstatFile,
+  )
+  if (metadataDirectoryAfterRead !== 'same') {
+    if (metadataDirectoryAfterRead !== 'missing') result.errors++
+    return result
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    const metadataPath = join(getBackgroundSessionMetadataDir(), entry.name)
+    const expectedId = basename(entry.name, '.json')
+    const metadata = await readCleanupJson(
+      metadataPath,
+      (value): value is BackgroundSession =>
+        isBackgroundSession(value, expectedId),
+      metadataDirectory,
+      fileSystem,
+    )
+    if (metadata.state === 'error') {
+      result.errors++
+      continue
+    }
+    if (metadata.state !== 'valid') continue
+
+    const session = metadata.value
+    const natural = await readCleanupJson(
+      terminalFactPathForId(session.id, 'natural'),
+      (value): value is BackgroundSessionTerminalFact =>
+        isBackgroundSessionTerminalFact(value, session.id, 'natural') &&
+        Number.isFinite(Date.parse(value.finishedAt)),
+      terminalDirectory,
+      fileSystem,
+    )
+    const killed = await readCleanupJson(
+      terminalFactPathForId(session.id, 'killed'),
+      (value): value is BackgroundSessionTerminalFact =>
+        isBackgroundSessionTerminalFact(value, session.id, 'killed') &&
+        Number.isFinite(Date.parse(value.finishedAt)),
+      terminalDirectory,
+      fileSystem,
+    )
+    const naturalBlocksRemoval = cleanupReadBlocksRemoval(natural, result)
+    const killedBlocksRemoval = cleanupReadBlocksRemoval(killed, result)
+    if (
+      naturalBlocksRemoval ||
+      killedBlocksRemoval ||
+      (natural.state === 'valid' && natural.value.pid !== session.pid) ||
+      (killed.state === 'valid' && killed.value.pid !== session.pid)
+    ) {
+      continue
+    }
+
+    const effective = applyTerminalFacts(
+      session,
+      natural.state === 'valid' ? natural.value : null,
+      killed.state === 'valid' ? killed.value : null,
+    )
+    if (
+      effective.status !== 'exited' &&
+      effective.status !== 'failed' &&
+      effective.status !== 'killed'
+    ) {
+      continue
+    }
+    if (effective.finishedAt === undefined) continue
+    const finishedAtMs = Date.parse(effective.finishedAt)
+    if (!Number.isFinite(finishedAtMs) || finishedAtMs >= cutoffMs) continue
+
+    let reservation:
+      | CleanupJsonRead<BackgroundSessionNameReservation>
+      | undefined
+    if (session.name) {
+      if (!namesDirectory) continue
+      reservation = await readCleanupJson(
+        nameReservationPathForName(session.name),
+        isBackgroundSessionNameReservation,
+        namesDirectory,
+        fileSystem,
+      )
+      if (reservation.state === 'error') {
+        result.errors++
+        continue
+      }
+    }
+
+    const logPaths = getBackgroundSessionLogPaths(session.id)
+    const stdoutRemoval = await removeCleanupArtifact(
+      logPaths.stdoutLogPath,
+      result,
+      logsDirectory,
+      fileSystem,
+    )
+    const stderrRemoval = await removeCleanupArtifact(
+      logPaths.stderrLogPath,
+      result,
+      logsDirectory,
+      fileSystem,
+    )
+    let reservationRemoval: CleanupArtifactRemoval = 'missing'
+    const sessionName = session.name
+    if (sessionName && reservation?.state === 'valid' && namesDirectory) {
+      try {
+        reservationRemoval = await withNameReservationLock(
+          sessionName,
+          async () => {
+            const latestReservation = await readCleanupJson(
+              nameReservationPathForName(sessionName),
+              isBackgroundSessionNameReservation,
+              namesDirectory,
+              fileSystem,
+            )
+            if (latestReservation.state === 'error') {
+              result.errors++
+              return 'error'
+            }
+            if (
+              latestReservation.state !== 'valid' ||
+              latestReservation.value.name !== sessionName ||
+              latestReservation.value.id !== session.id
+            ) {
+              return 'missing'
+            }
+            const reservationPath = nameReservationPathForName(sessionName)
+            await options._beforeReservationRemovalForTesting?.(
+              reservationPath,
+            )
+            return await removeCleanupArtifact(
+              reservationPath,
+              result,
+              namesDirectory,
+              fileSystem,
+              latestReservation.identity,
+            )
+          },
+        )
+      } catch {
+        result.errors++
+        reservationRemoval = 'error'
+      }
+    }
+    if (
+      stdoutRemoval === 'error' ||
+      stderrRemoval === 'error' ||
+      reservationRemoval === 'error'
+    ) {
+      continue
+    }
+
+    const metadataRemoval = await removeCleanupArtifact(
+      metadataPath,
+      result,
+      metadataDirectory,
+      fileSystem,
+      metadata.identity,
+    )
+    if (metadataRemoval === 'error') continue
+    if (metadataRemoval === 'removed') result.sessionsRemoved++
+
+    if (natural.state === 'valid') {
+      await removeCleanupArtifact(
+        terminalFactPathForId(session.id, 'natural'),
+        result,
+        terminalDirectory,
+        fileSystem,
+        natural.identity,
+      )
+    }
+    if (killed.state === 'valid') {
+      await removeCleanupArtifact(
+        terminalFactPathForId(session.id, 'killed'),
+        result,
+        terminalDirectory,
+        fileSystem,
+        killed.identity,
+      )
+    }
+  }
+
+  return result
 }
 
 export async function readBackgroundSessionForOwner(

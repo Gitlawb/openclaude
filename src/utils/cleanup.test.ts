@@ -3,16 +3,78 @@ import { mkdir, rm, stat, utimes, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+import {
+  _setBackgroundSessionsRootForTesting,
+  createBackgroundSession,
+  recordBackgroundSessionNaturalTermination,
+} from '../cli/bgRegistry.js'
 import { cleanupOldSessionFilesInProjectsDir } from './cleanup.js'
 import { NodeFsOperations } from './fsOperations.js'
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  _setBackgroundSessionsRootForTesting(undefined)
   await Promise.all(
     tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
   )
 })
+
+async function runCleanupFixture(configDir: string): Promise<void> {
+  const fixture = join(import.meta.dir, 'cleanupBackgroundSessions.fixture.ts')
+  const { USER_TYPE: _userType, ...inheritedEnv } = process.env
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  const child = Bun.spawn([process.execPath, fixture], {
+    cwd: configDir,
+    env: {
+      ...inheritedEnv,
+      HOME: configDir,
+      XDG_CACHE_HOME: join(configDir, 'cache'),
+      OPENCLAUDE_CONFIG_DIR: configDir,
+      NODE_ENV: 'test',
+    },
+    signal: controller.signal,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  try {
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ])
+    expect(exitCode, stderr).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({ completed: true })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function createCompletedBackgroundSession(
+  configDir: string,
+  id: string,
+  finishedAt: Date,
+): Promise<string> {
+  const root = join(configDir, 'bg-sessions')
+  _setBackgroundSessionsRootForTesting(root)
+  await createBackgroundSession({
+    id,
+    pid: process.pid,
+    cwd: configDir,
+    command: ['openclaude', '--print', 'fixture'],
+    sessionId: `${id}-conversation`,
+    now: new Date(finishedAt.getTime() - 60_000),
+  })
+  await recordBackgroundSessionNaturalTermination(
+    id,
+    { exitCode: 0 },
+    { ownerPid: process.pid, now: finishedAt },
+  )
+  _setBackgroundSessionsRootForTesting(undefined)
+  return join(root, 'sessions', `${id}.json`)
+}
 
 describe('cleanupOldSessionFiles', () => {
   test('removes old replay sidecars while preserving non-session files', async () => {
@@ -45,4 +107,116 @@ describe('cleanupOldSessionFiles', () => {
     await expect(stat(replayPath)).rejects.toThrow()
     expect((await stat(keepPath)).isFile()).toBe(true)
   })
+})
+
+describe('cleanupOldMessageFilesInBackground', () => {
+  test(
+    'removes old completed background-session artifacts through the scheduler',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 30 }),
+      )
+      const metadataPath = await createCompletedBackgroundSession(
+        configDir,
+        'bg-scheduler-old',
+        new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      )
+
+      await runCleanupFixture(configDir)
+
+      expect(await Bun.file(metadataPath).exists()).toBe(false)
+    },
+    30_000,
+  )
+
+  test(
+    'uses cleanupPeriodDays zero for completed background sessions',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-zero-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+      const metadataPath = await createCompletedBackgroundSession(
+        configDir,
+        'bg-scheduler-zero',
+        new Date(Date.now() - 1_000),
+      )
+
+      await runCleanupFixture(configDir)
+
+      expect(await Bun.file(metadataPath).exists()).toBe(false)
+    },
+    30_000,
+  )
+
+  test(
+    'preserves background artifacts when explicit cleanupPeriodDays is invalid',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-invalid-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 'invalid' }),
+      )
+      const metadataPath = await createCompletedBackgroundSession(
+        configDir,
+        'bg-scheduler-invalid',
+        new Date('2026-06-01T00:00:00.000Z'),
+      )
+
+      await runCleanupFixture(configDir)
+
+      expect(await Bun.file(metadataPath).exists()).toBe(true)
+    },
+    30_000,
+  )
+
+  test(
+    'retains recent background sessions under a nonzero cleanup period',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-recent-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 30 }),
+      )
+      const oldMetadataPath = await createCompletedBackgroundSession(
+        configDir,
+        'bg-scheduler-old-pair',
+        new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      )
+      const recentMetadataPath = await createCompletedBackgroundSession(
+        configDir,
+        'bg-scheduler-recent',
+        new Date(Date.now() - 60_000),
+      )
+
+      await runCleanupFixture(configDir)
+
+      expect(await Bun.file(oldMetadataPath).exists()).toBe(false)
+      expect(await Bun.file(recentMetadataPath).exists()).toBe(true)
+    },
+    30_000,
+  )
 })

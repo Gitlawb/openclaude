@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
+import { cleanupBackgroundSessionsBefore } from '../cli/bgRegistry.js'
 import { logEvent } from '../services/analytics/index.js'
 import { CACHE_PATHS } from './cachePaths.js'
 import { logForDebugging } from './debug.js'
@@ -598,6 +599,18 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
 
   await cleanupOldMessageFiles()
   await cleanupOldSessionFiles()
+  const backgroundResult = await cleanupBackgroundSessionsBefore(
+    getCutoffDate(),
+  )
+  if (
+    backgroundResult.sessionsRemoved > 0 ||
+    backgroundResult.artifactsRemoved > 0 ||
+    backgroundResult.errors > 0
+  ) {
+    logForDebugging(
+      `Background session cleanup: ${backgroundResult.sessionsRemoved} sessions, ${backgroundResult.artifactsRemoved} artifacts, ${backgroundResult.errors} errors`,
+    )
+  }
   await cleanupOldPlanFiles()
   await cleanupOldFileHistoryBackups()
   await cleanupOldSessionEnvDirs()
