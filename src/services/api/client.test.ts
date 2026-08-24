@@ -392,6 +392,52 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
   expect(capturedHeaders).toBeDefined()
 })
 
+test('native Anthropic client validates and clamps API_TIMEOUT_MS', async () => {
+  const originalApiTimeoutMs = process.env.API_TIMEOUT_MS
+  // Force the first-party native Anthropic constructor path (not the shim).
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.GEMINI_API_KEY
+  delete process.env.GEMINI_MODEL
+  delete process.env.GEMINI_BASE_URL
+  delete process.env.GEMINI_AUTH_MODE
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
+  delete process.env.OPENAI_MODEL
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.ANTHROPIC_MODEL
+  process.env.ANTHROPIC_API_KEY = 'anthropic-test-key'
+
+  try {
+    const timeoutOf = async (): Promise<number> =>
+      (
+        (await getAnthropicClient({
+          apiKey: 'anthropic-test-key',
+          maxRetries: 0,
+          model: 'claude-sonnet-4-6',
+        })) as unknown as { timeout: number }
+      ).timeout
+
+    // A malformed or negative override must not poison the client with a NaN or
+    // negative timeout; it falls back to the 600s default.
+    for (const invalid of ['not-a-number', '-1', '0', '1.5', '']) {
+      process.env.API_TIMEOUT_MS = invalid
+      expect(await timeoutOf()).toBe(600_000)
+    }
+    // Unset also yields the default.
+    delete process.env.API_TIMEOUT_MS
+    expect(await timeoutOf()).toBe(600_000)
+    // A valid override is honored, and an oversized one is clamped below the
+    // 32-bit setTimeout ceiling instead of overflowing to a tiny delay.
+    process.env.API_TIMEOUT_MS = '45000'
+    expect(await timeoutOf()).toBe(45_000)
+    process.env.API_TIMEOUT_MS = '3000000000'
+    expect(await timeoutOf()).toBe(2_147_483_647)
+  } finally {
+    restoreEnv('API_TIMEOUT_MS', originalApiTimeoutMs)
+  }
+})
+
 test('routes a custom Anthropic endpoint with ANTHROPIC_AUTH_TOKEN without requiring an API key', async () => {
   let capturedUrl: string | undefined
   let capturedHeaders: Headers | undefined

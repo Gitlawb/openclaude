@@ -41,6 +41,21 @@ test('API timeout parser can inspect a request-local environment', () => {
   expect(getApiTimeoutMs({})).toBe(600_000)
 })
 
+test('API timeout parser honors a caller-supplied fallback', () => {
+  // Native clients reuse this parser with their own context default, so an
+  // unset/malformed/negative override must resolve to the caller's fallback,
+  // never NaN or a negative timeout.
+  expect(getApiTimeoutMs({}, 300_000)).toBe(300_000)
+  for (const invalid of ['abc', '', '1.5', '25ms', '0', '-5']) {
+    expect(getApiTimeoutMs({ API_TIMEOUT_MS: invalid }, 120_000)).toBe(120_000)
+  }
+  // A valid override still wins over the fallback and stays capped.
+  expect(getApiTimeoutMs({ API_TIMEOUT_MS: '25' }, 120_000)).toBe(25)
+  expect(getApiTimeoutMs({ API_TIMEOUT_MS: '3000000000' }, 120_000)).toBe(
+    2_147_483_647,
+  )
+})
+
 test('redacts configured and encoded secrets from diagnostic URLs', () => {
   process.env.OPENAI_API_KEY = 'secret/value'
   const diagnostic = redactUrlForDiagnostics(
