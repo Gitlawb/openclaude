@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as backgroundSessionRegistry from './bgRegistry.js'
@@ -73,6 +82,45 @@ describe('background session registry', () => {
       nameReservationPath(name),
       JSON.stringify({ name, ...reservation }),
     )
+  }
+
+  async function snapshotRegistryTree(
+    root: string,
+    relative = '',
+  ): Promise<string[]> {
+    const current = join(root, relative)
+    const entries = await readdir(current, { withFileTypes: true })
+    const snapshot: string[] = []
+    for (const entry of entries.toSorted((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const entryRelative = join(relative, entry.name)
+      if (entry.isDirectory()) {
+        snapshot.push(`${entryRelative}/`)
+        snapshot.push(...(await snapshotRegistryTree(root, entryRelative)))
+        continue
+      }
+      const path = join(root, entryRelative)
+      const metadata = await stat(path, { bigint: true })
+      snapshot.push(
+        `${entryRelative}:${metadata.mtimeNs}:${await readFile(path, 'utf8')}`,
+      )
+    }
+    return snapshot
+  }
+
+  async function resolveWithListCallCount(target: string): Promise<{
+    session: BackgroundSession
+    listCalls: number
+  }> {
+    let listCalls = 0
+    const session = await resolveBackgroundSession(target, {
+      _listSessionsForTesting: async () => {
+        listCalls += 1
+        return await listBackgroundSessions()
+      },
+    })
+    return { session, listCalls }
   }
 
   beforeEach(async () => {
@@ -232,7 +280,9 @@ describe('background session registry', () => {
       sessionId: 'conversation-2',
     })
 
-    expect((await resolveBackgroundSession('bg-abc')).id).toBe('bg-named')
+    const { session, listCalls } = await resolveWithListCallCount('bg-abc')
+    expect(session.id).toBe('bg-named')
+    expect(listCalls).toBe(1)
   })
 
   it('resolves exact session ids before exact session names', async () => {
@@ -252,7 +302,206 @@ describe('background session registry', () => {
       sessionId: 'conversation-name',
     })
 
-    expect((await resolveBackgroundSession('bg-target')).id).toBe('bg-target')
+    const { session, listCalls } = await resolveWithListCallCount('bg-target')
+    expect(session.id).toBe('bg-target')
+    expect(listCalls).toBe(0)
+  })
+
+  it('resolves an exact session id without listing the metadata directory', async () => {
+    await createBackgroundSession({
+      id: 'bg-direct',
+      pid: 111,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'direct'],
+      sessionId: 'conversation-direct',
+    })
+    const metadataDir = join(configDir, 'bg-sessions', 'sessions')
+    await writeFile(join(metadataDir, 'unrelated-malformed.json'), '{')
+
+    const { session, listCalls } = await resolveWithListCallCount('bg-direct')
+    expect(session.id).toBe('bg-direct')
+    expect(listCalls).toBe(0)
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'resolves an exact session id when directory enumeration is unavailable',
+    async () => {
+      await createBackgroundSession({
+        id: 'bg-direct-unlisted',
+        pid: 112,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'direct unlisted'],
+        sessionId: 'conversation-direct-unlisted',
+      })
+      const metadataDir = join(configDir, 'bg-sessions', 'sessions')
+
+      await chmod(metadataDir, 0o100)
+      try {
+        expect(
+          (await resolveBackgroundSession('bg-direct-unlisted')).id,
+        ).toBe('bg-direct-unlisted')
+      } finally {
+        await chmod(metadataDir, 0o700)
+      }
+    },
+  )
+
+  it('applies natural terminal facts on the direct exact-id path', async () => {
+    await createBackgroundSession({
+      id: 'bg-direct-natural',
+      pid: 333,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'direct natural'],
+      sessionId: 'conversation-direct-natural',
+    })
+    await writeTerminalFact('bg-direct-natural', 'natural', {
+      pid: 333,
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    })
+    const { session, listCalls } = await resolveWithListCallCount(
+      'bg-direct-natural',
+    )
+
+    expect(session).toMatchObject({
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 23,
+      terminalReason: 'exit_code',
+    })
+    expect(listCalls).toBe(0)
+  })
+
+  it('keeps killed facts strongest on the direct exact-id path', async () => {
+    await createBackgroundSession({
+      id: 'bg-direct-killed',
+      pid: 334,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'direct killed'],
+      sessionId: 'conversation-direct-killed',
+    })
+    await writeTerminalFact('bg-direct-killed', 'natural', {
+      pid: 334,
+      status: 'failed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 17,
+      terminalReason: 'exit_code',
+    })
+    await writeTerminalFact('bg-direct-killed', 'killed', {
+      pid: 334,
+      status: 'killed',
+      finishedAt: '2026-06-15T08:05:00.000Z',
+      terminalReason: 'explicit_kill',
+    })
+    const { session, listCalls } = await resolveWithListCallCount(
+      'bg-direct-killed',
+    )
+
+    expect(session).toMatchObject({
+      status: 'killed',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      exitCode: 17,
+      terminalReason: 'explicit_kill',
+    })
+    expect(listCalls).toBe(0)
+  })
+
+  it('falls back to an exact live name when exact-id metadata is malformed', async () => {
+    await createBackgroundSession({
+      id: 'bg-name-owner',
+      name: 'bg-malformed',
+      pid: 335,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'name owner'],
+      sessionId: 'conversation-name-owner',
+    })
+    await writeFile(
+      join(configDir, 'bg-sessions', 'sessions', 'bg-malformed.json'),
+      '{',
+    )
+
+    const { session, listCalls } = await resolveWithListCallCount(
+      'bg-malformed',
+    )
+    expect(session.id).toBe('bg-name-owner')
+    expect(listCalls).toBe(1)
+  })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'falls back to an exact live name when exact-id metadata is unreadable',
+    async () => {
+      await createBackgroundSession({
+        id: 'bg-unreadable',
+        pid: 336,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'unreadable id'],
+        sessionId: 'conversation-unreadable-id',
+      })
+      await createBackgroundSession({
+        id: 'bg-unreadable-name-owner',
+        name: 'bg-unreadable',
+        pid: 337,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'unreadable name owner'],
+        sessionId: 'conversation-unreadable-name-owner',
+      })
+      const exactPath = join(
+        configDir,
+        'bg-sessions',
+        'sessions',
+        'bg-unreadable.json',
+      )
+
+      await chmod(exactPath, 0o000)
+      try {
+        const { session, listCalls } = await resolveWithListCallCount(
+          'bg-unreadable',
+        )
+        expect(session.id).toBe('bg-unreadable-name-owner')
+        expect(listCalls).toBe(1)
+      } finally {
+        await chmod(exactPath, 0o600)
+      }
+    },
+  )
+
+  it('does not interpret unsafe exact-id candidates as metadata paths', async () => {
+    const named = await createBackgroundSession({
+      id: 'bg-safe-name-owner',
+      name: '../outside',
+      pid: 338,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'safe name owner'],
+      sessionId: 'conversation-safe-name-owner',
+    })
+    await writeFile(
+      join(configDir, 'bg-sessions', 'outside.json'),
+      JSON.stringify({ ...named, id: 'outside' }),
+    )
+
+    expect((await resolveBackgroundSession('../outside')).id).toBe(
+      'bg-safe-name-owner',
+    )
+  })
+
+  it('does not write registry state while resolving an exact id', async () => {
+    await createBackgroundSession({
+      id: 'bg-read-only',
+      pid: 339,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'read only'],
+      sessionId: 'conversation-read-only',
+    })
+    const root = join(configDir, 'bg-sessions')
+    const before = await snapshotRegistryTree(root)
+
+    expect((await resolveBackgroundSession('bg-read-only')).id).toBe(
+      'bg-read-only',
+    )
+
+    expect(await snapshotRegistryTree(root)).toEqual(before)
   })
 
   it('resolves unique session id prefixes when no exact name matches', async () => {

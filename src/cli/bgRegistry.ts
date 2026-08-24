@@ -756,10 +756,22 @@ export async function createBackgroundSession(
   return session
 }
 
+type ResolveBackgroundSessionOptions = {
+  _listSessionsForTesting?: () => Promise<BackgroundSession[]>
+}
+
 export async function resolveBackgroundSession(
   target: string,
+  options?: ResolveBackgroundSessionOptions,
 ): Promise<BackgroundSession> {
-  const sessions = await listBackgroundSessions()
+  if (SAFE_ID_RE.test(target)) {
+    const exact = await readSessionFile(metadataPathForId(target))
+    if (exact) return await applyAuthoritativeTerminalFacts(exact)
+  }
+
+  const sessions = await (
+    options?._listSessionsForTesting ?? listBackgroundSessions
+  )()
   const exactId = sessions.filter(s => s.id === target)
   if (exactId.length === 1) return exactId[0]
 
