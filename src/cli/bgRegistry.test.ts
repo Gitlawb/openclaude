@@ -40,6 +40,17 @@ const {
   recordBackgroundSessionNaturalTerminationSync,
 } = backgroundSessionRegistry
 
+type Assert<T extends true> = T
+type IsEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends <
+  T,
+>() => T extends B ? 1 : 2
+  ? true
+  : false
+
+type _ResolveBackgroundSessionParametersAreTargetOnly = Assert<
+  IsEqual<Parameters<typeof resolveBackgroundSession>, [target: string]>
+>
+
 describe('background session registry', () => {
   let configDir: string
 
@@ -114,12 +125,14 @@ describe('background session registry', () => {
     listCalls: number
   }> {
     let listCalls = 0
-    const session = await resolveBackgroundSession(target, {
-      _listSessionsForTesting: async () => {
-        listCalls += 1
-        return await listBackgroundSessions()
-      },
-    })
+    const session =
+      await backgroundSessionRegistry.__test.resolveBackgroundSessionWithList(
+        target,
+        async () => {
+          listCalls += 1
+          return await listBackgroundSessions()
+        },
+      )
     return { session, listCalls }
   }
 
@@ -131,6 +144,10 @@ describe('background session registry', () => {
   afterEach(async () => {
     _setBackgroundSessionsRootForTesting(undefined)
     await rm(configDir, { force: true, recursive: true })
+  })
+
+  it('keeps the exported resolver signature free of test dependencies', () => {
+    expect(resolveBackgroundSession.length).toBe(1)
   })
 
   it('creates session metadata and log files under the OpenClaude config dir', async () => {
