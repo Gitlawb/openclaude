@@ -127,6 +127,7 @@ const ALL_STATUSES = new Set<BackgroundSessionStatus>([
 ])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
 const SAFE_SIGNAL_RE = /^SIG[A-Z0-9]{1,24}$/
+const ORPHANED_TERMINAL_FACT_SCAN_LIMIT = 256
 const NAME_RESERVATION_LOCK_OPTIONS = {
   realpath: false,
   retries: {
@@ -142,11 +143,13 @@ const NAME_RESERVATION_SYNC_LOCK_OPTIONS = {
   retries: 0,
 } satisfies NonNullable<Parameters<typeof lockfile.lockSync>[1]>
 let backgroundSessionsRootForTesting: string | undefined
+let orphanedTerminalFactScanOffset = 0
 
 export function _setBackgroundSessionsRootForTesting(
   root: string | undefined,
 ): void {
   backgroundSessionsRootForTesting = root?.normalize('NFC')
+  orphanedTerminalFactScanOffset = 0
 }
 
 function getBackgroundSessionsRoot(): string {
@@ -927,6 +930,130 @@ function cleanupReadBlocksRemoval<T>(
   return read.state === 'invalid'
 }
 
+function terminalFactCandidateFromEntry(
+  entry: Dirent<string>,
+): { id: string; kind: 'natural' | 'killed' } | null {
+  if (!entry.isFile()) return null
+  const match = /^(.*)\.(natural|killed)\.json$/.exec(entry.name)
+  if (!match) return null
+  const [, id, kind] = match
+  if (!id || !kind || !SAFE_ID_RE.test(id)) return null
+  return { id, kind: kind as 'natural' | 'killed' }
+}
+
+async function cleanupOrphanedTerminalFacts(
+  cutoffMs: number,
+  metadataDirectory: CleanupDirectorySnapshot,
+  terminalDirectory: CleanupDirectorySnapshot,
+  metadataIds: ReadonlySet<string>,
+  result: BackgroundCleanupResult,
+  fileSystem: BackgroundCleanupFileSystem,
+  scanStartSeed: number = cutoffMs,
+): Promise<void> {
+  const terminalDirectoryState = await inspectCleanupDirectory(
+    terminalDirectory,
+    fileSystem.lstatFile,
+  )
+  if (terminalDirectoryState === 'missing') return
+  if (terminalDirectoryState !== 'same') {
+    result.errors++
+    return
+  }
+
+  let entries: Dirent<string>[]
+  try {
+    entries = await readdir(getBackgroundSessionTerminalDir(), {
+      withFileTypes: true,
+    })
+  } catch (error) {
+    if (!isErrno(error, 'ENOENT')) result.errors++
+    return
+  }
+  const terminalDirectoryAfterRead = await inspectCleanupDirectory(
+    terminalDirectory,
+    fileSystem.lstatFile,
+  )
+  if (terminalDirectoryAfterRead !== 'same') {
+    if (terminalDirectoryAfterRead !== 'missing') result.errors++
+    return
+  }
+
+  const candidates = entries
+    .map(terminalFactCandidateFromEntry)
+    .filter(
+      (candidate): candidate is NonNullable<typeof candidate> =>
+        candidate !== null && !metadataIds.has(candidate.id),
+    )
+    .sort((a, b) => {
+      const idOrder = a.id.localeCompare(b.id)
+      return idOrder !== 0 ? idOrder : a.kind.localeCompare(b.kind)
+    })
+  if (candidates.length === 0) return
+
+  const scanCount = Math.min(
+    candidates.length,
+    ORPHANED_TERMINAL_FACT_SCAN_LIMIT,
+  )
+  const effectiveScanStartSeed = Number.isFinite(scanStartSeed)
+    ? scanStartSeed
+    : cutoffMs
+  const normalizedSeed =
+    ((Math.trunc(effectiveScanStartSeed) % candidates.length) +
+      candidates.length) %
+    candidates.length
+  const startIndex =
+    (normalizedSeed + orphanedTerminalFactScanOffset) % candidates.length
+  orphanedTerminalFactScanOffset =
+    (orphanedTerminalFactScanOffset + scanCount) % candidates.length
+  for (let index = 0; index < scanCount; index++) {
+    const candidate = candidates[(startIndex + index) % candidates.length]
+    if (!candidate) continue
+    const factPath = terminalFactPathForId(candidate.id, candidate.kind)
+    const fact = await readCleanupJson(
+      factPath,
+      (value): value is BackgroundSessionTerminalFact =>
+        isBackgroundSessionTerminalFact(
+          value,
+          candidate.id,
+          candidate.kind,
+        ) && Number.isFinite(Date.parse(value.finishedAt)),
+      terminalDirectory,
+      fileSystem,
+    )
+    if (fact.state === 'error') {
+      result.errors++
+      continue
+    }
+    if (
+      fact.state !== 'valid' ||
+      Date.parse(fact.value.finishedAt) >= cutoffMs
+    ) {
+      continue
+    }
+
+    const metadata = await readCleanupJson(
+      metadataPathForId(candidate.id),
+      (value): value is BackgroundSession =>
+        isBackgroundSession(value, candidate.id),
+      metadataDirectory,
+      fileSystem,
+    )
+    if (metadata.state === 'error') {
+      result.errors++
+      continue
+    }
+    if (metadata.state !== 'missing') continue
+
+    await removeCleanupArtifact(
+      factPath,
+      result,
+      terminalDirectory,
+      fileSystem,
+      fact.identity,
+    )
+  }
+}
+
 export async function cleanupBackgroundSessionsBefore(
   cutoff: Date,
   options: {
@@ -935,6 +1062,7 @@ export async function cleanupBackgroundSessionsBefore(
     unlinkFile?: BackgroundCleanupFileSystem['unlinkFile']
     _beforeMetadataDirectoryReadForTesting?: () => Promise<void>
     _beforeReservationRemovalForTesting?: (path: string) => Promise<void>
+    _orphanedTerminalFactScanStartForTesting?: number
   } = {},
 ): Promise<BackgroundCleanupResult> {
   const result: BackgroundCleanupResult = {
@@ -987,9 +1115,20 @@ export async function cleanupBackgroundSessionsBefore(
   if (
     !metadataDirectory ||
     !logsDirectory ||
-    !terminalDirectory ||
-    metadataDirectory.state === 'missing'
+    !terminalDirectory
   ) {
+    return result
+  }
+  if (metadataDirectory.state === 'missing') {
+    await cleanupOrphanedTerminalFacts(
+      cutoffMs,
+      metadataDirectory,
+      terminalDirectory,
+      new Set(),
+      result,
+      fileSystem,
+      options._orphanedTerminalFactScanStartForTesting,
+    )
     return result
   }
   const metadataDirectoryState = await inspectCleanupDirectory(
@@ -1019,6 +1158,13 @@ export async function cleanupBackgroundSessionsBefore(
     if (metadataDirectoryAfterRead !== 'missing') result.errors++
     return result
   }
+
+  const metadataIds = new Set(
+    entries
+      .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
+      .map(entry => basename(entry.name, '.json'))
+      .filter(id => SAFE_ID_RE.test(id)),
+  )
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.json')) continue
@@ -1190,6 +1336,16 @@ export async function cleanupBackgroundSessionsBefore(
       )
     }
   }
+
+  await cleanupOrphanedTerminalFacts(
+    cutoffMs,
+    metadataDirectory,
+    terminalDirectory,
+    metadataIds,
+    result,
+    fileSystem,
+    options._orphanedTerminalFactScanStartForTesting,
+  )
 
   return result
 }

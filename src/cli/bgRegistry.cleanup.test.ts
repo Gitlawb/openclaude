@@ -705,6 +705,130 @@ describe('background session retention cleanup', () => {
     expect(await exists(paths(session.id).natural)).toBe(false)
   })
 
+  it('reclaims an old terminal fact after metadata-first partial cleanup', async () => {
+    const session = await createRunning('bg-terminal-fact-retry')
+    await finishNaturally(session, { exitCode: 0 })
+    const naturalFact = paths(session.id).natural
+
+    const first = await cleanupBackgroundSessionsBefore(CUTOFF, {
+      unlinkFile: async path => {
+        if (path === naturalFact) throw deniedError()
+        await unlink(path)
+      },
+    })
+
+    expect(first.errors).toBe(1)
+    expect(first.sessionsRemoved).toBe(1)
+    expect(await exists(paths(session.id).metadata)).toBe(false)
+    expect(await exists(naturalFact)).toBe(true)
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 1,
+      errors: 0,
+    })
+    expect(await exists(naturalFact)).toBe(false)
+  })
+
+  it('reclaims an old killed fact after metadata-first partial cleanup', async () => {
+    const session = await createRunning('bg-killed-fact-retry')
+    await markBackgroundSessionKilled(session.id, { now: OLD_FINISH })
+    const killedFact = paths(session.id).killed
+
+    const first = await cleanupBackgroundSessionsBefore(CUTOFF, {
+      unlinkFile: async path => {
+        if (path === killedFact) throw deniedError()
+        await unlink(path)
+      },
+    })
+
+    expect(first.errors).toBe(1)
+    expect(first.sessionsRemoved).toBe(1)
+    expect(await exists(paths(session.id).metadata)).toBe(false)
+    expect(await exists(killedFact)).toBe(true)
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 1,
+      errors: 0,
+    })
+    expect(await exists(killedFact)).toBe(false)
+  })
+
+  it('retains recent and malformed orphaned terminal facts', async () => {
+    const recent = await createRunning('bg-recent-orphan')
+    await finishNaturally(recent, { exitCode: 0 }, RECENT_FINISH)
+    await unlink(paths(recent.id).metadata)
+
+    const malformed = await createRunning('bg-malformed-orphan')
+    await finishNaturally(malformed, { exitCode: 0 })
+    await unlink(paths(malformed.id).metadata)
+    await writeFile(paths(malformed.id).natural, '{bad json')
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await exists(paths(recent.id).natural)).toBe(true)
+    expect(await exists(paths(malformed.id).natural)).toBe(true)
+  })
+
+  it('advances the bounded scan past preserved orphaned facts', async () => {
+    const terminalDir = join(root, 'terminal')
+    await mkdir(terminalDir, { recursive: true })
+    const preservedFacts = Array.from({ length: 256 }, (_, index) => {
+      const id = `bg-preserved-orphan-${index.toString().padStart(3, '0')}`
+      return writeFile(
+        paths(id).natural,
+        JSON.stringify({
+          version: 1,
+          id,
+          pid: nextPid++,
+          status: 'exited',
+          finishedAt: RECENT_FINISH.toISOString(),
+          terminalReason: 'exit_code',
+          exitCode: 0,
+        }),
+      )
+    })
+    await Promise.all(preservedFacts)
+    const oldId = 'zz-bg-old-orphan'
+    await writeFile(
+      paths(oldId).natural,
+      JSON.stringify({
+        version: 1,
+        id: oldId,
+        pid: nextPid++,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    const scanOptions = {
+      _orphanedTerminalFactScanStartForTesting: 0,
+    }
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, scanOptions),
+    ).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await exists(paths(oldId).natural)).toBe(true)
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, scanOptions),
+    ).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 1,
+      errors: 0,
+    })
+    expect(await exists(paths(oldId).natural)).toBe(false)
+  })
+
   it('removes only a reservation that still belongs to the session', async () => {
     const matching = await createRunning('bg-matching-name', {
       name: 'matching-name',
@@ -777,33 +901,24 @@ describe('background session retention cleanup', () => {
     expect(await exists(paths(session.id).metadata)).toBe(true)
   })
 
-  it('keeps a replacement created after final reservation validation', async () => {
+  it('allows a replacement to claim the name after cleanup', async () => {
     const session = await createRunning('bg-reservation-final-window', {
       name: 'reservation-final-window',
     })
     await finishNaturally(session, { exitCode: 0 })
     await writeReservation(session.name!, session.id)
     const target = reservationPath(session.name!)
-    let replacementPromise: Promise<BackgroundSession> | undefined
 
-    await cleanupBackgroundSessionsBefore(CUTOFF, {
-      unlinkFile: async path => {
-        if (path === target) {
-          replacementPromise = createBackgroundSession({
-            id: 'bg-reservation-final-replacement',
-            name: session.name,
-            pid: nextPid++,
-            cwd: configDir,
-            command: ['openclaude', '--print', 'replacement'],
-            sessionId: 'replacement-conversation',
-          })
-        }
-        await unlink(path)
-      },
+    await cleanupBackgroundSessionsBefore(CUTOFF)
+    const replacement = await createBackgroundSession({
+      id: 'bg-reservation-final-replacement',
+      name: session.name,
+      pid: nextPid++,
+      cwd: configDir,
+      command: ['openclaude', '--print', 'replacement'],
+      sessionId: 'replacement-conversation',
     })
 
-    expect(replacementPromise).toBeDefined()
-    const replacement = await replacementPromise!
     expect(
       JSON.parse(await readFile(target, 'utf8')),
     ).toMatchObject({ id: replacement.id })
