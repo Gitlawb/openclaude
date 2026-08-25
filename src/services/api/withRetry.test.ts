@@ -23,6 +23,7 @@ const envKeys = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  'CLAUDE_CODE_MAX_RETRIES',
   'OPENAI_MODEL',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',
@@ -224,6 +225,13 @@ describe('getDefaultMaxRetries', () => {
 
   test('falls back to default for negative env var', async () => {
     process.env.CLAUDE_CODE_MAX_RETRIES = '-3'
+    const { getDefaultMaxRetries, DEFAULT_MAX_RETRIES } =
+      await importFreshWithRetryModule()
+    expect(getDefaultMaxRetries()).toBe(DEFAULT_MAX_RETRIES)
+  })
+
+  test('falls back for partial numeric values like "5abc"', async () => {
+    process.env.CLAUDE_CODE_MAX_RETRIES = '5abc'
     const { getDefaultMaxRetries, DEFAULT_MAX_RETRIES } =
       await importFreshWithRetryModule()
     expect(getDefaultMaxRetries()).toBe(DEFAULT_MAX_RETRIES)

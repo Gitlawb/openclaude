@@ -808,12 +808,13 @@ function shouldRetry(error: APIError): boolean {
 
 export function getDefaultMaxRetries(): number {
   if (process.env.CLAUDE_CODE_MAX_RETRIES) {
-    const parsed = parseInt(process.env.CLAUDE_CODE_MAX_RETRIES, 10)
-    if (!Number.isNaN(parsed) && parsed >= 0) {
+    const raw = process.env.CLAUDE_CODE_MAX_RETRIES.trim()
+    const parsed = Number(raw)
+    if (!Number.isNaN(parsed) && parsed >= 0 && Number.isInteger(parsed)) {
       return parsed
     }
     logForDebugging(
-      `Invalid CLAUDE_CODE_MAX_RETRIES="${process.env.CLAUDE_CODE_MAX_RETRIES}", falling back to default (${DEFAULT_MAX_RETRIES})`,
+      `Invalid CLAUDE_CODE_MAX_RETRIES="${raw}", falling back to default (${DEFAULT_MAX_RETRIES})`,
     )
   }
   return DEFAULT_MAX_RETRIES
