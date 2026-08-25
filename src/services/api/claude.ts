@@ -890,7 +890,7 @@ function shouldDeferLspTool(tool: Tool): boolean {
  * Otherwise defaults to 300s — long enough for slow backends without
  * approaching the API's 10-minute non-streaming boundary.
  */
-function getNonstreamingFallbackTimeoutMs(): number {
+export function getNonstreamingFallbackTimeoutMs(): number {
   // Validate and clamp API_TIMEOUT_MS through the shared parser so a malformed
   // or negative override cannot yield a NaN/negative timeout; fall back to the
   // context-specific default (shorter on remote to stay under CCR's idle-kill).

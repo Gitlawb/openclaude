@@ -394,7 +394,16 @@ test('first-party Anthropic requests execute the configured fetch wrapper withou
 
 test('native Anthropic client validates and clamps API_TIMEOUT_MS', async () => {
   const originalApiTimeoutMs = process.env.API_TIMEOUT_MS
-  // Force the first-party native Anthropic constructor path (not the shim).
+  // Force the first-party native Anthropic constructor path. Every provider
+  // route-selection variable is cleared explicitly so an inherited value cannot
+  // divert getAnthropicClient into the shim and silently measure the wrong
+  // client's timeout. (The suite's afterEach restores all of these.)
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
   delete process.env.GEMINI_MODEL
@@ -404,6 +413,16 @@ test('native Anthropic client validates and clamps API_TIMEOUT_MS', async () => 
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
   delete process.env.OPENAI_MODEL
+  delete process.env.MINIMAX_API_KEY
+  delete process.env.XAI_API_KEY
+  delete process.env.MIMO_API_KEY
+  delete process.env.VENICE_API_KEY
+  delete process.env.FIREWORKS_API_KEY
+  delete process.env.LONGCAT_API_KEY
+  delete process.env.AIMLAPI_API_KEY
+  delete process.env.APISMART_API_KEY
+  delete process.env.NVIDIA_NIM
+  delete process.env.NVIDIA_API_KEY
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.ANTHROPIC_MODEL
   process.env.ANTHROPIC_API_KEY = 'anthropic-test-key'
