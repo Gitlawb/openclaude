@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import {
@@ -83,6 +84,8 @@ const originalEnv = {
   MIMO_API_KEY: process.env.MIMO_API_KEY,
   VENICE_API_KEY: process.env.VENICE_API_KEY,
   FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
+  NEARAI_API_KEY: process.env.NEARAI_API_KEY,
+  CLINE_API_KEY: process.env.CLINE_API_KEY,
   LONGCAT_API_KEY: process.env.LONGCAT_API_KEY,
   AIMLAPI_API_KEY: process.env.AIMLAPI_API_KEY,
   APISMART_API_KEY: process.env.APISMART_API_KEY,
@@ -201,6 +204,8 @@ beforeEach(async () => {
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.NEARAI_API_KEY
+  delete process.env.CLINE_API_KEY
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
@@ -264,6 +269,8 @@ afterEach(() => {
     restoreEnv('MIMO_API_KEY', originalEnv.MIMO_API_KEY)
     restoreEnv('VENICE_API_KEY', originalEnv.VENICE_API_KEY)
     restoreEnv('FIREWORKS_API_KEY', originalEnv.FIREWORKS_API_KEY)
+    restoreEnv('NEARAI_API_KEY', originalEnv.NEARAI_API_KEY)
+    restoreEnv('CLINE_API_KEY', originalEnv.CLINE_API_KEY)
     restoreEnv('LONGCAT_API_KEY', originalEnv.LONGCAT_API_KEY)
     restoreEnv('AIMLAPI_API_KEY', originalEnv.AIMLAPI_API_KEY)
     restoreEnv('APISMART_API_KEY', originalEnv.APISMART_API_KEY)
@@ -418,9 +425,12 @@ test('native Anthropic client validates and clamps API_TIMEOUT_MS', async () => 
   delete process.env.MIMO_API_KEY
   delete process.env.VENICE_API_KEY
   delete process.env.FIREWORKS_API_KEY
+  delete process.env.NEARAI_API_KEY
+  delete process.env.CLINE_API_KEY
   delete process.env.LONGCAT_API_KEY
   delete process.env.AIMLAPI_API_KEY
   delete process.env.APISMART_API_KEY
+  delete process.env.CONCENTRATE_API_KEY
   delete process.env.NVIDIA_NIM
   delete process.env.NVIDIA_API_KEY
   delete process.env.ANTHROPIC_BASE_URL
@@ -428,14 +438,19 @@ test('native Anthropic client validates and clamps API_TIMEOUT_MS', async () => 
   process.env.ANTHROPIC_API_KEY = 'anthropic-test-key'
 
   try {
-    const timeoutOf = async (): Promise<number> =>
-      (
-        (await getAnthropicClient({
-          apiKey: 'anthropic-test-key',
-          maxRetries: 0,
-          model: 'claude-sonnet-4-6',
-        })) as unknown as { timeout: number }
-      ).timeout
+    const timeoutOf = async (): Promise<number> => {
+      const client = await getAnthropicClient({
+        apiKey: 'anthropic-test-key',
+        maxRetries: 0,
+        model: 'claude-sonnet-4-6',
+      })
+      // Guard the premise: only the native constructor exposes the SDK
+      // timeout. The OpenAI shim is returned as a cast object, so if a stray
+      // route-selection variable (or a future env-only route) diverts this
+      // call, fail here rather than silently reading undefined.
+      expect(client).toBeInstanceOf(Anthropic)
+      return (client as unknown as { timeout: number }).timeout
+    }
 
     // A malformed or negative override must not poison the client with a NaN or
     // negative timeout; it falls back to the 600s default.
