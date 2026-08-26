@@ -94,9 +94,9 @@ describe('settingsMergeCustomizer', () => {
     expect(merged.modelPricing['constructor']).toEqual({ input: 1, output: 2 })
     expect(merged.modelPricing['toString']).toEqual({ input: 3, output: 6 })
 
-    // And the null-prototype map must not have taught Function.prototype
-    // members new own properties.
-    expect(({} as Record<string, unknown>).constructor).toBe(Object)
+    // The merged map itself must be the null-prototype map the customizer
+    // builds, not a plain object that happens to carry the keys.
+    expect(Object.getPrototypeOf(merged.modelPricing)).toBeNull()
   })
 
   test('defers non-array non-modelPricing keys to lodash default deep merge', () => {
