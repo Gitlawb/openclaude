@@ -154,9 +154,11 @@ export function modelSupports1M(model: string): boolean {
   const canonical = getCanonicalName(model)
   return (
     canonical.includes('claude-sonnet-4') ||
+    canonical.includes('claude-sonnet-5') ||
     canonical.includes('opus-4-6') ||
     canonical.includes('opus-4-7') ||
-    canonical.includes('opus-4-8')
+    canonical.includes('opus-4-8') ||
+    canonical.includes('opus-5')
   )
 }
 

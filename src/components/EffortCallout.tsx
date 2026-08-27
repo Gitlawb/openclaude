@@ -217,12 +217,13 @@ function EffortOptionLabel(t0) {
  * - Everyone else: mark as dismissed so it never shows
  */
 // Recent Opus models that get the medium-effort default and therefore the
-// callout. The default Opus is now 4.8, so it must be covered alongside 4.7/4.6.
+// callout. The default Opus is now 5, so it must be covered alongside 4.8/4.7/4.6.
 // Exported as a pure predicate so the regression can be tested deterministically
 // without mocking the subscriber/config gates (see EffortCallout.modelGate.test).
 export function effortCalloutCoversModel(model: string): boolean {
   const parsed = parseUserSpecifiedModel(model).toLowerCase();
   return (
+    parsed.includes('opus-5') ||
     parsed.includes('opus-4-8') ||
     parsed.includes('opus-4-7') ||
     parsed.includes('opus-4-6')

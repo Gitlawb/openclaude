@@ -243,6 +243,8 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
         request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
       const modelLower = request.resolvedModel.toLowerCase()
       const isAdaptive =
+        modelLower.includes('opus-5') ||
+        modelLower.includes('sonnet-5') ||
         modelLower.includes('opus-4-7') ||
         modelLower.includes('opus-4-6') ||
         modelLower.includes('opus-4-8') ||

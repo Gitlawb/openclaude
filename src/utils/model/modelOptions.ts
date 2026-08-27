@@ -217,9 +217,8 @@ function getSonnet46Option(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 : 'sonnet',
     label: 'Sonnet',
-    description: `Sonnet 4.6 · Best for everyday tasks${getPricingSuffix(getModelStrings().sonnet46)}`,
-    descriptionForModel:
-      'Sonnet 4.6 - best for everyday tasks. Generally recommended for most coding tasks',
+    description: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} · Best for everyday tasks${getPricingSuffix(is3P ? getModelStrings().sonnet46 : getModelStrings().sonnet5)}`,
+    descriptionForModel: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} - best for everyday tasks. Generally recommended for most coding tasks`,
   }
 }
 
@@ -254,8 +253,8 @@ function getOpus48Option(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus48 : 'opus',
     label: 'Opus',
-    description: `Opus 4.8 · Most capable for complex work${getOpus46PricingSuffix(fastMode, getModelStrings().opus48)}`,
-    descriptionForModel: 'Opus 4.8 - most capable for complex work',
+    description: `${is3P ? 'Opus 4.8' : 'Opus 5'} · Most capable for complex work${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus48 : getModelStrings().opus5)}`,
+    descriptionForModel: `${is3P ? 'Opus 4.8' : 'Opus 5'} - most capable for complex work`,
   }
 }
 
@@ -284,21 +283,20 @@ export function getSonnet46_1MOption(): ModelOption {
   return {
     value: is3P ? getModelStrings().sonnet46 + '[1m]' : 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 for long sessions${getPricingSuffix(getModelStrings().sonnet46)}`,
-    descriptionForModel:
-      'Sonnet 4.6 with 1M context window - for long sessions with large codebases',
+    description: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} for long sessions${getPricingSuffix(is3P ? getModelStrings().sonnet46 : getModelStrings().sonnet5)}`,
+    descriptionForModel: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} with 1M context window - for long sessions with large codebases`,
   }
 }
 
 export function getOpus46_1MOption(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
   // 3P pins Opus 4.6; first-party resolves the `opus` alias to the current
-  // default (Opus 4.8), so the label must follow the provider.
-  const opusName = is3P ? 'Opus 4.6' : 'Opus 4.8'
+  // default (Opus 5), so the label must follow the provider.
+  const opusName = is3P ? 'Opus 4.6' : 'Opus 5'
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus46 : getModelStrings().opus48)}`,
+    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus46 : getModelStrings().opus5)}`,
     descriptionForModel: `${opusName} with 1M context window - for long sessions with large codebases`,
   }
 }
@@ -351,7 +349,7 @@ function getMaxOpusOption(fastMode = false): ModelOption {
   return {
     value: 'opus',
     label: 'Opus',
-    description: `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getModelStrings().opus48) : ''}`,
+    description: `Opus 5 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getModelStrings().opus5) : ''}`,
   }
 }
 
@@ -360,7 +358,7 @@ export function getMaxSonnet46_1MOption(): ModelOption {
   return {
     value: 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 4.6 with 1M context${billingInfo}${getPricingSuffix(getModelStrings().sonnet46)}`,
+    description: `Sonnet 5 with 1M context${billingInfo}${getPricingSuffix(getModelStrings().sonnet5)}`,
   }
 }
 
@@ -369,7 +367,7 @@ export function getMaxOpus46_1MOption(fastMode = false): ModelOption {
   return {
     value: 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 4.8 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode, getModelStrings().opus48)}`,
+    description: `Opus 5 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode, getModelStrings().opus5)}`,
   }
 }
 
@@ -378,9 +376,9 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode, getModelStrings().opus48) : ''}`,
+    description: `${is3P ? 'Opus 4.6' : 'Opus 5'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode, getModelStrings().opus5) : ''}`,
     descriptionForModel:
-      `${is3P ? 'Opus 4.6' : 'Opus 4.8'} with 1M context - most capable for complex work`,
+      `${is3P ? 'Opus 4.6' : 'Opus 5'} with 1M context - most capable for complex work`,
   }
 }
 
@@ -400,7 +398,7 @@ function getOpusPlanOption(): ModelOption {
   return {
     value: 'opusplan',
     label: 'Opus Plan Mode',
-    description: 'Use Opus 4.8 in plan mode, Sonnet 4.6 otherwise',
+    description: 'Use Opus 5 in plan mode, Sonnet 5 otherwise',
   }
 }
 
@@ -817,6 +815,7 @@ function getModelFamilyInfo(
 
   // Sonnet family
   if (
+    canonical.includes('claude-sonnet-5') ||
     canonical.includes('claude-sonnet-4-6') ||
     canonical.includes('claude-sonnet-4-5') ||
     canonical.includes('claude-sonnet-4-') ||
@@ -830,7 +829,7 @@ function getModelFamilyInfo(
   }
 
   // Opus family
-  if (canonical.includes('claude-opus-4')) {
+  if (canonical.includes('claude-opus-5') || canonical.includes('claude-opus-4')) {
     const currentName = getMarketingNameForModel(getDefaultOpusModel())
     if (currentName) {
       return { alias: 'Opus', currentVersionName: currentName }

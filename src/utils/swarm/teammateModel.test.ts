@@ -31,13 +31,14 @@ test('getHardcodedTeammateModelFallback returns a Mistral fallback in mistral mo
   expect(getHardcodedTeammateModelFallback()).toBe('devstral-latest')
 })
 
-test('getHardcodedTeammateModelFallback returns the current default Opus (4.8) for first party', async () => {
+test('getHardcodedTeammateModelFallback returns the current default Opus (5) for first party', async () => {
   // Regression for #1769: the fallback hardcoded Opus 4.6 while the default Opus
-  // is now 4.8, so new teammates spawned on an older model.
+  // moved on, so new teammates spawned on an older model. First party now
+  // defaults to Opus 5; 3P stays on the Opus 4.8 ids until it rolls out there.
   const { getHardcodedTeammateModelFallback } =
     await importFreshTeammateModelModule('firstParty')
 
-  expect(getHardcodedTeammateModelFallback()).toBe('claude-opus-4-8')
+  expect(getHardcodedTeammateModelFallback()).toBe('claude-opus-5')
 })
 
 test('getHardcodedTeammateModelFallback is provider-aware (Bedrock gets the Opus 4.8 Bedrock id)', async () => {
