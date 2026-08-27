@@ -539,7 +539,8 @@ function legacyModelSupportsEffort(
     nativeTransport === 'anthropic' &&
     (m.includes('opus-4-5') || m.includes('opus-4-6') ||
       m.includes('opus-4-7') || m.includes('opus-4-8') ||
-      m.includes('sonnet-4-6'))
+      m.includes('opus-5') || m.includes('sonnet-4-6') ||
+      m.includes('sonnet-5'))
   ) {
     return true
   }
@@ -796,7 +797,7 @@ function legacyModelSupportsMaxEffort(
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8') || model.toLowerCase().includes('opus-5') || model.toLowerCase().includes('sonnet-5')) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
@@ -806,7 +807,8 @@ function legacyModelSupportsMaxEffort(
 }
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'xhigh' effort.
-// xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
+// xhigh is reserved for OpenAI/Codex models, Claude Opus 5 / Sonnet 5, and
+// OpenCode Claude opus 4-7 / 4-8.
 // All other effort-supporting models reject xhigh at the API.
 function legacyModelSupportsXHighEffort(
   model: string,
@@ -826,7 +828,7 @@ function legacyModelSupportsXHighEffort(
   if (modelUsesOpenAIEffort(model, context)) {
     return true
   }
-  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8') || model.toLowerCase().includes('opus-5') || model.toLowerCase().includes('sonnet-5')) {
     return true
   }
   return false

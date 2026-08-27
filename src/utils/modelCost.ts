@@ -15,9 +15,11 @@ import {
   CLAUDE_OPUS_4_7_CONFIG,
   CLAUDE_OPUS_4_8_CONFIG,
   CLAUDE_OPUS_4_CONFIG,
+  CLAUDE_OPUS_5_CONFIG,
   CLAUDE_SONNET_4_5_CONFIG,
   CLAUDE_SONNET_4_6_CONFIG,
   CLAUDE_SONNET_4_CONFIG,
+  CLAUDE_SONNET_5_CONFIG,
 } from './model/configs.js'
 import {
   firstPartyNameToCanonical,
@@ -40,6 +42,24 @@ export const COST_TIER_3_15 = {
   outputTokens: 15,
   promptCacheWriteTokens: 3.75,
   promptCacheReadTokens: 0.3,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Fast mode pricing for Opus 5: $10 input / $50 output per Mtok
+export const COST_TIER_10_50 = {
+  inputTokens: 10,
+  outputTokens: 50,
+  promptCacheWriteTokens: 12.5,
+  promptCacheReadTokens: 1,
+  webSearchRequests: 0.01,
+} as const satisfies ModelCosts
+
+// Pricing tier for Sonnet 5: $2 input / $10 output per Mtok
+export const COST_TIER_2_10 = {
+  inputTokens: 2,
+  outputTokens: 10,
+  promptCacheWriteTokens: 2.5,
+  promptCacheReadTokens: 0.2,
   webSearchRequests: 0.01,
 } as const satisfies ModelCosts
 
@@ -129,6 +149,9 @@ export const MODEL_COSTS: Record<ModelShortName, ModelCosts> = {
     COST_TIER_5_25,
   [firstPartyNameToCanonical(CLAUDE_OPUS_4_8_CONFIG.firstParty)]:
     COST_TIER_5_25,
+  [firstPartyNameToCanonical(CLAUDE_OPUS_5_CONFIG.firstParty)]: COST_TIER_5_25,
+  [firstPartyNameToCanonical(CLAUDE_SONNET_5_CONFIG.firstParty)]:
+    COST_TIER_2_10,
 }
 
 /**
@@ -165,6 +188,12 @@ function getKnownModelCosts(
   // active. These share the elevated fast-mode pricing the picker advertises, so
   // the tracked cost must match the displayed price for the current default
   // (4.8). Non-fast usage stays COST_TIER_5_25, same as the MODEL_COSTS entry.
+  // Opus 5 bills fast mode at its own $10/$50 tier rather than the Opus 4.6
+  // fast-mode tier, so it is matched before the 4.8/4.7/4.6 branch below.
+  if (shortName === firstPartyNameToCanonical(CLAUDE_OPUS_5_CONFIG.firstParty)) {
+    return usage.speed === 'fast' ? COST_TIER_10_50 : COST_TIER_5_25
+  }
+
   if (
     shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_8_CONFIG.firstParty) ||
     shortName === firstPartyNameToCanonical(CLAUDE_OPUS_4_7_CONFIG.firstParty) ||

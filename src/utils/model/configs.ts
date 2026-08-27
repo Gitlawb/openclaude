@@ -216,6 +216,38 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
   xai: 'grok-4.6',
 } as const satisfies LegacyProviderModelConfig
 
+export const CLAUDE_OPUS_5_CONFIG = {
+  firstParty: 'claude-opus-5',
+  bedrock: 'us.anthropic.claude-opus-5-v1',
+  vertex: 'claude-opus-5',
+  foundry: 'claude-opus-5',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.5-pro',
+  mistral: 'devstral-latest',
+  github: 'github:copilot',
+  codex: 'gpt-5.6-sol',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  minimax: 'MiniMax-M2.5',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.6',
+} as const satisfies LegacyProviderModelConfig
+
+export const CLAUDE_SONNET_5_CONFIG = {
+  firstParty: 'claude-sonnet-5',
+  bedrock: 'us.anthropic.claude-sonnet-5',
+  vertex: 'claude-sonnet-5',
+  foundry: 'claude-sonnet-5',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.0-flash',
+  mistral: 'mistral-medium-latest',
+  github: 'github:copilot',
+  codex: 'gpt-5.6-sol',
+  'nvidia-nim': 'nvidia/llama-3.1-nemotron-70b-instruct',
+  minimax: 'MiniMax-M2.5',
+  'xiaomi-mimo': 'mimo-v2.5-pro',
+  xai: 'grok-4.6',
+} as const satisfies LegacyProviderModelConfig
+
 export const CLAUDE_OPUS_4_8_CONFIG = {
   firstParty: 'claude-opus-4-8',
   bedrock: 'us.anthropic.claude-opus-4-8-v1',
@@ -263,6 +295,8 @@ export const LEGACY_PROVIDER_MODEL_CONFIGS = {
   opus46: CLAUDE_OPUS_4_6_CONFIG,
   opus47: CLAUDE_OPUS_4_7_CONFIG,
   opus48: CLAUDE_OPUS_4_8_CONFIG,
+  opus5: CLAUDE_OPUS_5_CONFIG,
+  sonnet5: CLAUDE_SONNET_5_CONFIG,
 } as const satisfies Record<string, LegacyProviderModelConfig>
 
 // Backward-compatible alias for existing imports.
