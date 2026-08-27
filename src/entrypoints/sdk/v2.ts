@@ -87,7 +87,7 @@ import {
 export type SDKSessionOptions = {
   /** Working directory for the session. Required. */
   cwd: string
-  /** Model to use (e.g. 'claude-sonnet-4-6'). */
+  /** Model to use (e.g. 'claude-sonnet-5'). */
   model?: string
   /** Permission mode for tool access. */
   permissionMode?: QueryPermissionMode
@@ -807,7 +807,7 @@ export async function unstable_v2_resumeSession(
  * ```typescript
  * const result = await unstable_v2_prompt("What files are here?", {
  *   cwd: '/my/project',
- *   model: 'claude-sonnet-4-6',
+ *   model: 'claude-sonnet-5',
  * })
  * console.log(result.result) // text output
  * ```
