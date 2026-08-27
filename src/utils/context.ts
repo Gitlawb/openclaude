@@ -162,6 +162,22 @@ export function modelSupports1M(model: string): boolean {
   )
 }
 
+// @[MODEL LAUNCH]: Update this pattern if the new model ships with 1M context
+// unconditionally (no [1m] suffix or extra-usage opt-in required).
+// Unlike modelSupports1M/getSonnet1mExpTreatmentEnabled, this bypasses
+// checkOpus1mAccess/checkSonnet1mAccess and the [1m] suffix entirely.
+export function modelHasUnconditional1MContext(model: string): boolean {
+  if (is1mContextDisabled()) {
+    return false
+  }
+  const canonical = getCanonicalName(model)
+  return (
+    canonical.includes('claude-sonnet-5') ||
+    canonical.includes('opus-5') ||
+    canonical.includes('opus-4-8')
+  )
+}
+
 function getAppliedActiveProfileProvider(
   processEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
@@ -250,6 +266,13 @@ export function getContextWindowForModel(
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
   if (has1mContext(model)) {
+    return 1_000_000
+  }
+
+  // Models that ship with 1M context unconditionally (no [1m] suffix or
+  // extra-usage opt-in required) — e.g. claude-sonnet-5, claude-opus-5,
+  // claude-opus-4-8.
+  if (modelHasUnconditional1MContext(model)) {
     return 1_000_000
   }
 

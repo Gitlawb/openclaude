@@ -1,7 +1,13 @@
 import { expect, test } from 'bun:test'
 
+import {
+  getContextWindowForModel,
+  modelHasUnconditional1MContext,
+} from '../context.js'
 import { MODEL_COSTS } from '../modelCost.js'
 import { modelSupportsAdaptiveThinking } from '../thinking.js'
+import { getAllModelBetas } from '../betas.js'
+import { CONTEXT_1M_BETA_HEADER } from '../../constants/betas.js'
 import { firstPartyNameToCanonical } from './model.js'
 import {
   CANONICAL_MODEL_IDS,
@@ -74,5 +80,27 @@ test.each(['claude-opus-5', 'claude-sonnet-5'])(
   'treats %s as an adaptive-thinking model',
   model => {
     expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+  },
+)
+
+// claude.ts registers Opus 5 / Sonnet 5 / Opus 4.8 with contextWindow:
+// 1_000_000, but before this change getContextWindowForModel() never read
+// that value for regular (non-"ant") users: it required either the [1m]
+// suffix or a growthbook-gated experiment scoped to sonnet-4-6 only, so the
+// UI reported a 200K window (and the API request never carried the 1M beta
+// header) for the plain model id.
+test.each(['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8'])(
+  'treats %s as unconditionally 1M-context',
+  model => {
+    expect(modelHasUnconditional1MContext(model)).toBe(true)
+    expect(getContextWindowForModel(model)).toBe(1_000_000)
+    expect(getAllModelBetas(model)).toContain(CONTEXT_1M_BETA_HEADER)
+  },
+)
+
+test.each(['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'])(
+  'does not treat %s as unconditionally 1M-context',
+  model => {
+    expect(modelHasUnconditional1MContext(model)).toBe(false)
   },
 )
