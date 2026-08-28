@@ -14,7 +14,11 @@ import {
   getMarketingNameForModel,
   isNonCustomOpusModel,
 } from './model.js'
-import { getMaxSonnetOption } from './modelOptions.js'
+import {
+  getMaxSonnetOption,
+  getOpus46_1MOption,
+  getSonnet46_1MOption,
+} from './modelOptions.js'
 import { getModelStrings } from './modelStrings.js'
 import { isClaude5ModelId } from './modelIdMatch.js'
 
@@ -107,13 +111,64 @@ test.each([
   },
 )
 
-test.each(['claude-opus-50', 'claude-sonnet-5x'])(
+test.each([
+  'claude-opus-50',
+  'claude-sonnet-5x',
+  'arbitrary-proxy-opus-5',
+  'arbitrary-proxy-sonnet-5',
+])(
   'the near match %s is neither a Claude 5 identity nor priced as one',
   model => {
     expect(isClaude5ModelId(model)).toBe(false)
+    expect(firstPartyNameToCanonical(model)).not.toBe('claude-opus-5')
+    expect(firstPartyNameToCanonical(model)).not.toBe('claude-sonnet-5')
     expect(MODEL_COSTS[firstPartyNameToCanonical(model)]).toBeUndefined()
   },
 )
+
+test('first-party sonnet alias rows follow ANTHROPIC_DEFAULT_SONNET_MODEL', () => {
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6'
+  const resolved = getDefaultSonnetModel()
+  const marketingName = getMarketingNameForModel(resolved)
+
+  expect(resolved).toBe('claude-sonnet-4-6')
+  expect(marketingName).toBe('Sonnet 4.6')
+
+  const maxRow = getMaxSonnetOption()
+  expect(maxRow.value).toBe('sonnet')
+  expect(maxRow.description).toContain('Sonnet 4.6')
+  expect(maxRow.description).not.toContain('Sonnet 5')
+
+  const oneM = getSonnet46_1MOption()
+  expect(oneM.value).toBe('sonnet[1m]')
+  expect(oneM.description).toContain('Sonnet 4.6')
+  expect(oneM.description).not.toContain('Sonnet 5')
+})
+
+test('first-party opus alias rows follow ANTHROPIC_DEFAULT_OPUS_MODEL', () => {
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-4-6'
+  const resolved = getDefaultOpusModel()
+  const marketingName = getMarketingNameForModel(resolved)
+
+  expect(resolved).toBe('claude-opus-4-6')
+  expect(marketingName).toBe('Opus 4.6')
+
+  const oneM = getOpus46_1MOption()
+  expect(oneM.value).toBe('opus[1m]')
+  expect(oneM.description).toContain('Opus 4.6')
+  expect(oneM.description).not.toContain('Opus 5')
+})
+
+test('the provider summary prefers the injected Sonnet default over the global one', () => {
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'claude-sonnet-4-6'
+  const summary = buildCurrentProviderSummary({
+    processEnv: {
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-5',
+    } as NodeJS.ProcessEnv,
+    persisted: null,
+  })
+  expect(summary.modelLabel).toBe('claude-sonnet-5')
+})
 
 // --- built-in Opus policy membership --------------------------------------
 

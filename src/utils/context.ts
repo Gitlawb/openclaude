@@ -179,12 +179,14 @@ export function modelHasUnconditional1MContext(model: string): boolean {
 }
 
 /**
- * Whether the unconditional-1M default actually applies on the active route.
+ * Whether this model should be treated as 1M on the active route.
  *
- * A route may expose a Claude 5-named model with a lower discovered limit (the
- * Concentrate gateway maps `claude-sonnet-5` to a 200k `max_input_tokens`), and
- * route metadata wins there. The context budget and the outbound 1M beta header
- * are both derived from this one decision so they cannot disagree.
+ * Covers both the unconditional Claude 5 / Opus 4.8 default and an explicit
+ * `[1m]` suffix. A route may expose a Claude 5-named model with a lower
+ * discovered limit (the Concentrate gateway maps `claude-sonnet-5` to a 200k
+ * `max_input_tokens`), and route metadata wins there — including when the
+ * picker restored `sonnet[1m]`. The context budget and the outbound 1M beta
+ * header are both derived from this one decision so they cannot disagree.
  *
  * Deliberately reads only the route limit, not the resolved window: the
  * CLAUDE_CODE_MAX_CONTEXT_TOKENS and /set_context_window overrides cap local
@@ -192,7 +194,7 @@ export function modelHasUnconditional1MContext(model: string): boolean {
  * strip the beta header.
  */
 export function modelResolvesTo1MContext(model: string): boolean {
-  if (!modelHasUnconditional1MContext(model)) {
+  if (!has1mContext(model) && !modelHasUnconditional1MContext(model)) {
     return false
   }
   const routeContextWindow = resolveRouteContextWindow(model)
@@ -315,22 +317,26 @@ export function getContextWindowForModel(
     return sessionOverride
   }
 
-  // [1m] suffix — explicit client-side opt-in, respected over all detection
-  if (has1mContext(model)) {
-    return 1_000_000
-  }
-
   // OpenAI-compatible provider — use known context windows for the model.
   // Unknown models get a conservative 128k default. This was previously 8k,
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
   //
   // A discovered route limit is authoritative and is therefore resolved BEFORE
-  // the unconditional-1M default below: a proxy or OpenAI-compatible route can
-  // legitimately serve a Claude 5-named model with a 200k window, and budgeting
-  // it as 1M keeps sending history until the endpoint rejects the request.
+  // both the [1m] suffix and the unconditional-1M default: a proxy can serve
+  // `claude-sonnet-5` (or `claude-sonnet-5[1m]`) with a 200k window, and
+  // budgeting it as 1M keeps sending history until the endpoint rejects the
+  // request. The suffix remains an explicit preference on unrestricted routes.
   const useRuntimeLimits = usesRouteContextWindow(runtimeLimits)
   const routeContextWindow = resolveRouteContextWindow(model, runtimeLimits)
+
+  if (has1mContext(model)) {
+    if (routeContextWindow !== undefined && routeContextWindow < 1_000_000) {
+      return routeContextWindow
+    }
+    return 1_000_000
+  }
+
   if (routeContextWindow !== undefined) {
     return routeContextWindow
   }

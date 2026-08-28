@@ -585,19 +585,26 @@ export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
+    const opus = getDefaultOpusModel()
+    const opusName = getMarketingNameForModel(opus) ?? 'Opus'
     if (isOpus1mMergeEnabled()) {
-      return `Opus 5 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getDefaultOpusModel()) : ''}`
+      return `${opusName} with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, opus) : ''}`
     }
-    return `Opus 5 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getDefaultOpusModel()) : ''}`
+    return `${opusName} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, opus) : ''}`
   }
-  return 'Sonnet 5 · Best for everyday tasks'
+  const sonnetName =
+    getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'
+  return `${sonnetName} · Best for everyday tasks`
 }
 
 export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 5 in plan mode, else Sonnet 5'
+    const opusName = getMarketingNameForModel(getDefaultOpusModel()) ?? 'Opus'
+    const sonnetName =
+      getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'
+    return `${opusName} in plan mode, else ${sonnetName}`
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
