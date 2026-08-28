@@ -41,6 +41,58 @@ export const DEFAULT_PARTNER_ID = 'part_62yQoGYDq4Yqnrj2R1iGrDNJ'
 export const DEFAULT_PARTNER_NAME = 'Gitlawb'
 export const PARTNER_HEADER_NAME = 'X-AIMLAPI-Partner-ID'
 export const SOURCE_HEADER_NAME = 'X-AIMLAPI-Source'
+export const INTEGRATION_REPO_HEADER_NAME = 'X-AIMLAPI-Integration-Repo'
+export const INTEGRATION_VERSION_HEADER_NAME = 'X-AIMLAPI-Integration-Version'
+export const REFERER_HEADER_NAME = 'HTTP-Referer'
+export const TITLE_HEADER_NAME = 'X-Title'
+
+/**
+ * HTTP field names OpenClaude manages for AIMLAPI attribution. Fetch treats
+ * header names as case-insensitive, so every spelling of these names is
+ * stripped before a single canonical value is written back.
+ */
+const MANAGED_ATTRIBUTION_HEADER_CANONICAL_NAMES = {
+  [PARTNER_HEADER_NAME.toLowerCase()]: PARTNER_HEADER_NAME,
+  [SOURCE_HEADER_NAME.toLowerCase()]: SOURCE_HEADER_NAME,
+  [INTEGRATION_REPO_HEADER_NAME.toLowerCase()]: INTEGRATION_REPO_HEADER_NAME,
+  [INTEGRATION_VERSION_HEADER_NAME.toLowerCase()]:
+    INTEGRATION_VERSION_HEADER_NAME,
+  [REFERER_HEADER_NAME.toLowerCase()]: REFERER_HEADER_NAME,
+  [TITLE_HEADER_NAME.toLowerCase()]: TITLE_HEADER_NAME,
+} as const
+
+export const AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES = new Set<string>(
+  Object.keys(MANAGED_ATTRIBUTION_HEADER_CANONICAL_NAMES),
+)
+
+function isManagedAttributionHeaderName(name: string): boolean {
+  return AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES.has(name.trim().toLowerCase())
+}
+
+function omitManagedAttributionHeaders(
+  headers: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  for (const [name, value] of Object.entries(headers)) {
+    if (isManagedAttributionHeaderName(name)) continue
+    resolved[name] = value
+  }
+  return resolved
+}
+
+function collectManagedAttributionValues(
+  headers: Readonly<Record<string, string>>,
+): Map<string, string> {
+  const collected = new Map<string, string>()
+  for (const [name, value] of Object.entries(headers)) {
+    const key = name.trim().toLowerCase()
+    if (AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES.has(key)) {
+      collected.set(key, value)
+    }
+  }
+  return collected
+}
+
 /**
  * Attribution `source` sent on EVERY aimlapi request (inference, catalog, auth,
  * checkout) alongside the partner id — identifies OpenClaude as the integration
@@ -155,20 +207,6 @@ export function isTrustedAimlapiRequestUrl(url: string): boolean {
 }
 
 /**
- * Attribution headers AI/ML API records for canonical `api.aimlapi.com`
- * traffic. They identify the partner and the referring integration, so they
- * belong to the canonical endpoint only — see `resolveAimlapiAttributionHeaders`.
- */
-const CATALOG_ATTRIBUTION_HEADER_NAMES = new Set([
-  PARTNER_HEADER_NAME.toLowerCase(),
-  SOURCE_HEADER_NAME.toLowerCase(),
-  'x-aimlapi-integration-repo',
-  'x-aimlapi-integration-version',
-  'http-referer',
-  'x-title',
-])
-
-/**
  * Resolve the aimlapi catalog headers for an outbound request. On the canonical
  * inference endpoint the partner id is resolved and attribution is sent; on any
  * other base URL (a user-controlled proxy) every attribution header is stripped,
@@ -177,21 +215,40 @@ const CATALOG_ATTRIBUTION_HEADER_NAMES = new Set([
  * Both the inference (openai shim) and the model-discovery request paths route
  * through here, so the two cannot drift apart. A missing base URL means the
  * caller falls back to the route default, which is canonical.
+ *
+ * Managed names are compared case-insensitively. Fetch combines duplicate
+ * field names, so a caller `x-aimlapi-source` would otherwise ride alongside
+ * the canonical `X-AIMLAPI-Source`.
  */
 export function resolveAimlapiAttributionHeaders(
   headers: Readonly<Record<string, string>>,
   baseUrl: string | undefined,
 ): Record<string, string> {
+  const rest = omitManagedAttributionHeaders(headers)
   if (!baseUrl || isCanonicalAimlapiInferenceBaseUrl(baseUrl)) {
-    // Canonical endpoint: send BOTH mandatory attribution headers.
-    return { ...withResolvedPartnerHeader(headers), [SOURCE_HEADER_NAME]: AIMLAPI_SOURCE }
+    const collected = collectManagedAttributionValues(headers)
+    const managed: Record<string, string> = {
+      [PARTNER_HEADER_NAME]: resolvePartnerId(),
+      [SOURCE_HEADER_NAME]: AIMLAPI_SOURCE,
+    }
+    for (const [key, canonical] of Object.entries(
+      MANAGED_ATTRIBUTION_HEADER_CANONICAL_NAMES,
+    )) {
+      if (
+        key === PARTNER_HEADER_NAME.toLowerCase() ||
+        key === SOURCE_HEADER_NAME.toLowerCase()
+      ) {
+        continue
+      }
+      const value = collected.get(key)
+      if (value !== undefined) {
+        managed[canonical] = value
+      }
+    }
+    return { ...rest, ...managed }
   }
 
-  return Object.fromEntries(
-    Object.entries(headers).filter(
-      ([name]) => !CATALOG_ATTRIBUTION_HEADER_NAMES.has(name.trim().toLowerCase()),
-    ),
-  )
+  return rest
 }
 
 /**

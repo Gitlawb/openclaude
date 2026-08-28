@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import {
+  AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES,
+  DEFAULT_PARTNER_ID,
   buildPartnerCheckoutReturnUrls,
   buildPartnerReturnUrl,
   isCanonicalAimlapiInferenceBaseUrl,
@@ -160,4 +162,105 @@ test('inference/catalog attribution sends both mandatory headers, stripped off-c
   )
   expect(proxied['X-AIMLAPI-Source']).toBeUndefined()
   expect(proxied['X-AIMLAPI-Partner-ID']).toBeUndefined()
+})
+
+function headerNames(headers: Headers): string[] {
+  const names: string[] = []
+  headers.forEach((_value, name) => {
+    names.push(name)
+  })
+  return names
+}
+
+function expectSingleManagedAttribution(
+  resolved: Record<string, string>,
+  expected: Record<string, string>,
+): void {
+  const headers = new Headers(resolved)
+  for (const [name, value] of Object.entries(expected)) {
+    expect(headers.get(name)).toBe(value)
+  }
+  const managedKeys = headerNames(headers).filter(name =>
+    AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES.has(name),
+  )
+  expect(managedKeys.sort()).toEqual(
+    Object.keys(expected)
+      .map(name => name.toLowerCase())
+      .sort(),
+  )
+}
+
+test('canonical attribution drops mixed-case managed names before restamping', () => {
+  // Same merge order discovery uses: caller headers first, descriptor second.
+  const resolved = resolveAimlapiAttributionHeaders(
+    {
+      'x-aimlapi-source': 'agent/attacker',
+      'x-aimlapi-partner-id': 'part_attackerOverride',
+      'x-aimlapi-integration-repo': 'attacker/repo',
+      'x-aimlapi-integration-version': '0.0.0-attacker',
+      'http-referer': 'https://attacker.example',
+      'x-title': 'Attacker',
+      'X-AIMLAPI-Source': 'agent/openclaude',
+      'X-AIMLAPI-Partner-ID': DEFAULT_PARTNER_ID,
+      'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
+      'X-AIMLAPI-Integration-Version': '1.2.3',
+      'HTTP-Referer': 'OpenClaude',
+      'X-Title': 'OpenClaude',
+      'X-Tenant': 'acme',
+    },
+    'https://api.aimlapi.com/v1',
+  )
+
+  expect(resolved['X-Tenant']).toBe('acme')
+  expectSingleManagedAttribution(resolved, {
+    'X-AIMLAPI-Source': 'agent/openclaude',
+    'X-AIMLAPI-Partner-ID': DEFAULT_PARTNER_ID,
+    'X-AIMLAPI-Integration-Repo': 'Gitlawb/openclaude',
+    'X-AIMLAPI-Integration-Version': '1.2.3',
+    'HTTP-Referer': 'OpenClaude',
+    'X-Title': 'OpenClaude',
+  })
+})
+
+test('canonical attribution restamps mixed-case caller-only fields without combining them', () => {
+  const resolved = resolveAimlapiAttributionHeaders(
+    {
+      'x-aimlapi-source': 'agent/attacker',
+      'HTTP-REFERER': 'https://attacker.example',
+      'x-title': 'Attacker',
+      'X-Tenant': 'acme',
+    },
+    'https://api.aimlapi.com/v1',
+  )
+
+  const headers = new Headers(resolved)
+  expect(headers.get('x-aimlapi-source')).toBe('agent/openclaude')
+  expect(headers.get('x-aimlapi-partner-id')).toBe(DEFAULT_PARTNER_ID)
+  expect(headers.get('http-referer')).toBe('https://attacker.example')
+  expect(headers.get('x-title')).toBe('Attacker')
+  expect(headers.get('x-tenant')).toBe('acme')
+  expect(headers.get('x-aimlapi-source')).not.toContain(',')
+  expect(headers.get('http-referer')).not.toContain(',')
+})
+
+test('proxy attribution strips every managed name spelling and keeps X-Tenant', () => {
+  const resolved = resolveAimlapiAttributionHeaders(
+    {
+      'x-aimlapi-source': 'agent/attacker',
+      'X-AIMLAPI-Partner-ID': 'part_x',
+      'x-aimlapi-integration-repo': 'attacker/repo',
+      'X-AIMLAPI-Integration-Version': '0.0.0-attacker',
+      'HTTP-REFERER': 'https://attacker.example',
+      'x-title': 'Attacker',
+      'X-Tenant': 'acme',
+    },
+    'https://proxy.example.test/v1',
+  )
+
+  const headers = new Headers(resolved)
+  for (const name of AIMLAPI_MANAGED_ATTRIBUTION_HEADER_NAMES) {
+    expect(headers.get(name)).toBeNull()
+  }
+  expect(headers.get('x-tenant')).toBe('acme')
+  expect(Object.keys(resolved)).toEqual(['X-Tenant'])
 })

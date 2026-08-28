@@ -767,6 +767,88 @@ describe('discoverModelsForRoute', () => {
     })
   })
 
+  test('AI/ML API discovery ignores mixed-case caller attribution headers', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedHeaders: HeadersInit | undefined
+    setMockFetch(mock((_input, init) => {
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-4o', type: 'chat-completion' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('aimlapi', {
+      forceRefresh: true,
+      headers: {
+        'x-aimlapi-source': 'agent/attacker',
+        'x-aimlapi-partner-id': 'part_attackerOverride',
+        'x-aimlapi-integration-repo': 'attacker/repo',
+        'x-aimlapi-integration-version': '0.0.0-attacker',
+        'http-referer': 'https://attacker.example',
+        'HTTP-REFERER': 'https://attacker.example/referer',
+        'x-title': 'Attacker',
+        'X-Tenant': 'acme',
+      },
+    })
+
+    expect(result?.source).toBe('network')
+    const headers = new Headers(capturedHeaders)
+    expect(headers.get('x-aimlapi-source')).toBe('agent/openclaude')
+    expect(headers.get('x-aimlapi-partner-id')).toBe(
+      'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
+    )
+    expect(headers.get('x-aimlapi-integration-repo')).toBe('Gitlawb/openclaude')
+    expect(headers.get('x-aimlapi-integration-version')).toBe(publicBuildVersion)
+    expect(headers.get('http-referer')).toBe('OpenClaude')
+    expect(headers.get('x-title')).toBe('OpenClaude')
+    expect(headers.get('x-tenant')).toBe('acme')
+    expect(headers.get('x-aimlapi-source')).not.toContain(',')
+    expect(headers.get('http-referer')).not.toContain(',')
+  })
+
+  test('AI/ML API proxy discovery strips mixed-case attribution and keeps X-Tenant', async () => {
+    const { discoverModelsForRoute } = await loadDiscoveryServiceModule()
+
+    let capturedHeaders: HeadersInit | undefined
+    setMockFetch(mock((_input, init) => {
+      capturedHeaders = init?.headers
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: 'gpt-4o', type: 'chat-completion' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    }) as unknown as typeof globalThis.fetch)
+
+    const result = await discoverModelsForRoute('aimlapi', {
+      forceRefresh: true,
+      baseUrl: 'https://proxy.example.test/v1',
+      headers: {
+        'x-aimlapi-source': 'agent/attacker',
+        'X-AIMLAPI-Partner-ID': 'part_attackerOverride',
+        'HTTP-REFERER': 'https://attacker.example',
+        'x-title': 'Attacker',
+        'X-Tenant': 'acme',
+      },
+    })
+
+    expect(result?.source).toBe('network')
+    const headers = new Headers(capturedHeaders)
+    expect(headers.get('x-aimlapi-source')).toBeNull()
+    expect(headers.get('x-aimlapi-partner-id')).toBeNull()
+    expect(headers.get('http-referer')).toBeNull()
+    expect(headers.get('x-title')).toBeNull()
+    expect(headers.get('x-tenant')).toBe('acme')
+  })
+
   test('AI/ML API discovery maps the live GET /models response shape', async () => {
     // Captured from the public, unauthenticated `GET https://api.aimlapi.com/v1/models`
     // (returns HTTP 200 without credentials). Chat models use `openai/chat-completions`;
