@@ -11,6 +11,7 @@ import {
   Select,
   type OptionWithDescription,
 } from '../../components/CustomSelect/index.js'
+import { getDefaultSonnetModel } from '../../utils/model/model.js'
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { LoadingState } from '../../components/design-system/LoadingState.js'
 import { useCodexOAuthFlow } from '../../components/useCodexOAuthFlow.js'
@@ -363,9 +364,11 @@ export function buildCurrentProviderSummary(options?: {
   return {
     providerLabel: 'Anthropic',
     modelLabel: getSafeDisplayValue(
+      // Resolved default, not a literal — this summary must name the model the
+      // request path selects when nothing is explicitly configured.
       processEnv.ANTHROPIC_MODEL ??
         processEnv.CLAUDE_MODEL ??
-        'claude-sonnet-4-6',
+        getDefaultSonnetModel(),
       secretSource,
     ),
     endpointLabel: getSafeDisplayValue(

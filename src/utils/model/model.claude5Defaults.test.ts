@@ -83,6 +83,19 @@ test('a retired Opus that resolves forward to Opus 5 keeps its own default', asy
   expect(effort.getDefaultEffortForModel('claude-opus-4-1')).toBeUndefined()
 })
 
+// The /model summary and the callout both read an app-state value that may
+// still be an alias. The effort resolvers match on model id, so an unresolved
+// `opus` reported a different effort than the request path applied.
+test('the `opus` alias resolves to the Opus 5 medium default', async () => {
+  subscriberOverride = { pro: true }
+  const { effort, model } = await importFresh()
+
+  const resolved = model.parseUserSpecifiedModel('opus')
+  expect(resolved).toBe(model.getDefaultOpusModel())
+  expect(effort.getDefaultEffortForModel(resolved)).toBe('medium')
+  expect(effort.resolveAppliedEffort(resolved, undefined)).toBe('medium')
+})
+
 test('a Claude 5 near match gets neither the callout nor the medium default', async () => {
   subscriberOverride = { pro: true }
   const { effort, callout } = await importFresh()

@@ -383,10 +383,15 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
   }
 }
 
-const MaxSonnet46Option: ModelOption = {
-  value: 'sonnet',
-  label: 'Sonnet',
-  description: 'Sonnet 4.6 · Best for everyday tasks',
+// A function, not a const: the row's value is the `sonnet` alias, so its label
+// has to follow whatever getDefaultSonnetModel() resolves that alias to for the
+// active provider — a literal here runs Sonnet 5 under a Sonnet 4.6 label.
+export function getMaxSonnetOption(): ModelOption {
+  return {
+    value: 'sonnet',
+    label: 'Sonnet',
+    description: `${getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'} · Best for everyday tasks`,
+  }
 }
 
 const MaxHaiku45Option: ModelOption = {
@@ -644,7 +649,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
         premiumOptions.push(getMaxOpus46_1MOption(fastMode))
       }
 
-      premiumOptions.push(MaxSonnet46Option)
+      premiumOptions.push(getMaxSonnetOption())
       if (checkSonnet1mAccess()) {
         premiumOptions.push(getMaxSonnet46_1MOption())
       }

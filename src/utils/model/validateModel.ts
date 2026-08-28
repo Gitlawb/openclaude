@@ -223,10 +223,10 @@ function get3PFallbackSuggestion(model: string): string | undefined {
     return undefined
   }
   const lowerModel = model.toLowerCase()
-  if (isOpus5ModelId(lowerModel)) {
+  if (isOpus5ModelId(lowerModel) || lowerModel.includes('opus_5')) {
     return getModelStrings().opus48
   }
-  if (isSonnet5ModelId(lowerModel)) {
+  if (isSonnet5ModelId(lowerModel) || lowerModel.includes('sonnet_5')) {
     return getModelStrings().sonnet46
   }
   if (lowerModel.includes('opus-4-8') || lowerModel.includes('opus_4_8')) {

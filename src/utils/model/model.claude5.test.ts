@@ -147,7 +147,6 @@ test.each([
   'claude-opus-5?reasoning=high',
   'us.anthropic.claude-opus-5-v1:0',
   'claude-opus-5@20260501',
-  'claude_opus_5',
 ])('recognizes %s as Opus 5', model => {
   expect(isOpus5ModelId(model)).toBe(true)
   expect(isClaude5ModelId(model)).toBe(true)
@@ -158,7 +157,6 @@ test.each([
   'claude-sonnet-5',
   'claude-sonnet-5-20260501',
   'anthropic/claude-sonnet-5',
-  'claude_sonnet_5',
 ])('recognizes %s as Sonnet 5', model => {
   expect(isSonnet5ModelId(model)).toBe(true)
   expect(isClaude5ModelId(model)).toBe(true)
@@ -172,6 +170,11 @@ test.each([
   'claude-sonnet-5x',
   'claude-opus-4-5',
   'claude-sonnet-4-5',
+  // Hyphenated spelling only. No provider emits an underscore id, and
+  // firstPartyNameToCanonical does not canonicalize one, so accepting it here
+  // would grant Claude 5 capabilities to a model with no pricing entry.
+  'claude_opus_5',
+  'claude_sonnet_5',
 ])('rejects the near match %s', model => {
   expect(isClaude5ModelId(model)).toBe(false)
 })
