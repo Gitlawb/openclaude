@@ -368,6 +368,7 @@ export function buildCurrentProviderSummary(options?: {
       // request path selects when nothing is explicitly configured.
       processEnv.ANTHROPIC_MODEL ??
         processEnv.CLAUDE_MODEL ??
+        processEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ??
         getDefaultSonnetModel(),
       secretSource,
     ),

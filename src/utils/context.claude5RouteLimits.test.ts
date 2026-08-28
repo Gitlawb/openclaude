@@ -119,3 +119,37 @@ test('an explicit runtime limit outranks the unconditional 1M default', async ()
   ).toBe(200_000)
   expect(getContextWindowForModel('claude-opus-5')).toBe(1_000_000)
 })
+
+test('a route-reported window caps the [1m] suffix too', async () => {
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'claude-sonnet-5': 200_000,
+  })
+
+  const { getContextWindowForModel, modelResolvesTo1MContext, getAllModelBetas } =
+    await importFresh()
+
+  expect(getContextWindowForModel('claude-sonnet-5[1m]')).toBe(200_000)
+  expect(
+    getContextWindowForModel('claude-sonnet-5[1m]', undefined, {
+      contextWindow: 200_000,
+    }),
+  ).toBe(200_000)
+  expect(modelResolvesTo1MContext('claude-sonnet-5[1m]')).toBe(false)
+  expect(getAllModelBetas('claude-sonnet-5[1m]')).not.toContain(
+    CONTEXT_1M_BETA_HEADER,
+  )
+})
+
+test('the [1m] suffix still budgets 1M when the route reports no window', async () => {
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  process.env.CONCENTRATE_MODEL = 'claude-opus-5'
+
+  const { getContextWindowForModel, modelResolvesTo1MContext, getAllModelBetas } =
+    await importFresh()
+
+  expect(getContextWindowForModel('claude-opus-5[1m]')).toBe(1_000_000)
+  expect(modelResolvesTo1MContext('claude-opus-5[1m]')).toBe(true)
+  expect(getAllModelBetas('claude-opus-5[1m]')).toContain(CONTEXT_1M_BETA_HEADER)
+})

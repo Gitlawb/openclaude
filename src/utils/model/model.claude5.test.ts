@@ -175,6 +175,13 @@ test.each([
   // would grant Claude 5 capabilities to a model with no pricing entry.
   'claude_opus_5',
   'claude_sonnet_5',
+  // The matcher requires the same `claude-opus-5` / `claude-sonnet-5`
+  // identity canonicalization uses. A custom deployment that merely contains
+  // `opus-5` is not Claude 5.
+  'arbitrary-proxy-opus-5',
+  'arbitrary-proxy-sonnet-5',
+  'opus-5',
+  'sonnet-5',
 ])('rejects the near match %s', model => {
   expect(isClaude5ModelId(model)).toBe(false)
 })
@@ -187,6 +194,8 @@ test.each([
   'claude-opus-5x',
   'claude-sonnet-50',
   'claude-sonnet-5x',
+  'arbitrary-proxy-opus-5',
+  'arbitrary-proxy-sonnet-5',
 ])('grants no Claude 5 capability to the near match %s', model => {
   expect(modelSupportsAdaptiveThinking(model)).toBe(false)
   expect(modelHasUnconditional1MContext(model)).toBe(false)
