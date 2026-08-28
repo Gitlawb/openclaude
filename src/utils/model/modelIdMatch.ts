@@ -33,18 +33,16 @@ export function matchesModelIdAtBoundary(name: string, id: string): boolean {
   )
 }
 
-/**
- * Normalize the underscore form some providers and user-typed settings use
- * (`claude_opus_5`) so one matcher covers both spellings.
- */
-function normalizeModelId(name: string): string {
-  return name.toLowerCase().replaceAll('_', '-')
-}
-
 // @[MODEL LAUNCH]: Add the new model's family fragment here rather than adding
 // another substring check at the call site.
+//
+// Hyphenated spelling only. No provider emits an underscore model id, so
+// accepting `claude_opus_5` here would hand it Claude 5 capabilities while
+// firstPartyNameToCanonical() still saw an unknown model and priced it as one.
+// The two 3P fallback-suggestion helpers do their own loose underscore check,
+// the same way they already do for the 4.x ids.
 function matchesModelFragment(name: string, fragment: string): boolean {
-  return matchesModelIdAtBoundary(normalizeModelId(name), fragment)
+  return matchesModelIdAtBoundary(name.toLowerCase(), fragment)
 }
 
 /**
