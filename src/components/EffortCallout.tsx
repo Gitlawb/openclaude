@@ -78,7 +78,7 @@ export function EffortCallout(t0) {
   useEffect(t5, t6);
   let t7;
   if ($[7] !== model) {
-    const defaultEffort = getDefaultEffortForModel(model);
+    const defaultEffort = getDefaultEffortForModel(parseUserSpecifiedModel(model));
     t7 = defaultEffort ? convertEffortValueToLevel(defaultEffort) : "high";
     $[7] = model;
     $[8] = t7;

@@ -1374,10 +1374,10 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
   const m = model.toLowerCase()
   // Mirror the validation-time fallback chain in validateModel.ts so the error
   // path suggests the previous Opus for the recent models too.
-  if (isOpus5ModelId(m)) {
+  if (isOpus5ModelId(m) || m.includes('opus_5')) {
     return getModelStrings().opus48
   }
-  if (isSonnet5ModelId(m)) {
+  if (isSonnet5ModelId(m) || m.includes('sonnet_5')) {
     return getModelStrings().sonnet46
   }
   if (m.includes('opus-4-8') || m.includes('opus_4_8')) {
