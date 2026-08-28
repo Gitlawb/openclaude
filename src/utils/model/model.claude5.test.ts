@@ -2,10 +2,18 @@ import { expect, test } from 'bun:test'
 
 import {
   getContextWindowForModel,
+  getModelMaxOutputTokens,
   modelHasUnconditional1MContext,
 } from '../context.js'
 import { MODEL_COSTS } from '../modelCost.js'
 import { modelSupportsAdaptiveThinking } from '../thinking.js'
+import { isValidAdvisorModel, modelSupportsAdvisor } from '../advisor.js'
+import { isFastModeSupportedByModel } from '../fastMode.js'
+import {
+  isClaude5ModelId,
+  isOpus5ModelId,
+  isSonnet5ModelId,
+} from './modelIdMatch.js'
 import { getAllModelBetas } from '../betas.js'
 import { CONTEXT_1M_BETA_HEADER } from '../../constants/betas.js'
 import { firstPartyNameToCanonical } from './model.js'
@@ -104,3 +112,96 @@ test.each(['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-7'])(
     expect(modelHasUnconditional1MContext(model)).toBe(false)
   },
 )
+
+// The catalog descriptors declare maxOutputTokens: 128_000 for both Claude 5
+// models. The native resolver keeps its own family branches, so without an
+// entry there they fell through to the generic {32k, 64k} limit — silently
+// capping requests and every thinking/output budget derived from it.
+test.each([
+  ['claude-opus-5', 64_000, 128_000],
+  ['claude-sonnet-5', 32_000, 128_000],
+])('resolves %s output limits to the declared 128k ceiling', (
+  model,
+  defaultTokens,
+  upperLimit,
+) => {
+  expect(getModelMaxOutputTokens(model)).toEqual({
+    default: defaultTokens,
+    upperLimit,
+  })
+})
+
+test('a Claude 5 near match keeps the generic output limits', () => {
+  expect(getModelMaxOutputTokens('claude-opus-50')).toEqual({
+    default: 32_000,
+    upperLimit: 64_000,
+  })
+})
+
+// One boundary-aware matcher backs every Claude 5 decision. These pin the
+// matcher itself against the id spellings the providers actually emit.
+test.each([
+  'claude-opus-5',
+  'claude-opus-5-20260501',
+  'claude-opus-5[1m]',
+  'claude-opus-5?reasoning=high',
+  'us.anthropic.claude-opus-5-v1:0',
+  'claude-opus-5@20260501',
+  'claude_opus_5',
+])('recognizes %s as Opus 5', model => {
+  expect(isOpus5ModelId(model)).toBe(true)
+  expect(isClaude5ModelId(model)).toBe(true)
+  expect(isSonnet5ModelId(model)).toBe(false)
+})
+
+test.each([
+  'claude-sonnet-5',
+  'claude-sonnet-5-20260501',
+  'anthropic/claude-sonnet-5',
+  'claude_sonnet_5',
+])('recognizes %s as Sonnet 5', model => {
+  expect(isSonnet5ModelId(model)).toBe(true)
+  expect(isClaude5ModelId(model)).toBe(true)
+  expect(isOpus5ModelId(model)).toBe(false)
+})
+
+test.each([
+  'claude-opus-50',
+  'claude-opus-5x',
+  'claude-sonnet-50',
+  'claude-sonnet-5x',
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+])('rejects the near match %s', model => {
+  expect(isClaude5ModelId(model)).toBe(false)
+})
+
+// A near match must not pick up any Claude 5 capability. Each of these gates a
+// different wire-level or UI behavior, and each used to be its own substring
+// check.
+test.each([
+  'claude-opus-50',
+  'claude-opus-5x',
+  'claude-sonnet-50',
+  'claude-sonnet-5x',
+])('grants no Claude 5 capability to the near match %s', model => {
+  expect(modelSupportsAdaptiveThinking(model)).toBe(false)
+  expect(modelHasUnconditional1MContext(model)).toBe(false)
+  expect(modelSupportsAdvisor(model)).toBe(false)
+  expect(isValidAdvisorModel(model)).toBe(false)
+  expect(isFastModeSupportedByModel(model)).toBe(false)
+})
+
+test.each(['claude-opus-5', 'claude-sonnet-5'])(
+  'grants %s the Claude 5 capabilities',
+  model => {
+    expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+    expect(modelHasUnconditional1MContext(model)).toBe(true)
+    expect(modelSupportsAdvisor(model)).toBe(true)
+  },
+)
+
+test('fast mode covers Opus 5 but not Sonnet 5', () => {
+  expect(isFastModeSupportedByModel('claude-opus-5')).toBe(true)
+  expect(isFastModeSupportedByModel('claude-sonnet-5')).toBe(false)
+})

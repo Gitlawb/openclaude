@@ -16,6 +16,7 @@ import {
   isTeamPremiumSubscriber,
 } from '../auth.js'
 import { getModelStrings } from './modelStrings.js'
+import { isOpus5ModelId, isSonnet5ModelId } from './modelIdMatch.js'
 import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
@@ -815,7 +816,7 @@ function getModelFamilyInfo(
 
   // Sonnet family
   if (
-    canonical.includes('claude-sonnet-5') ||
+    isSonnet5ModelId(canonical) ||
     canonical.includes('claude-sonnet-4-6') ||
     canonical.includes('claude-sonnet-4-5') ||
     canonical.includes('claude-sonnet-4-') ||
@@ -829,7 +830,7 @@ function getModelFamilyInfo(
   }
 
   // Opus family
-  if (canonical.includes('claude-opus-5') || canonical.includes('claude-opus-4')) {
+  if (isOpus5ModelId(canonical) || canonical.includes('claude-opus-4')) {
     const currentName = getMarketingNameForModel(getDefaultOpusModel())
     if (currentName) {
       return { alias: 'Opus', currentVersionName: currentName }

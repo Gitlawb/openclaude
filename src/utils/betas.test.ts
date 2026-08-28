@@ -158,6 +158,40 @@ test('modelSupportsStructuredOutputs covers the recent Opus models (4.8/4.7/4.6)
   expect(modelSupportsStructuredOutputs('claude-3-opus')).toBe(false)
 })
 
+// Structured outputs are firstParty/Foundry-only. Claude 5 joined the allowlist
+// in this cohort, so pin the exact provider/model paths: near matches must not
+// inherit the capability, and Bedrock/Vertex must stay off until they ship it.
+test('modelSupportsStructuredOutputs covers Claude 5 on firstParty', async () => {
+  // No provider env set => firstParty.
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-50')).toBe(false)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-50')).toBe(false)
+})
+
+test('modelSupportsStructuredOutputs covers Claude 5 on the foundry provider', async () => {
+  process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-50')).toBe(false)
+})
+
+test('modelSupportsStructuredOutputs stays off for Claude 5 on bedrock and vertex', async () => {
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  const bedrock = await importFreshBetas()
+  expect(bedrock.modelSupportsStructuredOutputs('claude-opus-5')).toBe(false)
+  expect(
+    bedrock.modelSupportsStructuredOutputs('us.anthropic.claude-opus-5-v1:0'),
+  ).toBe(false)
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+
+  process.env.CLAUDE_CODE_USE_VERTEX = '1'
+  const vertex = await importFreshBetas()
+  expect(vertex.modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(false)
+})
+
 test('getMergedBetas returns a non-empty list for the bedrock provider', async () => {
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   const { getMergedBetas } = await importFreshBetas()

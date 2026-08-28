@@ -20,6 +20,7 @@ import {
 } from '../context.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
+import { matchesModelIdAtBoundary } from './modelIdMatch.js'
 import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
@@ -492,28 +493,6 @@ export function getDefaultMainLoopModel(): ModelName {
 
 // @[MODEL LAUNCH]: Add a canonical name mapping for the new model below.
 /**
- * True when `canonical` appears in `name` as a whole model id rather than as a
- * prefix of a longer version. Provider ids may prefix the canonical id, so only
- * the delimiters used by provider versions (`-`), Vertex dates (`@`), query
- * options (`?`), and context tags (`[`) may follow it. Without this,
- * `claude-opus-50` would canonicalize as `claude-opus-5`.
- */
-function matchesCanonicalModelId(name: string, canonical: string): boolean {
-  const index = name.indexOf(canonical)
-  if (index === -1) {
-    return false
-  }
-  const next = name[index + canonical.length]
-  return (
-    next === undefined ||
-    next === '-' ||
-    next === '@' ||
-    next === '?' ||
-    next === '['
-  )
-}
-
-/**
  * Pure string-match that strips date/provider suffixes from a first-party model
  * name. Input must already be a 1P-format ID (e.g. 'claude-3-7-sonnet-20250219',
  * 'us.anthropic.claude-opus-4-6-v1:0'). Does not touch settings, so safe at
@@ -524,40 +503,40 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   // Special cases for Claude 4+ models to differentiate versions
   // Order matters: check more specific versions first (5 before 4-8 before 4-7
   // before 4-6 before 4-5 before 4)
-  if (matchesCanonicalModelId(name, 'claude-opus-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-5')) {
     return 'claude-opus-5'
   }
-  if (matchesCanonicalModelId(name, 'claude-sonnet-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-5')) {
     return 'claude-sonnet-5'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4-8')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-8')) {
     return 'claude-opus-4-8'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4-7')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-7')) {
     return 'claude-opus-4-7'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4-6')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-6')) {
     return 'claude-opus-4-6'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-5')) {
     return 'claude-opus-4-5'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4-1')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-1')) {
     return 'claude-opus-4-1'
   }
-  if (matchesCanonicalModelId(name, 'claude-opus-4')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4')) {
     return 'claude-opus-4'
   }
-  if (matchesCanonicalModelId(name, 'claude-sonnet-4-6')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4-6')) {
     return 'claude-sonnet-4-6'
   }
-  if (matchesCanonicalModelId(name, 'claude-sonnet-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4-5')) {
     return 'claude-sonnet-4-5'
   }
-  if (matchesCanonicalModelId(name, 'claude-sonnet-4')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4')) {
     return 'claude-sonnet-4'
   }
-  if (matchesCanonicalModelId(name, 'claude-haiku-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-haiku-4-5')) {
     return 'claude-haiku-4-5'
   }
   // Claude 3.x models use a different naming scheme (claude-3-{family})
@@ -606,9 +585,9 @@ export function getClaudeAiUserDefaultModelDescription(
 ): string {
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
-      return `Opus 5 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `Opus 5 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getDefaultOpusModel()) : ''}`
     }
-    return `Opus 5 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `Opus 5 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getDefaultOpusModel()) : ''}`
   }
   return 'Sonnet 5 · Best for everyday tasks'
 }
@@ -622,9 +601,12 @@ export function renderDefaultModelSetting(
   return renderModelName(parseUserSpecifiedModel(setting))
 }
 
+// The model is required rather than defaulted: a stale default silently prices
+// the current default Opus at a previous model's tier (Opus 5 fast mode bills
+// $10/$50, not Opus 4.8's tier), so callers must name the model they display.
 export function getOpus46PricingSuffix(
   fastMode: boolean,
-  model: string = getModelStrings().opus48,
+  model: string,
 ): string {
   if (!isFirstPartyAnthropicProvider()) return ''
   const pricing = getModelPricingString(model, {

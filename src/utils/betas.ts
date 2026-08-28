@@ -23,9 +23,10 @@ import {
 } from '../constants/betas.js'
 import { OAUTH_BETA_HEADER } from '../constants/oauth.js'
 import { isClaudeAISubscriber } from './auth.js'
-import { has1mContext, modelHasUnconditional1MContext } from './context.js'
+import { has1mContext, modelResolvesTo1MContext } from './context.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
+import { isClaude5ModelId } from './model/modelIdMatch.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
   getAPIProvider,
@@ -154,8 +155,7 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
     return false
   }
   return (
-    canonical.includes('claude-opus-5') ||
-    canonical.includes('claude-sonnet-5') ||
+    isClaude5ModelId(canonical) ||
     canonical.includes('claude-sonnet-4-6') ||
     canonical.includes('claude-sonnet-4-5') ||
     canonical.includes('claude-opus-4-1') ||
@@ -277,7 +277,10 @@ export const getAllModelBetas = memoize((model: string): string[] => {
   if (isClaudeAISubscriber()) {
     betaHeaders.push(OAUTH_BETA_HEADER)
   }
-  if (has1mContext(model) || modelHasUnconditional1MContext(model)) {
+  // modelResolvesTo1MContext, not the bare capability check: a route that
+  // reports a lower window must not advertise the 1M beta, so the header and
+  // the context budget come from the same decision.
+  if (has1mContext(model) || modelResolvesTo1MContext(model)) {
     betaHeaders.push(CONTEXT_1M_BETA_HEADER)
   }
   if (
