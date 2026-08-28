@@ -200,6 +200,39 @@ describe('Anthropic Messages body planning', () => {
     }).buildAnthropicMessagesBody()
     expect(fixed.thinking).toEqual({ type: 'enabled', budgetTokens: 16_000 })
   })
+
+  // The planner shapes the outbound body from the model id, so it has to agree
+  // with the boundary-aware canonical identity used everywhere else. A raw
+  // substring check sent Claude 5-only `thinking: { type: 'adaptive' }` for a
+  // proxy id such as `claude-opus-50`, which the endpoint rejects with a 400.
+  test.each([
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-opus-5-20260501',
+    'us.anthropic.claude-opus-5-v1:0',
+    'claude-sonnet-5@20260501',
+  ])('sends adaptive thinking for the Claude 5 id %s', model => {
+    expect(
+      createPlanner({
+        request: { resolvedModel: model, reasoning: { effort: 'max' } },
+        effectiveTransport: 'anthropic_messages',
+      }).buildAnthropicMessagesBody(),
+    ).toMatchObject({ thinking: { type: 'adaptive' }, effort: 'max' })
+  })
+
+  test.each([
+    'claude-opus-50',
+    'claude-opus-5x',
+    'claude-sonnet-50',
+    'claude-sonnet-5x',
+  ])('does not send adaptive thinking for the near match %s', model => {
+    const body = createPlanner({
+      request: { resolvedModel: model, reasoning: { effort: 'high' } },
+      effectiveTransport: 'anthropic_messages',
+    }).buildAnthropicMessagesBody()
+    expect(body.thinking).toEqual({ type: 'enabled', budgetTokens: 16_000 })
+    expect(body.effort).toBeUndefined()
+  })
 })
 
 describe('Gemini body planning', () => {

@@ -26,6 +26,7 @@ import {
   type ModelSetting,
   parseUserSpecifiedModel,
 } from './model/model.js'
+import { isOpus5ModelId } from './model/modelIdMatch.js'
 import { isFirstPartyAnthropicProvider } from './model/providers.js'
 import { isEssentialTrafficOnly } from './privacyLevel.js'
 import {
@@ -176,7 +177,7 @@ export function isFastModeSupportedByModel(
   // default Opus is now 5, so the predicate must match it or the UI ("Opus 5
   // only") and runtime behavior disagree for Max/Team Premium users.
   return (
-    parsedModel.includes('opus-5') ||
+    isOpus5ModelId(parsedModel) ||
     parsedModel.includes('opus-4-8') ||
     parsedModel.includes('opus-4-7') ||
     parsedModel.includes('opus-4-6')

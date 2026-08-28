@@ -31,6 +31,10 @@ import {
 } from 'src/utils/model/model.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
 import {
+  isOpus5ModelId,
+  isSonnet5ModelId,
+} from 'src/utils/model/modelIdMatch.js'
+import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
   isFirstPartyAnthropicProvider,
@@ -1370,10 +1374,10 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
   const m = model.toLowerCase()
   // Mirror the validation-time fallback chain in validateModel.ts so the error
   // path suggests the previous Opus for the recent models too.
-  if (m.includes('opus-5') || m.includes('opus_5')) {
+  if (isOpus5ModelId(m)) {
     return getModelStrings().opus48
   }
-  if (m.includes('sonnet-5') || m.includes('sonnet_5')) {
+  if (isSonnet5ModelId(m)) {
     return getModelStrings().sonnet46
   }
   if (m.includes('opus-4-8') || m.includes('opus_4_8')) {

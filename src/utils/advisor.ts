@@ -2,6 +2,7 @@ import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messag
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { shouldIncludeFirstPartyOnlyBetas } from './betas.js'
 import { isEnvTruthy } from './envUtils.js'
+import { isClaude5ModelId, isOpus5ModelId } from './model/modelIdMatch.js'
 import { getInitialSettings } from './settings/settings.js'
 
 // The SDK does not yet have types for advisor blocks.
@@ -89,8 +90,7 @@ export function getExperimentAdvisorModels():
 export function modelSupportsAdvisor(model: string): boolean {
   const m = model.toLowerCase()
   return (
-    m.includes('opus-5') ||
-    m.includes('sonnet-5') ||
+    isClaude5ModelId(m) ||
     m.includes('opus-4-8') ||
     m.includes('opus-4-7') ||
     m.includes('opus-4-6') ||
@@ -103,7 +103,7 @@ export function modelSupportsAdvisor(model: string): boolean {
 export function isValidAdvisorModel(model: string): boolean {
   const m = model.toLowerCase()
   return (
-    m.includes('opus-5') ||
+    isOpus5ModelId(m) ||
     m.includes('opus-4-8') ||
     m.includes('opus-4-7') ||
     m.includes('opus-4-6') ||

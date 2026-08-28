@@ -1,6 +1,7 @@
 import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
 import { join } from 'path'
+import { matchesModelIdAtBoundary } from './model/modelIdMatch.js'
 
 /**
  * Resolves the override env value for the config home directory.
@@ -225,7 +226,8 @@ export function isInProtectedNamespace(): boolean {
 /**
  * Model prefix → env var for Vertex region overrides.
  * Order matters: more specific prefixes must come before less specific ones
- * (e.g., 'claude-opus-4-1' before 'claude-opus-4').
+ * (e.g., 'claude-opus-4-1' before 'claude-opus-4'). Matching is boundary-aware
+ * so a near match such as `claude-opus-50` does not pick up the Opus 5 region.
  */
 const VERTEX_REGION_OVERRIDES: ReadonlyArray<[string, string]> = [
   ['claude-opus-5', 'VERTEX_REGION_CLAUDE_5_OPUS'],
@@ -249,8 +251,9 @@ export function getVertexRegionForModel(
   model: string | undefined,
 ): string | undefined {
   if (model) {
-    const match = VERTEX_REGION_OVERRIDES.find(([prefix]) =>
-      model.startsWith(prefix),
+    const match = VERTEX_REGION_OVERRIDES.find(
+      ([prefix]) =>
+        model.startsWith(prefix) && matchesModelIdAtBoundary(model, prefix),
     )
     if (match) {
       return process.env[match[1]] || getDefaultVertexRegion()
