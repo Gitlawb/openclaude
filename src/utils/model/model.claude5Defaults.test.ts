@@ -91,6 +91,7 @@ test('the `opus` alias resolves to the Opus 5 medium default', async () => {
   const { effort, model } = await importFresh()
 
   const resolved = model.parseUserSpecifiedModel('opus')
+  expect(resolved).toBe('claude-opus-5')
   expect(resolved).toBe(model.getDefaultOpusModel())
   expect(effort.getDefaultEffortForModel(resolved)).toBe('medium')
   expect(effort.resolveAppliedEffort(resolved, undefined)).toBe('medium')

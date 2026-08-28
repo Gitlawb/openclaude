@@ -48,16 +48,17 @@ function matchesModelFragment(name: string, fragment: string): boolean {
 /**
  * Claude Opus 5, in any provider spelling (`claude-opus-5`,
  * `us.anthropic.claude-opus-5-v1:0`, `claude-opus-5@20260501`,
- * `claude-opus-5[1m]`). Also accepts the canonical short name, so callers that
- * already hold `getCanonicalName(model)` can pass it straight through.
+ * `claude-opus-5[1m]`). Matches the same `claude-opus-5` identity
+ * `firstPartyNameToCanonical()` uses, so a custom id such as
+ * `arbitrary-proxy-opus-5` is not granted Claude 5 capabilities.
  */
 export function isOpus5ModelId(name: string): boolean {
-  return matchesModelFragment(name, 'opus-5')
+  return matchesModelFragment(name, 'claude-opus-5')
 }
 
 /** Claude Sonnet 5 — see {@link isOpus5ModelId}. */
 export function isSonnet5ModelId(name: string): boolean {
-  return matchesModelFragment(name, 'sonnet-5')
+  return matchesModelFragment(name, 'claude-sonnet-5')
 }
 
 /** Either Claude 5 model. */

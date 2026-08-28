@@ -225,6 +225,8 @@ describe('Anthropic Messages body planning', () => {
     'claude-opus-5x',
     'claude-sonnet-50',
     'claude-sonnet-5x',
+    'arbitrary-proxy-opus-5',
+    'arbitrary-proxy-sonnet-5',
   ])('does not send adaptive thinking for the near match %s', model => {
     const body = createPlanner({
       request: { resolvedModel: model, reasoning: { effort: 'high' } },

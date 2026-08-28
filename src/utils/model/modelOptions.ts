@@ -193,6 +193,10 @@ function getPricingSuffix(model: string): string {
   return pricing ? ` · ${pricing}` : ''
 }
 
+function firstPartyAliasName(resolved: string, fallback: string): string {
+  return getMarketingNameForModel(resolved) ?? fallback
+}
+
 function getCustomSonnetOption(): ModelOption | undefined {
   const is3P = getAPIProvider() !== 'firstParty'
   const customSonnetModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
@@ -215,11 +219,13 @@ function getCustomSonnetOption(): ModelOption | undefined {
 // with the new model's label and description. These appear in the /model picker.
 function getSonnet46Option(): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  const model = is3P ? getModelStrings().sonnet46 : getDefaultSonnetModel()
+  const name = is3P ? 'Sonnet 4.6' : firstPartyAliasName(model, 'Sonnet')
   return {
     value: is3P ? getModelStrings().sonnet46 : 'sonnet',
     label: 'Sonnet',
-    description: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} · Best for everyday tasks${getPricingSuffix(is3P ? getModelStrings().sonnet46 : getModelStrings().sonnet5)}`,
-    descriptionForModel: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} - best for everyday tasks. Generally recommended for most coding tasks`,
+    description: `${name} · Best for everyday tasks${getPricingSuffix(model)}`,
+    descriptionForModel: `${name} - best for everyday tasks. Generally recommended for most coding tasks`,
   }
 }
 
@@ -251,11 +257,13 @@ function getOpus41Option(): ModelOption {
 
 function getOpus48Option(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  const model = is3P ? getModelStrings().opus48 : getDefaultOpusModel()
+  const name = is3P ? 'Opus 4.8' : firstPartyAliasName(model, 'Opus')
   return {
     value: is3P ? getModelStrings().opus48 : 'opus',
     label: 'Opus',
-    description: `${is3P ? 'Opus 4.8' : 'Opus 5'} · Most capable for complex work${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus48 : getModelStrings().opus5)}`,
-    descriptionForModel: `${is3P ? 'Opus 4.8' : 'Opus 5'} - most capable for complex work`,
+    description: `${name} · Most capable for complex work${getOpus46PricingSuffix(fastMode, model)}`,
+    descriptionForModel: `${name} - most capable for complex work`,
   }
 }
 
@@ -281,23 +289,26 @@ function getOpus46Option(fastMode = false): ModelOption {
 
 export function getSonnet46_1MOption(): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  const model = is3P ? getModelStrings().sonnet46 : getDefaultSonnetModel()
+  const name = is3P ? 'Sonnet 4.6' : firstPartyAliasName(model, 'Sonnet')
   return {
     value: is3P ? getModelStrings().sonnet46 + '[1m]' : 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} for long sessions${getPricingSuffix(is3P ? getModelStrings().sonnet46 : getModelStrings().sonnet5)}`,
-    descriptionForModel: `${is3P ? 'Sonnet 4.6' : 'Sonnet 5'} with 1M context window - for long sessions with large codebases`,
+    description: `${name} for long sessions${getPricingSuffix(model)}`,
+    descriptionForModel: `${name} with 1M context window - for long sessions with large codebases`,
   }
 }
 
 export function getOpus46_1MOption(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
   // 3P pins Opus 4.6; first-party resolves the `opus` alias to the current
-  // default (Opus 5), so the label must follow the provider.
-  const opusName = is3P ? 'Opus 4.6' : 'Opus 5'
+  // default, so the label must follow whatever that alias runs.
+  const model = is3P ? getModelStrings().opus46 : getDefaultOpusModel()
+  const opusName = is3P ? 'Opus 4.6' : firstPartyAliasName(model, 'Opus')
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode, is3P ? getModelStrings().opus46 : getModelStrings().opus5)}`,
+    description: `${opusName} for long sessions${getOpus46PricingSuffix(fastMode, model)}`,
     descriptionForModel: `${opusName} with 1M context window - for long sessions with large codebases`,
   }
 }
@@ -347,39 +358,47 @@ function getHaikuOption(): ModelOption {
 }
 
 function getMaxOpusOption(fastMode = false): ModelOption {
+  const model = getDefaultOpusModel()
+  const name = firstPartyAliasName(model, 'Opus')
   return {
     value: 'opus',
     label: 'Opus',
-    description: `Opus 5 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, getModelStrings().opus5) : ''}`,
+    description: `${name} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, model) : ''}`,
   }
 }
 
 export function getMaxSonnet46_1MOption(): ModelOption {
+  const model = getDefaultSonnetModel()
+  const name = firstPartyAliasName(model, 'Sonnet')
   const billingInfo = isClaudeAISubscriber() ? ' · Billed as extra usage' : ''
   return {
     value: 'sonnet[1m]',
     label: 'Sonnet (1M context)',
-    description: `Sonnet 5 with 1M context${billingInfo}${getPricingSuffix(getModelStrings().sonnet5)}`,
+    description: `${name} with 1M context${billingInfo}${getPricingSuffix(model)}`,
   }
 }
 
 export function getMaxOpus46_1MOption(fastMode = false): ModelOption {
+  const model = getDefaultOpusModel()
+  const name = firstPartyAliasName(model, 'Opus')
   const billingInfo = isClaudeAISubscriber() ? ' · Billed as extra usage' : ''
   return {
     value: 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `Opus 5 with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode, getModelStrings().opus5)}`,
+    description: `${name} with 1M context${billingInfo}${getOpus46PricingSuffix(fastMode, model)}`,
   }
 }
 
 function getMergedOpus1MOption(fastMode = false): ModelOption {
   const is3P = getAPIProvider() !== 'firstParty'
+  const model = is3P ? getModelStrings().opus46 : getDefaultOpusModel()
+  const name = is3P ? 'Opus 4.6' : firstPartyAliasName(model, 'Opus')
   return {
     value: is3P ? getModelStrings().opus46 + '[1m]' : 'opus[1m]',
     label: 'Opus (1M context)',
-    description: `${is3P ? 'Opus 4.6' : 'Opus 5'} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode, getModelStrings().opus5) : ''}`,
+    description: `${name} with 1M context · Most capable for complex work${!is3P && fastMode ? getOpus46PricingSuffix(fastMode, model) : ''}`,
     descriptionForModel:
-      `${is3P ? 'Opus 4.6' : 'Opus 5'} with 1M context - most capable for complex work`,
+      `${name} with 1M context - most capable for complex work`,
   }
 }
 
@@ -387,10 +406,11 @@ function getMergedOpus1MOption(fastMode = false): ModelOption {
 // has to follow whatever getDefaultSonnetModel() resolves that alias to for the
 // active provider — a literal here runs Sonnet 5 under a Sonnet 4.6 label.
 export function getMaxSonnetOption(): ModelOption {
+  const model = getDefaultSonnetModel()
   return {
     value: 'sonnet',
     label: 'Sonnet',
-    description: `${getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'} · Best for everyday tasks`,
+    description: `${firstPartyAliasName(model, 'Sonnet')} · Best for everyday tasks`,
   }
 }
 
@@ -401,10 +421,12 @@ const MaxHaiku45Option: ModelOption = {
 }
 
 function getOpusPlanOption(): ModelOption {
+  const opusName = firstPartyAliasName(getDefaultOpusModel(), 'Opus')
+  const sonnetName = firstPartyAliasName(getDefaultSonnetModel(), 'Sonnet')
   return {
     value: 'opusplan',
     label: 'Opus Plan Mode',
-    description: 'Use Opus 5 in plan mode, Sonnet 5 otherwise',
+    description: `Use ${opusName} in plan mode, ${sonnetName} otherwise`,
   }
 }
 

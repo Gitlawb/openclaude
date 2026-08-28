@@ -23,7 +23,7 @@ import {
 } from '../constants/betas.js'
 import { OAUTH_BETA_HEADER } from '../constants/oauth.js'
 import { isClaudeAISubscriber } from './auth.js'
-import { has1mContext, modelResolvesTo1MContext } from './context.js'
+import { modelResolvesTo1MContext } from './context.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
 import { isClaude5ModelId } from './model/modelIdMatch.js'
@@ -277,10 +277,11 @@ export const getAllModelBetas = memoize((model: string): string[] => {
   if (isClaudeAISubscriber()) {
     betaHeaders.push(OAUTH_BETA_HEADER)
   }
-  // modelResolvesTo1MContext, not the bare capability check: a route that
-  // reports a lower window must not advertise the 1M beta, so the header and
-  // the context budget come from the same decision.
-  if (has1mContext(model) || modelResolvesTo1MContext(model)) {
+  // modelResolvesTo1MContext covers both the unconditional default and an
+  // explicit [1m] suffix: a route that reports a lower window must not
+  // advertise the 1M beta, so the header and the context budget come from
+  // the same decision.
+  if (modelResolvesTo1MContext(model)) {
     betaHeaders.push(CONTEXT_1M_BETA_HEADER)
   }
   if (
