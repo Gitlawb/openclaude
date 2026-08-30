@@ -5526,7 +5526,171 @@ test.each([
   expect(requestBody?.reasoning_effort).toBe(reasoningEffort)
 })
 
-test('streaming direct Z.AI GLM-5.3 tool requests opt into tool_stream', async () => {
+test.each([
+  ['glm-5.3-flash', undefined, undefined],
+  ['glm-5.3-flash?reasoning=low', 'enabled', 'low'],
+  ['glm-5.3-flash?reasoning=high', 'enabled', 'high'],
+  ['glm-5.3-flash?reasoning=xhigh', 'enabled', 'max'],
+  ['glm-5.3-flash?thinking=disabled', 'enabled', 'low'],
+  ['glm-5.3-flash?thinking=disabled&reasoning=high', 'enabled', 'high'],
+] as const)('Z.AI GLM-5.3-Flash serializes the verified request contract for %s', async (
+  model,
+  thinkingType,
+  reasoningEffort,
+) => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.3-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model,
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.3-flash')
+  expect(requestBody?.max_tokens).toBe(64)
+  expect(requestBody?.max_completion_tokens).toBeUndefined()
+  expect(requestBody?.store).toBeUndefined()
+  expect(requestBody?.thinking).toEqual(
+    thinkingType ? { type: thinkingType } : undefined,
+  )
+  expect(requestBody?.reasoning_effort).toBe(reasoningEffort)
+})
+
+test('direct Z.AI GLM-5.3-Flash preserves text and image input on the wire', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-1',
+        model: 'glm-5.3-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.3-flash',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Describe this image.' },
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: 'iVBORw0KGgo=',
+          },
+        },
+      ],
+    }],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  expect(requestBody?.model).toBe('glm-5.3-flash')
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  expect(messages).toHaveLength(1)
+  expect(messages[0]?.role).toBe('user')
+  expect(messages[0]?.content).toEqual([
+    { type: 'text', text: 'Describe this image.' },
+    {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' },
+    },
+  ])
+})
+
+test('direct Z.AI GLM-5.3-Flash replays reasoning content through tool continuation', async () => {
+  process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+
+  let requestBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        id: 'chatcmpl-2',
+        model: 'glm-5.3-flash',
+        choices: [
+          { message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' },
+        ],
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as unknown as FetchType
+
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'glm-5.3-flash',
+    messages: [
+      { role: 'user', content: 'Inspect the workspace.' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'Preserve this complete reasoning content.',
+            signature: 'sig-flash',
+          },
+          {
+            type: 'tool_use',
+            id: 'call_flash_1',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_flash_1', content: '/workspace' },
+        ],
+      },
+    ],
+    max_tokens: 64,
+    stream: false,
+  })
+
+  const messages = requestBody?.messages as Array<Record<string, unknown>>
+  const assistantWithToolCall = messages.find(
+    message => message.role === 'assistant' && Array.isArray(message.tool_calls),
+  )
+  expect(assistantWithToolCall?.reasoning_content).toBe(
+    'Preserve this complete reasoning content.',
+  )
+})
+
+test.each([
+  'glm-5.3-flash',
+  'glm-5.3',
+] as const)('streaming direct Z.AI %s tool requests opt into tool_stream', async model => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   process.env.OPENAI_API_KEY = 'sk-zai-test'
 
@@ -5537,13 +5701,13 @@ test('streaming direct Z.AI GLM-5.3 tool requests opt into tool_stream', async (
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'glm-5.3',
+        model,
         choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: null }],
       },
       {
         id: 'chatcmpl-1',
         object: 'chat.completion.chunk',
-        model: 'glm-5.3',
+        model,
         choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
       },
     ]))
@@ -5551,7 +5715,7 @@ test('streaming direct Z.AI GLM-5.3 tool requests opt into tool_stream', async (
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
   const stream = await client.beta.messages.create({
-    model: 'glm-5.3',
+    model,
     messages: [{ role: 'user', content: 'add two numbers' }],
     max_tokens: 64,
     stream: true,
@@ -5612,7 +5776,9 @@ test.each([
 test.each([
   ['non-streaming Z.AI request with tools', 'https://api.z.ai/api/coding/paas/v4', false, true, 'glm-5.2'],
   ['streaming Z.AI request without tools', 'https://api.z.ai/api/coding/paas/v4', true, false, 'glm-5.2'],
+  ['streaming NVIDIA GLM-5.3-Flash request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3-flash'],
   ['streaming NVIDIA GLM-5.3 request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3'],
+  ['streaming custom GLM-5.3-Flash request with tools', 'https://proxy.example.test/v1', true, true, 'glm-5.3-flash'],
   ['streaming non-Z.AI request with tools', 'https://api.openai.com/v1', true, true, 'gpt-4o'],
 ] as const)('does not send tool_stream for %s', async (_name, baseUrl, stream, includeTools, model) => {
   process.env.OPENAI_BASE_URL = baseUrl

@@ -76,6 +76,26 @@ describe('findModelDescriptorForApiName', () => {
     expect(findModelDescriptorForApiName('grok-code-fast-1-0825')).toBeUndefined()
   })
 
+  test('resolves GLM-5.3-Flash vision metadata only through the direct Z.AI catalog', () => {
+    const descriptor = findModelDescriptorForApiNameWithRoute(
+      'glm-5.3-flash',
+      'zai',
+    )
+    expect(descriptor).toMatchObject({
+      id: 'glm-5.3-flash',
+      runtimeMetadataScope: 'catalog',
+      classification: ['chat', 'reasoning', 'vision', 'coding'],
+      capabilities: { supportsVision: true },
+    })
+    expect(findModelDescriptorForApiName('glm-5.3-flash')).toBeUndefined()
+    expect(
+      findModelDescriptorForApiNameWithRoute('glm-5.3-flash', 'nvidia-nim'),
+    ).toBeUndefined()
+    expect(
+      findModelDescriptorForApiNameWithRoute('glm-5.3-flash', 'openrouter'),
+    ).toBeUndefined()
+  })
+
   test('returns undefined for unknown models so callers fail open', () => {
     expect(findModelDescriptorForApiName('definitely-not-a-real-model-xyz')).toBeUndefined()
   })
@@ -150,6 +170,14 @@ describe('isVisionSupported', () => {
     expect(
       isVisionSupported('glm-5.3', {
         baseUrl: 'https://proxy.example.test/v1',
+      }),
+    ).toBe(true)
+  })
+
+  test('allows GLM-5.3-Flash images on the direct Z.AI catalog route', () => {
+    expect(
+      isVisionSupported('glm-5.3-flash', {
+        baseUrl: 'https://api.z.ai/api/coding/paas/v4',
       }),
     ).toBe(true)
   })
@@ -230,6 +258,16 @@ describe('checkVisionCapabilityForFile (issue #1421)', () => {
         baseUrl: 'https://proxy.example.test/v1',
       }).result,
     ).toBe(true)
+  })
+
+  test('allows GLM-5.3-Flash PNG and JPEG reads on the direct Z.AI route', () => {
+    for (const filePath of ['x.png', 'x.jpeg']) {
+      expect(
+        checkVisionCapabilityForFile(filePath, 'glm-5.3-flash', {
+          baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+        }).result,
+      ).toBe(true)
+    }
   })
 
   test('does not gate text-file reads on non-vision models', () => {

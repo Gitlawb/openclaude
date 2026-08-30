@@ -45,6 +45,22 @@ export default defineVendor({
     source: 'static',
     models: [
       {
+        id: 'glm-5.3-flash',
+        apiName: 'glm-5.3-flash',
+        label: 'GLM-5.3-Flash',
+        modelDescriptorId: 'glm-5.3-flash',
+        reasoning: {
+          mode: 'levels',
+          levels: ['low', 'high', 'xhigh'],
+          wireFormat: 'zai_compatible',
+        },
+        transportOverrides: {
+          openaiShim: {
+            enableToolStreaming: true,
+          },
+        },
+      },
+      {
         id: 'glm-5.3',
         apiName: 'glm-5.3',
         label: 'GLM-5.3',

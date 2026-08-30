@@ -910,6 +910,20 @@ test('Z.AI GLM models use Coding Plan output caps', () => {
   process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
   delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
 
+  for (const model of [
+    'glm-5.3-flash',
+    'glm-5.3-flash?reasoning=low',
+    'glm-5.3-flash?reasoning=high',
+    'glm-5.3-flash?reasoning=xhigh',
+    'glm-5.3-flash?thinking=disabled',
+  ]) {
+    expect(getContextWindowForModel(model)).toBe(1_000_000)
+    expect(getModelMaxOutputTokens(model)).toEqual({
+      default: 131_072,
+      upperLimit: 131_072,
+    })
+  }
+
   expect(getContextWindowForModel('glm-5.3')).toBe(1_000_000)
   expect(getModelMaxOutputTokens('glm-5.3')).toEqual({
     default: 131_072,
@@ -932,6 +946,18 @@ test('Z.AI GLM models use Coding Plan output caps', () => {
   expect(getModelMaxOutputTokens('GLM-4.5-Air')).toEqual({
     default: 65_536,
     upperLimit: 65_536,
+  })
+})
+
+test('GLM-5.3-Flash direct limits do not leak to OpenRouter', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+
+  expect(getContextWindowForModel('glm-5.3-flash')).toBe(128_000)
+  expect(getModelMaxOutputTokens('glm-5.3-flash')).toEqual({
+    default: 32_000,
+    upperLimit: 128_000,
   })
 })
 

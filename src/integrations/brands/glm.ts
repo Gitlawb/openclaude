@@ -13,6 +13,7 @@ export default defineBrand({
     supportsPreciseTokenCount: false,
   },
   modelIds: [
+    'glm-5.3-flash',
     'glm-5.3',
     'glm-5.2',
     'GLM-5.1',
