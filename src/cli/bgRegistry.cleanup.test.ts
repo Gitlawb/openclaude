@@ -808,6 +808,7 @@ describe('background session retention cleanup', () => {
       }),
     )
 
+    // The fixed seed selects the initial index; later calls resume from the module-level offset.
     const scanOptions = {
       _orphanedTerminalFactScanStartForTesting: 0,
     }
@@ -927,6 +928,11 @@ describe('background session retention cleanup', () => {
           return await cleanupBackgroundSessionsBefore(CUTOFF, {
             _beforeReservationRemovalForTesting: async path => {
               if (path !== target) return
+              if (!cleanupLockAcquired) {
+                throw new Error(
+                  'cleanup did not acquire the name lock before reservation removal',
+                )
+              }
               replacementStarted = true
               replacementPromise = createBackgroundSession({
                 id: 'bg-new-generation',
