@@ -88,6 +88,7 @@ async function importFreshEffortModule(options: {
     apiProvider: APIProvider
     capabilities: Partial<Record<MockedThirdPartyCapability, boolean>>
   }
+  isProSubscriber?: boolean
   useRuntimeFallback?: boolean
 }) {
   mock.module('./model/modelSupportOverrides.js', () => ({
@@ -104,7 +105,7 @@ async function importFreshEffortModule(options: {
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
-    isProSubscriber: () => false,
+    isProSubscriber: () => options.isProSubscriber ?? false,
     isMaxSubscriber: () => false,
     isTeamSubscriber: () => false,
   }))
@@ -450,11 +451,13 @@ test.each([
   async (provider, supported) => {
     const {
       getAvailableEffortLevels,
+      getDefaultEffortForModel,
       modelSupportsEffort,
       modelSupportsMaxEffort,
       modelSupportsXHighEffort,
     } = await importFreshEffortModule({
       provider,
+      isProSubscriber: true,
       supportsCodexReasoningEffort: false,
     })
     const context = {
@@ -470,6 +473,9 @@ test.each([
         supported ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
       )
     }
+    expect(getDefaultEffortForModel('claude-opus-5')).toBe(
+      supported ? 'medium' : undefined,
+    )
   },
 )
 
