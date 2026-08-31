@@ -1367,7 +1367,10 @@ function getLegacyDefaultEffortForModel(
 
   // Default effort on the recent Opus models (5/4.8/4.7/4.6) to medium for Pro.
   // Max/Team also get medium when the tengu_grey_step2 config is enabled.
-  if (modelGetsMediumEffortDefault(model)) {
+  if (
+    legacyModelSupportsEffort(model, context) &&
+    modelGetsMediumEffortDefault(model)
+  ) {
     if (isProSubscriber()) {
       return 'medium'
     }

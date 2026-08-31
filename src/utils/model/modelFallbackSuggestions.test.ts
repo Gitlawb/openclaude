@@ -43,6 +43,8 @@ test.each(FALLBACK_PATHS)(
     expect(getFallback('claude_sonnet_5')).toBe(models.sonnet46)
     expect(getFallback('claude-opus-50')).toBeUndefined()
     expect(getFallback('claude-sonnet-50')).toBeUndefined()
+    expect(getFallback('claude_opus_50')).toBeUndefined()
+    expect(getFallback('claude_sonnet_5x')).toBeUndefined()
   },
 )
 

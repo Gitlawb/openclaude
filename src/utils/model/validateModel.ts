@@ -10,7 +10,10 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
-import { isOpus5ModelId, isSonnet5ModelId } from './modelIdMatch.js'
+import {
+  isOpus5FallbackModelId,
+  isSonnet5FallbackModelId,
+} from './modelIdMatch.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import {
   getCachedNvidiaNimModelOptions,
@@ -223,10 +226,10 @@ export function get3PFallbackSuggestion(model: string): string | undefined {
     return undefined
   }
   const lowerModel = model.toLowerCase()
-  if (isOpus5ModelId(lowerModel) || lowerModel.includes('opus_5')) {
+  if (isOpus5FallbackModelId(lowerModel)) {
     return getModelStrings().opus48
   }
-  if (isSonnet5ModelId(lowerModel) || lowerModel.includes('sonnet_5')) {
+  if (isSonnet5FallbackModelId(lowerModel)) {
     return getModelStrings().sonnet46
   }
   if (lowerModel.includes('opus-4-8') || lowerModel.includes('opus_4_8')) {
