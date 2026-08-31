@@ -39,8 +39,8 @@ export function matchesModelIdAtBoundary(name: string, id: string): boolean {
 // Hyphenated spelling only. No provider emits an underscore model id, so
 // accepting `claude_opus_5` here would hand it Claude 5 capabilities while
 // firstPartyNameToCanonical() still saw an unknown model and priced it as one.
-// The two 3P fallback-suggestion helpers do their own loose underscore check,
-// the same way they already do for the 4.x ids.
+// The two 3P fallback-suggestion helpers accept legacy underscore aliases
+// through the dedicated boundary-aware helpers below.
 function matchesModelFragment(name: string, fragment: string): boolean {
   return matchesModelIdAtBoundary(name.toLowerCase(), fragment)
 }
@@ -59,6 +59,24 @@ export function isOpus5ModelId(name: string): boolean {
 /** Claude Sonnet 5 — see {@link isOpus5ModelId}. */
 export function isSonnet5ModelId(name: string): boolean {
   return matchesModelFragment(name, 'claude-sonnet-5')
+}
+
+/** Claude Opus 5 or its legacy underscore alias, for 3P fallback only. */
+export function isOpus5FallbackModelId(name: string): boolean {
+  const normalized = name.toLowerCase()
+  return (
+    isOpus5ModelId(normalized) ||
+    matchesModelIdAtBoundary(normalized, 'opus_5')
+  )
+}
+
+/** Claude Sonnet 5 or its legacy underscore alias, for 3P fallback only. */
+export function isSonnet5FallbackModelId(name: string): boolean {
+  const normalized = name.toLowerCase()
+  return (
+    isSonnet5ModelId(normalized) ||
+    matchesModelIdAtBoundary(normalized, 'sonnet_5')
+  )
 }
 
 /** Either Claude 5 model. */
