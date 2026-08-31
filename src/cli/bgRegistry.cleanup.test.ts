@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
   lstat,
@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as nameReservationLock from '../utils/lockfile.js'
 import {
   _setBackgroundSessionsRootForTesting,
   cleanupBackgroundSessionsBefore,
@@ -873,33 +874,124 @@ describe('background session retention cleanup', () => {
     expect(await exists(paths(session.id).metadata)).toBe(false)
   })
 
-  it('does not remove a reservation generation replaced before unlink', async () => {
-    const session = await createRunning('bg-reservation-generation', {
-      name: 'reservation-generation',
-    })
-    await finishNaturally(session, { exitCode: 0 })
-    await writeReservation(session.name!, session.id)
-    const target = reservationPath(session.name!)
-    let replaced = false
+  it(
+    'serializes cleanup with a replacement using the supported name writer',
+    async () => {
+      const session = await createRunning('bg-reservation-generation', {
+        name: 'reservation-generation',
+      })
+      await finishNaturally(session, { exitCode: 0 })
+      await writeReservation(session.name!, session.id)
+      const target = reservationPath(session.name!)
+      let replacementPromise: Promise<BackgroundSession> | undefined
+      let replacementStarted = false
+      let cleanupLockAcquired = false
+      let cleanupLockReleased = false
+      let replacementLockAttempted = false
+      let targetLockCalls = 0
+      let signalCleanupLockRelease!: () => void
+      const cleanupLockRelease = new Promise<void>(resolve => {
+        signalCleanupLockRelease = resolve
+      })
+      let signalReplacementLockAttempt!: () => void
+      const replacementLockAttempt = new Promise<void>(resolve => {
+        signalReplacementLockAttempt = resolve
+      })
+      const originalLock = nameReservationLock.lock
+      const lockSpy = spyOn(nameReservationLock, 'lock').mockImplementation(
+        async (path, options) => {
+          if (path !== target) return await originalLock(path, options)
+          targetLockCalls++
+          if (!replacementStarted) {
+            cleanupLockAcquired = true
+            const release = await originalLock(path, options)
+            return async () => {
+              try {
+                await release()
+              } finally {
+                cleanupLockReleased = true
+                signalCleanupLockRelease()
+              }
+            }
+          }
 
-    const result = await cleanupBackgroundSessionsBefore(CUTOFF, {
-      _beforeReservationRemovalForTesting: async path => {
-        if (path === target) {
-          replaced = true
-          await unlink(target)
-          await writeReservation(session.name!, 'bg-new-generation')
+          replacementLockAttempted = true
+          signalReplacementLockAttempt()
+          await cleanupLockRelease
+          return await originalLock(path, options)
+        },
+      )
+
+      const result = await (async () => {
+        try {
+          return await cleanupBackgroundSessionsBefore(CUTOFF, {
+            _beforeReservationRemovalForTesting: async path => {
+              if (path !== target) return
+              replacementStarted = true
+              replacementPromise = createBackgroundSession({
+                id: 'bg-new-generation',
+                name: session.name,
+                pid: nextPid++,
+                cwd: configDir,
+                command: ['openclaude', '--print', 'replacement'],
+                sessionId: 'replacement-conversation',
+              })
+              let timeout: ReturnType<typeof setTimeout> | undefined
+              try {
+                await Promise.race([
+                  replacementLockAttempt,
+                  new Promise<void>((_, reject) => {
+                    timeout = setTimeout(
+                      () =>
+                        reject(
+                          new Error('replacement lock barrier timed out'),
+                        ),
+                      5_000,
+                    )
+                    timeout.unref?.()
+                  }),
+                ])
+              } finally {
+                if (timeout !== undefined) clearTimeout(timeout)
+              }
+            },
+          })
+        } finally {
+          lockSpy.mockRestore()
         }
-      },
-    })
+      })()
 
-    expect(result.errors).toBe(1)
-    expect(replaced).toBe(true)
-    expect(result.sessionsRemoved).toBe(0)
-    expect(
-      JSON.parse(await readFile(target, 'utf8')),
-    ).toMatchObject({ id: 'bg-new-generation' })
-    expect(await exists(paths(session.id).metadata)).toBe(true)
-  })
+      expect({
+        cleanupLockAcquired,
+        cleanupLockReleased,
+        replacementLockAttempted,
+        replacementStarted,
+        targetLockCalls,
+      }).toEqual({
+        cleanupLockAcquired: true,
+        cleanupLockReleased: true,
+        replacementLockAttempted: true,
+        replacementStarted: true,
+        targetLockCalls: 2,
+      })
+      expect(result).toEqual({
+        sessionsRemoved: 1,
+        artifactsRemoved: 5,
+        errors: 0,
+      })
+      expect(replacementPromise).toBeDefined()
+      if (!replacementPromise) {
+        throw new Error('replacement writer did not run')
+      }
+      const replacement = await replacementPromise
+      expect(
+        JSON.parse(await readFile(target, 'utf8')),
+      ).toMatchObject({ id: replacement.id })
+      expect(await exists(paths(session.id).metadata)).toBe(false)
+      expect(await exists(paths(replacement.id).metadata)).toBe(true)
+    },
+    10_000,
+  )
 
   it('allows a replacement to claim the name after cleanup', async () => {
     const session = await createRunning('bg-reservation-final-window', {
