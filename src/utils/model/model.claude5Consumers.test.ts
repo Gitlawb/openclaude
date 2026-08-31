@@ -7,6 +7,7 @@ import {
 import { buildCurrentProviderSummary } from '../../commands/provider/provider.js'
 import { detectProvider } from '../../components/StartupScreen.js'
 import { MODEL_COSTS } from '../modelCost.js'
+import { STARTUP_PROVIDER_OVERRIDE_ENV_KEYS } from '../providerStartupOverrides.js'
 import {
   firstPartyNameToCanonical,
   getDefaultOpusModel,
@@ -28,13 +29,10 @@ import { isClaude5ModelId } from './modelIdMatch.js'
 // so disagreed with the resolver after the default moved.
 
 const ENV_KEYS = [
-  'ANTHROPIC_MODEL',
+  ...STARTUP_PROVIDER_OVERRIDE_ENV_KEYS,
   'CLAUDE_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
 ] as const
 
 function clearEnv(): void {
