@@ -440,6 +440,39 @@ test('Claude 5 gets max and xhigh on a first-party Anthropic transport', async (
   }
 })
 
+test.each([
+  ['bedrock', true],
+  ['vertex', false],
+  ['foundry', true],
+  ['github', true],
+] as const)(
+  'Claude 5 effort support follows the %s transport contract',
+  async (provider, supported) => {
+    const {
+      getAvailableEffortLevels,
+      modelSupportsEffort,
+      modelSupportsMaxEffort,
+      modelSupportsXHighEffort,
+    } = await importFreshEffortModule({
+      provider,
+      supportsCodexReasoningEffort: false,
+    })
+    const context = {
+      apiProvider: provider,
+      supportsCodexReasoningEffort: false,
+    }
+
+    for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+      expect(modelSupportsEffort(model, context)).toBe(supported)
+      expect(modelSupportsMaxEffort(model, context)).toBe(supported)
+      expect(modelSupportsXHighEffort(model, context)).toBe(supported)
+      expect(getAvailableEffortLevels(model, context)).toEqual(
+        supported ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
+      )
+    }
+  },
+)
+
 test('a third-party route serving a Claude 5 name is not offered max or xhigh', async () => {
   const { modelSupportsMaxEffort, modelSupportsXHighEffort } =
     await importFreshEffortModule({

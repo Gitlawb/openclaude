@@ -517,10 +517,11 @@ function legacyModelSupportsEffort(
   context?: ReasoningControlContext,
 ): boolean {
   const m = model.toLowerCase()
+  const apiProvider = getReasoningApiProvider(context)
   const supported3P = get3PModelCapabilityOverride(
     model,
     'effort',
-    getReasoningApiProvider(context),
+    apiProvider,
   )
   if (supported3P !== undefined) {
     return supported3P
@@ -532,18 +533,21 @@ function legacyModelSupportsEffort(
     return true
   }
   const nativeTransport = resolveNativeLegacyEffortTransport(model, context)
-  // Claude 4 models that support effort. Mirrors the Anthropic /messages
+  const supportsClaude5Effort =
+    apiProvider !== 'vertex' && isClaude5ModelId(m)
+  // Claude models that support effort. Mirrors the Anthropic /messages
   // shim's isAdaptive || isOpus45 set (openaiShim.ts:2292-2297) — only
   // these models serialize low/medium as anthropicBody.effort. Older
   // variants (opus-4-1, sonnet-4-5, haiku) only emit thinking for
   // high/max, so advertising effort for them would silently drop
   // low/medium on the wire. The substring match also covers prefix
-  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
+  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`). Vertex
+  // does not expose the Claude 5 effort controls.
   if (
     nativeTransport === 'anthropic' &&
     (m.includes('opus-4-5') || m.includes('opus-4-6') ||
       m.includes('opus-4-7') || m.includes('opus-4-8') ||
-      m.includes('sonnet-4-6') || isClaude5ModelId(m))
+      m.includes('sonnet-4-6') || supportsClaude5Effort)
   ) {
     return true
   }
@@ -576,7 +580,7 @@ function legacyModelSupportsEffort(
   // Default to true for unknown model strings on 1P.
   // Do not default to true for 3P as they have different formats for their
   // model strings (ex. anthropics/claude-code#30795)
-  return getReasoningApiProvider(context) === 'firstParty'
+  return apiProvider === 'firstParty'
 }
 
 function resolveLegacyReasoningControl(

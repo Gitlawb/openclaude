@@ -218,7 +218,7 @@ function handleValidationError(
 /**
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */
-function get3PFallbackSuggestion(model: string): string | undefined {
+export function get3PFallbackSuggestion(model: string): string | undefined {
   if (isFirstPartyAnthropicProvider()) {
     return undefined
   }

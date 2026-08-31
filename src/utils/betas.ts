@@ -251,6 +251,7 @@ function getBetaCacheKey(model: string): string {
   return [
     model.toLowerCase(),
     getAPIProvider(),
+    modelResolvesTo1MContext(model) ? '1m' : 'standard',
     process.env.ANTHROPIC_BASE_URL ?? '',
     process.env.USER_TYPE ?? '',
     process.env.CLAUDE_CODE_USE_GITHUB ?? '',

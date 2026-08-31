@@ -16,6 +16,7 @@ import { CONTEXT_1M_BETA_HEADER } from '../constants/betas.js'
 // route must not advertise the beta either.
 
 const ROUTE_ENV_KEYS = [
+  'CLAUDE_CODE_USE_OPENAI',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -87,6 +88,23 @@ test('a route that reports no window keeps the unconditional 1M default', async 
   expect(getContextWindowForModel('claude-opus-5')).toBe(1_000_000)
   expect(modelResolvesTo1MContext('claude-opus-5')).toBe(true)
   expect(getAllModelBetas('claude-opus-5')).toContain(CONTEXT_1M_BETA_HEADER)
+})
+
+test('switching to a capped route refreshes the cached 1M beta decision', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  const { getAllModelBetas } = await importFresh()
+
+  expect(getAllModelBetas('claude-sonnet-5')).toContain(CONTEXT_1M_BETA_HEADER)
+
+  process.env.CONCENTRATE_API_KEY = 'concentrate-key'
+  process.env.CONCENTRATE_MODEL = 'claude-sonnet-5'
+  process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+    'claude-sonnet-5': 200_000,
+  })
+
+  expect(getAllModelBetas('claude-sonnet-5')).not.toContain(
+    CONTEXT_1M_BETA_HEADER,
+  )
 })
 
 // CLAUDE_CODE_MAX_CONTEXT_TOKENS caps local budgeting while still talking to a

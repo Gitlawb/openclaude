@@ -1366,7 +1366,7 @@ export function getAssistantMessageFromError(
  * For 3P users, suggest a fallback model when the selected model is unavailable.
  * Returns a model name suggestion, or undefined if no suggestion is applicable.
  */
-function get3PModelFallbackSuggestion(model: string): string | undefined {
+export function get3PModelFallbackSuggestion(model: string): string | undefined {
   if (isFirstPartyAnthropicProvider()) {
     return undefined
   }
