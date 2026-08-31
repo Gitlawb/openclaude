@@ -263,6 +263,10 @@ export function resolveProfileCapabilityRouteId(
     return routeIdFromBaseUrl
   }
 
+  if (providerRouteId === 'zai' && baseUrl) {
+    return 'custom'
+  }
+
   // Dedicated-route profiles retargeted away from their documented endpoints
   // run generically at runtime. Mirror that boundary here so capability-driven
   // surfaces are not stripped based on stale route ids.

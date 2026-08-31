@@ -81,6 +81,17 @@ export function normalizeComparableBaseUrl(
   }
 }
 
+const ZAI_CODING_PLAN_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+
+export function isCanonicalZaiCodingPlanBaseUrl(
+  value: string | undefined,
+): boolean {
+  return (
+    normalizeComparableBaseUrl(value) ===
+    normalizeComparableBaseUrl(ZAI_CODING_PLAN_BASE_URL)
+  )
+}
+
 function normalizeHost(
   baseUrl?: string,
 ): string | null {
@@ -1331,6 +1342,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'llmtr') {
     return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+  }
+  if (routeId === 'zai') {
+    return !baseUrl || isCanonicalZaiCodingPlanBaseUrl(baseUrl)
   }
   return true
 }

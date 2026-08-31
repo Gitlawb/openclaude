@@ -5779,6 +5779,7 @@ test.each([
   ['streaming NVIDIA GLM-5.3-Flash request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3-flash'],
   ['streaming NVIDIA GLM-5.3 request with tools', 'https://integrate.api.nvidia.com/v1', true, true, 'glm-5.3'],
   ['streaming custom GLM-5.3-Flash request with tools', 'https://proxy.example.test/v1', true, true, 'glm-5.3-flash'],
+  ['streaming same-host general Z.AI GLM-5.3-Flash request with tools', 'https://api.z.ai/api/paas/v4', true, true, 'glm-5.3-flash'],
   ['streaming non-Z.AI request with tools', 'https://api.openai.com/v1', true, true, 'gpt-4o'],
 ] as const)('does not send tool_stream for %s', async (_name, baseUrl, stream, includeTools, model) => {
   process.env.OPENAI_BASE_URL = baseUrl

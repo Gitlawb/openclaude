@@ -233,6 +233,23 @@ describe('resolveModelRuntimeLimits', () => {
     expect(limits.maxOutputTokens).toBe(131_072)
   })
 
+  it('does not apply Coding Plan Flash limits on the same-host general Z.AI endpoint', () => {
+    const processEnv = {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.z.ai/api/paas/v4',
+    }
+
+    expect(resolveActiveRouteIdFromEnv(processEnv)).toBe('custom')
+    expect(resolveModelRuntimeLimits({
+      model: 'glm-5.3-flash',
+      activeProfileProvider: 'zai',
+      processEnv,
+    })).toEqual({
+      contextWindow: undefined,
+      maxOutputTokens: undefined,
+    })
+  })
+
   it.each([
     'glm-5.3',
     'glm-5.3?reasoning=low',
@@ -539,6 +556,19 @@ describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.3-Flash', () => {
     expect(result.openaiShimConfig.maxTokensField).toBe('max_tokens')
     expect(result.openaiShimConfig.removeBodyFields).toContain('store')
     expect(result.openaiShimConfig.enableToolStreaming).toBe(true)
+  })
+
+  it('does not apply the Coding Plan catalog entry on the same-host general endpoint', () => {
+    const result = resolveOpenAIShimRuntimeContext({
+      model: 'glm-5.3-flash',
+      baseUrl: 'https://api.z.ai/api/paas/v4',
+      activeProfileProvider: 'zai',
+      processEnv: { CLAUDE_CODE_USE_OPENAI: '1' },
+    })
+
+    expect(result.routeId).toBe('custom')
+    expect(result.catalogEntry).toBeNull()
+    expect(result.openaiShimConfig.enableToolStreaming).toBe(false)
   })
 })
 

@@ -35,7 +35,6 @@ export default defineVendor({
     kind: 'credential-env',
     routing: {
       matchDefaultBaseUrl: true,
-      matchBaseUrlHosts: ['api.z.ai'],
     },
     credentialEnvVars: ['OPENAI_API_KEY'],
     missingCredentialMessage:

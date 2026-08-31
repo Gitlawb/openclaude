@@ -345,6 +345,39 @@ test('Venice route metadata uses official OpenAI-compatible defaults', () => {
   expect(resolveRouteIdFromBaseUrl('https://api.venice.ai/api/v1/chat/completions')).toBe('venice')
 })
 
+test('Z.AI route metadata is limited to the canonical Coding Plan endpoint', () => {
+  expect(
+    resolveRouteIdFromBaseUrl('https://api.z.ai/api/coding/paas/v4'),
+  ).toBe('zai')
+  expect(
+    resolveRouteIdFromBaseUrl('https://api.z.ai/api/paas/v4'),
+  ).toBeNull()
+})
+
+test('active Z.AI profiles honor the Coding Plan endpoint boundary', () => {
+  const codingPlanUrl = 'https://api.z.ai/api/coding/paas/v4'
+  const generalUrl = 'https://api.z.ai/api/paas/v4'
+
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: codingPlanUrl },
+      { activeProfileProvider: 'zai', activeProfileBaseUrl: codingPlanUrl },
+    ),
+  ).toBe('zai')
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: generalUrl },
+      { activeProfileProvider: 'zai', activeProfileBaseUrl: generalUrl },
+    ),
+  ).toBe('custom')
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1' },
+      { activeProfileProvider: 'zai' },
+    ),
+  ).toBe('zai')
+})
+
 test('AI/ML API route metadata uses official OpenAI-compatible defaults', () => {
   expect(getRouteDefaultBaseUrl('aimlapi')).toBe('https://api.aimlapi.com/v1')
   expect(getRouteDefaultModel('aimlapi')).toBe('gpt-4o')

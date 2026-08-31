@@ -3124,7 +3124,8 @@ describe('getProviderPresetDefaults', () => {
   })
 
   test('zai preset defaults to Z.AI GLM Coding Plan endpoint', async () => {
-    const { getProviderPresetDefaults } = await importFreshProviderProfileModules()
+    const { getProviderPresetDefaults, resolveProfileCapabilityRouteId } =
+      await importFreshProviderProfileModules()
 
     const defaults = getProviderPresetDefaults('zai')
 
@@ -3133,6 +3134,15 @@ describe('getProviderPresetDefaults', () => {
     expect(defaults.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4')
     expect(defaults.model).toBe('glm-5.2')
     expect(defaults.requiresApiKey).toBe(true)
+    expect(
+      resolveProfileCapabilityRouteId('zai', defaults.baseUrl),
+    ).toBe('zai')
+    expect(
+      resolveProfileCapabilityRouteId(
+        'zai',
+        'https://api.z.ai/api/paas/v4',
+      ),
+    ).toBe('custom')
   })
 
   test('fireworks preset defaults to the official Fireworks AI endpoint', async () => {
