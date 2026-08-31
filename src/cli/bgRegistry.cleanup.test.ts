@@ -20,6 +20,7 @@ import {
   createBackgroundSession,
   markBackgroundSessionKilled,
   recordBackgroundSessionNaturalTermination,
+  reconcileBackgroundSessionTerminalFacts,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
   type BackgroundSession,
@@ -483,6 +484,97 @@ describe('background session retention cleanup', () => {
     expect(await exists(join(externalSessions, `${id}.json`))).toBe(true)
     expect(await exists(idPaths.stdout)).toBe(true)
     expect(await exists(idPaths.stderr)).toBe(true)
+  })
+
+  it('does not reconcile through symlinked metadata outside the registry root', async () => {
+    const id = 'bg-symlink-reconciliation'
+    const idPaths = paths(id)
+    const externalMetadata = join(configDir, 'external-reconciliation.json')
+    await mkdir(join(root, 'sessions'), { recursive: true })
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    const stored = {
+      id,
+      pid: 124,
+      cwd: configDir,
+      status: 'stale',
+      sessionId: 'external-reconciliation-conversation',
+      processMarker: OLD_PROCESS_MARKER,
+      terminalFactGeneration: OLD_PROCESS_MARKER,
+      startedAt: '2026-05-31T23:59:00.000Z',
+      updatedAt: OLD_FINISH.toISOString(),
+      command: ['openclaude'],
+      stdoutLogPath: idPaths.stdout,
+      stderrLogPath: idPaths.stderr,
+    }
+    await writeFile(externalMetadata, JSON.stringify(stored))
+    await symlink(externalMetadata, idPaths.metadata)
+    await writeFile(
+      markedTerminalFactPath(id, 'natural', OLD_PROCESS_MARKER),
+      JSON.stringify({
+        version: 1,
+        id,
+        pid: stored.pid,
+        generation: OLD_PROCESS_MARKER,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    expect(await reconcileBackgroundSessionTerminalFacts()).toEqual({
+      sessionsUpdated: 0,
+      errors: 0,
+    })
+    expect(JSON.parse(await readFile(externalMetadata, 'utf8'))).toEqual(
+      stored,
+    )
+    expect((await lstat(idPaths.metadata)).isSymbolicLink()).toBe(true)
+  })
+
+  it('does not reconcile through a symlinked metadata directory', async () => {
+    const id = 'bg-symlink-reconciliation-dir'
+    const externalSessions = join(configDir, 'external-reconciliation-sessions')
+    const externalMetadata = join(externalSessions, `${id}.json`)
+    await mkdir(externalSessions, { recursive: true })
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    const stored = {
+      id,
+      pid: 125,
+      cwd: configDir,
+      status: 'stale',
+      sessionId: 'external-reconciliation-dir-conversation',
+      processMarker: OLD_PROCESS_MARKER,
+      terminalFactGeneration: OLD_PROCESS_MARKER,
+      startedAt: '2026-05-31T23:59:00.000Z',
+      updatedAt: OLD_FINISH.toISOString(),
+      command: ['openclaude'],
+      stdoutLogPath: paths(id).stdout,
+      stderrLogPath: paths(id).stderr,
+    }
+    await writeFile(externalMetadata, JSON.stringify(stored))
+    await symlink(externalSessions, join(root, 'sessions'), 'dir')
+    await writeFile(
+      markedTerminalFactPath(id, 'natural', OLD_PROCESS_MARKER),
+      JSON.stringify({
+        version: 1,
+        id,
+        pid: stored.pid,
+        generation: OLD_PROCESS_MARKER,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    expect(await reconcileBackgroundSessionTerminalFacts()).toEqual({
+      sessionsUpdated: 0,
+      errors: 1,
+    })
+    expect(JSON.parse(await readFile(externalMetadata, 'utf8'))).toEqual(
+      stored,
+    )
   })
 
   it('does not follow symlinked artifact directories outside the registry root', async () => {

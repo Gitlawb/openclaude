@@ -182,12 +182,14 @@ describe('background session finalizer', () => {
     let exitListener: ((code: number) => void) | undefined
     const finalized: number[] = []
     const finalizedSync: number[] = []
+    const registeredSession = ownedSession('bg-owned', 500)
+    let finalizationOwner: BackgroundSession | undefined
 
     const preparation = await prepareBackgroundSessionFinalizer({
       env,
       pid: 500,
       readSession: async () =>
-        ++reads < 3 ? null : ownedSession('bg-owned', 500),
+        ++reads < 3 ? null : registeredSession,
       isLauncherAlive: () => true,
       sleep: async () => {},
       registrationWaitMs: 10,
@@ -202,8 +204,9 @@ describe('background session finalizer', () => {
       onExit: listener => {
         exitListener = listener
       },
-      finalize: async (_id, termination) => {
+      finalize: async (_id, termination, options) => {
         finalized.push(termination.exitCode ?? -1)
+        finalizationOwner = options?.expectedSession
         return ownedSession('bg-owned', 500)
       },
       finalizeSync: (_id, termination) => {
@@ -225,6 +228,46 @@ describe('background session finalizer', () => {
     }
     expect(finalized).toEqual([7])
     expect(finalizedSync).toEqual([])
+    expect(finalizationOwner).toEqual(registeredSession)
+  })
+
+  it('passes the registered generation to the synchronous exit fallback', async () => {
+    let cleanup: (() => void | Promise<void>) | undefined
+    let exitListener: ((code: number) => void) | undefined
+    const registeredSession: BackgroundSession = {
+      ...ownedSession('bg-sync-generation', 500),
+      processMarker: 'a'.repeat(64),
+      terminalFactGeneration: 'a'.repeat(64),
+    }
+    let syncOwner: BackgroundSession | undefined
+
+    await prepareBackgroundSessionFinalizer({
+      env: {
+        [BACKGROUND_SESSION_ID_ENV]: registeredSession.id,
+        [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: '123',
+      },
+      pid: registeredSession.pid,
+      readSession: async () => registeredSession,
+      isLauncherAlive: () => true,
+      registerCleanup: fn => {
+        cleanup = fn
+        return () => {}
+      },
+      onBeforeExit: () => {},
+      onExit: listener => {
+        exitListener = listener
+      },
+      finalize: async () => {
+        throw Object.assign(new Error('contended'), { code: 'ELOCKED' })
+      },
+      finalizeSync: (_id, _termination, options) => {
+        syncOwner = options?.expectedSession
+      },
+    })
+
+    await cleanup?.()
+    exitListener?.(23)
+    expect(syncOwner).toEqual(registeredSession)
   })
 
   it('keeps the original exit code when both persistence paths fail', async () => {

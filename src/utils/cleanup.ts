@@ -1,7 +1,10 @@
 import * as fs from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
-import { cleanupBackgroundSessionsBefore } from '../cli/bgRegistry.js'
+import {
+  cleanupBackgroundSessionsBefore,
+  reconcileBackgroundSessionTerminalFacts,
+} from '../cli/bgRegistry.js'
 import { logEvent } from '../services/analytics/index.js'
 import { CACHE_PATHS } from './cachePaths.js'
 import { logForDebugging } from './debug.js'
@@ -589,8 +592,7 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
   // If settings have validation errors but the user explicitly set cleanupPeriodDays,
   // skip cleanup entirely rather than falling back to the default (30 days).
   // This prevents accidentally deleting files when the user intended a different retention period.
-  const { errors } = getSettingsWithAllErrors()
-  if (errors.length > 0 && rawSettingsContainsKey('cleanupPeriodDays')) {
+  if (cleanupPeriodSettingIsInvalid()) {
     logForDebugging(
       'Skipping cleanup: settings have validation errors but cleanupPeriodDays was explicitly set. Fix settings errors to enable cleanup.',
     )
@@ -623,5 +625,34 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
   }
   if (process.env.USER_TYPE === 'ant') {
     await cleanupNpmCacheForAnthropicPackages()
+  }
+}
+
+function cleanupPeriodSettingIsInvalid(): boolean {
+  const { errors } = getSettingsWithAllErrors()
+  return errors.length > 0 && rawSettingsContainsKey('cleanupPeriodDays')
+}
+
+export async function cleanupBackgroundSessionsInBackground(): Promise<void> {
+  if (cleanupPeriodSettingIsInvalid()) {
+    return
+  }
+  const reconciliation = await reconcileBackgroundSessionTerminalFacts()
+  if (reconciliation.errors > 0) {
+    logForDebugging(
+      `Background session reconciliation: ${reconciliation.sessionsUpdated} sessions, ${reconciliation.errors} errors`,
+    )
+  }
+  const backgroundResult = await cleanupBackgroundSessionsBefore(
+    getCutoffDate(),
+  )
+  if (
+    backgroundResult.sessionsRemoved > 0 ||
+    backgroundResult.artifactsRemoved > 0 ||
+    backgroundResult.errors > 0
+  ) {
+    logForDebugging(
+      `Background session cleanup: ${backgroundResult.sessionsRemoved} sessions, ${backgroundResult.artifactsRemoved} artifacts, ${backgroundResult.errors} errors`,
+    )
   }
 }

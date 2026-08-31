@@ -20,7 +20,10 @@ afterEach(async () => {
   )
 })
 
-async function runCleanupFixture(configDir: string): Promise<void> {
+async function runCleanupFixture(
+  configDir: string,
+  mode: 'once' | 'post-completion' = 'once',
+): Promise<Record<string, unknown>> {
   const fixture = join(import.meta.dir, 'cleanupBackgroundSessions.fixture.ts')
   const { USER_TYPE: _userType, ...inheritedEnv } = process.env
   const controller = new AbortController()
@@ -32,6 +35,7 @@ async function runCleanupFixture(configDir: string): Promise<void> {
       HOME: configDir,
       XDG_CACHE_HOME: join(configDir, 'cache'),
       OPENCLAUDE_CONFIG_DIR: configDir,
+      OPENCLAUDE_CLEANUP_FIXTURE_MODE: mode,
       NODE_ENV: 'test',
     },
     signal: controller.signal,
@@ -46,7 +50,9 @@ async function runCleanupFixture(configDir: string): Promise<void> {
       new Response(child.stderr).text(),
     ])
     expect(exitCode, stderr).toBe(0)
-    expect(JSON.parse(stdout)).toEqual({ completed: true })
+    const result = JSON.parse(stdout) as Record<string, unknown>
+    if (mode === 'once') expect(result).toEqual({ completed: true })
+    return result
   } finally {
     clearTimeout(timeout)
   }
@@ -163,6 +169,34 @@ describe('cleanupOldMessageFilesInBackground', () => {
   )
 
   test(
+    'reclaims a zero-day session that completes after the initial sweep',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-post-completion-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(configDir, 'post-completion'),
+      ).toEqual({
+        presentAfterInitialSweep: true,
+        metadataPresentAfterCompletion: false,
+        metadataStatusAfterCompletion: null,
+        reservationPresentAfterCompletion: false,
+        stdoutPresentAfterCompletion: false,
+        stderrPresentAfterCompletion: false,
+      })
+    },
+    30_000,
+  )
+
+  test(
     'preserves background artifacts when explicit cleanupPeriodDays is invalid',
     async () => {
       const configDir = join(
@@ -184,6 +218,34 @@ describe('cleanupOldMessageFilesInBackground', () => {
       await runCleanupFixture(configDir)
 
       expect(await Bun.file(metadataPath).exists()).toBe(true)
+    },
+    30_000,
+  )
+
+  test(
+    'keeps post-completion artifacts when recurring retention is disabled by invalid settings',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-invalid-post-completion-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 'invalid' }),
+      )
+
+      expect(
+        await runCleanupFixture(configDir, 'post-completion'),
+      ).toEqual({
+        presentAfterInitialSweep: true,
+        metadataPresentAfterCompletion: true,
+        metadataStatusAfterCompletion: 'running',
+        reservationPresentAfterCompletion: true,
+        stdoutPresentAfterCompletion: true,
+        stderrPresentAfterCompletion: true,
+      })
     },
     30_000,
   )

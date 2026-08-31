@@ -120,25 +120,25 @@ async function waitForOwnedSession(
       | 'registrationPollMs'
     >
   >,
-): Promise<'owned' | 'mismatch' | 'timeout'> {
+): Promise<BackgroundSession | 'mismatch' | 'timeout'> {
   const attempts = Math.max(
     1,
     Math.ceil(options.registrationWaitMs / options.registrationPollMs),
   )
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const session = await options.readSession(id)
-    if (session) return session.pid === ownerPid ? 'owned' : 'mismatch'
+    if (session) return session.pid === ownerPid ? session : 'mismatch'
     if (!options.isLauncherAlive(launcherPid)) {
       const finalSession = await options.readSession(id)
       if (finalSession) {
-        return finalSession.pid === ownerPid ? 'owned' : 'mismatch'
+        return finalSession.pid === ownerPid ? finalSession : 'mismatch'
       }
       return 'timeout'
     }
     await options.sleep(options.registrationPollMs)
   }
   const session = await options.readSession(id)
-  if (session) return session.pid === ownerPid ? 'owned' : 'mismatch'
+  if (session) return session.pid === ownerPid ? session : 'mismatch'
   return 'timeout'
 }
 
@@ -159,7 +159,7 @@ export async function prepareBackgroundSessionFinalizer(
   }
 
   const ownerPid = options.pid ?? process.pid
-  const ownership = await waitForOwnedSession(id, ownerPid, launcherPid, {
+  const ownedSession = await waitForOwnedSession(id, ownerPid, launcherPid, {
     readSession: options.readSession ?? readBackgroundSessionForOwner,
     isLauncherAlive: options.isLauncherAlive ?? isBackgroundLauncherAlive,
     sleep:
@@ -170,11 +170,11 @@ export async function prepareBackgroundSessionFinalizer(
     registrationPollMs:
       options.registrationPollMs ?? DEFAULT_REGISTRATION_POLL_MS,
   })
-  if (ownership === 'mismatch') {
+  if (ownedSession === 'mismatch') {
     scrubRoutingEnvironment(env)
     return 'invalid-routing'
   }
-  if (ownership === 'timeout') {
+  if (ownedSession === 'timeout') {
     scrubRoutingEnvironment(env)
     throw new Error('Background session registration was not established')
   }
@@ -199,7 +199,10 @@ export async function prepareBackgroundSessionFinalizer(
   const finalizeAwaited = async () => {
     if (finalized) return
     try {
-      await finalize(id, currentTermination(), { ownerPid })
+      await finalize(id, currentTermination(), {
+        ownerPid,
+        expectedSession: ownedSession,
+      })
       finalized = true
     } catch (error) {
       reportFinalizationFailure(debug, error)
@@ -221,7 +224,7 @@ export async function prepareBackgroundSessionFinalizer(
       finalizeSync(
         id,
         signal === undefined ? { exitCode: code } : { signal },
-        { ownerPid },
+        { ownerPid, expectedSession: ownedSession },
       )
       finalized = true
     } catch (error) {

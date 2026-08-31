@@ -127,6 +127,11 @@ const ALL_STATUSES = new Set<BackgroundSessionStatus>([
   'unknown',
   ...TERMINAL_STATUSES,
 ])
+const COMPLETED_STATUSES = new Set<BackgroundSessionStatus>([
+  'exited',
+  'failed',
+  'killed',
+])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
 const SAFE_SIGNAL_RE = /^SIG[A-Z0-9]{1,24}$/
 const ORPHANED_TERMINAL_FACT_SCAN_LIMIT = 256
@@ -416,9 +421,27 @@ function isSameBackgroundSessionGeneration(
   )
 }
 
+async function replaceSessionFile(
+  session: BackgroundSession,
+  target: string,
+): Promise<void> {
+  const tmp = join(
+    getBackgroundSessionMetadataDir(),
+    `${session.id}.${process.pid}.${randomUUID()}.tmp`,
+  )
+  try {
+    await writeFile(tmp, jsonStringify(session), { flag: 'wx' })
+    await rename(tmp, target)
+  } catch (error) {
+    await unlink(tmp).catch(() => {})
+    throw error
+  }
+}
+
 async function writeSession(
   session: BackgroundSession,
   expected: BackgroundSession,
+  whileLocked?: () => void | Promise<void>,
 ): Promise<BackgroundSession | null> {
   await ensureBackgroundSessionDirs()
   const target = metadataPathForId(session.id)
@@ -427,21 +450,12 @@ async function writeSession(
     if (!current || !isSameBackgroundSessionGeneration(current, expected)) {
       return current
     }
-    const tmp = join(
-      getBackgroundSessionMetadataDir(),
-      `${session.id}.${process.pid}.${randomUUID()}.tmp`,
-    )
-    try {
-      await writeFile(tmp, jsonStringify(session), { flag: 'wx' })
-      await rename(tmp, target)
-      if (session.name && isTerminalBackgroundSession(session)) {
-        await releaseNameReservation(session.name, session.id)
-      }
-      return session
-    } catch (error) {
-      await unlink(tmp).catch(() => {})
-      throw error
+    await whileLocked?.()
+    await replaceSessionFile(session, target)
+    if (session.name && isTerminalBackgroundSession(session)) {
+      await releaseNameReservation(session.name, session.id)
     }
+    return session
   })
 }
 
@@ -563,29 +577,58 @@ function isBackgroundSessionNameReservation(
 async function releaseNameReservationUnlocked(
   name: string,
   id: string,
-): Promise<void> {
+): Promise<boolean> {
   const path = nameReservationPathForName(name)
-  const existing = await readNameReservation(path)
-  if (existing?.id !== id) return
-  await unlink(path).catch(() => {})
+  let existing: BackgroundSessionNameReservation
+  try {
+    const parsed = jsonParse(await readFile(path, 'utf8'))
+    if (!isBackgroundSessionNameReservation(parsed)) return true
+    existing = parsed
+  } catch (error) {
+    return isErrno(error, 'ENOENT')
+  }
+  if (existing.name !== name || existing.id !== id) return true
+  try {
+    await unlink(path)
+    return true
+  } catch (error) {
+    return isErrno(error, 'ENOENT')
+  }
 }
 
-async function releaseNameReservation(
+async function tryReleaseNameReservation(
   name: string,
   id: string,
-): Promise<void> {
-  await withNameReservationLock(name, async () => {
-    await releaseNameReservationUnlocked(name, id)
-  }).catch(() => {})
+): Promise<boolean> {
+  try {
+    return await withNameReservationLock(
+      name,
+      async () => await releaseNameReservationUnlocked(name, id),
+    )
+  } catch {
+    return false
+  }
 }
 
-function releaseNameReservationSyncUnlocked(name: string, id: string): void {
+async function releaseNameReservation(name: string, id: string): Promise<void> {
+  await tryReleaseNameReservation(name, id)
+}
+
+function releaseNameReservationSyncUnlocked(
+  name: string,
+  id: string,
+): void {
   const path = nameReservationPathForName(name)
   try {
-    const parsed = jsonParse(
-      readFileSync(path, 'utf8'),
-    ) as Partial<BackgroundSessionNameReservation>
-    if (parsed?.id === id) unlinkSync(path)
+    const parsed = jsonParse(readFileSync(path, 'utf8'))
+    if (
+      !isBackgroundSessionNameReservation(parsed) ||
+      parsed.name !== name ||
+      parsed.id !== id
+    ) {
+      return
+    }
+    unlinkSync(path)
   } catch {
     // Effective terminal-state reads recover stale reservations later.
   }
@@ -967,7 +1010,14 @@ function installTerminalFactSync(
   }
 }
 
-export async function listBackgroundSessions(): Promise<BackgroundSession[]> {
+type BackgroundSessionRecord = {
+  stored: BackgroundSession
+  effective: BackgroundSession
+}
+
+async function listBackgroundSessionRecords(): Promise<
+  BackgroundSessionRecord[]
+> {
   let entries: string[]
   try {
     entries = await readdir(getBackgroundSessionMetadataDir())
@@ -975,16 +1025,220 @@ export async function listBackgroundSessions(): Promise<BackgroundSession[]> {
     return []
   }
 
-  const sessions: BackgroundSession[] = []
+  const records: BackgroundSessionRecord[] = []
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue
     const session = await readSessionFile(
       join(getBackgroundSessionMetadataDir(), entry),
     )
-    if (session) sessions.push(await applyAuthoritativeTerminalFacts(session))
+    if (session) {
+      records.push({
+        stored: session,
+        effective: await applyAuthoritativeTerminalFacts(session),
+      })
+    }
   }
 
-  return sessions.sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  return records.sort((a, b) =>
+    a.stored.startedAt.localeCompare(b.stored.startedAt),
+  )
+}
+
+export async function listBackgroundSessions(): Promise<BackgroundSession[]> {
+  return (await listBackgroundSessionRecords()).map(record => record.effective)
+}
+
+async function readReconciliationTerminalFact(
+  session: BackgroundSession,
+  kind: 'natural' | 'killed',
+  terminalDirectory: CleanupDirectorySnapshot,
+  fileSystem: BackgroundCleanupFileSystem,
+): Promise<CleanupJsonRead<BackgroundSessionTerminalFact>> {
+  const generation = session.terminalFactGeneration
+  return await readCleanupJson(
+    terminalFactPathForId(session.id, kind, generation),
+    (value): value is BackgroundSessionTerminalFact =>
+      isBackgroundSessionTerminalFact(value, session.id, kind) &&
+      value.generation === generation &&
+      parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
+    terminalDirectory,
+    fileSystem,
+  )
+}
+
+function hasSamePersistedTerminalState(
+  stored: BackgroundSession,
+  effective: BackgroundSession,
+): boolean {
+  return (
+    stored.status === effective.status &&
+    stored.updatedAt === effective.updatedAt &&
+    stored.finishedAt === effective.finishedAt &&
+    stored.exitCode === effective.exitCode &&
+    stored.signal === effective.signal &&
+    stored.terminalReason === effective.terminalReason
+  )
+}
+
+export async function reconcileBackgroundSessionTerminalFacts(): Promise<
+  { sessionsUpdated: number; errors: number }
+> {
+  const result = {
+    sessionsUpdated: 0,
+    errors: 0,
+  }
+
+  const fileSystem: BackgroundCleanupFileSystem = {
+    lstatFile: lstat,
+    readTextFile: async path => await readFile(path, 'utf8'),
+    unlinkFile: unlink,
+  }
+  const [metadataRead, terminalRead] = await Promise.all([
+    snapshotCleanupDirectory(
+      getBackgroundSessionMetadataDir(),
+      fileSystem.lstatFile,
+    ),
+    snapshotCleanupDirectory(
+      getBackgroundSessionTerminalDir(),
+      fileSystem.lstatFile,
+    ),
+  ])
+  if (metadataRead.state !== 'valid' || terminalRead.state !== 'valid') {
+    result.errors += Number(metadataRead.state !== 'valid')
+    result.errors += Number(terminalRead.state !== 'valid')
+    return result
+  }
+  const metadataDirectory = metadataRead.value
+  const terminalDirectory = terminalRead.value
+  if (
+    metadataDirectory.state === 'missing' ||
+    terminalDirectory.state === 'missing'
+  ) {
+    return result
+  }
+
+  let entries: Dirent<string>[]
+  try {
+    entries = await readdir(getBackgroundSessionMetadataDir(), {
+      withFileTypes: true,
+    })
+  } catch (error) {
+    if (!isErrno(error, 'ENOENT')) result.errors++
+    return result
+  }
+  if (
+    (await inspectCleanupDirectory(
+      metadataDirectory,
+      fileSystem.lstatFile,
+    )) !== 'same'
+  ) {
+    result.errors++
+    return result
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+    const id = entry.name.slice(0, -'.json'.length)
+    if (!SAFE_ID_RE.test(id)) continue
+    const metadataPath = metadataPathForId(id)
+    const candidate = await readCleanupJson(
+      metadataPath,
+      (value): value is BackgroundSession => isBackgroundSession(value, id),
+      metadataDirectory,
+      fileSystem,
+    )
+    if (candidate.state === 'error') {
+      result.errors++
+      continue
+    }
+    if (candidate.state !== 'valid' || !candidate.identity) continue
+
+    try {
+      await withBackgroundSessionIdLock(id, async () => {
+        const natural = await readReconciliationTerminalFact(
+          candidate.value,
+          'natural',
+          terminalDirectory,
+          fileSystem,
+        )
+        const killed = await readReconciliationTerminalFact(
+          candidate.value,
+          'killed',
+          terminalDirectory,
+          fileSystem,
+        )
+        if (natural.state === 'error' || killed.state === 'error') {
+          result.errors++
+          return
+        }
+
+        const latest = await readCleanupJson(
+          metadataPath,
+          (value): value is BackgroundSession =>
+            isBackgroundSession(value, id),
+          metadataDirectory,
+          fileSystem,
+        )
+        if (latest.state === 'error') {
+          result.errors++
+          return
+        }
+        if (
+          latest.state !== 'valid' ||
+          !latest.identity ||
+          latest.identity.dev !== candidate.identity?.dev ||
+          latest.identity.ino !== candidate.identity?.ino ||
+          !isSameBackgroundSessionGeneration(latest.value, candidate.value)
+        ) {
+          return
+        }
+
+        const effective = applyTerminalFacts(
+          latest.value,
+          natural.state === 'valid' ? natural.value : null,
+          killed.state === 'valid' ? killed.value : null,
+        )
+        if (!COMPLETED_STATUSES.has(effective.status)) return
+
+        if (!hasSamePersistedTerminalState(latest.value, effective)) {
+          if (
+            (await inspectCleanupDirectory(
+              metadataDirectory,
+              fileSystem.lstatFile,
+            )) !== 'same'
+          ) {
+            result.errors++
+            return
+          }
+          try {
+            const beforeWrite = await fileSystem.lstatFile(metadataPath)
+            if (
+              !beforeWrite.isFile() ||
+              beforeWrite.isSymbolicLink() ||
+              beforeWrite.dev !== latest.identity.dev ||
+              beforeWrite.ino !== latest.identity.ino
+            ) {
+              return
+            }
+          } catch (error) {
+            if (!isErrno(error, 'ENOENT')) result.errors++
+            return
+          }
+          await replaceSessionFile(effective, metadataPath)
+          result.sessionsUpdated++
+        }
+        if (
+          effective.name &&
+          !(await tryReleaseNameReservation(effective.name, effective.id))
+        ) {
+          result.errors++
+        }
+      })
+    } catch {
+      result.errors++
+    }
+  }
+  return result
 }
 
 type CleanupArtifactRemoval = 'removed' | 'missing' | 'error'
@@ -1670,6 +1924,10 @@ export async function refreshBackgroundSessionStatuses(options?: {
     session: BackgroundSession,
     nextStatus: BackgroundSessionStatus,
   ) => Promise<void>
+  _whileStatusWriteLockedForTesting?: (
+    session: BackgroundSession,
+    nextStatus: BackgroundSessionStatus,
+  ) => void | Promise<void>
 }): Promise<BackgroundSession[]> {
   const timestamp = iso(options?.now)
   const sessions = await listBackgroundSessions()
@@ -1699,7 +1957,9 @@ export async function refreshBackgroundSessionStatuses(options?: {
         updatedAt: timestamp,
       }
       await options?._beforeStatusWriteForTesting?.(session, nextStatus)
-      const persisted = await writeSession(updated, session)
+      const persisted = await writeSession(updated, session, () =>
+        options?._whileStatusWriteLockedForTesting?.(session, nextStatus),
+      )
       if (persisted) {
         refreshed.push(await applyAuthoritativeTerminalFacts(persisted))
       }
@@ -1942,22 +2202,40 @@ function assertNaturalFinalizationOwner(
   session: BackgroundSession | null,
   id: string,
   ownerPid: number,
+  expectedSession?: BackgroundSession,
 ): asserts session is BackgroundSession {
-  if (!session || session.id !== id || session.pid !== ownerPid) {
+  if (
+    !session ||
+    session.id !== id ||
+    session.pid !== ownerPid ||
+    (expectedSession !== undefined &&
+      !isSameBackgroundSessionGeneration(session, expectedSession))
+  ) {
     throw new Error('Background session finalizer does not own this session')
   }
+}
+
+type BackgroundSessionNaturalFinalizationOptions = {
+  ownerPid?: number
+  now?: Date
+  expectedSession?: BackgroundSession
 }
 
 export async function recordBackgroundSessionNaturalTermination(
   id: string,
   termination: BackgroundSessionNaturalTermination,
-  options: { ownerPid?: number; now?: Date } = {},
+  options: BackgroundSessionNaturalFinalizationOptions = {},
 ): Promise<BackgroundSession> {
   assertSafeId(id)
   const ownerPid = options.ownerPid ?? process.pid
   return await withBackgroundSessionIdLock(id, async () => {
     const session = await readSessionFile(metadataPathForId(id))
-    assertNaturalFinalizationOwner(session, id, ownerPid)
+    assertNaturalFinalizationOwner(
+      session,
+      id,
+      ownerPid,
+      options.expectedSession,
+    )
 
     const effective = await applyAuthoritativeTerminalFacts(session)
     if (
@@ -1997,49 +2275,101 @@ export async function recordBackgroundSessionNaturalTermination(
 export function recordBackgroundSessionNaturalTerminationSync(
   id: string,
   termination: BackgroundSessionNaturalTermination,
-  options: { ownerPid?: number; now?: Date } = {},
+  options: BackgroundSessionNaturalFinalizationOptions = {},
 ): void {
   assertSafeId(id)
   const ownerPid = options.ownerPid ?? process.pid
-  withBackgroundSessionIdLockSync(id, () => {
-    const session = readSessionFileSync(metadataPathForId(id))
-    assertNaturalFinalizationOwner(session, id, ownerPid)
+  try {
+    withBackgroundSessionIdLockSync(id, () => {
+      const session = readSessionFileSync(metadataPathForId(id))
+      assertNaturalFinalizationOwner(
+        session,
+        id,
+        ownerPid,
+        options.expectedSession,
+      )
+      if (
+        session.status === 'killed' ||
+        session.status === 'exited' ||
+        session.status === 'failed' ||
+        readTerminalFactSync(
+          id,
+          'killed',
+          session.terminalFactGeneration,
+        )?.pid === ownerPid
+      ) {
+        return
+      }
+      if (
+        session.status !== 'running' &&
+        session.status !== 'unknown' &&
+        session.status !== 'stale'
+      ) {
+        // Retain an exhaustive guard so future status additions require a deliberate
+        // natural-finalization policy.
+        throw new Error(
+          'Background session is not eligible for natural finalization',
+        )
+      }
+
+      installTerminalFactSync(
+        naturalTerminalFact(
+          id,
+          ownerPid,
+          session.terminalFactGeneration,
+          termination,
+          options.now,
+        ),
+        'natural',
+      )
+      if (session.name) releaseNameReservationSync(session.name, session.id)
+    })
+  } catch (error) {
+    const expectedSession = options.expectedSession
+    const generation = expectedSession?.terminalFactGeneration
+    const hasSafeCompatibilityHandoff =
+      generation !== undefined || expectedSession?.processMarker !== undefined
     if (
-      session.status === 'killed' ||
-      session.status === 'exited' ||
-      session.status === 'failed' ||
+      !isErrno(error, 'ELOCKED') ||
+      !expectedSession ||
+      !hasSafeCompatibilityHandoff
+    ) {
+      throw error
+    }
+    // The exit event cannot wait for another process's metadata lock. A marked
+    // session can still leave an immutable fact without touching metadata or a
+    // name reservation. Marker-only metadata predates generation-scoped fact
+    // paths, but new marked replacements never read its legacy path and a
+    // markerless replacement cannot reuse the ID while that fact remains.
+    assertNaturalFinalizationOwner(
+      expectedSession,
+      id,
+      ownerPid,
+      expectedSession,
+    )
+    if (
+      expectedSession.status === 'killed' ||
+      expectedSession.status === 'exited' ||
+      expectedSession.status === 'failed' ||
       readTerminalFactSync(
         id,
         'killed',
-        session.terminalFactGeneration,
+        generation,
       )?.pid === ownerPid
     ) {
       return
     }
-    if (
-      session.status !== 'running' &&
-      session.status !== 'unknown' &&
-      session.status !== 'stale'
-    ) {
-      // Retain an exhaustive guard so future status additions require a deliberate
-      // natural-finalization policy.
-      throw new Error(
-        'Background session is not eligible for natural finalization',
-      )
-    }
-
     installTerminalFactSync(
       naturalTerminalFact(
         id,
         ownerPid,
-        session.terminalFactGeneration,
+        generation,
         termination,
         options.now,
       ),
       'natural',
     )
-    if (session.name) releaseNameReservationSync(session.name, session.id)
-  })
+  }
 }
 
 export async function markBackgroundSessionKilled(
