@@ -213,6 +213,20 @@ test('custom Anthropic credentials stay native and resolve to their proxy route'
       ANTHROPIC_AUTH_TOKEN: 'tenant-token',
     }),
   ).toBe('custom-anthropic')
+
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+        ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+        ANTHROPIC_API_KEY: 'first-party-key',
+      },
+      {
+        activeProfileProvider: 'zai',
+        activeProfileBaseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      },
+    ),
+  ).toBe('anthropic')
 })
 
 test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentialsOnly routes', () => {
@@ -357,6 +371,7 @@ test('Z.AI route metadata is limited to the canonical Coding Plan endpoint', () 
 test('active Z.AI profiles honor the Coding Plan endpoint boundary', () => {
   const codingPlanUrl = 'https://api.z.ai/api/coding/paas/v4'
   const generalUrl = 'https://api.z.ai/api/paas/v4'
+  const customUrl = 'https://proxy.example.test/v1'
 
   expect(
     resolveActiveRouteIdFromEnv(
@@ -368,6 +383,30 @@ test('active Z.AI profiles honor the Coding Plan endpoint boundary', () => {
     resolveActiveRouteIdFromEnv(
       { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: generalUrl },
       { activeProfileProvider: 'zai', activeProfileBaseUrl: generalUrl },
+    ),
+  ).toBe('custom')
+  for (const invalidPrimary of [' ', 'undefined', 'null']) {
+    expect(
+      resolveActiveRouteIdFromEnv(
+        {
+          CLAUDE_CODE_USE_OPENAI: '1',
+          OPENAI_BASE_URL: invalidPrimary,
+          OPENAI_API_BASE: generalUrl,
+        },
+        { activeProfileProvider: 'zai', activeProfileBaseUrl: codingPlanUrl },
+      ),
+    ).toBe('custom')
+  }
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: generalUrl },
+      { activeProfileProvider: 'zai', activeProfileBaseUrl: codingPlanUrl },
+    ),
+  ).toBe('custom')
+  expect(
+    resolveActiveRouteIdFromEnv(
+      { CLAUDE_CODE_USE_OPENAI: '1', OPENAI_BASE_URL: customUrl },
+      { activeProfileProvider: 'zai', activeProfileBaseUrl: codingPlanUrl },
     ),
   ).toBe('custom')
   expect(
@@ -933,6 +972,18 @@ test('resolveActiveRouteIdFromEnv lets explicit OPENAI_BASE_URL override saved C
       },
     ),
   ).toBe('openrouter')
+  expect(
+    resolveActiveRouteIdFromEnv(
+      {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://proxy.example.test/v1',
+      },
+      {
+        activeProfileProvider: 'clinepass',
+        activeProfileBaseUrl: 'https://api.cline.bot/api/v1',
+      },
+    ),
+  ).toBe('custom')
 })
 
 test('resolveActiveRouteIdFromEnv does not infer MiniMax with OpenAI credentials', () => {

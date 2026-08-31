@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
 import { acquireEnvMutex, releaseEnvMutex } from '../../entrypoints/sdk/shared.js'
 import { saveGlobalConfig } from '../config.js'
+import { resolveActiveRouteIdFromEnv } from '../../integrations/routeMetadata.js'
 import {
   resetSettingsCache,
   setSessionSettingsCache,
@@ -50,6 +51,10 @@ const originalEnv = {
   CODEX_CREDENTIAL_SOURCE: process.env.CODEX_CREDENTIAL_SOURCE,
   CHATGPT_ACCOUNT_ID: process.env.CHATGPT_ACCOUNT_ID,
   CODEX_ACCOUNT_ID: process.env.CODEX_ACCOUNT_ID,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED,
+  CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID:
+    process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID,
 }
 
 function restoreEnvValue(key: keyof typeof originalEnv): void {
@@ -134,6 +139,56 @@ test('Z.AI surfaces GLM-5.3-Flash once ahead of GLM-5.3 without changing the def
   )
   expect(options.find(option => option.value === 'glm-5.3')?.label).toBe('GLM-5.3')
   expect(options.find(option => option.value === null)?.description).toContain('glm-5.2')
+})
+
+test('saved Z.AI profile follows explicit runtime endpoints across the model picker lifecycle', async () => {
+  const codingPlanUrl = 'https://api.z.ai/api/coding/paas/v4'
+  const profileId = 'zai-coding-profile'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_MODEL = 'glm-5.2'
+  process.env.OPENAI_API_KEY = 'sk-zai-test'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED = '1'
+  process.env.CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID = profileId
+
+  saveGlobalConfig(current => ({
+    ...current,
+    providerProfiles: [{
+      id: profileId,
+      name: 'Z.AI Coding Plan',
+      provider: 'zai',
+      baseUrl: codingPlanUrl,
+      model: 'glm-5.2',
+    }],
+    activeProviderProfileId: profileId,
+  }))
+
+  for (const baseUrl of [
+    'https://api.z.ai/api/paas/v4',
+    'https://proxy.example.test/v1',
+  ]) {
+    process.env.OPENAI_BASE_URL = baseUrl
+    expect(resolveActiveRouteIdFromEnv(process.env, {
+      activeProfileProvider: 'zai',
+      activeProfileBaseUrl: codingPlanUrl,
+    })).toBe('custom')
+    const values = (await getOpenAIModelOptions()).map(option => option.value)
+    expect(values).not.toContain('glm-5.3-flash')
+    expect(values).not.toContain('glm-5.3')
+    expect(values).toContain('glm-5.2')
+  }
+
+  process.env.OPENAI_BASE_URL = codingPlanUrl
+  expect(resolveActiveRouteIdFromEnv(process.env, {
+    activeProfileProvider: 'zai',
+    activeProfileBaseUrl: codingPlanUrl,
+  })).toBe('zai')
+  const restored = await getOpenAIModelOptions()
+  const restoredValues = restored.map(option => option.value)
+  expect(restoredValues).toContain('glm-5.3-flash')
+  expect(restoredValues).toContain('glm-5.3')
+  expect(restored.find(option => option.value === null)?.description).toContain(
+    'glm-5.2',
+  )
 })
 
 test('custom Anthropic endpoints use the third-party default description', async () => {

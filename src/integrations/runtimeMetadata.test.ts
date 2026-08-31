@@ -250,6 +250,30 @@ describe('resolveModelRuntimeLimits', () => {
     })
   })
 
+  it.each([' ', 'undefined', 'null'])(
+    'falls back from invalid OPENAI_BASE_URL %j to OPENAI_API_BASE for route limits',
+    invalidPrimary => {
+      const processEnv = {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: invalidPrimary,
+        OPENAI_API_BASE: 'https://api.z.ai/api/paas/v4',
+      }
+
+      expect(resolveActiveRouteIdFromEnv(processEnv, {
+        activeProfileProvider: 'zai',
+        activeProfileBaseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      })).toBe('custom')
+      expect(resolveModelRuntimeLimits({
+        model: 'glm-5.3-flash',
+        activeProfileProvider: 'zai',
+        processEnv,
+      })).toEqual({
+        contextWindow: undefined,
+        maxOutputTokens: undefined,
+      })
+    },
+  )
+
   it.each([
     'glm-5.3',
     'glm-5.3?reasoning=low',
@@ -317,7 +341,7 @@ describe('resolveModelRuntimeLimits', () => {
       maxOutputTokens: undefined,
     })
   })
-  it('uses the applied provider profile route before generic custom base URL fallback', () => {
+  it('uses generic limits when an explicit custom URL overrides the applied profile route', () => {
     expect(
       resolveModelRuntimeLimits({
         model: 'kimi-k2.6',
@@ -328,7 +352,7 @@ describe('resolveModelRuntimeLimits', () => {
           OPENAI_BASE_URL: 'https://proxy.example.test/v1',
         },
       }),
-    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 65_536 })
+    ).toEqual({ contextWindow: 262_144, maxOutputTokens: 32_768 })
   })
 
   it('preserves composite provider paths before generic last-segment fallbacks', () => {
