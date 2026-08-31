@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as backgroundSessionRegistry from './bgRegistry.js'
 import {
   _setBackgroundSessionsRootForTesting,
+  cleanupBackgroundSessionsBefore,
   createBackgroundSession,
   isBackgroundSessionProcessAlive,
   isTerminalBackgroundSession,
@@ -42,8 +43,15 @@ describe('background session registry', () => {
   function terminalFactPath(
     id: string,
     kind: 'natural' | 'killed',
+    generation?: string,
   ): string {
-    return join(configDir, 'bg-sessions', 'terminal', `${id}.${kind}.json`)
+    const generationSuffix = generation ? `~${generation}` : ''
+    return join(
+      configDir,
+      'bg-sessions',
+      'terminal',
+      `${id}${generationSuffix}.${kind}.json`,
+    )
   }
 
   async function writeTerminalFact(
@@ -114,6 +122,7 @@ describe('background session registry', () => {
       model: 'gpt-5',
       sessionId: 'conversation-1',
       processMarker: TEST_PROCESS_MARKER,
+      terminalFactGeneration: TEST_PROCESS_MARKER,
       startedAt: '2026-06-15T08:00:00.000Z',
       updatedAt: '2026-06-15T08:00:00.000Z',
       command: [
@@ -158,6 +167,7 @@ describe('background session registry', () => {
     const [session] = await listBackgroundSessions()
     expect(session?.id).toBe('bg-legacy')
     expect(session?.processMarker).toBeUndefined()
+    expect(session?.terminalFactGeneration).toBeUndefined()
   })
 
   it('rejects malformed process markers on creation', async () => {
@@ -209,6 +219,28 @@ describe('background session registry', () => {
             stderrLogPath: '/tmp/stderr.log',
           }),
         )
+      }),
+    )
+    await writeFile(
+      join(
+        configDir,
+        'bg-sessions',
+        'sessions',
+        'bg-mismatched-terminal-generation.json',
+      ),
+      JSON.stringify({
+        id: 'bg-mismatched-terminal-generation',
+        pid: 999,
+        cwd: '/repo',
+        status: 'running',
+        sessionId: 'conversation-mismatched-terminal-generation',
+        processMarker: TEST_PROCESS_MARKER,
+        terminalFactGeneration: OTHER_PROCESS_MARKER,
+        startedAt: '2026-06-15T08:00:00.000Z',
+        updatedAt: '2026-06-15T08:00:00.000Z',
+        command: ['openclaude', '--print', 'work'],
+        stdoutLogPath: '/tmp/stdout.log',
+        stderrLogPath: '/tmp/stderr.log',
       }),
     )
 
@@ -570,6 +602,27 @@ describe('background session registry', () => {
       }),
     ).rejects.toThrow('already exists')
     expect((await resolveBackgroundSession('bg-collision')).name).toBe('first')
+  })
+
+  it('keeps a markerless id unavailable while a terminal fact remains', async () => {
+    await writeTerminalFact('bg-retained-fact', 'natural', {
+      pid: 111,
+      status: 'exited',
+      finishedAt: '2026-06-15T08:04:00.000Z',
+      terminalReason: 'exit_code',
+      exitCode: 0,
+    })
+
+    await expect(
+      createBackgroundSession({
+        id: 'bg-retained-fact',
+        pid: 222,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'replacement'],
+        sessionId: 'conversation-replacement',
+      }),
+    ).rejects.toThrow('already exists')
+    expect(await listBackgroundSessions()).toEqual([])
   })
 
   it('rejects non-positive pids at creation', async () => {
@@ -1012,8 +1065,14 @@ describe('background session registry', () => {
       id: 'bg-concurrent-natural',
       pid: 346,
       cwd: '/repo',
-      command: ['openclaude', '--print', 'work'],
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'work',
+      ],
       sessionId: 'conversation-concurrent-natural',
+      processMarker: TEST_PROCESS_MARKER,
     })
 
     const results = await Promise.all([
@@ -1123,13 +1182,174 @@ describe('background session registry', () => {
     })
   })
 
+  it('does not let a stale refresh overwrite a same-ID replacement generation', async () => {
+    const id = 'bg-refresh-generation-race'
+    const name = 'refresh-generation-race'
+    const oldSession = await createBackgroundSession({
+      id,
+      name,
+      pid: 360,
+      cwd: '/repo',
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'old generation',
+      ],
+      sessionId: 'conversation-refresh-generation-old',
+      processMarker: TEST_PROCESS_MARKER,
+    })
+    let replacement: BackgroundSession | undefined
+
+    const refreshed = await refreshBackgroundSessionStatuses({
+      isProcessAlive: () => false,
+      _beforeStatusWriteForTesting: async () => {
+        await recordBackgroundSessionNaturalTermination(
+          id,
+          { exitCode: 0 },
+          {
+            ownerPid: oldSession.pid,
+            now: new Date('2026-06-01T00:00:00.000Z'),
+          },
+        )
+        await cleanupBackgroundSessionsBefore(
+          new Date('2026-07-01T00:00:00.000Z'),
+        )
+        replacement = await createBackgroundSession({
+          id,
+          name,
+          pid: 361,
+          cwd: '/repo',
+          command: [
+            'openclaude',
+            backgroundProcessMarkerToken(OTHER_PROCESS_MARKER),
+            '--print',
+            'replacement generation',
+          ],
+          sessionId: 'conversation-refresh-generation-replacement',
+          processMarker: OTHER_PROCESS_MARKER,
+        })
+      },
+    })
+
+    if (!replacement) throw new Error('replacement session was not created')
+    expect(refreshed).toHaveLength(1)
+    expect(refreshed[0]).toMatchObject({
+      id,
+      pid: replacement.pid,
+      status: 'running',
+      processMarker: OTHER_PROCESS_MARKER,
+      terminalFactGeneration: OTHER_PROCESS_MARKER,
+    })
+    expect(await Bun.file(nameReservationPath(name)).json()).toMatchObject({
+      id,
+    })
+
+    await recordBackgroundSessionNaturalTermination(
+      id,
+      { exitCode: 23 },
+      {
+        ownerPid: replacement.pid,
+        now: new Date('2026-07-01T00:00:01.000Z'),
+      },
+    )
+    expect(await resolveBackgroundSession(id)).toMatchObject({
+      pid: replacement.pid,
+      status: 'failed',
+      exitCode: 23,
+    })
+  })
+
+  it('does not let a stale kill mark a same-ID replacement generation', async () => {
+    const id = 'bg-kill-generation-race'
+    const name = 'kill-generation-race'
+    const reusedPid = 362
+    const oldSession = await createBackgroundSession({
+      id,
+      name,
+      pid: reusedPid,
+      cwd: '/repo',
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'old generation',
+      ],
+      sessionId: 'conversation-kill-generation-old',
+      processMarker: TEST_PROCESS_MARKER,
+    })
+    let replacement: BackgroundSession | undefined
+
+    await expect(
+      markBackgroundSessionKilled(id, {
+        _beforeMarkWriteForTesting: async () => {
+          await recordBackgroundSessionNaturalTermination(
+            id,
+            { exitCode: 0 },
+            {
+              ownerPid: oldSession.pid,
+              now: new Date('2026-06-01T00:00:00.000Z'),
+            },
+          )
+          await cleanupBackgroundSessionsBefore(
+            new Date('2026-07-01T00:00:00.000Z'),
+          )
+          replacement = await createBackgroundSession({
+            id,
+            name,
+            pid: reusedPid,
+            cwd: '/repo',
+            command: [
+              'openclaude',
+              backgroundProcessMarkerToken(OTHER_PROCESS_MARKER),
+              '--print',
+              'replacement generation',
+            ],
+            sessionId: 'conversation-kill-generation-replacement',
+            processMarker: OTHER_PROCESS_MARKER,
+          })
+        },
+      }),
+    ).rejects.toThrow('changed before it could be marked killed')
+
+    if (!replacement) throw new Error('replacement session was not created')
+    expect(await Bun.file(nameReservationPath(name)).json()).toMatchObject({
+      id,
+    })
+    expect(
+      await Bun.file(
+        terminalFactPath(id, 'killed', OTHER_PROCESS_MARKER),
+      ).exists(),
+    ).toBe(false)
+
+    await recordBackgroundSessionNaturalTermination(
+      id,
+      { exitCode: 9 },
+      {
+        ownerPid: replacement.pid,
+        now: new Date('2026-07-01T00:00:01.000Z'),
+      },
+    )
+    expect(await resolveBackgroundSession(id)).toMatchObject({
+      pid: replacement.pid,
+      status: 'failed',
+      exitCode: 9,
+    })
+  })
+
   it('records a bounded observed signal without inventing an exit code', async () => {
     await createBackgroundSession({
       id: 'bg-observed-signal',
       pid: 344,
       cwd: '/repo',
-      command: ['openclaude', '--print', 'work'],
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'work',
+      ],
       sessionId: 'conversation-observed-signal',
+      processMarker: TEST_PROCESS_MARKER,
     })
     const failed = await recordBackgroundSessionNaturalTermination(
       'bg-observed-signal',
@@ -1143,6 +1363,55 @@ describe('background session registry', () => {
       terminalReason: 'signal',
     })
     expect('exitCode' in failed).toBe(false)
+  })
+
+  it('keeps the first marked sync terminal fact immutable', async () => {
+    await createBackgroundSession({
+      id: 'bg-marked-sync-natural',
+      pid: 348,
+      cwd: '/repo',
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'work',
+      ],
+      sessionId: 'conversation-marked-sync-natural',
+      processMarker: TEST_PROCESS_MARKER,
+    })
+    recordBackgroundSessionNaturalTerminationSync(
+      'bg-marked-sync-natural',
+      { exitCode: 19 },
+      {
+        ownerPid: 348,
+        now: new Date('2026-06-15T08:09:10.000Z'),
+      },
+    )
+    recordBackgroundSessionNaturalTerminationSync(
+      'bg-marked-sync-natural',
+      { exitCode: 0 },
+      {
+        ownerPid: 348,
+        now: new Date('2026-06-15T08:09:20.000Z'),
+      },
+    )
+
+    expect(await resolveBackgroundSession('bg-marked-sync-natural')).toMatchObject(
+      {
+        status: 'failed',
+        finishedAt: '2026-06-15T08:09:10.000Z',
+        exitCode: 19,
+      },
+    )
+    expect(
+      await Bun.file(
+        terminalFactPath(
+          'bg-marked-sync-natural',
+          'natural',
+          TEST_PROCESS_MARKER,
+        ),
+      ).json(),
+    ).toMatchObject({ generation: TEST_PROCESS_MARKER, exitCode: 19 })
   })
 
   it('does not let a late natural finalizer overwrite an explicit kill fact', async () => {
@@ -1179,8 +1448,14 @@ describe('background session registry', () => {
       id: 'bg-sync-killed-absorbing',
       pid: 347,
       cwd: '/repo',
-      command: ['openclaude', '--print', 'work'],
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+        '--print',
+        'work',
+      ],
       sessionId: 'conversation-sync-killed-absorbing',
+      processMarker: TEST_PROCESS_MARKER,
     })
     await markBackgroundSessionKilled('bg-sync-killed-absorbing', {
       now: new Date('2026-06-15T08:09:30.000Z'),
@@ -1201,9 +1476,22 @@ describe('background session registry', () => {
     })
     expect(
       await Bun.file(
-        terminalFactPath('bg-sync-killed-absorbing', 'natural'),
+        terminalFactPath(
+          'bg-sync-killed-absorbing',
+          'natural',
+          TEST_PROCESS_MARKER,
+        ),
       ).exists(),
     ).toBe(false)
+    expect(
+      await Bun.file(
+        terminalFactPath(
+          'bg-sync-killed-absorbing',
+          'killed',
+          TEST_PROCESS_MARKER,
+        ),
+      ).json(),
+    ).toMatchObject({ generation: TEST_PROCESS_MARKER })
   })
 
   it('keeps killed strongest when kill and natural completion race', async () => {

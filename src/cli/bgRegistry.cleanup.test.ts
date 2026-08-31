@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as nameReservationLock from '../utils/lockfile.js'
+import { backgroundProcessMarkerToken } from './bgRouting.js'
 import {
   _setBackgroundSessionsRootForTesting,
   cleanupBackgroundSessionsBefore,
@@ -20,6 +21,7 @@ import {
   markBackgroundSessionKilled,
   recordBackgroundSessionNaturalTermination,
   refreshBackgroundSessionStatuses,
+  resolveBackgroundSession,
   type BackgroundSession,
   type BackgroundSessionNaturalTermination,
 } from './bgRegistry.js'
@@ -27,6 +29,8 @@ import {
 const CUTOFF = new Date('2026-07-01T00:00:00.000Z')
 const OLD_FINISH = new Date('2026-06-01T00:00:00.000Z')
 const RECENT_FINISH = new Date('2026-07-01T00:00:01.000Z')
+const OLD_PROCESS_MARKER = 'a'.repeat(64)
+const REPLACEMENT_PROCESS_MARKER = 'b'.repeat(64)
 const NONCANONICAL_FINISHED_AT_CASES = [
   ['normalized-date', '2026-02-30'],
   ['numeric-date', '0'],
@@ -56,6 +60,14 @@ describe('background session retention cleanup', () => {
   function reservationPath(name: string): string {
     const digest = createHash('sha256').update(name).digest('hex')
     return join(root, 'names', `${digest}.json`)
+  }
+
+  function markedTerminalFactPath(
+    id: string,
+    kind: 'natural' | 'killed',
+    processMarker: string,
+  ): string {
+    return join(root, 'terminal', `${id}~${processMarker}.${kind}.json`)
   }
 
   async function exists(path: string): Promise<boolean> {
@@ -194,8 +206,25 @@ describe('background session retention cleanup', () => {
   }
 
   it('removes old explicit-kill artifacts', async () => {
-    const session = await createRunning('bg-killed')
+    const session = await createBackgroundSession({
+      id: 'bg-killed',
+      pid: nextPid++,
+      cwd: configDir,
+      command: [
+        'openclaude',
+        backgroundProcessMarkerToken(OLD_PROCESS_MARKER),
+        '--print',
+        'killed generation',
+      ],
+      sessionId: 'killed-generation-conversation',
+      processMarker: OLD_PROCESS_MARKER,
+    })
     await markBackgroundSessionKilled(session.id, { now: OLD_FINISH })
+    const killedFact = markedTerminalFactPath(
+      session.id,
+      'killed',
+      OLD_PROCESS_MARKER,
+    )
 
     const result = await cleanupBackgroundSessionsBefore(CUTOFF)
 
@@ -205,7 +234,7 @@ describe('background session retention cleanup', () => {
       errors: 0,
     })
     expect(await exists(paths(session.id).metadata)).toBe(false)
-    expect(await exists(paths(session.id).killed)).toBe(false)
+    expect(await exists(killedFact)).toBe(false)
   })
 
   it('retains recent completed sessions', async () => {
@@ -732,6 +761,36 @@ describe('background session retention cleanup', () => {
     }
   })
 
+  it('preserves an orphaned fact whose generation does not match its path', async () => {
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    const id = 'bg-orphan-generation-mismatch'
+    const factPath = markedTerminalFactPath(
+      id,
+      'natural',
+      OLD_PROCESS_MARKER,
+    )
+    await writeFile(
+      factPath,
+      JSON.stringify({
+        version: 1,
+        id,
+        pid: nextPid++,
+        generation: REPLACEMENT_PROCESS_MARKER,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await exists(factPath)).toBe(true)
+  })
+
   it('treats missing artifacts as idempotent success', async () => {
     const session = await writeRawSession({
       id: 'bg-missing-artifacts',
@@ -869,6 +928,118 @@ describe('background session retention cleanup', () => {
     })
     expect(await exists(naturalFact)).toBe(false)
   })
+
+  for (const legacyFact of [false, true]) {
+    const suffix = legacyFact ? 'legacy' : 'marked'
+    it(`isolates a retained ${suffix} terminal fact from a same-ID replacement generation`, async () => {
+      const id = `bg-terminal-fact-generation-${suffix}`
+      const oldSession = await createBackgroundSession({
+        id,
+        pid: nextPid++,
+        cwd: configDir,
+        command: [
+          'openclaude',
+          backgroundProcessMarkerToken(OLD_PROCESS_MARKER),
+          '--print',
+          'old generation',
+        ],
+        sessionId: `old-generation-${suffix}`,
+        processMarker: OLD_PROCESS_MARKER,
+      })
+      const retainedFact = legacyFact
+        ? paths(id).natural
+        : markedTerminalFactPath(id, 'natural', OLD_PROCESS_MARKER)
+      if (legacyFact) {
+        const metadata = JSON.parse(
+          await readFile(paths(id).metadata, 'utf8'),
+        ) as Record<string, unknown>
+        delete metadata.terminalFactGeneration
+        await writeFile(paths(id).metadata, JSON.stringify(metadata))
+        await writeFile(
+          retainedFact,
+          JSON.stringify({
+            version: 1,
+            id,
+            pid: oldSession.pid,
+            status: 'exited',
+            finishedAt: OLD_FINISH.toISOString(),
+            terminalReason: 'exit_code',
+            exitCode: 0,
+          }),
+        )
+      } else {
+        await finishNaturally(oldSession, { exitCode: 0 })
+      }
+
+      expect(
+        await cleanupBackgroundSessionsBefore(CUTOFF, {
+          unlinkFile: async path => {
+            if (path === retainedFact) throw deniedError()
+            await unlink(path)
+          },
+        }),
+      ).toEqual({
+        sessionsRemoved: 1,
+        artifactsRemoved: 3,
+        errors: 1,
+      })
+      expect(await exists(paths(id).metadata)).toBe(false)
+      expect(await exists(retainedFact)).toBe(true)
+
+      const replacement = await createBackgroundSession({
+        id,
+        pid: nextPid++,
+        cwd: configDir,
+        command: [
+          'openclaude',
+          backgroundProcessMarkerToken(REPLACEMENT_PROCESS_MARKER),
+          '--print',
+          'replacement generation',
+        ],
+        sessionId: `replacement-generation-${suffix}`,
+        processMarker: REPLACEMENT_PROCESS_MARKER,
+      })
+      await recordBackgroundSessionNaturalTermination(
+        replacement.id,
+        { exitCode: 23 },
+        {
+          ownerPid: replacement.pid,
+          now: OLD_FINISH,
+        },
+      )
+
+      expect(await resolveBackgroundSession(id)).toMatchObject({
+        id,
+        pid: replacement.pid,
+        status: 'failed',
+        finishedAt: OLD_FINISH.toISOString(),
+        exitCode: 23,
+      })
+      const replacementFact = markedTerminalFactPath(
+        id,
+        'natural',
+        REPLACEMENT_PROCESS_MARKER,
+      )
+      expect(await exists(retainedFact)).toBe(true)
+      expect(await exists(replacementFact)).toBe(true)
+
+      expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+        sessionsRemoved: 1,
+        artifactsRemoved: 4,
+        errors: 0,
+      })
+      expect(await exists(paths(id).metadata)).toBe(false)
+      expect(await exists(replacementFact)).toBe(false)
+      expect(await exists(retainedFact)).toBe(true)
+
+      expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+        sessionsRemoved: 0,
+        artifactsRemoved: 1,
+        errors: 0,
+      })
+      expect(await exists(retainedFact)).toBe(false)
+    })
+  }
 
   it('reclaims an old killed fact after metadata-first partial cleanup', async () => {
     const session = await createRunning('bg-killed-fact-retry')
