@@ -158,6 +158,8 @@ async function importFreshEffortModule(options: {
       effort.modelSupportsEffort(model, reasoningContext),
     modelSupportsWireEffort: (model: string) =>
       effort.modelSupportsWireEffort(model, reasoningContext),
+    modelSupportsXHighEffort: (model: string) =>
+      effort.modelSupportsXHighEffort(model, reasoningContext),
     getAvailableEffortLevels: (model: string) =>
       effort.getAvailableEffortLevels(model, reasoningContext),
     modelUsesOpenAIEffort: (model: string) =>
