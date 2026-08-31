@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.30.0](https://github.com/Gitlawb/openclaude/compare/v0.29.1...v0.30.0) (2026-08-31)
+
+
+### Features
+
+* **providers:** add focused LLMTR hybrid gateway ([#2150](https://github.com/Gitlawb/openclaude/issues/2150)) ([1e56d4e](https://github.com/Gitlawb/openclaude/commit/1e56d4e7b2fb81dc1ba295ff28858b65889972b2))
+* **providers:** live model lists for OpenRouter and OpenGateway ([#2084](https://github.com/Gitlawb/openclaude/issues/2084)) ([bb6d66f](https://github.com/Gitlawb/openclaude/commit/bb6d66faa312e22479be584033a6fbd1ffb9737a))
+
+
+### Bug Fixes
+
+* **api:** scope Anthropic attribution to compatible request paths ([#2147](https://github.com/Gitlawb/openclaude/issues/2147)) ([30090c7](https://github.com/Gitlawb/openclaude/commit/30090c70e1ea0c1d5b15405aeb2936789d5ebff5))
+* **bg:** identify sessions with persisted process markers ([#2163](https://github.com/Gitlawb/openclaude/issues/2163)) ([ca7c3ef](https://github.com/Gitlawb/openclaude/commit/ca7c3efb6e0af40877c42e6cd9ad107dc561435b))
+* **effort:** preserve known model exclusions when force-enabled ([#2148](https://github.com/Gitlawb/openclaude/issues/2148)) ([69aca78](https://github.com/Gitlawb/openclaude/commit/69aca780ea8ee4d4a57e3027110d78d07a0c49a6))
+* **integrations:** keep managed AIMLAPI attribution over caller headers ([#2179](https://github.com/Gitlawb/openclaude/issues/2179)) ([aaccb57](https://github.com/Gitlawb/openclaude/commit/aaccb57721a362b739d73550b34d5898ee90e791))
+* **openai-shim:** drop synthetic tool-results marker and guard echoes ([#2039](https://github.com/Gitlawb/openclaude/issues/2039)) ([#2153](https://github.com/Gitlawb/openclaude/issues/2153)) ([54f963d](https://github.com/Gitlawb/openclaude/commit/54f963d0065a0d5e1544a8ba923602e7057aa9c0))
+* **plugins:** anchor marketplace hostPattern against lookalike hosts ([#2177](https://github.com/Gitlawb/openclaude/issues/2177)) ([5f1ab9b](https://github.com/Gitlawb/openclaude/commit/5f1ab9b80ce82f96aea53e1e2c22268e03a1104f))
+* **settings:** preserve concurrent updates ([#2137](https://github.com/Gitlawb/openclaude/issues/2137)) ([34536c6](https://github.com/Gitlawb/openclaude/commit/34536c6220171bb96d0225d42a2ab5c1339c14e4))
+* **settings:** stop proto-named permission rules from aborting validation ([#2170](https://github.com/Gitlawb/openclaude/issues/2170)) ([8db8830](https://github.com/Gitlawb/openclaude/commit/8db8830666bfa115bf6f9586525fae0e3585bf23))
+* **tui:** proper Unicode/IME input handling for composed sequences ([#2018](https://github.com/Gitlawb/openclaude/issues/2018)) ([#2154](https://github.com/Gitlawb/openclaude/issues/2154)) ([e802626](https://github.com/Gitlawb/openclaude/commit/e8026263ca6c2e31fe0444d0b637ec0f069ee556))
+
 ## [0.29.1](https://github.com/Gitlawb/openclaude/compare/v0.29.0...v0.29.1) (2026-08-19)
 
 
