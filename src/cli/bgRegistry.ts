@@ -325,6 +325,13 @@ function iso(now: Date | undefined): string {
   return (now ?? new Date()).toISOString()
 }
 
+function parseCanonicalCompletionTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  return new Date(timestamp).toISOString() === value ? timestamp : null
+}
+
 export function getBackgroundSessionLogPaths(id: string): {
   stdoutLogPath: string
   stderrLogPath: string
@@ -1016,7 +1023,7 @@ async function cleanupOrphanedTerminalFacts(
           value,
           candidate.id,
           candidate.kind,
-        ) && Number.isFinite(Date.parse(value.finishedAt)),
+        ) && parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
       terminalDirectory,
       fileSystem,
     )
@@ -1173,7 +1180,9 @@ export async function cleanupBackgroundSessionsBefore(
     const metadata = await readCleanupJson(
       metadataPath,
       (value): value is BackgroundSession =>
-        isBackgroundSession(value, expectedId),
+        isBackgroundSession(value, expectedId) &&
+        (value.finishedAt === undefined ||
+          parseCanonicalCompletionTimestamp(value.finishedAt) !== null),
       metadataDirectory,
       fileSystem,
     )
@@ -1188,7 +1197,7 @@ export async function cleanupBackgroundSessionsBefore(
       terminalFactPathForId(session.id, 'natural'),
       (value): value is BackgroundSessionTerminalFact =>
         isBackgroundSessionTerminalFact(value, session.id, 'natural') &&
-        Number.isFinite(Date.parse(value.finishedAt)),
+        parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
       terminalDirectory,
       fileSystem,
     )
@@ -1196,7 +1205,7 @@ export async function cleanupBackgroundSessionsBefore(
       terminalFactPathForId(session.id, 'killed'),
       (value): value is BackgroundSessionTerminalFact =>
         isBackgroundSessionTerminalFact(value, session.id, 'killed') &&
-        Number.isFinite(Date.parse(value.finishedAt)),
+        parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
       terminalDirectory,
       fileSystem,
     )

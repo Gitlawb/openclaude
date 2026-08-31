@@ -27,6 +27,10 @@ import {
 const CUTOFF = new Date('2026-07-01T00:00:00.000Z')
 const OLD_FINISH = new Date('2026-06-01T00:00:00.000Z')
 const RECENT_FINISH = new Date('2026-07-01T00:00:01.000Z')
+const NONCANONICAL_FINISHED_AT_CASES = [
+  ['normalized-date', '2026-02-30'],
+  ['numeric-date', '0'],
+] as const
 
 describe('background session retention cleanup', () => {
   let configDir: string
@@ -256,6 +260,51 @@ describe('background session retention cleanup', () => {
     })
     expect(await exists(paths(missing.id).metadata)).toBe(true)
     expect(await exists(paths(invalid.id).metadata)).toBe(true)
+  })
+
+  it('retains completed metadata with noncanonical finishedAt values', async () => {
+    const sessions: BackgroundSession[] = []
+    for (const [suffix, finishedAt] of NONCANONICAL_FINISHED_AT_CASES) {
+      const id = `bg-metadata-${suffix}`
+      const name = `metadata-${suffix}`
+      const session = await writeRawSession({
+        id,
+        name,
+        status: 'running',
+        finishedAt,
+      })
+      await writeReservation(name, id)
+      await writeFile(
+        paths(id).natural,
+        JSON.stringify({
+          version: 1,
+          id,
+          pid: session.pid,
+          status: 'exited',
+          finishedAt: OLD_FINISH.toISOString(),
+          terminalReason: 'exit_code',
+          exitCode: 0,
+        }),
+      )
+      sessions.push(session)
+    }
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    for (const session of sessions) {
+      for (const path of [
+        paths(session.id).metadata,
+        paths(session.id).stdout,
+        paths(session.id).stderr,
+        paths(session.id).natural,
+        reservationPath(session.name!),
+      ]) {
+        expect(await exists(path)).toBe(true)
+      }
+    }
   })
 
   it('removes an old completed session with a valid process marker', async () => {
@@ -591,6 +640,96 @@ describe('background session retention cleanup', () => {
     })
     expect(await exists(paths(session.id).metadata)).toBe(true)
     expect(await exists(paths(session.id).natural)).toBe(true)
+  })
+
+  it('preserves terminal facts with noncanonical timestamps', async () => {
+    const sessions: BackgroundSession[] = []
+    for (const [suffix, finishedAt] of NONCANONICAL_FINISHED_AT_CASES) {
+      for (const malformedKind of ['natural', 'killed'] as const) {
+        const id = `bg-${malformedKind}-${suffix}`
+        const name = `${malformedKind}-${suffix}`
+        const session = await writeRawSession({ id, name, status: 'running' })
+        await writeReservation(name, id)
+        await writeFile(
+          paths(id).natural,
+          JSON.stringify({
+            version: 1,
+            id,
+            pid: session.pid,
+            status: 'exited',
+            finishedAt:
+              malformedKind === 'natural'
+                ? finishedAt
+                : OLD_FINISH.toISOString(),
+            terminalReason: 'exit_code',
+            exitCode: 0,
+          }),
+        )
+        await writeFile(
+          paths(id).killed,
+          JSON.stringify({
+            version: 1,
+            id,
+            pid: session.pid,
+            status: 'killed',
+            finishedAt:
+              malformedKind === 'killed'
+                ? finishedAt
+                : OLD_FINISH.toISOString(),
+            terminalReason: 'explicit_kill',
+          }),
+        )
+        sessions.push(session)
+      }
+    }
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    for (const session of sessions) {
+      for (const path of [
+        ...Object.values(paths(session.id)),
+        reservationPath(session.name!),
+      ]) {
+        expect(await exists(path)).toBe(true)
+      }
+    }
+  })
+
+  it('preserves orphaned terminal facts with noncanonical timestamps', async () => {
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    const factPaths: string[] = []
+    for (const [suffix, finishedAt] of NONCANONICAL_FINISHED_AT_CASES) {
+      for (const kind of ['natural', 'killed'] as const) {
+        const id = `bg-orphan-${kind}-${suffix}`
+        const factPath = paths(id)[kind]
+        await writeFile(
+          factPath,
+          JSON.stringify({
+            version: 1,
+            id,
+            pid: nextPid++,
+            status: kind === 'natural' ? 'exited' : 'killed',
+            finishedAt,
+            terminalReason:
+              kind === 'natural' ? 'exit_code' : 'explicit_kill',
+            ...(kind === 'natural' ? { exitCode: 0 } : {}),
+          }),
+        )
+        factPaths.push(factPath)
+      }
+    }
+
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    for (const factPath of factPaths) {
+      expect(await exists(factPath)).toBe(true)
+    }
   })
 
   it('treats missing artifacts as idempotent success', async () => {
