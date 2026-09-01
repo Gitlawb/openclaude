@@ -256,20 +256,20 @@ describe('resolveModelRuntimeLimits', () => {
       const processEnv = {
         CLAUDE_CODE_USE_OPENAI: '1',
         OPENAI_BASE_URL: invalidPrimary,
-        OPENAI_API_BASE: 'https://api.z.ai/api/paas/v4',
+        OPENAI_API_BASE: 'https://api.z.ai/api/coding/paas/v4',
       }
 
       expect(resolveActiveRouteIdFromEnv(processEnv, {
         activeProfileProvider: 'zai',
         activeProfileBaseUrl: 'https://api.z.ai/api/coding/paas/v4',
-      })).toBe('custom')
+      })).toBe('zai')
       expect(resolveModelRuntimeLimits({
         model: 'glm-5.3-flash',
         activeProfileProvider: 'zai',
         processEnv,
       })).toEqual({
-        contextWindow: undefined,
-        maxOutputTokens: undefined,
+        contextWindow: 1_000_000,
+        maxOutputTokens: 131_072,
       })
     },
   )
@@ -1118,6 +1118,32 @@ describe('resolveOpenAIShimRuntimeContext - xAI catalog metadata', () => {
 })
 
 describe('resolveOpenAIShimRuntimeContext - provider override route preference', () => {
+  it('uses the resolved request route for provider-override runtime limits', () => {
+    const processEnv = {
+      ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+      ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+    }
+
+    expect(resolveModelRuntimeLimits({
+      model: 'glm-5.3-flash',
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      resolvedRouteId: 'zai',
+      processEnv,
+    })).toEqual({
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+    })
+    expect(resolveModelRuntimeLimits({
+      model: 'glm-5.3-flash',
+      baseUrl: 'https://custom.example.test/v1',
+      resolvedRouteId: null,
+      processEnv,
+    })).toEqual({
+      contextWindow: undefined,
+      maxOutputTokens: undefined,
+    })
+  })
+
   it('does not inherit ambient route config when the preferred base URL is unrecognized', () => {
     const result = resolveOpenAIShimRuntimeContext({
       model: 'gpt-4o',

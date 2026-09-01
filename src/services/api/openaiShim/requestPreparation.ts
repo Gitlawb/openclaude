@@ -144,7 +144,7 @@ export function prepareOpenAIRequest({
     model: runtimeModel,
     baseUrl: request.baseUrl,
     processEnv: requestProcessEnv,
-    activeProfileProvider: runtimeShimContext.routeId ?? undefined,
+    resolvedRouteId: runtimeShimContext.routeId,
   })
   const shimConfig = runtimeShimContext.openaiShimConfig
   const effectiveTransport = shimConfig.endpointPath === '/responses'
@@ -353,8 +353,9 @@ export function prepareOpenAIRequest({
     responsesMessages ??= effectiveTransport === 'chat_completions'
       ? fastPath.skipToolHistoryCompression || skipCompressionForPrefixCache
         ? rawMessages
-        : compressToolHistory(rawMessages, request.resolvedModel, {
+        : compressToolHistory(rawMessages, runtimeModel, {
           textBlockSeparator: '\n',
+          runtimeLimits,
         })
       : compressedMessages
     responsesInput ??= convertAnthropicMessagesToResponsesInput(

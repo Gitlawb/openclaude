@@ -16,6 +16,8 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   CLAUDE_CODE_USE_GITHUB: process.env.CLAUDE_CODE_USE_GITHUB,
   GITHUB_TOKEN: process.env.GITHUB_TOKEN,
   OPENCLAUDE_LOCAL_FAST_PATH: process.env.OPENCLAUDE_LOCAL_FAST_PATH,
@@ -215,7 +217,10 @@ afterEach(() => {
 async function captureRequestBody(
   messages: Array<{ role: string; content: unknown }>,
   model: string,
-  options: { useModelWindow?: boolean } = {},
+  options: {
+    useModelWindow?: boolean
+    providerOverride?: { model: string; baseURL: string; apiKey: string }
+  } = {},
 ): Promise<Record<string, unknown>> {
   const originalAutoCompactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
   const originalMaxOutputTokens = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
@@ -235,7 +240,9 @@ async function captureRequestBody(
       return makeFakeResponse()
     }) as FetchType
 
-    const client = createOpenAIShimClient({}) as OpenAIShimClient
+    const client = createOpenAIShimClient({
+      providerOverride: options.providerOverride,
+    }) as OpenAIShimClient
     await client.beta.messages.create({
       model,
       system: 'system prompt',
@@ -482,6 +489,56 @@ test('FIX: 1M context model with 30 exchanges → only first 5 mid-truncated', a
   }
   for (let i = 5; i < 30; i++) {
     expect(toolMessages[i].content.length).toBe(5_000)
+  }
+})
+
+test('provider override uses Z.AI Flash limits instead of ambient Anthropic limits', async () => {
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+  process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-6'
+  const messages = buildLongConversation(25, 5_000)
+
+  const zaiBody = await captureRequestBody(messages, 'claude-sonnet-4-6', {
+    useModelWindow: true,
+    providerOverride: {
+      model: 'glm-5.3-flash',
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      apiKey: 'test-key',
+    },
+  })
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://custom.example.test/v1'
+  const customBody = await captureRequestBody(messages, 'claude-sonnet-4-6', {
+    useModelWindow: true,
+    providerOverride: {
+      model: 'glm-5.3-flash',
+      baseURL: 'https://custom.example.test/v1',
+      apiKey: 'test-key',
+    },
+  })
+  const zaiToolMessages = getToolMessages(zaiBody)
+  const customToolMessages = getToolMessages(customBody)
+
+  expect(zaiBody.model).toBe('glm-5.3-flash')
+  expect(customBody.model).toBe('glm-5.3-flash')
+  expect(zaiToolMessages).toHaveLength(25)
+  expect(customToolMessages).toHaveLength(25)
+  for (const message of zaiToolMessages) {
+    expect(message.content).toHaveLength(5_000)
+    expect(message.content).not.toContain('chars omitted')
+    expect(message.content).not.toContain('[…truncated')
+  }
+  for (let index = 0; index < 10; index++) {
+    expect(customToolMessages[index].content).toContain('chars omitted')
+  }
+  for (let index = 10; index < 20; index++) {
+    expect(customToolMessages[index].content).toContain('[…truncated')
+  }
+  for (let index = 20; index < 25; index++) {
+    expect(customToolMessages[index].content).toHaveLength(5_000)
+    expect(customToolMessages[index].content).not.toContain('chars omitted')
+    expect(customToolMessages[index].content).not.toContain('[…truncated')
   }
 })
 
@@ -1019,6 +1076,57 @@ test('GitHub chat fallback compresses the retried Responses request', async () =
     `${'a'.repeat(1_000)}\n${'b'.repeat(999)}\n[…truncated 501 chars from tool history]`,
   )
   expect(outputs[29]?.output).toHaveLength(5_000)
+})
+
+test('GitHub chat fallback preserves provider-override Z.AI Flash limits', async () => {
+  setCompressionEnabledForTest(true)
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+  delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  delete process.env.OPENAI_API_FORMAT
+  process.env.CLAUDE_CODE_USE_GITHUB = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.githubcopilot.com'
+  process.env.OPENAI_API_KEY = 'github-test-key'
+  process.env.GITHUB_TOKEN = 'github-test-key'
+
+  const urls: string[] = []
+  let fallbackBody: Record<string, unknown> | undefined
+  globalThis.fetch = (async (input, init) => {
+    urls.push(String(input))
+    if (urls.length === 1) {
+      return new Response(
+        JSON.stringify({ error: { message: '/chat/completions not accessible' } }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+    fallbackBody = JSON.parse(String(init?.body))
+    return makeFakeResponsesResponse()
+  }) as FetchType
+
+  const client = createOpenAIShimClient({
+    providerOverride: {
+      model: 'glm-5.3-flash',
+      baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      apiKey: 'zai-test-key',
+    },
+  }) as OpenAIShimClient
+  await client.beta.messages.create({
+    model: 'gpt-4o',
+    messages: buildLongConversation(25, 5_000),
+  })
+
+  expect(urls).toEqual([
+    'https://api.z.ai/api/coding/paas/v4/chat/completions',
+    'https://api.z.ai/api/coding/paas/v4/responses',
+  ])
+  expect(fallbackBody).toBeDefined()
+  const outputs = getResponsesFunctionOutputs(fallbackBody!)
+  expect(outputs).toHaveLength(25)
+  for (const output of outputs) {
+    expect(output.output).toHaveLength(5_000)
+    expect(output.output).not.toContain('chars omitted')
+    expect(output.output).not.toContain('[…truncated')
+  }
 })
 
 test('non-chat transports do not invoke the Chat message converter', () => {

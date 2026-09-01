@@ -491,6 +491,7 @@ export function resolveModelRuntimeLimits(options: {
   processEnv?: NodeJS.ProcessEnv
   baseUrl?: string
   activeProfileProvider?: string
+  resolvedRouteId?: string | null
 }): ModelRuntimeLimits {
   const processEnv = options.processEnv ?? process.env
   const runtimeEnv: NodeJS.ProcessEnv = { ...processEnv }
@@ -498,10 +499,12 @@ export function resolveModelRuntimeLimits(options: {
     runtimeEnv.OPENAI_BASE_URL = options.baseUrl
   }
 
-  const routeId = resolveActiveRouteIdFromEnv(runtimeEnv, {
-    activeProfileProvider: options?.activeProfileProvider,
-    activeProfileBaseUrl: options?.baseUrl,
-  })
+  const routeId = options.resolvedRouteId !== undefined
+    ? options.resolvedRouteId
+    : resolveActiveRouteIdFromEnv(runtimeEnv, {
+      activeProfileProvider: options?.activeProfileProvider,
+      activeProfileBaseUrl: options?.baseUrl,
+    })
   const modelApiName = getBaseModelApiName(options.model) ?? options.model
   const catalogEntry = findCatalogEntryForApiName(routeId, modelApiName)
   const cachedCatalogEntry = findCachedCatalogEntryForApiName(
