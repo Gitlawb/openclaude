@@ -378,7 +378,6 @@ export async function prepareBackgroundSessionFinalizer(
       onExit(normalizeProcessExitCode(code ?? process.exitCode))
       return originalExit(code)
     }) as typeof process.exit
-    process.once('uncaughtExceptionMonitor', () => onExit(1))
     process.once('exit', onExit)
   }
 

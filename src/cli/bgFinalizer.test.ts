@@ -457,7 +457,15 @@ describe('background session finalizer', () => {
   })
 
   async function runFixture(
-    mode: 'success' | 'fail' | 'throw' | 'wait' | 'sigint' | 'sigterm',
+    mode:
+      | 'success'
+      | 'fail'
+      | 'throw'
+      | 'handled-throw'
+      | 'wait'
+      | 'sigint'
+      | 'sigterm',
+    releasePath?: string,
   ): Promise<{
     id: string
     child: ReturnType<typeof spawn>
@@ -472,6 +480,9 @@ describe('background session finalizer', () => {
         [BACKGROUND_SESSION_ID_ENV]: id,
         [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: String(process.pid),
         OPENCLAUDE_BG_FINALIZER_FIXTURE_READY: readyPath,
+        ...(releasePath
+          ? { OPENCLAUDE_BG_FINALIZER_FIXTURE_RELEASE: releasePath }
+          : {}),
       },
       stdio: ['ignore', 'ignore', 'ignore'],
     })
@@ -499,6 +510,40 @@ describe('background session finalizer', () => {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
     return !isProcessRunning(pid)
+  }
+
+  function sessionArtifactPaths(id: string, name: string): string[] {
+    const reservationDigest = createHash('sha256').update(name).digest('hex')
+    return [
+      join(sessionsRoot, 'sessions', `${id}.json`),
+      join(sessionsRoot, 'logs', `${id}.out.log`),
+      join(sessionsRoot, 'logs', `${id}.err.log`),
+      join(sessionsRoot, 'names', `${reservationDigest}.json`),
+    ]
+  }
+
+  async function expectSessionArtifactsReclaimed(
+    id: string,
+    name: string,
+  ): Promise<void> {
+    const artifacts = sessionArtifactPaths(id, name)
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+      const present = await Promise.all(
+        artifacts.map(async path => await Bun.file(path).exists()),
+      )
+      if (present.every(exists => !exists)) break
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    expect(
+      await Promise.all(
+        artifacts.map(async path => await Bun.file(path).exists()),
+      ),
+    ).toEqual([false, false, false, false])
+    expect(
+      (await readdir(join(sessionsRoot, 'terminal'))).filter(file =>
+        file.startsWith(`${id}~`),
+      ),
+    ).toEqual([])
   }
 
   async function runBuiltCliSession(
@@ -599,6 +644,53 @@ describe('background session finalizer', () => {
       })
     })
   }
+
+  it(
+    'keeps a handled uncaught exception live until the actual exit',
+    async () => {
+      const releasePath = join(configDir, 'handled-throw.release')
+      const { id, child, readyPath } = await runFixture(
+        'handled-throw',
+        releasePath,
+      )
+      const childExit = once(child, 'exit') as Promise<
+        [number | null, NodeJS.Signals | null]
+      >
+      const forceTimer = setTimeout(() => child.kill('SIGKILL'), 10_000)
+      try {
+        await waitForFile(readyPath)
+        expect(child.pid).toBeDefined()
+        expect(isProcessRunning(child.pid!)).toBe(true)
+        expect(
+          (await listBackgroundSessions()).find(item => item.id === id),
+        ).toMatchObject({
+          id,
+          status: 'running',
+        })
+
+        await writeFile(releasePath, 'release')
+        const [code, signal] = await childExit
+        expect(signal).toBeNull()
+        expect(code).toBe(23)
+        expect(
+          (await listBackgroundSessions()).find(item => item.id === id),
+        ).toMatchObject({
+          id,
+          status: 'failed',
+          exitCode: 23,
+          terminalReason: 'exit_code',
+        })
+      } finally {
+        clearTimeout(forceTimer)
+        await writeFile(releasePath, 'release').catch(() => {})
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL')
+          await childExit.catch(() => {})
+        }
+      }
+    },
+    30_000,
+  )
 
   for (const expectation of [
     {
@@ -719,15 +811,7 @@ describe('background session finalizer', () => {
         throw new Error('detached launch output omitted its session identity')
       }
       childPid = parsedChildPid
-      const reservationDigest = createHash('sha256')
-        .update(name)
-        .digest('hex')
-      const artifacts = [
-        join(sessionsRoot, 'sessions', `${id}.json`),
-        join(sessionsRoot, 'logs', `${id}.out.log`),
-        join(sessionsRoot, 'logs', `${id}.err.log`),
-        join(sessionsRoot, 'names', `${reservationDigest}.json`),
-      ]
+      const artifacts = sessionArtifactPaths(id, name)
       await waitForFile(readyPath)
       expect(isProcessRunning(childPid)).toBe(true)
       expect(
@@ -738,28 +822,7 @@ describe('background session finalizer', () => {
       await writeFile(releasePath, 'release')
 
       expect(await waitForProcessStop(childPid)).toBe(true)
-      for (let attempt = 0; attempt < 500; attempt += 1) {
-        if (
-          (
-            await Promise.all(
-              artifacts.map(async path => await Bun.file(path).exists()),
-            )
-          ).every(exists => !exists)
-        ) {
-          break
-        }
-        await new Promise(resolve => setTimeout(resolve, 10))
-      }
-      expect(
-        await Promise.all(
-          artifacts.map(async path => await Bun.file(path).exists()),
-        ),
-      ).toEqual([false, false, false, false])
-      expect(
-        (await readdir(join(sessionsRoot, 'terminal'))).filter(file =>
-          file.startsWith(`${id}~`),
-        ),
-      ).toEqual([])
+      await expectSessionArtifactsReclaimed(id, name)
     } finally {
       await writeFile(releasePath, 'release').catch(() => {})
       if (launcher.exitCode === null && launcher.signalCode === null) {
@@ -858,37 +921,7 @@ describe('background session finalizer', () => {
       try {
         expect(await waitForProcessStop(childPid)).toBe(true)
 
-        const reservationDigest = createHash('sha256')
-          .update(name)
-          .digest('hex')
-        const artifacts = [
-          join(sessionsRoot, 'sessions', `${id}.json`),
-          join(sessionsRoot, 'logs', `${id}.out.log`),
-          join(sessionsRoot, 'logs', `${id}.err.log`),
-          join(sessionsRoot, 'names', `${reservationDigest}.json`),
-        ]
-        for (let attempt = 0; attempt < 500; attempt += 1) {
-          if (
-            (
-              await Promise.all(
-                artifacts.map(async path => await Bun.file(path).exists()),
-              )
-            ).every(exists => !exists)
-          ) {
-            break
-          }
-          await new Promise(resolve => setTimeout(resolve, 10))
-        }
-        expect(
-          await Promise.all(
-            artifacts.map(async path => await Bun.file(path).exists()),
-          ),
-        ).toEqual([false, false, false, false])
-        expect(
-          (await readdir(join(sessionsRoot, 'terminal'))).filter(file =>
-            file.startsWith(`${id}~`),
-          ),
-        ).toEqual([])
+        await expectSessionArtifactsReclaimed(id, name)
       } finally {
         if (isProcessRunning(childPid)) {
           try {

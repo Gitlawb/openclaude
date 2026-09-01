@@ -45,7 +45,28 @@ if (process.env[cleanupWorkerEnv] === '1') {
     })
   }
   const readyPath = process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_READY
-  if (readyPath) await writeFile(readyPath, 'ready')
+  if (mode === 'handled-throw') {
+    const releasePath = process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_RELEASE
+    if (!readyPath || !releasePath) {
+      throw new Error('handled-throw fixture routing is missing')
+    }
+    process.once('uncaughtException', async () => {
+      await writeFile(readyPath, 'ready')
+      const deadline = Date.now() + 5_000
+      while (!(await Bun.file(releasePath).exists())) {
+        if (Date.now() >= deadline) {
+          process.exit(24)
+        }
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      process.exit(23)
+    })
+    queueMicrotask(() => {
+      throw new Error('intentional handled fixture failure')
+    })
+  } else if (readyPath) {
+    await writeFile(readyPath, 'ready')
+  }
   if (mode === 'controlled' || mode === 'controlled-exit') {
     const releasePath = process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_RELEASE
     if (!releasePath) {
