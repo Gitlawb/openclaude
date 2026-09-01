@@ -760,6 +760,137 @@ test.serial('rejects registry installs when revocations.json is malformed', asyn
   })
 })
 
+test.serial('OPENCLAUDE_SKILLS_REVOCATIONS_URL takes precedence over the registry sibling', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    // The sibling list revokes nothing; the override list revokes the skill.
+    writeFileSync(join(tempDir, 'revocations.json'), '[]', 'utf8')
+    const overridePath = join(tempDir, 'override-revocations.json')
+    writeFileSync(
+      overridePath,
+      JSON.stringify([{ id: 'gitlawb/sample-skill' }]),
+      'utf8',
+    )
+
+    const previous = process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+    process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = overridePath
+    try {
+      await skillsInstallHandler('sample-skill', {
+        projectDir: cwd,
+        registry: registryPath,
+      })
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+      } else {
+        process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = previous
+      }
+    }
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('rejects registry installs when a revocation entry is invalid', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(
+      join(tempDir, 'revocations.json'),
+      JSON.stringify([{ id: 'gitlawb/sample-skill', sha256: 'not-a-digest' }]),
+      'utf8',
+    )
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('rejects registry installs when revocations.json is not an array', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(join(tempDir, 'revocations.json'), '{}', 'utf8')
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('fails closed when the revocation list exists but cannot be read', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    // A directory at the revocations path reads as EISDIR, not ENOENT:
+    // unreadable is not the same as absent, and must block the install.
+    mkdirSync(join(tempDir, 'revocations.json'))
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
 test.serial('rejects path-like skill names before installing raw markdown', async () => {
   await withTempDir(async tempDir => {
     const cwd = join(tempDir, 'project')

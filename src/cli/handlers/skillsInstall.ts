@@ -196,15 +196,70 @@ function resolveRevocationsSource(registrySource: string): string {
   )
 }
 
+function isAbsentSourceError(error: unknown): boolean {
+  if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+    return true
+  }
+  return error instanceof Error && / HTTP 404$/.test(error.message)
+}
+
+function parseRevocation(
+  value: unknown,
+  index: number,
+  source: string,
+): SkillRevocation {
+  function reject(problem: string): never {
+    throw new Error(
+      `Revocation list at ${source} has an invalid entry at index ${index}: ${problem}.`,
+    )
+  }
+  if (!isPlainObject(value)) {
+    reject('not an object')
+  }
+  const entry = value as SkillRevocation
+  if (
+    entry.id !== undefined &&
+    (typeof entry.id !== 'string' || entry.id.trim() === '')
+  ) {
+    reject('id must be a non-empty string')
+  }
+  if (
+    entry.version !== undefined &&
+    (typeof entry.version !== 'string' || entry.version.trim() === '')
+  ) {
+    reject('version must be a non-empty string')
+  }
+  if (
+    entry.sha256 !== undefined &&
+    (typeof entry.sha256 !== 'string' ||
+      !/^[a-fA-F0-9]{64}$/.test(entry.sha256.trim()))
+  ) {
+    reject('sha256 must be a 64-character hex digest')
+  }
+  if (entry.reason !== undefined && typeof entry.reason !== 'string') {
+    reject('reason must be a string')
+  }
+  if (entry.id === undefined && entry.sha256 === undefined) {
+    reject('must pin at least an id or a sha256')
+  }
+  return entry
+}
+
 async function readRevocations(registrySource: string): Promise<SkillRevocation[]> {
   const source = resolveRevocationsSource(registrySource)
   let raw: string
   try {
     raw = await readSourceText(source)
-  } catch {
-    // The revocation list is additive: a registry without one revokes
-    // nothing, and the sha256 pin is still enforced either way.
-    return []
+  } catch (error) {
+    // A registry may publish no revocation list at all, so a confirmed
+    // absence revokes nothing and the sha256 pin is still enforced. Any
+    // other failure fails closed: an unreachable kill switch must not
+    // read as an empty one.
+    if (isAbsentSourceError(error)) {
+      return []
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Failed to read revocation list at ${source}: ${message}`)
   }
   let parsed: unknown
   try {
@@ -212,7 +267,10 @@ async function readRevocations(registrySource: string): Promise<SkillRevocation[
   } catch {
     throw new Error(`Revocation list at ${source} is not valid JSON.`)
   }
-  return Array.isArray(parsed) ? parsed.filter(isPlainObject) : []
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Revocation list at ${source} must be a JSON array.`)
+  }
+  return parsed.map((entry, index) => parseRevocation(entry, index, source))
 }
 
 async function resolveRegistryEntry(
