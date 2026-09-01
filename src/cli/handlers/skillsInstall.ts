@@ -189,6 +189,11 @@ function resolveRegistryEntrySource(
   return resolve(dirname(registrySource), entrySource)
 }
 
+/**
+ * Resolves where the revocation list lives: the
+ * OPENCLAUDE_SKILLS_REVOCATIONS_URL env var when set, otherwise a
+ * revocations.json sibling of the registry (URL or local file).
+ */
 function resolveRevocationsSource(registrySource: string): string {
   return (
     process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL ??
@@ -196,6 +201,10 @@ function resolveRevocationsSource(registrySource: string): string {
   )
 }
 
+/**
+ * True when an error means the source does not exist (local ENOENT or
+ * remote HTTP 404), as opposed to existing but being unreadable.
+ */
 function isAbsentSourceError(error: unknown): boolean {
   if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
     return true
@@ -203,6 +212,11 @@ function isAbsentSourceError(error: unknown): boolean {
   return error instanceof Error && / HTTP 404$/.test(error.message)
 }
 
+/**
+ * Validates one revocation entry: optional non-empty id/version strings,
+ * an optional 64-hex sha256, an optional reason string, and at least an
+ * id or a digest to pin on. Throws naming the entry index otherwise.
+ */
 function parseRevocation(
   value: unknown,
   index: number,
@@ -245,6 +259,11 @@ function parseRevocation(
   return entry
 }
 
+/**
+ * Reads and validates the registry's revocation list. A confirmed-absent
+ * list revokes nothing; any other read, parse, or schema failure throws
+ * so the install fails closed.
+ */
 async function readRevocations(registrySource: string): Promise<SkillRevocation[]> {
   const source = resolveRevocationsSource(registrySource)
   let raw: string
@@ -356,6 +375,11 @@ function assertSha256Matches(text: string, expectedSha256: string, spec: string)
   }
 }
 
+/**
+ * True when a revocation entry matches the skill: every field the entry
+ * specifies must match (id alone covers all versions, sha256 covers the
+ * exact content under any id).
+ */
 function revocationApplies(
   revocation: SkillRevocation,
   skill: { id?: string; version?: string; sha256: string },
@@ -384,6 +408,10 @@ function revocationApplies(
   return true
 }
 
+/**
+ * Throws with the entry's reason when any revocation entry applies to
+ * the skill being installed.
+ */
 function assertNotRevoked(
   revocations: SkillRevocation[],
   skill: { id?: string; version?: string; sha256: string },
