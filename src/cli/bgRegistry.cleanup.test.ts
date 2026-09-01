@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   symlink,
@@ -205,6 +206,47 @@ describe('background session retention cleanup', () => {
       }
     })
   }
+
+  it('targets prompt cleanup to the requested session generation', async () => {
+    const target = await createRunning('bg-targeted-cleanup')
+    const retained = await createRunning('bg-targeted-retained')
+    await finishNaturally(target, { exitCode: 0 })
+    await finishNaturally(retained, { exitCode: 0 })
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, {
+        sessionIds: [target.id],
+      }),
+    ).toEqual({
+      sessionsRemoved: 1,
+      artifactsRemoved: 4,
+      errors: 0,
+    })
+    expect(await exists(paths(target.id).metadata)).toBe(false)
+    expect(await exists(paths(retained.id).metadata)).toBe(true)
+  })
+
+  it('bounds prompt cleanup before materializing the metadata directory', async () => {
+    for (const id of [
+      'bg-bounded-cleanup-a',
+      'bg-bounded-cleanup-b',
+      'bg-bounded-cleanup-c',
+    ]) {
+      const session = await createRunning(id)
+      await finishNaturally(session, { exitCode: 0 })
+    }
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, {
+        maxDirectoryEntries: 1,
+      }),
+    ).toMatchObject({ sessionsRemoved: 1, errors: 0 })
+    expect(
+      (await readdir(join(root, 'sessions'))).filter(name =>
+        name.endsWith('.json'),
+      ),
+    ).toHaveLength(2)
+  })
 
   it('removes old explicit-kill artifacts', async () => {
     const session = await createBackgroundSession({
@@ -853,6 +895,100 @@ describe('background session retention cleanup', () => {
     }
   })
 
+  it('bounds orphan recovery when the metadata directory is absent', async () => {
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    for (const id of [
+      'bg-bounded-orphan-a',
+      'bg-bounded-orphan-b',
+      'bg-bounded-orphan-c',
+    ]) {
+      await writeFile(
+        paths(id).natural,
+        JSON.stringify({
+          version: 1,
+          id,
+          pid: nextPid++,
+          status: 'exited',
+          finishedAt: OLD_FINISH.toISOString(),
+          terminalReason: 'exit_code',
+          exitCode: 0,
+        }),
+      )
+    }
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, {
+        maxDirectoryEntries: 1,
+      }),
+    ).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 1,
+      errors: 0,
+    })
+    expect(
+      (await readdir(join(root, 'terminal'))).filter(name =>
+        name.endsWith('.json'),
+      ),
+    ).toHaveLength(2)
+  })
+
+  it('does not broaden targeted cleanup into orphan recovery', async () => {
+    const orphanId = 'bg-unrelated-targeted-orphan'
+    await mkdir(join(root, 'terminal'), { recursive: true })
+    await writeFile(
+      paths(orphanId).natural,
+      JSON.stringify({
+        version: 1,
+        id: orphanId,
+        pid: nextPid++,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, {
+        sessionIds: ['bg-missing-target'],
+      }),
+    ).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await exists(paths(orphanId).natural)).toBe(true)
+  })
+
+  it('skips orphan recovery after inspecting an existing target', async () => {
+    const target = await createRunning('bg-existing-target')
+    const orphanId = 'bg-unrelated-existing-target-orphan'
+    await writeFile(
+      paths(orphanId).natural,
+      JSON.stringify({
+        version: 1,
+        id: orphanId,
+        pid: nextPid++,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }),
+    )
+
+    expect(
+      await cleanupBackgroundSessionsBefore(CUTOFF, {
+        sessionIds: [target.id],
+      }),
+    ).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await exists(paths(target.id).metadata)).toBe(true)
+    expect(await exists(paths(orphanId).natural)).toBe(true)
+  })
+
   it('preserves an orphaned fact whose generation does not match its path', async () => {
     await mkdir(join(root, 'terminal'), { recursive: true })
     const id = 'bg-orphan-generation-mismatch'
@@ -1275,6 +1411,58 @@ describe('background session retention cleanup', () => {
       JSON.parse(await readFile(reservationPath(session.name!), 'utf8')),
     ).toMatchObject({ id: 'bg-new-owner' })
     expect(await exists(paths(session.id).metadata)).toBe(false)
+  })
+
+  it('does not remove logs created by a same-ID replacement', async () => {
+    const session = await createRunning('bg-log-generation-replacement')
+    await finishNaturally(session, { exitCode: 0 })
+    let hookCalls = 0
+    let replacement: BackgroundSession | undefined
+
+    const result = await cleanupBackgroundSessionsBefore(CUTOFF, {
+      _beforeArtifactRemovalForTesting: async id => {
+        if (id !== session.id || hookCalls++ > 0) return
+        expect(
+          await cleanupBackgroundSessionsBefore(CUTOFF, {
+            sessionIds: [session.id],
+          }),
+        ).toEqual({
+          sessionsRemoved: 1,
+          artifactsRemoved: 4,
+          errors: 0,
+        })
+        replacement = await createBackgroundSession({
+          id: session.id,
+          pid: nextPid++,
+          cwd: configDir,
+          command: ['openclaude', '--print', 'replacement'],
+          sessionId: 'replacement-log-conversation',
+        })
+        await writeFile(paths(session.id).stdout, 'replacement stdout')
+        await writeFile(paths(session.id).stderr, 'replacement stderr')
+      },
+    })
+
+    expect(hookCalls).toBe(1)
+    expect(replacement).toBeDefined()
+    expect(result).toEqual({
+      sessionsRemoved: 0,
+      artifactsRemoved: 0,
+      errors: 0,
+    })
+    expect(await readFile(paths(session.id).stdout, 'utf8')).toBe(
+      'replacement stdout',
+    )
+    expect(await readFile(paths(session.id).stderr, 'utf8')).toBe(
+      'replacement stderr',
+    )
+    expect(
+      JSON.parse(await readFile(paths(session.id).metadata, 'utf8')),
+    ).toMatchObject({
+      id: replacement?.id,
+      pid: replacement?.pid,
+      sessionId: replacement?.sessionId,
+    })
   })
 
   it(

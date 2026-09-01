@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import { logForDebugging } from '../utils/debug.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
@@ -45,7 +46,14 @@ type PrepareBackgroundSessionFinalizerOptions = {
   onExit?: (listener: (code: number) => void) => void
   finalize?: typeof recordBackgroundSessionNaturalTermination
   finalizeSync?: typeof recordBackgroundSessionNaturalTerminationSync
-  startCleanupWorker?: (ownerPid: number, launcherPid: number) => void
+  startCleanupWorker?: (
+    sessionId: string,
+    ownerPid: number,
+    launcherPid: number,
+    settingsArgs: string[],
+  ) => void
+  settingsArgs?: string[]
+  settingsCwd?: string
   getObservedSignal?: () => ObservedBackgroundSessionSignal | undefined
   debug?: (message: string) => void
 }
@@ -169,13 +177,74 @@ async function waitForOwnedSession(
 }
 
 type BackgroundSessionCleanupWorkerStartOptions = {
+  sessionId: string
   ownerPid: number
   launcherPid: number
   env?: NodeJS.ProcessEnv
   execPath?: string
   execArgv?: string[]
   entrypoint?: string
+  settingsArgs?: string[]
+  settingsCwd?: string
   spawnProcess?: typeof spawn
+}
+
+function backgroundRetentionSettingsArgs(
+  args: string[],
+  settingsCwd: string,
+): string[] {
+  const selected: string[] = []
+  for (const flag of ['--settings', '--setting-sources']) {
+    const inlinePrefix = `${flag}=`
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]
+      if (arg?.startsWith(inlinePrefix)) {
+        const value = backgroundRetentionSettingsValue(
+          flag,
+          arg.slice(inlinePrefix.length),
+          settingsCwd,
+        )
+        if (value !== undefined) selected.push(flag, value)
+        break
+      }
+      if (arg === flag && index + 1 < args.length) {
+        const value = backgroundRetentionSettingsValue(
+          flag,
+          args[index + 1]!,
+          settingsCwd,
+        )
+        if (value !== undefined) selected.push(flag, value)
+        break
+      }
+    }
+  }
+  return selected
+}
+
+function backgroundRetentionSettingsValue(
+  flag: string,
+  value: string,
+  settingsCwd: string,
+): string | undefined {
+  if (flag !== '--settings') return value
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return resolve(settingsCwd, value)
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return '{'
+    }
+    if (!Object.hasOwn(parsed, 'cleanupPeriodDays')) return undefined
+    return JSON.stringify({
+      cleanupPeriodDays: (parsed as { cleanupPeriodDays?: unknown })
+        .cleanupPeriodDays,
+    })
+  } catch {
+    // Preserve fail-closed parsing without forwarding unrelated inline data.
+    return '{'
+  }
 }
 
 export function startBackgroundSessionCleanupWorker(
@@ -186,7 +255,10 @@ export function startBackgroundSessionCleanupWorker(
     throw new Error('Background cleanup worker entrypoint is unavailable')
   }
   const workerEnv = { ...(options.env ?? process.env) }
-  delete workerEnv[BACKGROUND_SESSION_ID_ENV]
+  if (!SAFE_ID_RE.test(options.sessionId)) {
+    throw new Error('Invalid background cleanup session ID')
+  }
+  workerEnv[BACKGROUND_SESSION_ID_ENV] = options.sessionId
   workerEnv[BACKGROUND_SESSION_CLEANUP_WORKER_ENV] = '1'
   workerEnv[BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV] = String(
     options.ownerPid,
@@ -194,7 +266,14 @@ export function startBackgroundSessionCleanupWorker(
   workerEnv[BACKGROUND_SESSION_LAUNCHER_PID_ENV] = String(options.launcherPid)
   const child = (options.spawnProcess ?? spawn)(
     options.execPath ?? process.execPath,
-    [...(options.execArgv ?? process.execArgv), entrypoint],
+    [
+      ...(options.execArgv ?? process.execArgv),
+      entrypoint,
+      ...backgroundRetentionSettingsArgs(
+        options.settingsArgs ?? process.argv.slice(2),
+        options.settingsCwd ?? process.cwd(),
+      ),
+    ],
     {
       detached: true,
       env: workerEnv,
@@ -212,17 +291,26 @@ type RunBackgroundSessionCleanupWorkerOptions = {
   waitMs?: number
   pollMs?: number
   cleanup?: (
+    sessionId: string,
     waitForProcessesToExit: () => Promise<boolean>,
+    reloadSettings?: () => boolean,
   ) => Promise<void>
+  reloadSettings?: () => boolean
 }
 
 async function runDefaultPostFinalizationCleanup(
+  sessionId: string,
   waitForProcessesToExit: () => Promise<boolean>,
+  reloadSettings?: () => boolean,
 ): Promise<void> {
   const { cleanupBackgroundSessionsAfterFinalization } = await import(
     '../utils/cleanup.js'
   )
-  await cleanupBackgroundSessionsAfterFinalization(waitForProcessesToExit)
+  await cleanupBackgroundSessionsAfterFinalization(
+    sessionId,
+    waitForProcessesToExit,
+    reloadSettings,
+  )
 }
 
 export async function runBackgroundSessionCleanupWorker(
@@ -236,11 +324,19 @@ export async function runBackgroundSessionCleanupWorker(
   const launcherPid = parsePositivePid(
     env[BACKGROUND_SESSION_LAUNCHER_PID_ENV],
   )
+  const sessionId = env[BACKGROUND_SESSION_ID_ENV]
   delete env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV]
   delete env[BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV]
   delete env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]
   delete env[BACKGROUND_SESSION_ID_ENV]
-  if (ownerPid === undefined || launcherPid === undefined) return
+  if (
+    ownerPid === undefined ||
+    launcherPid === undefined ||
+    !sessionId ||
+    !SAFE_ID_RE.test(sessionId)
+  ) {
+    return
+  }
 
   const isProcessAlive = options.isProcessAlive ?? isBackgroundLauncherAlive
   const sleep =
@@ -258,7 +354,9 @@ export async function runBackgroundSessionCleanupWorker(
   }
 
   await (options.cleanup ?? runDefaultPostFinalizationCleanup)(
+    sessionId,
     waitForProcessesToExit,
+    options.reloadSettings,
   )
 }
 
@@ -307,18 +405,34 @@ export async function prepareBackgroundSessionFinalizer(
   const getObservedSignal =
     options.getObservedSignal ?? beginBackgroundSessionSignalTracking()
   const debug = options.debug ?? defaultDebug
+  const retentionSettingsArgs = backgroundRetentionSettingsArgs(
+    options.settingsArgs ?? process.argv.slice(2),
+    options.settingsCwd ?? process.cwd(),
+  )
   const startCleanupWorker =
     options.startCleanupWorker ??
-    ((cleanupOwnerPid, cleanupLauncherPid) =>
+    ((
+      cleanupSessionId,
+      cleanupOwnerPid,
+      cleanupLauncherPid,
+      cleanupSettingsArgs,
+    ) =>
       startBackgroundSessionCleanupWorker({
+        sessionId: cleanupSessionId,
         ownerPid: cleanupOwnerPid,
         launcherPid: cleanupLauncherPid,
+        settingsArgs: cleanupSettingsArgs,
       }))
   let finalized = false
 
   const startPostFinalizationCleanup = () => {
     try {
-      startCleanupWorker(ownerPid, launcherPid)
+      startCleanupWorker(
+        id,
+        ownerPid,
+        launcherPid,
+        retentionSettingsArgs,
+      )
     } catch (error) {
       reportPostFinalizationCleanupFailure(debug, error)
     }

@@ -1546,6 +1546,67 @@ describe('background session registry', () => {
     expect(await Bun.file(nameReservationPath(name)).exists()).toBe(false)
   })
 
+  it('bounds recurring reconciliation by terminal directory entries', async () => {
+    const sessions = await Promise.all(
+      ['bg-bounded-reconcile-a', 'bg-bounded-reconcile-b'].map(
+        async (id, index) =>
+          await createBackgroundSession({
+            id,
+            pid: 360 + index,
+            cwd: '/repo',
+            command: [
+              'openclaude',
+              backgroundProcessMarkerToken(TEST_PROCESS_MARKER),
+              '--print',
+              id,
+            ],
+            sessionId: `conversation-${id}`,
+            processMarker: TEST_PROCESS_MARKER,
+          }),
+      ),
+    )
+    for (const session of sessions) {
+      const metadataPath = join(
+        configDir,
+        'bg-sessions',
+        'sessions',
+        `${session.id}.json`,
+      )
+      const release = await lockfile.lock(metadataPath, { realpath: false })
+      try {
+        recordBackgroundSessionNaturalTerminationSync(
+          session.id,
+          { exitCode: 17 },
+          { ownerPid: session.pid, expectedSession: session },
+        )
+      } finally {
+        await release()
+      }
+    }
+
+    expect(
+      await reconcileBackgroundSessionTerminalFacts({
+        terminalScanLimit: 1,
+      }),
+    ).toEqual({ sessionsUpdated: 1, errors: 0 })
+    const statuses = await Promise.all(
+      sessions.map(
+        async session =>
+          (
+            (await Bun.file(
+              join(
+                configDir,
+                'bg-sessions',
+                'sessions',
+                `${session.id}.json`,
+              ),
+            ).json()) as { status: string }
+          ).status,
+      ),
+    )
+    expect(statuses.sort()).toEqual(['failed', 'running'])
+  })
+
   it('does not bypass a contended metadata lock for a markerless session', async () => {
     const id = 'bg-contended-sync-legacy'
     const session = await createBackgroundSession({

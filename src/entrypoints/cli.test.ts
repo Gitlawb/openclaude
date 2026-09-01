@@ -41,7 +41,12 @@ const mockProfileCheckpoint = mock((_checkpoint: string) => {})
 const mockPsHandler = mock(async (_args: string[]) => {})
 const mockLogsHandler = mock(async (_args: string[]) => {})
 const mockAttachHandler = mock(async (_args: string[]) => {})
-const mockKillHandler = mock(async (_args: string[]) => {})
+const mockKillHandler = mock(
+  async (
+    _args: string[],
+    _options?: { retentionSettingsReady?: boolean },
+  ) => {},
+)
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
 const mockPrepareBackgroundSessionFinalizer = mock(async () => 'installed')
 const mockRunBackgroundSessionCleanupWorker = mock(async () => {})
@@ -63,6 +68,7 @@ const mockGetProviderValidationError = mock(
   async (_env: NodeJS.ProcessEnv) => undefined,
 )
 const mockEagerLoadSettingsFromArgs = mock((_args: string[]) => ({ ok: true }))
+const mockResetSettingsCache = mock(() => {})
 const mockResolveOutOfProcessTeammateProviderFromCliArgs = mock(
   (_args: string[], _settings: unknown) => undefined,
 )
@@ -93,6 +99,7 @@ const runtimeMocks = [
   mockApplyStartupEnvFromProfile,
   mockGetProviderValidationError,
   mockEagerLoadSettingsFromArgs,
+  mockResetSettingsCache,
   mockResolveOutOfProcessTeammateProviderFromCliArgs,
   mockApplyAgentProviderOverrideToEnv,
   mockGetInitialSettings,
@@ -298,18 +305,15 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(process.env.GEMINI_MODEL).toBe('gemini-2.0-flash')
   })
 
-  it('dispatches background session management before config and provider validation', async () => {
+  it('dispatches background session management before provider validation', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
     const bgManagementIndex = src.indexOf("args[0] === 'ps'")
-    const configEnableIndex = src.indexOf('enableConfigs()', bgManagementIndex)
     const providerValidationIndex = src.indexOf(
       'await validateProviderEnvForStartupOrExit()',
     )
 
     expect(bgManagementIndex).toBeGreaterThanOrEqual(0)
-    expect(configEnableIndex).toBeGreaterThanOrEqual(0)
     expect(providerValidationIndex).toBeGreaterThanOrEqual(0)
-    expect(bgManagementIndex).toBeLessThan(configEnableIndex)
     expect(bgManagementIndex).toBeLessThan(providerValidationIndex)
   })
 
@@ -368,6 +372,9 @@ const mockImporters = {
   }),
   flagSettings: async () => ({
     eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
+  }),
+  settingsCache: async () => ({
+    resetSettingsCache: mockResetSettingsCache,
   }),
   agentRouting: async () => ({
     applyAgentProviderOverrideToEnv: mockApplyAgentProviderOverrideToEnv,
@@ -439,13 +446,42 @@ describe('cli.tsx — background routing behavior', () => {
 
       await runCliEntrypoint([command, ...tail], bgOptions)
 
-      expect(handler.mock.calls).toEqual([[tail]])
+      if (command === 'kill') {
+        expect(mockKillHandler.mock.calls).toEqual([
+          [tail, { retentionSettingsReady: true }],
+        ])
+      } else {
+        expect(handler.mock.calls).toEqual([[tail]])
+      }
       expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
       expect(mockHandleBgFlag).not.toHaveBeenCalled()
-      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).toHaveBeenCalledTimes(
+        command === 'kill' ? 1 : 0,
+      )
+      expect(mockEagerLoadSettingsFromArgs).toHaveBeenCalledTimes(
+        command === 'kill' ? 1 : 0,
+      )
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
       expect(mockCliMain).not.toHaveBeenCalled()
     }
+  })
+
+  it('keeps kill reachable when retention settings cannot be loaded', async () => {
+    mockEagerLoadSettingsFromArgs.mockImplementationOnce(() => ({
+      ok: false,
+      message: 'missing retention settings',
+    }))
+
+    await runCliEntrypoint(
+      ['kill', 'session-1', '--settings', 'missing.json'],
+      bgOptions,
+    )
+
+    expect(mockKillHandler).toHaveBeenCalledWith(
+      ['session-1', '--settings', 'missing.json'],
+      { retentionSettingsReady: false },
+    )
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
   })
 
   it('establishes background finalizer ownership before any command path', async () => {
@@ -478,6 +514,22 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockPrepareBackgroundSessionFinalizer).not.toHaveBeenCalled()
     expect(mockPsHandler).not.toHaveBeenCalled()
     expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
+    expect(mockResetSettingsCache).toHaveBeenCalledTimes(1)
+    expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([[['ps']]])
+    expect(mockRunBackgroundSessionCleanupWorker).toHaveBeenCalledWith({
+      reloadSettings: expect.any(Function),
+    })
+    const workerOptions = (
+      mockRunBackgroundSessionCleanupWorker.mock.calls as unknown as Array<
+        [{ reloadSettings?: () => boolean }]
+      >
+    )[0]?.[0]
+    expect(workerOptions?.reloadSettings?.()).toBe(true)
+    expect(mockResetSettingsCache).toHaveBeenCalledTimes(2)
+    expect(mockEagerLoadSettingsFromArgs.mock.calls).toEqual([
+      [['ps']],
+      [['ps']],
+    ])
   })
 
   it('routes partial background metadata through the finalizer before dispatch', async () => {
@@ -505,10 +557,22 @@ describe('cli.tsx — background routing behavior', () => {
 
       await runCliEntrypoint([command, '--bg', 'session-1'], bgOptions)
 
-      expect(handler.mock.calls).toEqual([[['--bg', 'session-1']]])
+      const tail = ['--bg', 'session-1']
+      if (command === 'kill') {
+        expect(mockKillHandler.mock.calls).toEqual([
+          [tail, { retentionSettingsReady: true }],
+        ])
+      } else {
+        expect(handler.mock.calls).toEqual([[tail]])
+      }
       expect(mockParseProviderEnvFileArgs).not.toHaveBeenCalled()
       expect(mockHandleBgFlag).not.toHaveBeenCalled()
-      expect(mockEnableConfigs).not.toHaveBeenCalled()
+      expect(mockEnableConfigs).toHaveBeenCalledTimes(
+        command === 'kill' ? 1 : 0,
+      )
+      expect(mockEagerLoadSettingsFromArgs).toHaveBeenCalledTimes(
+        command === 'kill' ? 1 : 0,
+      )
       expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
       expect(mockCliMain).not.toHaveBeenCalled()
     }

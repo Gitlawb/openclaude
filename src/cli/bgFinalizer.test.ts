@@ -10,6 +10,7 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
   prepareBackgroundSessionFinalizer,
+  startBackgroundSessionCleanupWorker,
 } from './bgFinalizer.js'
 import { buildBackgroundChildProcessConfig } from './bg.js'
 import {
@@ -31,6 +32,7 @@ const BACKGROUND_SESSION_CLEANUP_WORKER_ENV =
   'OPENCLAUDE_INTERNAL_BACKGROUND_CLEANUP_WORKER'
 const BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV =
   'OPENCLAUDE_INTERNAL_BACKGROUND_CLEANUP_OWNER_PID'
+const FIXTURE_OUTPUT_LIMIT_BYTES = 64 * 1024
 
 describe('background session finalizer', () => {
   let configDir: string
@@ -241,6 +243,7 @@ describe('background session finalizer', () => {
   it('starts a detached cleanup owner after awaited finalization', async () => {
     let beforeExitListener: (() => void | Promise<void>) | undefined
     const order: string[] = []
+    let workerSettingsArgs: string[] | undefined
 
     await prepareBackgroundSessionFinalizer({
       env: {
@@ -258,13 +261,72 @@ describe('background session finalizer', () => {
         order.push('finalize')
         return ownedSession('bg-launcher-handoff', 500)
       },
-      startCleanupWorker: (ownerPid, launcherPid) => {
-        order.push(`worker:${ownerPid}:${launcherPid}`)
+      settingsArgs: ['--settings', 'retention.json'],
+      settingsCwd: configDir,
+      startCleanupWorker: (
+        sessionId,
+        ownerPid,
+        launcherPid,
+        settingsArgs,
+      ) => {
+        order.push(`worker:${sessionId}:${ownerPid}:${launcherPid}`)
+        workerSettingsArgs = settingsArgs
       },
     })
 
     await beforeExitListener?.()
-    expect(order).toEqual(['finalize', 'worker:500:123'])
+    expect(order).toEqual([
+      'finalize',
+      'worker:bg-launcher-handoff:500:123',
+    ])
+    expect(workerSettingsArgs).toEqual([
+      '--settings',
+      join(configDir, 'retention.json'),
+    ])
+  })
+
+  it('passes only settings-source inputs to the detached cleanup worker', () => {
+    let spawnedArgs: readonly string[] | undefined
+    let spawnedEnv: NodeJS.ProcessEnv | undefined
+    let unrefCalls = 0
+    startBackgroundSessionCleanupWorker({
+      sessionId: 'bg-worker-settings',
+      ownerPid: 500,
+      launcherPid: 123,
+      execPath: 'node',
+      execArgv: ['--expose-gc'],
+      entrypoint: '/openclaude/cli.mjs',
+      settingsArgs: [
+        '--provider',
+        'openai',
+        '--settings={"cleanupPeriodDays":0,"apiKeyHelper":"private"}',
+        '--setting-sources',
+        'project,user',
+      ],
+      spawnProcess: ((_command, args, options) => {
+        spawnedArgs = args
+        spawnedEnv = options.env
+        return {
+          once: () => {},
+          unref: () => {
+            unrefCalls++
+          },
+        }
+      }) as unknown as typeof spawn,
+    })
+
+    expect(spawnedArgs).toEqual([
+      '--expose-gc',
+      '/openclaude/cli.mjs',
+      '--settings',
+      '{"cleanupPeriodDays":0}',
+      '--setting-sources',
+      'project,user',
+    ])
+    expect(spawnedEnv?.[BACKGROUND_SESSION_ID_ENV]).toBe(
+      'bg-worker-settings',
+    )
+    expect(unrefCalls).toBe(1)
   })
 
   it('retains cleanup when the detached worker cannot observe process exit', async () => {
@@ -274,6 +336,7 @@ describe('background session finalizer', () => {
     const env = {
       [BACKGROUND_SESSION_CLEANUP_WORKER_ENV]: '1',
       [BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV]: '500',
+      [BACKGROUND_SESSION_ID_ENV]: 'bg-worker-timeout',
       [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: '123',
     }
     let observedExit: boolean | undefined
@@ -284,7 +347,7 @@ describe('background session finalizer', () => {
       sleep: async () => {},
       waitMs: 2,
       pollMs: 1,
-      cleanup: async waitForProcessesToExit => {
+      cleanup: async (_sessionId, waitForProcessesToExit) => {
         observedExit = await waitForProcessesToExit()
       },
     })
@@ -304,7 +367,7 @@ describe('background session finalizer', () => {
       terminalFactGeneration: 'a'.repeat(64),
     }
     let syncOwner: BackgroundSession | undefined
-    const cleanupWorkers: Array<[number, number]> = []
+    const cleanupWorkers: Array<[string, number, number]> = []
 
     await prepareBackgroundSessionFinalizer({
       env: {
@@ -329,15 +392,17 @@ describe('background session finalizer', () => {
       finalizeSync: (_id, _termination, options) => {
         syncOwner = options?.expectedSession
       },
-      startCleanupWorker: (ownerPid, launcherPid) => {
-        cleanupWorkers.push([ownerPid, launcherPid])
+      startCleanupWorker: (sessionId, ownerPid, launcherPid) => {
+        cleanupWorkers.push([sessionId, ownerPid, launcherPid])
       },
     })
 
     await cleanup?.()
     exitListener?.(23)
     expect(syncOwner).toEqual(registeredSession)
-    expect(cleanupWorkers).toEqual([[registeredSession.pid, 123]])
+    expect(cleanupWorkers).toEqual([
+      [registeredSession.id, registeredSession.pid, 123],
+    ])
   })
 
   it('keeps the original exit code when both persistence paths fail', async () => {
@@ -546,6 +611,174 @@ describe('background session finalizer', () => {
     ).toEqual([])
   }
 
+  async function expectSessionArtifactsRetained(
+    id: string,
+    name: string,
+    stabilityMs: number = 1_000,
+  ): Promise<void> {
+    const artifacts = sessionArtifactPaths(id, name)
+    const deadline = Date.now() + stabilityMs
+    do {
+      expect(
+        await Promise.all(
+          artifacts.map(async path => await Bun.file(path).exists()),
+        ),
+      ).toEqual([true, true, true, false])
+      await new Promise(resolve => setTimeout(resolve, 20))
+    } while (Date.now() < deadline)
+  }
+
+  async function waitForChildClose(
+    child: ReturnType<typeof spawn>,
+    label: string,
+    timeoutMs: number = 15_000,
+  ): Promise<number | null> {
+    const close = once(child, 'close') as Promise<[number | null]>
+    let timedOut = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        close.then(([code]) => code),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true
+            child.kill('SIGKILL')
+            reject(new Error(`${label} exceeded ${timeoutMs}ms`))
+          }, timeoutMs)
+          timer.unref?.()
+        }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      if (timedOut) {
+        await Promise.race([
+          close.catch(() => [null] as [null]),
+          new Promise(resolve => setTimeout(resolve, 2_000)),
+        ])
+      }
+    }
+  }
+
+  function captureBoundedOutput(
+    child: ReturnType<typeof spawn>,
+    stream: NodeJS.ReadableStream | null,
+    label: string,
+  ): { read: () => string; assertWithinLimit: () => void } {
+    let text = ''
+    let bytes = 0
+    let exceeded = false
+    stream?.setEncoding('utf8')
+    stream?.on('data', chunk => {
+      if (exceeded) return
+      const value = String(chunk)
+      bytes += Buffer.byteLength(value)
+      if (bytes > FIXTURE_OUTPUT_LIMIT_BYTES) {
+        exceeded = true
+        child.kill('SIGKILL')
+        return
+      }
+      text += value
+    })
+    return {
+      read: () => text,
+      assertWithinLimit: () => {
+        if (exceeded) {
+          throw new Error(
+            `${label} exceeded ${FIXTURE_OUTPUT_LIMIT_BYTES} bytes`,
+          )
+        }
+      },
+    }
+  }
+
+  async function runBuiltBackgroundProviderExit(
+    name: string,
+    retentionArgs: string[] = [],
+  ): Promise<{ id: string; childPid: number }> {
+    const homeDir = join(configDir, 'home')
+    const cacheDir = join(configDir, 'cache')
+    await mkdir(homeDir, { recursive: true })
+    await mkdir(cacheDir, { recursive: true })
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: homeDir,
+      XDG_CACHE_HOME: cacheDir,
+      OPENCLAUDE_CONFIG_DIR: configDir,
+    }
+    for (const key of [
+      'ANTHROPIC_API_KEY',
+      'OPENAI_API_KEY',
+      'OPENAI_API_KEYS',
+      'GEMINI_API_KEY',
+      'NODE_ENV',
+    ]) {
+      delete childEnv[key]
+    }
+    delete childEnv.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+    const launcher = spawn(
+      'node',
+      [
+        installedLauncherPath,
+        '--bg',
+        '--name',
+        name,
+        ...retentionArgs,
+        '--provider',
+        'openai',
+        '--print',
+        'noop',
+      ],
+      {
+        cwd: configDir,
+        env: childEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    const stdoutCapture = captureBoundedOutput(
+      launcher,
+      launcher.stdout,
+      'built background launcher stdout',
+    )
+    const stderrCapture = captureBoundedOutput(
+      launcher,
+      launcher.stderr,
+      'built background launcher stderr',
+    )
+    let launcherCode: number | null
+    try {
+      launcherCode = await waitForChildClose(
+        launcher,
+        'built background launcher',
+      )
+      stdoutCapture.assertWithinLimit()
+      stderrCapture.assertWithinLimit()
+    } catch (error) {
+      const stdout = stdoutCapture.read()
+      const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+      if (Number.isSafeInteger(childPid) && isProcessRunning(childPid)) {
+        try {
+          process.kill(childPid, 'SIGKILL')
+        } catch {}
+      }
+      throw error
+    }
+    const stdout = stdoutCapture.read()
+    const stderr = stderrCapture.read()
+    expect(launcherCode).toBe(0)
+    expect(stderr).toBe('')
+    const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
+    const id = stdoutLogPath
+      ? basename(stdoutLogPath, '.out.log')
+      : undefined
+    const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+    expect(id).toBeDefined()
+    expect(Number.isSafeInteger(childPid)).toBe(true)
+    if (!id || !Number.isSafeInteger(childPid)) {
+      throw new Error('built launch output omitted its session identity')
+    }
+    return { id, childPid }
+  }
+
   async function runBuiltCliSession(
     id: string,
     args: string[],
@@ -610,20 +843,126 @@ describe('background session finalizer', () => {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    let stdout = ''
-    let stderr = ''
-    launcher.stdout?.setEncoding('utf8')
-    launcher.stderr?.setEncoding('utf8')
-    launcher.stdout?.on('data', chunk => {
-      stdout += chunk
-    })
-    launcher.stderr?.on('data', chunk => {
-      stderr += chunk
-    })
+    const stdoutCapture = captureBoundedOutput(
+      launcher,
+      launcher.stdout,
+      'detached launcher stdout',
+    )
+    const stderrCapture = captureBoundedOutput(
+      launcher,
+      launcher.stderr,
+      'detached launcher stderr',
+    )
     const [code] = (await once(launcher, 'exit')) as [number]
+    stdoutCapture.assertWithinLimit()
+    stderrCapture.assertWithinLimit()
+    const stdout = stdoutCapture.read()
+    const stderr = stderrCapture.read()
     expect(code).toBe(0)
     expect(stderr).toBe('')
     return { stdout, session: await waitForTerminalSession() }
+  }
+
+  async function runWaitingDetachedLaunch(
+    name: string,
+  ): Promise<{ id: string; childPid: number; readyPath: string }> {
+    const readyPath = join(configDir, `${name}.ready`)
+    const launcher = spawn(
+      process.execPath,
+      [fixturePath, 'launcher', 'wait', name],
+      {
+        cwd: configDir,
+        env: {
+          ...process.env,
+          OPENCLAUDE_CONFIG_DIR: configDir,
+          OPENCLAUDE_BG_FINALIZER_FIXTURE_READY: readyPath,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    const stdoutCapture = captureBoundedOutput(
+      launcher,
+      launcher.stdout,
+      'detached wait launcher stdout',
+    )
+    const stderrCapture = captureBoundedOutput(
+      launcher,
+      launcher.stderr,
+      'detached wait launcher stderr',
+    )
+    let launcherCode: number | null
+    try {
+      launcherCode = await waitForChildClose(
+        launcher,
+        'detached wait launcher',
+      )
+      stdoutCapture.assertWithinLimit()
+      stderrCapture.assertWithinLimit()
+    } catch (error) {
+      const stdout = stdoutCapture.read()
+      const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+      if (Number.isSafeInteger(childPid) && isProcessRunning(childPid)) {
+        try {
+          process.kill(childPid, 'SIGKILL')
+        } catch {}
+      }
+      throw error
+    }
+    const stdout = stdoutCapture.read()
+    const stderr = stderrCapture.read()
+    expect(launcherCode).toBe(0)
+    expect(stderr).toBe('')
+    const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
+    const id = stdoutLogPath
+      ? basename(stdoutLogPath, '.out.log')
+      : undefined
+    const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+    expect(id).toBeDefined()
+    expect(Number.isSafeInteger(childPid)).toBe(true)
+    if (!id || !Number.isSafeInteger(childPid)) {
+      throw new Error('detached wait launch omitted its session identity')
+    }
+    await waitForFile(readyPath)
+    return { id, childPid, readyPath }
+  }
+
+  async function runBuiltKill(
+    id: string,
+    settingsArgs: string[] = [],
+  ): Promise<string> {
+    const killEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      OPENCLAUDE_CONFIG_DIR: configDir,
+    }
+    delete killEnv.NODE_ENV
+    delete killEnv.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
+    const kill = spawn(
+      'node',
+      [installedLauncherPath, 'kill', id, ...settingsArgs],
+      {
+        cwd: configDir,
+        env: killEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    const stdoutCapture = captureBoundedOutput(
+      kill,
+      kill.stdout,
+      'built kill stdout',
+    )
+    const stderrCapture = captureBoundedOutput(
+      kill,
+      kill.stderr,
+      'built kill stderr',
+    )
+    const code = await waitForChildClose(kill, 'built kill command')
+    stdoutCapture.assertWithinLimit()
+    stderrCapture.assertWithinLimit()
+    const stdout = stdoutCapture.read()
+    const stderr = stderrCapture.read()
+    expect(code, stderr).toBe(0)
+    expect(stderr).toBe('')
+    return stdout
   }
 
   for (const expectation of [
@@ -644,6 +983,75 @@ describe('background session finalizer', () => {
       })
     })
   }
+
+  for (const scenario of [
+    { label: 'zero-day', days: 0, reclaimed: true, settingsArgs: [] },
+    { label: 'positive', days: 30, reclaimed: false, settingsArgs: [] },
+    {
+      label: 'failed retention bootstrap',
+      days: 0,
+      reclaimed: false,
+      settingsArgs: ['--settings', 'missing-retention-settings.json'],
+    },
+  ]) {
+    it(
+      `keeps built explicit kill successful with ${scenario.label} retention`,
+      async () => {
+        await writeFile(
+          join(configDir, 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: scenario.days }),
+        )
+        const name = `built-kill-${scenario.label.replaceAll(' ', '-')}`
+        const { id, childPid } = await runWaitingDetachedLaunch(name)
+        try {
+          expect(isProcessRunning(childPid)).toBe(true)
+          expect(await runBuiltKill(id, scenario.settingsArgs)).toContain(
+            `Killed background session ${id}.`,
+          )
+          expect(await waitForProcessStop(childPid)).toBe(true)
+          if (scenario.reclaimed) {
+            await expectSessionArtifactsReclaimed(id, name)
+          } else {
+            await expectSessionArtifactsRetained(id, name)
+          }
+        } finally {
+          if (isProcessRunning(childPid)) {
+            try {
+              process.kill(childPid, 'SIGKILL')
+            } catch {}
+          }
+        }
+      },
+      30_000,
+    )
+  }
+
+  it(
+    'keeps built kill retention independent of malformed project MCP config',
+    async () => {
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+      await writeFile(join(configDir, '.mcp.json'), '{invalid')
+      const name = 'built-kill-malformed-mcp'
+      const { id, childPid } = await runWaitingDetachedLaunch(name)
+      try {
+        expect(await runBuiltKill(id)).toContain(
+          `Killed background session ${id}.`,
+        )
+        expect(await waitForProcessStop(childPid)).toBe(true)
+        await expectSessionArtifactsReclaimed(id, name)
+      } finally {
+        if (isProcessRunning(childPid)) {
+          try {
+            process.kill(childPid, 'SIGKILL')
+          } catch {}
+        }
+      }
+    },
+    30_000,
+  )
 
   it(
     'keeps a handled uncaught exception live until the actual exit',
@@ -857,67 +1265,8 @@ describe('background session finalizer', () => {
         join(configDir, 'settings.json'),
         JSON.stringify({ cleanupPeriodDays: 0 }),
       )
-      const homeDir = join(configDir, 'home')
-      const cacheDir = join(configDir, 'cache')
-      await mkdir(homeDir, { recursive: true })
-      await mkdir(cacheDir, { recursive: true })
       const name = 'node-provider-exit'
-      const childEnv: NodeJS.ProcessEnv = {
-        ...process.env,
-        HOME: homeDir,
-        XDG_CACHE_HOME: cacheDir,
-        OPENCLAUDE_CONFIG_DIR: configDir,
-      }
-      for (const key of [
-        'ANTHROPIC_API_KEY',
-        'OPENAI_API_KEY',
-        'OPENAI_API_KEYS',
-        'GEMINI_API_KEY',
-      ]) {
-        delete childEnv[key]
-      }
-      delete childEnv.OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN
-      const launcher = spawn(
-        'node',
-        [
-          installedLauncherPath,
-          '--bg',
-          '--name',
-          name,
-          '--provider',
-          'openai',
-          '--print',
-          'noop',
-        ],
-        {
-          cwd: configDir,
-          env: childEnv,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      )
-      let stdout = ''
-      let stderr = ''
-      launcher.stdout?.setEncoding('utf8')
-      launcher.stderr?.setEncoding('utf8')
-      launcher.stdout?.on('data', chunk => {
-        stdout += chunk
-      })
-      launcher.stderr?.on('data', chunk => {
-        stderr += chunk
-      })
-      const [launcherCode] = (await once(launcher, 'close')) as [number]
-      expect(launcherCode).toBe(0)
-      expect(stderr).toBe('')
-      const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
-      const id = stdoutLogPath
-        ? basename(stdoutLogPath, '.out.log')
-        : undefined
-      const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
-      expect(id).toBeDefined()
-      expect(Number.isSafeInteger(childPid)).toBe(true)
-      if (!id || !Number.isSafeInteger(childPid)) {
-        throw new Error('built launch output omitted its session identity')
-      }
+      const { id, childPid } = await runBuiltBackgroundProviderExit(name)
       try {
         expect(await waitForProcessStop(childPid)).toBe(true)
 
@@ -932,6 +1281,84 @@ describe('background session finalizer', () => {
     },
     30_000,
   )
+
+  for (const scenario of [
+    {
+      label: 'settings file retains against global zero-day policy',
+      globalDays: 0,
+      prepare: async () => {
+        const path = join(configDir, 'retain-settings.json')
+        await writeFile(path, JSON.stringify({ cleanupPeriodDays: 30 }))
+        return ['--settings', path]
+      },
+      reclaimed: false,
+    },
+    {
+      label: 'inline settings enable zero-day against global retention',
+      globalDays: 30,
+      prepare: async () => [
+        '--settings',
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      ],
+      reclaimed: true,
+    },
+    {
+      label: 'project-only sources retain against global zero-day policy',
+      globalDays: 0,
+      prepare: async () => {
+        await mkdir(join(configDir, '.openclaude'), { recursive: true })
+        await writeFile(
+          join(configDir, '.openclaude', 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: 30 }),
+        )
+        return ['--setting-sources', 'project']
+      },
+      reclaimed: false,
+    },
+    {
+      label: 'project-only sources enable zero-day against global retention',
+      globalDays: 30,
+      prepare: async () => {
+        await mkdir(join(configDir, '.openclaude'), { recursive: true })
+        await writeFile(
+          join(configDir, '.openclaude', 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: 0 }),
+        )
+        return ['--setting-sources', 'project']
+      },
+      reclaimed: true,
+    },
+  ]) {
+    it(
+      `preserves ${scenario.label} across the cleanup-worker handoff`,
+      async () => {
+        await writeFile(
+          join(configDir, 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: scenario.globalDays }),
+        )
+        const name = `worker-policy-${scenario.globalDays}-${scenario.reclaimed ? 'clean' : 'retain'}`
+        const { id, childPid } = await runBuiltBackgroundProviderExit(
+          name,
+          await scenario.prepare(),
+        )
+        try {
+          expect(await waitForProcessStop(childPid)).toBe(true)
+          if (scenario.reclaimed) {
+            await expectSessionArtifactsReclaimed(id, name)
+          } else {
+            await expectSessionArtifactsRetained(id, name)
+          }
+        } finally {
+          if (isProcessRunning(childPid)) {
+            try {
+              process.kill(childPid, 'SIGKILL')
+            } catch {}
+          }
+        }
+      },
+      30_000,
+    )
+  }
 
   it.skipIf(process.platform === 'win32')(
     'recognizes a live built marked child through the production command probe',

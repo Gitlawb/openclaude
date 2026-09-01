@@ -26,16 +26,16 @@ import { autoUpdateMarketplacesAndPluginsInBackground } from './plugins/pluginAu
 
 // 24 hours in milliseconds
 const RECURRING_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000
-// Terminal facts are a durable handoff from background children. Polling this
-// small registry once a minute gives zero-day retention a prompt later pass
-// without rerunning the full message and cache cleanup pipeline.
+// Terminal facts are a durable handoff from background children. The cleanup
+// coordinator globally throttles this minute trigger and streams only a bounded
+// fact/metadata sample, without rerunning the age-based retention sweep.
 const BACKGROUND_SESSION_RECONCILIATION_INTERVAL_MS = 60 * 1000
 
 // 10 minutes after start.
 const DELAY_VERY_SLOW_OPERATIONS_THAT_HAPPEN_EVERY_SESSION = 10 * 60 * 1000
 
 type BackgroundSessionReconciliationOptions = {
-  cleanup?: () => Promise<void>
+  cleanup?: () => Promise<unknown>
   setInterval?: (
     callback: () => void,
     intervalMs: number,

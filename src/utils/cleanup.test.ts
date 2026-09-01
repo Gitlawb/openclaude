@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdir, rm, stat, utimes, writeFile } from 'fs/promises'
+import { mkdir, readdir, rm, stat, utimes, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -12,6 +12,7 @@ import { cleanupOldSessionFilesInProjectsDir } from './cleanup.js'
 import { NodeFsOperations } from './fsOperations.js'
 
 const tempDirs: string[] = []
+const FIXTURE_OUTPUT_LIMIT_BYTES = 64 * 1024
 
 afterEach(async () => {
   _setBackgroundSessionsRootForTesting(undefined)
@@ -20,12 +21,41 @@ afterEach(async () => {
   )
 })
 
+async function readBoundedFixtureOutput(
+  stream: ReadableStream<Uint8Array>,
+  label: string,
+): Promise<string> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      if (bytes > FIXTURE_OUTPUT_LIMIT_BYTES) {
+        throw new Error(
+          `${label} exceeded ${FIXTURE_OUTPUT_LIMIT_BYTES} bytes`,
+        )
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+    return text + decoder.decode()
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 async function runCleanupFixture(
   configDir: string,
   mode:
     | 'once'
-    | 'post-completion'
+    | 'marker-failure'
+    | 'periodic-policy-recheck'
+    | 'periodic-recovery'
     | 'post-finalization-gate'
+    | 'post-finalization-policy-recheck'
     | 'post-finalization-exact-cutoff'
     | 'post-finalization-timeout'
     | 'explicit-kill' = 'once',
@@ -52,8 +82,14 @@ async function runCleanupFixture(
   try {
     const [exitCode, stdout, stderr] = await Promise.all([
       child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
+      readBoundedFixtureOutput(
+        child.stdout as ReadableStream<Uint8Array>,
+        'cleanup fixture stdout',
+      ),
+      readBoundedFixtureOutput(
+        child.stderr as ReadableStream<Uint8Array>,
+        'cleanup fixture stderr',
+      ),
     ])
     expect(exitCode, stderr).toBe(0)
     const result = JSON.parse(stdout) as Record<string, unknown>
@@ -61,6 +97,7 @@ async function runCleanupFixture(
     return result
   } finally {
     clearTimeout(timeout)
+    controller.abort()
   }
 }
 
@@ -86,6 +123,50 @@ async function createCompletedBackgroundSession(
   )
   _setBackgroundSessionsRootForTesting(undefined)
   return join(root, 'sessions', `${id}.json`)
+}
+
+async function runConcurrentPeriodicRecovery(
+  configDir: string,
+): Promise<string[]> {
+  const fixture = join(import.meta.dir, 'cleanupBackgroundSessions.fixture.ts')
+  const { NODE_ENV: _nodeEnv, USER_TYPE: _userType, ...inheritedEnv } =
+    process.env
+  const runRecovery = async (): Promise<string> => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15_000)
+    const child = Bun.spawn([process.execPath, fixture], {
+      cwd: configDir,
+      env: {
+        ...inheritedEnv,
+        HOME: configDir,
+        XDG_CACHE_HOME: join(configDir, 'cache'),
+        OPENCLAUDE_CONFIG_DIR: configDir,
+        OPENCLAUDE_CLEANUP_FIXTURE_MODE: 'periodic-recovery',
+      },
+      signal: controller.signal,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    try {
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        readBoundedFixtureOutput(
+          child.stdout as ReadableStream<Uint8Array>,
+          'periodic recovery stdout',
+        ),
+        readBoundedFixtureOutput(
+          child.stderr as ReadableStream<Uint8Array>,
+          'periodic recovery stderr',
+        ),
+      ])
+      expect(exitCode, stderr).toBe(0)
+      return (JSON.parse(stdout) as { result: string }).result
+    } finally {
+      clearTimeout(timeout)
+      controller.abort()
+    }
+  }
+  return await Promise.all([runRecovery(), runRecovery()])
 }
 
 describe('cleanupOldSessionFiles', () => {
@@ -123,6 +204,148 @@ describe('cleanupOldSessionFiles', () => {
 
 describe('cleanupOldMessageFilesInBackground', () => {
   test(
+    'globally throttles and bounds concurrent prompt-recovery passes',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-bounded-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      const root = join(configDir, 'bg-sessions')
+      const metadataDir = join(root, 'sessions')
+      const logsDir = join(root, 'logs')
+      await Promise.all([
+        mkdir(metadataDir, { recursive: true }),
+        mkdir(logsDir, { recursive: true }),
+        mkdir(join(root, 'names'), { recursive: true }),
+        mkdir(join(root, 'terminal'), { recursive: true }),
+      ])
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+      const finishedAt = new Date(Date.now() - 60_000).toISOString()
+      await Promise.all(
+        Array.from({ length: 300 }, async (_, index) => {
+          const id = `bg-bounded-${String(index).padStart(3, '0')}`
+          const stdoutLogPath = join(logsDir, `${id}.out.log`)
+          const stderrLogPath = join(logsDir, `${id}.err.log`)
+          await Promise.all([
+            writeFile(
+              join(metadataDir, `${id}.json`),
+              JSON.stringify({
+                id,
+                pid: 999_999,
+                cwd: configDir,
+                status: 'exited',
+                sessionId: `${id}-conversation`,
+                startedAt: new Date(Date.now() - 120_000).toISOString(),
+                updatedAt: finishedAt,
+                command: ['openclaude', '--print', 'fixture'],
+                stdoutLogPath,
+                stderrLogPath,
+                finishedAt,
+                exitCode: 0,
+                terminalReason: 'exit_code',
+              }),
+            ),
+            writeFile(stdoutLogPath, ''),
+            writeFile(stderrLogPath, ''),
+          ])
+        }),
+      )
+
+      expect((await runConcurrentPeriodicRecovery(configDir)).sort()).toEqual([
+        'ran',
+        'skipped',
+      ])
+      expect(
+        (await readdir(metadataDir)).filter(name => name.endsWith('.json')),
+      ).toHaveLength(44)
+    },
+    30_000,
+  )
+
+  for (const scenario of [
+    { label: 'positive', setting: 30, result: 'ran' },
+    { label: 'invalid', setting: 'invalid', result: 'invalid-policy' },
+  ] as const) {
+    test(
+      `keeps periodic recovery non-destructive with ${scenario.label} retention`,
+      async () => {
+        const configDir = join(
+          tmpdir(),
+          `openclaude-cleanup-bg-periodic-${scenario.label}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        )
+        tempDirs.push(configDir)
+        await mkdir(configDir, { recursive: true })
+        await writeFile(
+          join(configDir, 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: scenario.setting }),
+        )
+        const metadataPath = await createCompletedBackgroundSession(
+          configDir,
+          `bg-periodic-${scenario.label}`,
+          new Date(Date.now() - 60_000),
+        )
+
+        expect(
+          await runCleanupFixture(configDir, 'periodic-recovery'),
+        ).toEqual({ result: scenario.result })
+        expect(await Bun.file(metadataPath).exists()).toBe(true)
+        expect(
+          await Bun.file(
+            join(configDir, 'bg-sessions', '.recovery-pass'),
+          ).exists(),
+        ).toBe(scenario.result === 'ran')
+      },
+      30_000,
+    )
+  }
+
+  test(
+    'rechecks periodic retention policy after acquiring the global lock',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-periodic-recheck-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(configDir, 'periodic-policy-recheck'),
+      ).toEqual({ result: 'ran', metadataPresent: true })
+    },
+    30_000,
+  )
+
+  test(
+    'continues later cleanup stages when the retention marker cannot be created',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-marker-failure-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(configDir, 'marker-failure'),
+      ).toEqual({ completed: true, planPresent: false })
+    },
+    30_000,
+  )
+
+  test(
     'removes old completed background-session artifacts through the scheduler',
     async () => {
       const configDir = join(
@@ -144,6 +367,11 @@ describe('cleanupOldMessageFilesInBackground', () => {
       await runCleanupFixture(configDir)
 
       expect(await Bun.file(metadataPath).exists()).toBe(false)
+      expect(
+        await Bun.file(
+          join(configDir, 'bg-sessions', '.retention-pass'),
+        ).exists(),
+      ).toBe(true)
     },
     30_000,
   )
@@ -232,6 +460,35 @@ describe('cleanupOldMessageFilesInBackground', () => {
   )
 
   test(
+    'rechecks the originating settings policy after process handoff',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-policy-recheck-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(
+          configDir,
+          'post-finalization-policy-recheck',
+        ),
+      ).toEqual({
+        result: 'skipped',
+        waits: 1,
+        reloads: 1,
+        metadataPresent: true,
+      })
+    },
+    30_000,
+  )
+
+  test(
     'reclaims zero-day artifacts after an explicit kill transition',
     async () => {
       const configDir = join(
@@ -278,34 +535,6 @@ describe('cleanupOldMessageFilesInBackground', () => {
   }
 
   test(
-    'reclaims a zero-day session that completes after the initial sweep',
-    async () => {
-      const configDir = join(
-        tmpdir(),
-        `openclaude-cleanup-bg-post-completion-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      )
-      tempDirs.push(configDir)
-      await mkdir(configDir, { recursive: true })
-      await writeFile(
-        join(configDir, 'settings.json'),
-        JSON.stringify({ cleanupPeriodDays: 0 }),
-      )
-
-      expect(
-        await runCleanupFixture(configDir, 'post-completion'),
-      ).toEqual({
-        presentAfterInitialSweep: true,
-        metadataPresentAfterCompletion: false,
-        metadataStatusAfterCompletion: null,
-        reservationPresentAfterCompletion: false,
-        stdoutPresentAfterCompletion: false,
-        stderrPresentAfterCompletion: false,
-      })
-    },
-    30_000,
-  )
-
-  test(
     'preserves background artifacts when explicit cleanupPeriodDays is invalid',
     async () => {
       const configDir = join(
@@ -327,34 +556,6 @@ describe('cleanupOldMessageFilesInBackground', () => {
       await runCleanupFixture(configDir)
 
       expect(await Bun.file(metadataPath).exists()).toBe(true)
-    },
-    30_000,
-  )
-
-  test(
-    'keeps post-completion artifacts when recurring retention is disabled by invalid settings',
-    async () => {
-      const configDir = join(
-        tmpdir(),
-        `openclaude-cleanup-bg-invalid-post-completion-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      )
-      tempDirs.push(configDir)
-      await mkdir(configDir, { recursive: true })
-      await writeFile(
-        join(configDir, 'settings.json'),
-        JSON.stringify({ cleanupPeriodDays: 'invalid' }),
-      )
-
-      expect(
-        await runCleanupFixture(configDir, 'post-completion'),
-      ).toEqual({
-        presentAfterInitialSweep: true,
-        metadataPresentAfterCompletion: true,
-        metadataStatusAfterCompletion: 'running',
-        reservationPresentAfterCompletion: true,
-        stdoutPresentAfterCompletion: true,
-        stderrPresentAfterCompletion: true,
-      })
     },
     30_000,
   )

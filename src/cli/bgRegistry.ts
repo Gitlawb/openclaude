@@ -3,6 +3,7 @@ import {
   lstat,
   mkdir,
   open,
+  opendir,
   readFile,
   readdir,
   rename,
@@ -180,6 +181,32 @@ function getBackgroundSessionNamesDir(): string {
 
 function getBackgroundSessionTerminalDir(): string {
   return join(getBackgroundSessionsRoot(), 'terminal')
+}
+
+async function readDirectoryEntries(
+  path: string,
+  maxEntries?: number,
+): Promise<Dirent<string>[]> {
+  if (maxEntries === undefined) {
+    return await readdir(path, { withFileTypes: true })
+  }
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) return []
+
+  const entries: Dirent<string>[] = []
+  const directory = await opendir(path)
+  try {
+    for await (const entry of directory) {
+      entries.push(entry)
+      if (entries.length >= maxEntries) break
+    }
+  } finally {
+    try {
+      await directory.close()
+    } catch {
+      // The async iterator closes the directory after exhaustion or break.
+    }
+  }
+  return entries
 }
 
 function metadataPathForId(id: string): string {
@@ -1080,9 +1107,12 @@ function hasSamePersistedTerminalState(
   )
 }
 
-export async function reconcileBackgroundSessionTerminalFacts(): Promise<
-  { sessionsUpdated: number; errors: number }
-> {
+export async function reconcileBackgroundSessionTerminalFacts(
+  options: {
+    sessionIds?: readonly string[]
+    terminalScanLimit?: number
+  } = {},
+): Promise<{ sessionsUpdated: number; errors: number }> {
   const result = {
     sessionsUpdated: 0,
     errors: 0,
@@ -1117,29 +1147,59 @@ export async function reconcileBackgroundSessionTerminalFacts(): Promise<
     return result
   }
 
-  let entries: Dirent<string>[]
-  try {
-    entries = await readdir(getBackgroundSessionMetadataDir(), {
-      withFileTypes: true,
-    })
-  } catch (error) {
-    if (!isErrno(error, 'ENOENT')) result.errors++
-    return result
-  }
-  if (
-    (await inspectCleanupDirectory(
-      metadataDirectory,
-      fileSystem.lstatFile,
-    )) !== 'same'
-  ) {
-    result.errors++
-    return result
+  let candidateIds: string[]
+  if (options.sessionIds !== undefined) {
+    candidateIds = [
+      ...new Set(options.sessionIds.filter(id => SAFE_ID_RE.test(id))),
+    ]
+  } else {
+    let entries: Dirent<string>[]
+    try {
+      const scanTerminalFacts = options.terminalScanLimit !== undefined
+      entries = await readDirectoryEntries(
+        scanTerminalFacts
+          ? getBackgroundSessionTerminalDir()
+          : getBackgroundSessionMetadataDir(),
+        scanTerminalFacts ? options.terminalScanLimit : undefined,
+      )
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) result.errors++
+      return result
+    }
+    const scannedDirectory =
+      options.terminalScanLimit === undefined
+        ? metadataDirectory
+        : terminalDirectory
+    if (
+      (await inspectCleanupDirectory(
+        scannedDirectory,
+        fileSystem.lstatFile,
+      )) !== 'same'
+    ) {
+      result.errors++
+      return result
+    }
+    candidateIds = [
+      ...new Set(
+        options.terminalScanLimit === undefined
+          ? entries
+              .filter(
+                entry => entry.isFile() && entry.name.endsWith('.json'),
+              )
+              .map(entry => entry.name.slice(0, -'.json'.length))
+              .filter(id => SAFE_ID_RE.test(id))
+          : entries
+              .map(terminalFactCandidateFromEntry)
+              .filter(
+                (candidate): candidate is NonNullable<typeof candidate> =>
+                  candidate !== null,
+              )
+              .map(candidate => candidate.id),
+      ),
+    ]
   }
 
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
-    const id = entry.name.slice(0, -'.json'.length)
-    if (!SAFE_ID_RE.test(id)) continue
+  for (const id of candidateIds) {
     const metadataPath = metadataPathForId(id)
     const candidate = await readCleanupJson(
       metadataPath,
@@ -1337,6 +1397,7 @@ async function cleanupOrphanedTerminalFacts(
   result: BackgroundCleanupResult,
   fileSystem: BackgroundCleanupFileSystem,
   scanStartSeed: number = cutoffMs,
+  maxDirectoryEntries?: number,
 ): Promise<void> {
   const terminalDirectoryState = await inspectCleanupDirectory(
     terminalDirectory,
@@ -1350,9 +1411,10 @@ async function cleanupOrphanedTerminalFacts(
 
   let entries: Dirent<string>[]
   try {
-    entries = await readdir(getBackgroundSessionTerminalDir(), {
-      withFileTypes: true,
-    })
+    entries = await readDirectoryEntries(
+      getBackgroundSessionTerminalDir(),
+      maxDirectoryEntries,
+    )
   } catch (error) {
     if (!isErrno(error, 'ENOENT')) result.errors++
     return
@@ -1459,8 +1521,11 @@ export async function cleanupBackgroundSessionsBefore(
     readTextFile?: BackgroundCleanupFileSystem['readTextFile']
     unlinkFile?: BackgroundCleanupFileSystem['unlinkFile']
     _beforeMetadataDirectoryReadForTesting?: () => Promise<void>
+    _beforeArtifactRemovalForTesting?: (id: string) => Promise<void>
     _beforeReservationRemovalForTesting?: (path: string) => Promise<void>
     _orphanedTerminalFactScanStartForTesting?: number
+    sessionIds?: readonly string[]
+    maxDirectoryEntries?: number
   } = {},
 ): Promise<BackgroundCleanupResult> {
   const result: BackgroundCleanupResult = {
@@ -1518,6 +1583,7 @@ export async function cleanupBackgroundSessionsBefore(
     return result
   }
   if (metadataDirectory.state === 'missing') {
+    if (options.sessionIds !== undefined) return result
     await cleanupOrphanedTerminalFacts(
       cutoffMs,
       metadataDirectory,
@@ -1526,6 +1592,7 @@ export async function cleanupBackgroundSessionsBefore(
       result,
       fileSystem,
       options._orphanedTerminalFactScanStartForTesting,
+      options.maxDirectoryEntries,
     )
     return result
   }
@@ -1538,36 +1605,41 @@ export async function cleanupBackgroundSessionsBefore(
     return result
   }
 
-  let entries: Dirent<string>[]
-  try {
-    await options._beforeMetadataDirectoryReadForTesting?.()
-    entries = await readdir(getBackgroundSessionMetadataDir(), {
-      withFileTypes: true,
-    })
-  } catch (error) {
-    if (!isErrno(error, 'ENOENT')) result.errors++
-    return result
-  }
-  const metadataDirectoryAfterRead = await inspectCleanupDirectory(
-    metadataDirectory,
-    fileSystem.lstatFile,
-  )
-  if (metadataDirectoryAfterRead !== 'same') {
-    if (metadataDirectoryAfterRead !== 'missing') result.errors++
-    return result
-  }
-
-  const metadataIds = new Set(
-    entries
+  let candidateIds: string[]
+  if (options.sessionIds !== undefined) {
+    candidateIds = [
+      ...new Set(options.sessionIds.filter(id => SAFE_ID_RE.test(id))),
+    ]
+  } else {
+    let entries: Dirent<string>[]
+    try {
+      await options._beforeMetadataDirectoryReadForTesting?.()
+      entries = await readDirectoryEntries(
+        getBackgroundSessionMetadataDir(),
+        options.maxDirectoryEntries,
+      )
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) result.errors++
+      return result
+    }
+    const metadataDirectoryAfterRead = await inspectCleanupDirectory(
+      metadataDirectory,
+      fileSystem.lstatFile,
+    )
+    if (metadataDirectoryAfterRead !== 'same') {
+      if (metadataDirectoryAfterRead !== 'missing') result.errors++
+      return result
+    }
+    candidateIds = entries
       .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
       .map(entry => basename(entry.name, '.json'))
-      .filter(id => SAFE_ID_RE.test(id)),
-  )
+      .filter(id => SAFE_ID_RE.test(id))
+  }
 
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue
-    const metadataPath = join(getBackgroundSessionMetadataDir(), entry.name)
-    const expectedId = basename(entry.name, '.json')
+  const metadataIds = new Set(candidateIds)
+
+  for (const expectedId of candidateIds) {
+    const metadataPath = metadataPathForId(expectedId)
     const metadata = await readCleanupJson(
       metadataPath,
       (value): value is BackgroundSession =>
@@ -1656,70 +1728,8 @@ export async function cleanupBackgroundSessionsBefore(
       }
     }
 
-    const logPaths = getBackgroundSessionLogPaths(session.id)
-    const stdoutRemoval = await removeCleanupArtifact(
-      logPaths.stdoutLogPath,
-      result,
-      logsDirectory,
-      fileSystem,
-    )
-    const stderrRemoval = await removeCleanupArtifact(
-      logPaths.stderrLogPath,
-      result,
-      logsDirectory,
-      fileSystem,
-    )
-    let reservationRemoval: CleanupArtifactRemoval = 'missing'
-    const sessionName = session.name
-    if (sessionName && reservation?.state === 'valid' && namesDirectory) {
-      try {
-        reservationRemoval = await withNameReservationLock(
-          sessionName,
-          async () => {
-            const latestReservation = await readCleanupJson(
-              nameReservationPathForName(sessionName),
-              isBackgroundSessionNameReservation,
-              namesDirectory,
-              fileSystem,
-            )
-            if (latestReservation.state === 'error') {
-              result.errors++
-              return 'error'
-            }
-            if (
-              latestReservation.state !== 'valid' ||
-              latestReservation.value.name !== sessionName ||
-              latestReservation.value.id !== session.id
-            ) {
-              return 'missing'
-            }
-            const reservationPath = nameReservationPathForName(sessionName)
-            await options._beforeReservationRemovalForTesting?.(
-              reservationPath,
-            )
-            return await removeCleanupArtifact(
-              reservationPath,
-              result,
-              namesDirectory,
-              fileSystem,
-              latestReservation.identity,
-            )
-          },
-        )
-      } catch {
-        result.errors++
-        reservationRemoval = 'error'
-      }
-    }
-    if (
-      stdoutRemoval === 'error' ||
-      stderrRemoval === 'error' ||
-      reservationRemoval === 'error'
-    ) {
-      continue
-    }
-
     try {
+      await options._beforeArtifactRemovalForTesting?.(session.id)
       await withBackgroundSessionIdLock(session.id, async () => {
         const latestMetadata = await readCleanupJson(
           metadataPath,
@@ -1741,6 +1751,74 @@ export async function cleanupBackgroundSessionsBefore(
           latestMetadata.identity.dev !== metadata.identity.dev ||
           latestMetadata.identity.ino !== metadata.identity.ino ||
           !isSameBackgroundSessionGeneration(latestMetadata.value, session)
+        ) {
+          return
+        }
+
+        const logPaths = getBackgroundSessionLogPaths(session.id)
+        const stdoutRemoval = await removeCleanupArtifact(
+          logPaths.stdoutLogPath,
+          result,
+          logsDirectory,
+          fileSystem,
+        )
+        const stderrRemoval = await removeCleanupArtifact(
+          logPaths.stderrLogPath,
+          result,
+          logsDirectory,
+          fileSystem,
+        )
+        let reservationRemoval: CleanupArtifactRemoval = 'missing'
+        const sessionName = session.name
+        if (
+          sessionName &&
+          reservation?.state === 'valid' &&
+          namesDirectory
+        ) {
+          try {
+            reservationRemoval = await withNameReservationLock(
+              sessionName,
+              async () => {
+                const latestReservation = await readCleanupJson(
+                  nameReservationPathForName(sessionName),
+                  isBackgroundSessionNameReservation,
+                  namesDirectory,
+                  fileSystem,
+                )
+                if (latestReservation.state === 'error') {
+                  result.errors++
+                  return 'error'
+                }
+                if (
+                  latestReservation.state !== 'valid' ||
+                  latestReservation.value.name !== sessionName ||
+                  latestReservation.value.id !== session.id
+                ) {
+                  return 'missing'
+                }
+                const reservationPath =
+                  nameReservationPathForName(sessionName)
+                await options._beforeReservationRemovalForTesting?.(
+                  reservationPath,
+                )
+                return await removeCleanupArtifact(
+                  reservationPath,
+                  result,
+                  namesDirectory,
+                  fileSystem,
+                  latestReservation.identity,
+                )
+              },
+            )
+          } catch {
+            result.errors++
+            reservationRemoval = 'error'
+          }
+        }
+        if (
+          stdoutRemoval === 'error' ||
+          stderrRemoval === 'error' ||
+          reservationRemoval === 'error'
         ) {
           return
         }
@@ -1779,15 +1857,18 @@ export async function cleanupBackgroundSessionsBefore(
     }
   }
 
-  await cleanupOrphanedTerminalFacts(
-    cutoffMs,
-    metadataDirectory,
-    terminalDirectory,
-    metadataIds,
-    result,
-    fileSystem,
-    options._orphanedTerminalFactScanStartForTesting,
-  )
+  if (options.sessionIds === undefined) {
+    await cleanupOrphanedTerminalFacts(
+      cutoffMs,
+      metadataDirectory,
+      terminalDirectory,
+      metadataIds,
+      result,
+      fileSystem,
+      options._orphanedTerminalFactScanStartForTesting,
+      options.maxDirectoryEntries,
+    )
+  }
 
   return result
 }

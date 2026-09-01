@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises'
 import { homedir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import {
   cleanupBackgroundSessionsBefore,
   reconcileBackgroundSessionTerminalFacts,
@@ -19,12 +19,45 @@ import { getDefaultPlansDirectory } from './plans.js'
 import { getSettingsWithAllErrors } from './settings/allErrors.js'
 import {
   getSettings_DEPRECATED,
+  getSettingsWithErrors,
   rawSettingsContainsKey,
 } from './settings/settings.js'
+import { resetSettingsCache } from './settings/settingsCache.js'
 import { TOOL_RESULTS_SUBDIR } from './toolResultStorage.js'
 import { cleanupStaleAgentWorktrees } from './worktree.js'
 
 const DEFAULT_CLEANUP_PERIOD_DAYS = 30
+const BACKGROUND_RECOVERY_INTERVAL_MS = 60 * 1000
+const BACKGROUND_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000
+const BACKGROUND_RECOVERY_ENTRY_LIMIT = 256
+
+export type BackgroundSessionRetentionTrigger =
+  | 'natural-finalization'
+  | 'explicit-kill'
+  | 'periodic-recovery'
+  | 'periodic-retention'
+
+export type BackgroundSessionRetentionResult =
+  | 'ran'
+  | 'skipped'
+  | 'invalid-policy'
+
+type BackgroundSessionRetentionRequest =
+  | {
+      trigger: 'natural-finalization'
+      sessionId: string
+      waitForProcessesToExit: () => Promise<boolean>
+      reloadSettings?: () => boolean
+    }
+  | { trigger: 'explicit-kill'; sessionId: string }
+  | {
+      trigger: 'periodic-recovery'
+      _afterThrottleLockForTesting?: () => Promise<void>
+    }
+  | {
+      trigger: 'periodic-retention'
+      _afterThrottleLockForTesting?: () => Promise<void>
+    }
 
 function getCutoffDate(): Date {
   const settings = getSettings_DEPRECATED() || {}
@@ -601,18 +634,7 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
 
   await cleanupOldMessageFiles()
   await cleanupOldSessionFiles()
-  const backgroundResult = await cleanupBackgroundSessionsBefore(
-    getCutoffDate(),
-  )
-  if (
-    backgroundResult.sessionsRemoved > 0 ||
-    backgroundResult.artifactsRemoved > 0 ||
-    backgroundResult.errors > 0
-  ) {
-    logForDebugging(
-      `Background session cleanup: ${backgroundResult.sessionsRemoved} sessions, ${backgroundResult.artifactsRemoved} artifacts, ${backgroundResult.errors} errors`,
-    )
-  }
+  await runBackgroundSessionRetention({ trigger: 'periodic-retention' })
   await cleanupOldPlanFiles()
   await cleanupOldFileHistoryBackups()
   await cleanupOldSessionEnvDirs()
@@ -628,28 +650,45 @@ export async function cleanupOldMessageFilesInBackground(): Promise<void> {
   }
 }
 
-function cleanupPeriodSettingIsInvalid(): boolean {
-  const { errors } = getSettingsWithAllErrors()
-  return errors.length > 0 && rawSettingsContainsKey('cleanupPeriodDays')
-}
-
-export async function cleanupBackgroundSessionsInBackground(): Promise<void> {
-  if (cleanupPeriodSettingIsInvalid()) {
-    return
+function readBackgroundRetentionPeriod(
+  options: { fresh?: boolean } = {},
+):
+  | { state: 'valid'; days: number }
+  | { state: 'invalid' } {
+  try {
+    if (options.fresh) resetSettingsCache()
+    const { errors } = getSettingsWithErrors()
+    if (errors.length > 0 && rawSettingsContainsKey('cleanupPeriodDays')) {
+      return { state: 'invalid' }
+    }
+    const days =
+      getSettings_DEPRECATED()?.cleanupPeriodDays ??
+      DEFAULT_CLEANUP_PERIOD_DAYS
+    return Number.isFinite(days) && days >= 0
+      ? { state: 'valid', days }
+      : { state: 'invalid' }
+  } catch {
+    return { state: 'invalid' }
   }
-  await cleanupBackgroundSessionsAtCutoff(getCutoffDate())
 }
 
-async function cleanupBackgroundSessionsAtCutoff(cutoff: Date): Promise<void> {
-  const reconciliation = await reconcileBackgroundSessionTerminalFacts()
+function logBackgroundReconciliation(
+  reconciliation: Awaited<
+    ReturnType<typeof reconcileBackgroundSessionTerminalFacts>
+  >,
+): void {
   if (reconciliation.errors > 0) {
     logForDebugging(
       `Background session reconciliation: ${reconciliation.sessionsUpdated} sessions, ${reconciliation.errors} errors`,
     )
   }
-  const backgroundResult = await cleanupBackgroundSessionsBefore(
-    cutoff,
-  )
+}
+
+function logBackgroundCleanup(
+  backgroundResult: Awaited<
+    ReturnType<typeof cleanupBackgroundSessionsBefore>
+  >,
+): void {
   if (
     backgroundResult.sessionsRemoved > 0 ||
     backgroundResult.artifactsRemoved > 0 ||
@@ -661,16 +700,167 @@ async function cleanupBackgroundSessionsAtCutoff(cutoff: Date): Promise<void> {
   }
 }
 
-export async function cleanupBackgroundSessionsAfterFinalization(
-  waitForProcessesToExit: () => Promise<boolean>,
-): Promise<void> {
-  if (cleanupPeriodSettingIsInvalid()) return
-  const cleanupPeriodDays =
-    getSettings_DEPRECATED()?.cleanupPeriodDays ?? DEFAULT_CLEANUP_PERIOD_DAYS
-  if (cleanupPeriodDays !== 0) return
+async function runWithBackgroundRetentionThrottle(
+  markerName: string,
+  intervalMs: number,
+  operation: () => Promise<void>,
+  afterLock?: () => Promise<void>,
+): Promise<boolean> {
+  const markerPath = join(
+    getClaudeConfigHomeDir(),
+    'bg-sessions',
+    markerName,
+  )
+  const markerIsFresh = async (): Promise<boolean> => {
+    try {
+      return Date.now() - (await fs.stat(markerPath)).mtimeMs < intervalMs
+    } catch {
+      return false
+    }
+  }
+  let locked = false
+  try {
+    if (await markerIsFresh()) return false
+    await fs.mkdir(dirname(markerPath), { recursive: true })
+    await lockfile.lock(markerPath, { retries: 0, realpath: false })
+    locked = true
+  } catch {
+    return false
+  }
+  try {
+    if (await markerIsFresh()) return false
+    await afterLock?.()
+    await operation()
+    try {
+      await fs.writeFile(markerPath, new Date().toISOString())
+    } catch (error) {
+      logError(error instanceof Error ? error : new Error(String(error)))
+    }
+    return true
+  } catch (error) {
+    logError(error instanceof Error ? error : new Error(String(error)))
+    return false
+  } finally {
+    if (locked) {
+      await lockfile.unlock(markerPath, { realpath: false }).catch(() => {})
+    }
+  }
+}
 
-  if (!(await waitForProcessesToExit())) return
-  if (cleanupPeriodSettingIsInvalid()) return
-  if (getSettings_DEPRECATED()?.cleanupPeriodDays !== 0) return
-  await cleanupBackgroundSessionsAtCutoff(new Date(Date.now() + 1))
+export async function runBackgroundSessionRetention(
+  request: BackgroundSessionRetentionRequest,
+): Promise<BackgroundSessionRetentionResult> {
+  let policy = readBackgroundRetentionPeriod()
+  if (policy.state === 'invalid') return 'invalid-policy'
+
+  if (request.trigger === 'natural-finalization') {
+    if (policy.days !== 0) return 'skipped'
+    if (!(await request.waitForProcessesToExit())) return 'skipped'
+    if (request.reloadSettings && !request.reloadSettings()) {
+      return 'invalid-policy'
+    }
+    policy = readBackgroundRetentionPeriod()
+    if (policy.state === 'invalid') return 'invalid-policy'
+    if (policy.days !== 0) return 'skipped'
+  }
+
+  if (
+    request.trigger === 'natural-finalization' ||
+    request.trigger === 'explicit-kill'
+  ) {
+    const reconciliation = await reconcileBackgroundSessionTerminalFacts({
+      sessionIds: [request.sessionId],
+    })
+    logBackgroundReconciliation(reconciliation)
+    if (policy.days === 0) {
+      const cleanup = await cleanupBackgroundSessionsBefore(
+        new Date(Date.now() + 1),
+        { sessionIds: [request.sessionId] },
+      )
+      logBackgroundCleanup(cleanup)
+    }
+    return 'ran'
+  }
+
+  if (request.trigger === 'periodic-recovery') {
+    let passResult: BackgroundSessionRetentionResult = 'ran'
+    const ran = await runWithBackgroundRetentionThrottle(
+      '.recovery-pass',
+      BACKGROUND_RECOVERY_INTERVAL_MS,
+      async () => {
+        const currentPolicy = readBackgroundRetentionPeriod({ fresh: true })
+        if (currentPolicy.state === 'invalid') {
+          passResult = 'invalid-policy'
+          return
+        }
+        if (currentPolicy.days !== 0) return
+        const reconciliation =
+          await reconcileBackgroundSessionTerminalFacts({
+            terminalScanLimit: BACKGROUND_RECOVERY_ENTRY_LIMIT,
+          })
+        logBackgroundReconciliation(reconciliation)
+        const cleanup = await cleanupBackgroundSessionsBefore(
+          new Date(Date.now() + 1),
+          { maxDirectoryEntries: BACKGROUND_RECOVERY_ENTRY_LIMIT },
+        )
+        logBackgroundCleanup(cleanup)
+      },
+      request._afterThrottleLockForTesting,
+    )
+    return ran ? passResult : 'skipped'
+  }
+
+  let passResult: BackgroundSessionRetentionResult = 'ran'
+  const ran = await runWithBackgroundRetentionThrottle(
+    '.retention-pass',
+    BACKGROUND_RETENTION_SWEEP_INTERVAL_MS,
+    async () => {
+      const currentPolicy = readBackgroundRetentionPeriod({ fresh: true })
+      if (currentPolicy.state === 'invalid') {
+        passResult = 'invalid-policy'
+        return
+      }
+      const cutoff = new Date(
+        Date.now() - currentPolicy.days * 24 * 60 * 60 * 1000,
+      )
+      logBackgroundReconciliation(
+        await reconcileBackgroundSessionTerminalFacts(),
+      )
+      logBackgroundCleanup(
+        await cleanupBackgroundSessionsBefore(cutoff),
+      )
+    },
+    request._afterThrottleLockForTesting,
+  )
+  return ran ? passResult : 'skipped'
+}
+
+function cleanupPeriodSettingIsInvalid(): boolean {
+  try {
+    const { errors } = getSettingsWithAllErrors()
+    return errors.length > 0 && rawSettingsContainsKey('cleanupPeriodDays')
+  } catch {
+    return true
+  }
+}
+
+export async function cleanupBackgroundSessionsInBackground(): Promise<
+  BackgroundSessionRetentionResult
+> {
+  return await runBackgroundSessionRetention({
+    trigger: 'periodic-recovery',
+  })
+}
+
+export async function cleanupBackgroundSessionsAfterFinalization(
+  sessionId: string,
+  waitForProcessesToExit: () => Promise<boolean>,
+  reloadSettings?: () => boolean,
+): Promise<BackgroundSessionRetentionResult> {
+  return await runBackgroundSessionRetention({
+    trigger: 'natural-finalization',
+    sessionId,
+    waitForProcessesToExit,
+    ...(reloadSettings ? { reloadSettings } : {}),
+  })
 }
