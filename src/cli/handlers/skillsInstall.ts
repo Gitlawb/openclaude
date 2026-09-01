@@ -45,6 +45,13 @@ type RegistryEntriesResult = {
   registrySource: string
 }
 
+type SkillRevocation = {
+  id?: unknown
+  version?: unknown
+  sha256?: unknown
+  reason?: unknown
+}
+
 const DEFAULT_SKILLS_REGISTRY_URL =
   'https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/registry.json'
 const VALID_INSTALL_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
@@ -182,6 +189,32 @@ function resolveRegistryEntrySource(
   return resolve(dirname(registrySource), entrySource)
 }
 
+function resolveRevocationsSource(registrySource: string): string {
+  return (
+    process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL ??
+    resolveRegistryEntrySource('revocations.json', registrySource)
+  )
+}
+
+async function readRevocations(registrySource: string): Promise<SkillRevocation[]> {
+  const source = resolveRevocationsSource(registrySource)
+  let raw: string
+  try {
+    raw = await readSourceText(source)
+  } catch {
+    // The revocation list is additive: a registry without one revokes
+    // nothing, and the sha256 pin is still enforced either way.
+    return []
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    throw new Error(`Revocation list at ${source} is not valid JSON.`)
+  }
+  return Array.isArray(parsed) ? parsed.filter(isPlainObject) : []
+}
+
 async function resolveRegistryEntry(
   idOrName: string,
   options: InstallOptions,
@@ -263,6 +296,52 @@ function assertSha256Matches(text: string, expectedSha256: string, spec: string)
       `Checksum mismatch for "${spec}". Expected ${expectedSha256}, got ${actual}.`,
     )
   }
+}
+
+function revocationApplies(
+  revocation: SkillRevocation,
+  skill: { id?: string; version?: string; sha256: string },
+): boolean {
+  const revokedId = typeof revocation.id === 'string' ? revocation.id : undefined
+  const revokedVersion =
+    typeof revocation.version === 'string' ? revocation.version : undefined
+  const revokedSha256 =
+    typeof revocation.sha256 === 'string'
+      ? revocation.sha256.trim().toLowerCase()
+      : undefined
+  // An entry must pin at least an id or a digest; every field it does
+  // specify has to match.
+  if (revokedId === undefined && revokedSha256 === undefined) {
+    return false
+  }
+  if (revokedId !== undefined && revokedId !== skill.id) {
+    return false
+  }
+  if (revokedVersion !== undefined && revokedVersion !== skill.version) {
+    return false
+  }
+  if (revokedSha256 !== undefined && revokedSha256 !== skill.sha256) {
+    return false
+  }
+  return true
+}
+
+function assertNotRevoked(
+  revocations: SkillRevocation[],
+  skill: { id?: string; version?: string; sha256: string },
+  spec: string,
+): void {
+  const match = revocations.find(entry => revocationApplies(entry, skill))
+  if (!match) {
+    return
+  }
+  const reason =
+    typeof match.reason === 'string' && match.reason.trim() !== ''
+      ? ` Reason: ${match.reason.trim()}`
+      : ''
+  throw new Error(
+    `Skill "${spec}" is revoked in the registry. Refusing to install.${reason}`,
+  )
 }
 
 function assertCompatibleOpenClaudeVersion(entry: SkillRegistryEntry, spec: string): string | undefined {
@@ -513,6 +592,16 @@ async function prepareInstallCandidate(
 
   const expectedSha256 = requireRegistrySha256(entry, spec)
   const minOpenClaudeVersion = assertCompatibleOpenClaudeVersion(entry, spec)
+  const revocations = await readRevocations(registryMatch.registrySource)
+  assertNotRevoked(
+    revocations,
+    {
+      id: typeof entry.id === 'string' ? entry.id : undefined,
+      version: typeof entry.version === 'string' ? entry.version : undefined,
+      sha256: expectedSha256,
+    },
+    spec,
+  )
   const entrySource = resolveRegistryEntrySource(
     entry.source,
     registryMatch.registrySource,

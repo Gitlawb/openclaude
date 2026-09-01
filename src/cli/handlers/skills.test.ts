@@ -629,6 +629,137 @@ test.serial('rejects registry skills that require a newer OpenClaude version', a
   })
 })
 
+test.serial('rejects registry skills revoked by id and version', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(
+      join(tempDir, 'revocations.json'),
+      JSON.stringify([
+        {
+          id: 'gitlawb/sample-skill',
+          version: '0.1.0',
+          sha256: sha256OfSkillSource(VALID_SKILL),
+          reason: 'compromised release',
+        },
+      ]),
+      'utf8',
+    )
+
+    const stagedBefore = stagedInstallTempDirs()
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
+  })
+})
+
+test.serial('rejects registry skills revoked by digest alone', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(
+      join(tempDir, 'revocations.json'),
+      JSON.stringify([{ sha256: sha256OfSkillSource(VALID_SKILL) }]),
+      'utf8',
+    )
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('installs registry skills when a revocation targets another version', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(
+      join(tempDir, 'revocations.json'),
+      JSON.stringify([{ id: 'gitlawb/sample-skill', version: '0.0.9' }]),
+      'utf8',
+    )
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(
+      existsSync(join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md')),
+      true,
+    )
+  })
+})
+
+test.serial('rejects registry installs when revocations.json is malformed', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+    const registryPath = join(tempDir, 'registry.json')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      registryPath,
+      JSON.stringify([
+        buildRegistryEntry(sourceDir, {
+          sha256: sha256OfSkillSource(VALID_SKILL),
+        }),
+      ]),
+      'utf8',
+    )
+    writeFileSync(join(tempDir, 'revocations.json'), '{not json', 'utf8')
+
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
+
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
 test.serial('rejects path-like skill names before installing raw markdown', async () => {
   await withTempDir(async tempDir => {
     const cwd = join(tempDir, 'project')
