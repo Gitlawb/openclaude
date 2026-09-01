@@ -5,11 +5,16 @@ import {
   createBackgroundSession,
   recordBackgroundSessionNaturalTerminationSync,
 } from '../cli/bgRegistry.js'
+import { killHandler } from '../cli/bg.js'
 import { startBackgroundHousekeeping } from './backgroundHousekeeping.js'
-import { cleanupOldMessageFilesInBackground } from './cleanup.js'
+import {
+  cleanupBackgroundSessionsAfterFinalization,
+  cleanupOldMessageFilesInBackground,
+} from './cleanup.js'
 
 try {
-  if (process.env.OPENCLAUDE_CLEANUP_FIXTURE_MODE === 'post-completion') {
+  const mode = process.env.OPENCLAUDE_CLEANUP_FIXTURE_MODE
+  if (mode === 'post-completion') {
     const processMarker = 'c'.repeat(64)
     const session = await createBackgroundSession({
       id: 'bg-post-completion',
@@ -94,6 +99,104 @@ try {
         stderrPresentAfterCompletion: await Bun.file(
           session.stderrLogPath,
         ).exists(),
+      })}\n`,
+    )
+  } else if (mode === 'post-finalization-gate') {
+    let waits = 0
+    await cleanupBackgroundSessionsAfterFinalization(async () => {
+      waits++
+      return true
+    })
+    process.stdout.write(`${JSON.stringify({ waits })}\n`)
+  } else if (
+    mode === 'post-finalization-exact-cutoff' ||
+    mode === 'post-finalization-timeout'
+  ) {
+    const exactNow = Date.now()
+    const processMarker = 'd'.repeat(64)
+    const session = await createBackgroundSession({
+      id: 'bg-post-finalization-exact',
+      name: 'post-finalization-exact',
+      pid: process.pid,
+      cwd: process.cwd(),
+      command: [
+        'openclaude',
+        `--openclaude-bg-session-marker=${processMarker}`,
+        '--print',
+        'fixture',
+      ],
+      sessionId: 'bg-post-finalization-exact-conversation',
+      processMarker,
+      now: new Date(exactNow - 1_000),
+    })
+    const root = dirname(dirname(session.stdoutLogPath))
+    const metadataPath = join(root, 'sessions', `${session.id}.json`)
+    const reservationPath = join(
+      root,
+      'names',
+      `${createHash('sha256').update(session.name!).digest('hex')}.json`,
+    )
+    recordBackgroundSessionNaturalTerminationSync(
+      session.id,
+      { exitCode: 0 },
+      {
+        ownerPid: process.pid,
+        expectedSession: session,
+        now: new Date(exactNow),
+      },
+    )
+    const originalDateNow = Date.now
+    let waits = 0
+    try {
+      Date.now = () => exactNow
+      await cleanupBackgroundSessionsAfterFinalization(async () => {
+        waits++
+        return mode === 'post-finalization-exact-cutoff'
+      })
+    } finally {
+      Date.now = originalDateNow
+    }
+    process.stdout.write(
+      `${JSON.stringify({
+        waits,
+        metadataPresent: await Bun.file(metadataPath).exists(),
+        reservationPresent: await Bun.file(reservationPath).exists(),
+        stdoutPresent: await Bun.file(session.stdoutLogPath).exists(),
+        stderrPresent: await Bun.file(session.stderrLogPath).exists(),
+      })}\n`,
+    )
+  } else if (mode === 'explicit-kill') {
+    const session = await createBackgroundSession({
+      id: 'bg-explicit-kill-cleanup',
+      pid: process.pid,
+      cwd: process.cwd(),
+      command: ['openclaude', '--print', 'fixture'],
+      sessionId: 'bg-explicit-kill-cleanup-conversation',
+    })
+    recordBackgroundSessionNaturalTerminationSync(
+      session.id,
+      { exitCode: 0 },
+      {
+        ownerPid: process.pid,
+        expectedSession: session,
+        now: new Date(Date.now() - 1_000),
+      },
+    )
+    const originalConsoleLog = console.log
+    try {
+      console.log = () => {}
+      await killHandler([session.id])
+    } finally {
+      console.log = originalConsoleLog
+    }
+    const root = dirname(dirname(session.stdoutLogPath))
+    process.stdout.write(
+      `${JSON.stringify({
+        metadataPresent: await Bun.file(
+          join(root, 'sessions', `${session.id}.json`),
+        ).exists(),
+        stdoutPresent: await Bun.file(session.stdoutLogPath).exists(),
+        stderrPresent: await Bun.file(session.stderrLogPath).exists(),
       })}\n`,
     )
   } else {

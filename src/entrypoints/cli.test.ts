@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Command } from '@commander-js/extra-typings'
 import {
+  BACKGROUND_SESSION_CLEANUP_WORKER_ENV,
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
@@ -43,6 +44,7 @@ const mockAttachHandler = mock(async (_args: string[]) => {})
 const mockKillHandler = mock(async (_args: string[]) => {})
 const mockHandleBgFlag = mock(async (_args: string[]) => {})
 const mockPrepareBackgroundSessionFinalizer = mock(async () => 'installed')
+const mockRunBackgroundSessionCleanupWorker = mock(async () => {})
 const mockLoadEnvFile = mock((_filePath: string) => ({}))
 const mockParseProviderEnvFileArgs = mock((_args: string[]) => ({ paths: [] }))
 const mockReapplyRememberedEnvFileValues = mock(() => {})
@@ -81,6 +83,7 @@ const runtimeMocks = [
   mockKillHandler,
   mockHandleBgFlag,
   mockPrepareBackgroundSessionFinalizer,
+  mockRunBackgroundSessionCleanupWorker,
   mockLoadEnvFile,
   mockParseProviderEnvFileArgs,
   mockReapplyRememberedEnvFileValues,
@@ -298,7 +301,7 @@ describe('cli.tsx — --provider startup ordering', () => {
   it('dispatches background session management before config and provider validation', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
     const bgManagementIndex = src.indexOf("args[0] === 'ps'")
-    const configEnableIndex = src.indexOf('enableConfigs()')
+    const configEnableIndex = src.indexOf('enableConfigs()', bgManagementIndex)
     const providerValidationIndex = src.indexOf(
       'await validateProviderEnvForStartupOrExit()',
     )
@@ -340,6 +343,7 @@ const mockImporters = {
   }),
   bgFinalizer: async () => ({
     prepareBackgroundSessionFinalizer: mockPrepareBackgroundSessionFinalizer,
+    runBackgroundSessionCleanupWorker: mockRunBackgroundSessionCleanupWorker,
   }),
   envFile: async () => ({
     loadEnvFile: mockLoadEnvFile,
@@ -460,6 +464,20 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockPrepareBackgroundSessionFinalizer).toHaveBeenCalledTimes(1)
     expect(mockPsHandler).not.toHaveBeenCalled()
     expect(mockEnableConfigs).not.toHaveBeenCalled()
+  })
+
+  it('runs an internal cleanup worker before any command path', async () => {
+    process.env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV] = '1'
+    try {
+      await runCliEntrypoint(['ps'], bgOptions)
+    } finally {
+      delete process.env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV]
+    }
+
+    expect(mockRunBackgroundSessionCleanupWorker).toHaveBeenCalledTimes(1)
+    expect(mockPrepareBackgroundSessionFinalizer).not.toHaveBeenCalled()
+    expect(mockPsHandler).not.toHaveBeenCalled()
+    expect(mockEnableConfigs).toHaveBeenCalledTimes(1)
   })
 
   it('routes partial background metadata through the finalizer before dispatch', async () => {

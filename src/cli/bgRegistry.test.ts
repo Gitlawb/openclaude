@@ -1563,13 +1563,17 @@ describe('background session registry', () => {
     )
     const release = await lockfile.lock(metadataPath, { realpath: false })
     try {
-      expect(() =>
+      let error: unknown
+      try {
         recordBackgroundSessionNaturalTerminationSync(
           id,
           { exitCode: 0 },
           { ownerPid: session.pid, expectedSession: session },
-        ),
-      ).toThrow('Lock file is already being held')
+        )
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toMatchObject({ code: 'ELOCKED' })
     } finally {
       await release()
     }

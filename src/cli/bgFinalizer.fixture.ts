@@ -1,14 +1,30 @@
 import { writeFile } from 'node:fs/promises'
 import { handleBgFlag } from './bg.js'
-import { prepareBackgroundSessionFinalizer } from './bgFinalizer.js'
+import * as backgroundFinalizer from './bgFinalizer.js'
 import { noteBackgroundSessionTerminationSignal } from '../utils/backgroundSessionTermination.js'
 
 const invocation = process.argv.slice(2)
-if (invocation[0] === 'launcher') {
-  await handleBgFlag(['--bg', invocation[1] ?? 'success'])
+const cleanupWorkerEnv = 'OPENCLAUDE_INTERNAL_BACKGROUND_CLEANUP_WORKER'
+if (process.env[cleanupWorkerEnv] === '1') {
+  const runCleanupWorker = (
+    backgroundFinalizer as typeof backgroundFinalizer & {
+      runBackgroundSessionCleanupWorker?: () => Promise<void>
+    }
+  ).runBackgroundSessionCleanupWorker
+  if (!runCleanupWorker) {
+    throw new Error('background cleanup worker is unavailable')
+  }
+  await runCleanupWorker()
+} else if (invocation[0] === 'launcher') {
+  const name = invocation[2]
+  await handleBgFlag([
+    '--bg',
+    ...(name ? ['--name', name] : []),
+    invocation[1] ?? 'success',
+  ])
 } else {
   const mode = invocation.at(-1)
-  await prepareBackgroundSessionFinalizer()
+  await backgroundFinalizer.prepareBackgroundSessionFinalizer()
 
   if (mode === 'throw') {
     throw new Error('intentional background finalizer fixture failure')
@@ -30,6 +46,20 @@ if (invocation[0] === 'launcher') {
   }
   const readyPath = process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_READY
   if (readyPath) await writeFile(readyPath, 'ready')
+  if (mode === 'controlled' || mode === 'controlled-exit') {
+    const releasePath = process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_RELEASE
+    if (!releasePath) {
+      throw new Error('controlled fixture release path is missing')
+    }
+    const deadline = Date.now() + 5_000
+    while (!(await Bun.file(releasePath).exists())) {
+      if (Date.now() >= deadline) {
+        throw new Error('controlled fixture release timed out')
+      }
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    if (mode === 'controlled-exit') process.exit(0)
+  }
   if (mode === 'wait' || mode === 'sigint' || mode === 'sigterm') {
     setInterval(() => {}, 1_000)
   }

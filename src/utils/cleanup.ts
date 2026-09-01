@@ -637,6 +637,10 @@ export async function cleanupBackgroundSessionsInBackground(): Promise<void> {
   if (cleanupPeriodSettingIsInvalid()) {
     return
   }
+  await cleanupBackgroundSessionsAtCutoff(getCutoffDate())
+}
+
+async function cleanupBackgroundSessionsAtCutoff(cutoff: Date): Promise<void> {
   const reconciliation = await reconcileBackgroundSessionTerminalFacts()
   if (reconciliation.errors > 0) {
     logForDebugging(
@@ -644,7 +648,7 @@ export async function cleanupBackgroundSessionsInBackground(): Promise<void> {
     )
   }
   const backgroundResult = await cleanupBackgroundSessionsBefore(
-    getCutoffDate(),
+    cutoff,
   )
   if (
     backgroundResult.sessionsRemoved > 0 ||
@@ -655,4 +659,18 @@ export async function cleanupBackgroundSessionsInBackground(): Promise<void> {
       `Background session cleanup: ${backgroundResult.sessionsRemoved} sessions, ${backgroundResult.artifactsRemoved} artifacts, ${backgroundResult.errors} errors`,
     )
   }
+}
+
+export async function cleanupBackgroundSessionsAfterFinalization(
+  waitForProcessesToExit: () => Promise<boolean>,
+): Promise<void> {
+  if (cleanupPeriodSettingIsInvalid()) return
+  const cleanupPeriodDays =
+    getSettings_DEPRECATED()?.cleanupPeriodDays ?? DEFAULT_CLEANUP_PERIOD_DAYS
+  if (cleanupPeriodDays !== 0) return
+
+  if (!(await waitForProcessesToExit())) return
+  if (cleanupPeriodSettingIsInvalid()) return
+  if (getSettings_DEPRECATED()?.cleanupPeriodDays !== 0) return
+  await cleanupBackgroundSessionsAtCutoff(new Date(Date.now() + 1))
 }

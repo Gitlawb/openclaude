@@ -1054,6 +1054,14 @@ export async function killHandler(
       `Failed to kill background session ${session.id}: ${errorMessage(error)}`,
     )
   })
+  try {
+    const { cleanupBackgroundSessionsAfterFinalization } = await import(
+      '../utils/cleanup.js'
+    )
+    await cleanupBackgroundSessionsAfterFinalization(async () => true)
+  } catch {
+    // A retention failure must not replace the successful kill outcome.
+  }
   console.log(`Killed background session ${killed.id}.`)
 }
 

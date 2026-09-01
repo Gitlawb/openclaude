@@ -22,7 +22,13 @@ afterEach(async () => {
 
 async function runCleanupFixture(
   configDir: string,
-  mode: 'once' | 'post-completion' = 'once',
+  mode:
+    | 'once'
+    | 'post-completion'
+    | 'post-finalization-gate'
+    | 'post-finalization-exact-cutoff'
+    | 'post-finalization-timeout'
+    | 'explicit-kill' = 'once',
 ): Promise<Record<string, unknown>> {
   const fixture = join(import.meta.dir, 'cleanupBackgroundSessions.fixture.ts')
   const { USER_TYPE: _userType, ...inheritedEnv } = process.env
@@ -167,6 +173,109 @@ describe('cleanupOldMessageFilesInBackground', () => {
     },
     30_000,
   )
+
+  test(
+    'includes the finalization millisecond in zero-day cleanup',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-exact-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(
+          configDir,
+          'post-finalization-exact-cutoff',
+        ),
+      ).toEqual({
+        waits: 1,
+        metadataPresent: false,
+        reservationPresent: false,
+        stdoutPresent: false,
+        stderrPresent: false,
+      })
+    },
+    30_000,
+  )
+
+  test(
+    'retains zero-day artifacts when worker ownership exit is unobserved',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-timeout-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(
+        await runCleanupFixture(configDir, 'post-finalization-timeout'),
+      ).toEqual({
+        waits: 1,
+        metadataPresent: true,
+        reservationPresent: false,
+        stdoutPresent: true,
+        stderrPresent: true,
+      })
+    },
+    30_000,
+  )
+
+  test(
+    'reclaims zero-day artifacts after an explicit kill transition',
+    async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-bg-kill-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+
+      expect(await runCleanupFixture(configDir, 'explicit-kill')).toEqual({
+        metadataPresent: false,
+        stdoutPresent: false,
+        stderrPresent: false,
+      })
+    },
+    30_000,
+  )
+
+  for (const setting of [30, 'invalid'] as const) {
+    test(
+      `does not wait for post-finalization cleanup with ${String(setting)} retention`,
+      async () => {
+        const configDir = join(
+          tmpdir(),
+          `openclaude-cleanup-bg-gate-${String(setting)}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        )
+        tempDirs.push(configDir)
+        await mkdir(configDir, { recursive: true })
+        await writeFile(
+          join(configDir, 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: setting }),
+        )
+
+        expect(
+          await runCleanupFixture(configDir, 'post-finalization-gate'),
+        ).toEqual({ waits: 0 })
+      },
+      30_000,
+    )
+  }
 
   test(
     'reclaims a zero-day session that completes after the initial sweep',

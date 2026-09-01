@@ -1,5 +1,6 @@
 import { feature } from 'bun:bundle';
 import {
+  BACKGROUND_SESSION_CLEANUP_WORKER_ENV,
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
@@ -319,6 +320,13 @@ export async function main(
   options: CliEntrypointOptions = {},
 ): Promise<void> {
   const importers = getCliEntrypointImporters(options.importers)
+  if (process.env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV] === '1') {
+    const { enableConfigs } = await importers.config()
+    enableConfigs()
+    const { runBackgroundSessionCleanupWorker } = await importers.bgFinalizer()
+    await runBackgroundSessionCleanupWorker()
+    return
+  }
   // The detached CLI is the registered background-session PID. Establish
   // exact registry ownership and install its terminal finalizer before any
   // fast path or startup validation can call process.exit(). The private env
