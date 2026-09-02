@@ -1,19 +1,14 @@
-import { getInitialSettings } from '../utils/settings/settings.js'
-import { getSessionSettingsCache } from '../utils/settings/settingsCache.js'
-import type { Locale } from './types.js'
-
-const LANGUAGE_MAP: Record<string, Locale> = {
-  english: 'en',
-  en: 'en',
-  vietnamese: 'vi',
-  vi: 'vi',
-}
+import { dictionaries, type Locale } from './index';
 
 export function detectLocale(): Locale {
-  const settings = getSessionSettingsCache()?.settings ?? getInitialSettings()
-  const lang = settings.language
-  if (typeof lang !== 'string') {
-    return 'en'
+  const envLang = process.env.LANG || process.env.LC_ALL || process.env.LC_MESSAGES || '';
+  
+  if (envLang.toLowerCase().includes('zh') || envLang.toLowerCase().includes('hk')) {
+    return 'zh-HK';
   }
-  return LANGUAGE_MAP[lang.toLowerCase()] ?? 'en'
+  if (envLang.toLowerCase().includes('vi')) {
+    return 'vi';
+  }
+
+  return 'en';
 }

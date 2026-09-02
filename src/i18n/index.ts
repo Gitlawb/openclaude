@@ -1,41 +1,28 @@
-import { detectLocale } from './locale.js'
-import { en } from './languages/en.js'
-import { vi } from './languages/vi.js'
-import type {
-  I18nDictionary,
-  InterpolationValues,
-  LocalizationKey,
-} from './types.js'
+import { en } from './en';
+import { vi } from './vi';
+import { zhHK } from './zh-HK';
 
-const dictionaries: Record<string, I18nDictionary> = {
+export const dictionaries = {
   en,
   vi,
+  'zh-HK': zhHK,
+};
+
+export type Locale = keyof typeof dictionaries;
+
+export function getDictionary(locale: string) {
+  return dictionaries[locale as Locale] ?? dictionaries.en;
 }
 
-export { detectLocale }
-export { getOpenClaudeCommandDescriptionKey } from './commandDescriptions.js'
-export type { InterpolationValues, Locale, LocalizationKey } from './types.js'
+export function localize(locale: string, key: string, params?: Record<string, string>): string {
+  const dict = getDictionary(locale);
+  let text = (dict as Record<string, string>)[key] ?? (dictionaries.en as Record<string, string>)[key] ?? key;
 
-export function localize(
-  key: LocalizationKey | undefined,
-  fallback: string,
-  values?: InterpolationValues,
-): string {
-  if (!key) return fallback
+  if (params) {
+    Object.entries(params).forEach(([pKey, pVal]) => {
+      text = text.replace(new RegExp(`{{${pKey}}}`, 'g'), pVal);
+    });
+  }
 
-  const locale = detectLocale()
-  const template = dictionaries[locale]?.[key] ?? en[key] ?? fallback
-  return interpolate(template, values)
-}
-
-function interpolate(
-  template: string,
-  values: InterpolationValues | undefined,
-): string {
-  if (!values) return template
-  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(values, key)
-      ? String(values[key])
-      : match,
-  )
+  return text;
 }
