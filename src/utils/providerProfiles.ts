@@ -862,6 +862,10 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.APISMART_API_KEY, profile.apiKey)
       : true) &&
+    (isCommandcodeProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(processEnv.CMD_API_KEY, profile.apiKey)
+      : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)

@@ -2488,6 +2488,31 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_BASE_URL).toBe('http://192.168.33.108:11434/v1')
   })
 
+  test('re-applies Command Code profile when dedicated key drifts', async () => {
+    const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    const activeProfile = buildCommandcodeProfile({ id: 'saved_commandcode' })
+    applyProviderProfileToProcessEnv(activeProfile)
+
+    process.env.CMD_API_KEY = 'stale-ambient-key'
+
+    const applied = applyActiveProviderProfileFromConfig({
+      providerProfiles: [activeProfile],
+      activeProviderProfileId: 'saved_commandcode',
+    } as any)
+
+    expect(applied?.id).toBe('saved_commandcode')
+    expect(process.env.CMD_API_KEY).toBe('cmd-test-key')
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-test-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'commandcode',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('cmd-test-key')
+  })
+
   test('re-applies active profile when context-window override drifts', async () => {
     const { applyActiveProviderProfileFromConfig, applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
