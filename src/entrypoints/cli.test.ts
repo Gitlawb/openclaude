@@ -69,6 +69,7 @@ const mockGetInitialSettings = mock(() => ({}))
 const mockRefreshGithubModelsTokenIfNeeded = mock(async () => {})
 const mockHydrateGithubModelsTokenFromSecureStorage = mock(() => {})
 const mockValidateProviderEnvForStartupOrExit = mock(async () => {})
+const mockApplyModelFlagFromArgs = mock((_args: string[]) => undefined)
 const mockPrintStartupScreen = mock((_model: string | undefined) => {})
 const mockStartCapturingEarlyInput = mock(() => {})
 const mockCliMain = mock(async () => {})
@@ -96,6 +97,7 @@ const runtimeMocks = [
   mockRefreshGithubModelsTokenIfNeeded,
   mockHydrateGithubModelsTokenFromSecureStorage,
   mockValidateProviderEnvForStartupOrExit,
+  mockApplyModelFlagFromArgs,
   mockPrintStartupScreen,
   mockStartCapturingEarlyInput,
   mockCliMain,
@@ -362,6 +364,11 @@ const mockImporters = {
     validateProviderEnvForStartupOrExit:
       mockValidateProviderEnvForStartupOrExit,
   }),
+  providerFlag: async () => ({
+    applyModelFlagFromArgs: mockApplyModelFlagFromArgs,
+    applyProviderFlagFromArgs,
+    reapplyRememberedProviderFlag,
+  }),
   flagSettings: async () => ({
     eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
   }),
@@ -526,6 +533,25 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
     expect(mockPrintStartupScreen).toHaveBeenCalledTimes(1)
     expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies a standalone model override before provider validation', async () => {
+    const order: string[] = []
+    mockApplyModelFlagFromArgs.mockImplementationOnce(args => {
+      order.push('model')
+      expect(args).toEqual(['--model', 'deepseek/deepseek-v4-flash'])
+      return undefined
+    })
+    mockValidateProviderEnvForStartupOrExit.mockImplementationOnce(async () => {
+      order.push('validation')
+    })
+
+    await runCliEntrypoint(
+      ['--model', 'deepseek/deepseek-v4-flash'],
+      bgOptions,
+    )
+
+    expect(order).toEqual(['model', 'validation'])
   })
 })
 

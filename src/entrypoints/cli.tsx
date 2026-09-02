@@ -511,12 +511,9 @@ export async function main(
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
-  const { validateProviderEnvForStartupOrExit } =
-    await importers.providerValidation()
-  await validateProviderEnvForStartupOrExit()
-
   // #808: --model alone (no --provider) — route to the env var matching the
-  // active provider before the banner prints so the override is visible.
+  // active provider before validation and the banner so the highest-precedence
+  // CLI override can replace stale persisted model state.
   if (args.includes('--model')) {
     const { applyModelFlagFromArgs } = await importers.providerFlag()
     const result = applyModelFlagFromArgs(args)
@@ -526,6 +523,10 @@ export async function main(
       return
     }
   }
+
+  const { validateProviderEnvForStartupOrExit } =
+    await importers.providerValidation()
+  await validateProviderEnvForStartupOrExit()
 
   // Parse --model early so the startup screen can display the override
   const { eagerParseCliFlag } = await importers.cliArgs()
