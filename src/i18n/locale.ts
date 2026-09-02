@@ -2,16 +2,16 @@ import { getInitialSettings } from '../utils/settings/settings.js'
 import { getSessionSettingsCache } from '../utils/settings/settingsCache.js'
 import type { Locale } from './types.js'
 
-const LANGUAGE_MAP: Record<string, Locale> = {
-  english: 'en',
-  en: 'en',
-  vietnamese: 'vi',
-  vi: 'vi',
-  'zh-hk': 'zh-HK',
-  'zh_hk': 'zh-HK',
-  'traditional chinese': 'zh-HK',
-  'chinese (hong kong)': 'zh-HK',
-}
+const LANGUAGE_MAP: Map<string, Locale> = new Map([
+  ['english', 'en'],
+  ['en', 'en'],
+  ['vietnamese', 'vi'],
+  ['vi', 'vi'],
+  ['zh-hk', 'zh-HK'],
+  ['zh_hk', 'zh-HK'],
+  ['traditional chinese', 'zh-HK'],
+  ['chinese (hong kong)', 'zh-HK'],
+])
 
 function localeFromEnv(): Locale | undefined {
   const raw = (
@@ -36,7 +36,7 @@ export function detectLocale(): Locale {
   const lang = settings.language
 
   if (typeof lang === 'string') {
-    const mapped = LANGUAGE_MAP[lang.toLowerCase()]
+    const mapped = LANGUAGE_MAP.get(lang.toLowerCase())
     if (mapped) return mapped
   }
 
