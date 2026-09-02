@@ -17,7 +17,38 @@ import {
 
 try {
   const mode = process.env.OPENCLAUDE_CLEANUP_FIXTURE_MODE
-  if (mode === 'periodic-recovery') {
+  if (
+    mode === 'periodic-retention' ||
+    mode === 'periodic-retention-policy-recheck'
+  ) {
+    enableConfigs()
+    const settingsResult = eagerLoadSettingsFromArgs([
+      '--settings',
+      join(process.env.OPENCLAUDE_CONFIG_DIR!, 'settings.json'),
+    ])
+    if (!settingsResult.ok) throw new Error(settingsResult.message)
+    const { cleanupBackgroundSessionRetentionInBackground } =
+      await import('./cleanup.js')
+    process.stdout.write(
+      `${JSON.stringify({
+        result:
+          mode === 'periodic-retention'
+            ? await cleanupBackgroundSessionRetentionInBackground()
+            : await runBackgroundSessionRetention({
+                trigger: 'periodic-retention',
+                _afterThrottleLockForTesting: async () => {
+                  await Bun.write(
+                    join(process.cwd(), '.mcp.json'),
+                    '{invalid',
+                  )
+                },
+              }),
+      })}\n`,
+    )
+  } else if (
+    mode === 'periodic-recovery' ||
+    mode === 'periodic-recovery-bounded'
+  ) {
     enableConfigs()
     const settingsResult = eagerLoadSettingsFromArgs([
       '--settings',
@@ -26,7 +57,15 @@ try {
     if (!settingsResult.ok) throw new Error(settingsResult.message)
     process.stdout.write(
       `${JSON.stringify({
-        result: await cleanupBackgroundSessionsInBackground(),
+        result:
+          mode === 'periodic-recovery'
+            ? await cleanupBackgroundSessionsInBackground()
+            : await runBackgroundSessionRetention({
+                trigger: 'periodic-recovery',
+                _recoveryBatchLimitForTesting: Number(
+                  process.env.OPENCLAUDE_CLEANUP_RECOVERY_LIMIT,
+                ),
+              }),
       })}\n`,
     )
   } else if (mode === 'periodic-policy-recheck') {

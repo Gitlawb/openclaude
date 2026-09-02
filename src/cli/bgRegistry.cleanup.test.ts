@@ -1313,7 +1313,7 @@ describe('background session retention cleanup', () => {
     expect(await exists(paths(malformed.id).natural)).toBe(true)
   })
 
-  it('advances the bounded scan past preserved orphaned facts', async () => {
+  it('reclaims eligible orphaned facts beyond a retained prefix in one full sweep', async () => {
     const terminalDir = join(root, 'terminal')
     await mkdir(terminalDir, { recursive: true })
     const preservedFacts = Array.from({ length: 256 }, (_, index) => {
@@ -1345,22 +1345,12 @@ describe('background session retention cleanup', () => {
         exitCode: 0,
       }),
     )
-
-    // The fixed seed selects the initial index; later calls resume from the module-level offset.
-    const scanOptions = {
-      _orphanedTerminalFactScanStartForTesting: 0,
-    }
-    expect(
-      await cleanupBackgroundSessionsBefore(CUTOFF, scanOptions),
-    ).toEqual({
-      sessionsRemoved: 0,
-      artifactsRemoved: 0,
-      errors: 0,
-    })
-    expect(await exists(paths(oldId).natural)).toBe(true)
+    const deterministicCutoff = new Date(
+      CUTOFF.getTime() - (CUTOFF.getTime() % 257),
+    )
 
     expect(
-      await cleanupBackgroundSessionsBefore(CUTOFF, scanOptions),
+      await cleanupBackgroundSessionsBefore(deterministicCutoff),
     ).toEqual({
       sessionsRemoved: 0,
       artifactsRemoved: 1,

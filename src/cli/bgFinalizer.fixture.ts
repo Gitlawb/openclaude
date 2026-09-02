@@ -17,11 +17,24 @@ if (process.env[cleanupWorkerEnv] === '1') {
   await runCleanupWorker()
 } else if (invocation[0] === 'launcher') {
   const name = invocation[2]
-  await handleBgFlag([
-    '--bg',
-    ...(name ? ['--name', name] : []),
-    invocation[1] ?? 'success',
-  ])
+  const originalLog = console.log
+  if (
+    process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_OUTPUT === 'omit-logs'
+  ) {
+    console.log = (...args: unknown[]) => {
+      if (String(args[0]).startsWith('Logs:')) return
+      originalLog(...args)
+    }
+  }
+  try {
+    await handleBgFlag([
+      '--bg',
+      ...(name ? ['--name', name] : []),
+      invocation[1] ?? 'success',
+    ])
+  } finally {
+    console.log = originalLog
+  }
 } else {
   const mode = invocation.at(-1)
   await backgroundFinalizer.prepareBackgroundSessionFinalizer()
@@ -64,7 +77,10 @@ if (process.env[cleanupWorkerEnv] === '1') {
     queueMicrotask(() => {
       throw new Error('intentional handled fixture failure')
     })
-  } else if (readyPath) {
+  } else if (
+    readyPath &&
+    process.env.OPENCLAUDE_BG_FINALIZER_FIXTURE_SKIP_READY !== '1'
+  ) {
     await writeFile(readyPath, 'ready')
   }
   if (mode === 'controlled' || mode === 'controlled-exit') {

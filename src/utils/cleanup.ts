@@ -4,6 +4,8 @@ import { dirname, join } from 'path'
 import {
   cleanupBackgroundSessionsBefore,
   reconcileBackgroundSessionTerminalFacts,
+  snapshotBackgroundSessionRecoveryJournal,
+  takeBackgroundSessionRecoveryBatch,
 } from '../cli/bgRegistry.js'
 import { logEvent } from '../services/analytics/index.js'
 import { CACHE_PATHS } from './cachePaths.js'
@@ -53,6 +55,7 @@ type BackgroundSessionRetentionRequest =
   | {
       trigger: 'periodic-recovery'
       _afterThrottleLockForTesting?: () => Promise<void>
+      _recoveryBatchLimitForTesting?: number
     }
   | {
       trigger: 'periodic-retention'
@@ -794,16 +797,21 @@ export async function runBackgroundSessionRetention(
           return
         }
         if (currentPolicy.days !== 0) return
+        const batch = await takeBackgroundSessionRecoveryBatch(
+          request._recoveryBatchLimitForTesting ??
+            BACKGROUND_RECOVERY_ENTRY_LIMIT,
+        )
         const reconciliation =
           await reconcileBackgroundSessionTerminalFacts({
-            terminalScanLimit: BACKGROUND_RECOVERY_ENTRY_LIMIT,
+            sessionIds: batch.sessionIds,
           })
         logBackgroundReconciliation(reconciliation)
         const cleanup = await cleanupBackgroundSessionsBefore(
           new Date(Date.now() + 1),
-          { maxDirectoryEntries: BACKGROUND_RECOVERY_ENTRY_LIMIT },
+          { sessionIds: batch.sessionIds },
         )
         logBackgroundCleanup(cleanup)
+        await batch.commit()
       },
       request._afterThrottleLockForTesting,
     )
@@ -815,6 +823,11 @@ export async function runBackgroundSessionRetention(
     '.retention-pass',
     BACKGROUND_RETENTION_SWEEP_INTERVAL_MS,
     async () => {
+      resetSettingsCache()
+      if (cleanupPeriodSettingIsInvalid()) {
+        passResult = 'invalid-policy'
+        return
+      }
       const currentPolicy = readBackgroundRetentionPeriod({ fresh: true })
       if (currentPolicy.state === 'invalid') {
         passResult = 'invalid-policy'
@@ -823,12 +836,15 @@ export async function runBackgroundSessionRetention(
       const cutoff = new Date(
         Date.now() - currentPolicy.days * 24 * 60 * 60 * 1000,
       )
+      const journal =
+        await snapshotBackgroundSessionRecoveryJournal()
       logBackgroundReconciliation(
         await reconcileBackgroundSessionTerminalFacts(),
       )
       logBackgroundCleanup(
         await cleanupBackgroundSessionsBefore(cutoff),
       )
+      await journal.commit()
     },
     request._afterThrottleLockForTesting,
   )
@@ -849,6 +865,16 @@ export async function cleanupBackgroundSessionsInBackground(): Promise<
 > {
   return await runBackgroundSessionRetention({
     trigger: 'periodic-recovery',
+  })
+}
+
+export async function cleanupBackgroundSessionRetentionInBackground(): Promise<
+  BackgroundSessionRetentionResult
+> {
+  resetSettingsCache()
+  if (cleanupPeriodSettingIsInvalid()) return 'invalid-policy'
+  return await runBackgroundSessionRetention({
+    trigger: 'periodic-retention',
   })
 }
 

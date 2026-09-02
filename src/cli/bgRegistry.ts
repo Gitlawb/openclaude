@@ -13,8 +13,10 @@ import {
 } from 'node:fs/promises'
 import {
   closeSync,
+  fstatSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -135,7 +137,9 @@ const COMPLETED_STATUSES = new Set<BackgroundSessionStatus>([
 ])
 const SAFE_ID_RE = /^[A-Za-z0-9._-]+$/
 const SAFE_SIGNAL_RE = /^SIG[A-Z0-9]{1,24}$/
-const ORPHANED_TERMINAL_FACT_SCAN_LIMIT = 256
+const BACKGROUND_RECOVERY_JOURNAL_ENTRY_LIMIT = 256
+const BACKGROUND_RECOVERY_JOURNAL_RECORD_MAX_BYTES = 512
+const BACKGROUND_RECOVERY_JOURNAL_VERSION = 1
 const NAME_RESERVATION_LOCK_OPTIONS = {
   realpath: false,
   retries: {
@@ -151,13 +155,30 @@ const NAME_RESERVATION_SYNC_LOCK_OPTIONS = {
   retries: 0,
 } satisfies NonNullable<Parameters<typeof lockfile.lockSync>[1]>
 let backgroundSessionsRootForTesting: string | undefined
-let orphanedTerminalFactScanOffset = 0
+
+type BackgroundSessionRecoveryJournalIdentity = {
+  dev: number
+  ino: number
+}
+
+type BackgroundSessionRecoveryCursor = {
+  version: typeof BACKGROUND_RECOVERY_JOURNAL_VERSION
+  offset: number
+} & BackgroundSessionRecoveryJournalIdentity
+
+export type BackgroundSessionRecoveryBatch = {
+  sessionIds: string[]
+  commit: () => Promise<void>
+}
+
+export type BackgroundSessionRecoverySnapshot = {
+  commit: () => Promise<boolean>
+}
 
 export function _setBackgroundSessionsRootForTesting(
   root: string | undefined,
 ): void {
   backgroundSessionsRootForTesting = root?.normalize('NFC')
-  orphanedTerminalFactScanOffset = 0
 }
 
 function getBackgroundSessionsRoot(): string {
@@ -181,6 +202,14 @@ function getBackgroundSessionNamesDir(): string {
 
 function getBackgroundSessionTerminalDir(): string {
   return join(getBackgroundSessionsRoot(), 'terminal')
+}
+
+function getBackgroundSessionRecoveryJournalPath(): string {
+  return join(getBackgroundSessionsRoot(), '.recovery-journal')
+}
+
+function getBackgroundSessionRecoveryCursorPath(): string {
+  return join(getBackgroundSessionsRoot(), '.recovery-cursor.json')
 }
 
 async function readDirectoryEntries(
@@ -207,6 +236,370 @@ async function readDirectoryEntries(
     }
   }
   return entries
+}
+
+async function withBackgroundRecoveryJournalLock<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  await mkdir(getBackgroundSessionsRoot(), { recursive: true, mode: 0o700 })
+  const journalPath = getBackgroundSessionRecoveryJournalPath()
+  const handle = await openVerifiedBackgroundRecoveryJournal('a')
+  await handle.close()
+  const release = await lockfile.lock(
+    journalPath,
+    NAME_RESERVATION_LOCK_OPTIONS,
+  )
+  try {
+    return await operation()
+  } finally {
+    await release().catch(() => {})
+  }
+}
+
+function withBackgroundRecoveryJournalLockSync<T>(operation: () => T): T {
+  mkdirSync(getBackgroundSessionsRoot(), { recursive: true, mode: 0o700 })
+  const journalPath = getBackgroundSessionRecoveryJournalPath()
+  const journalFd = openVerifiedBackgroundRecoveryJournalSync('a')
+  closeSync(journalFd)
+  const release = lockfile.lockSync(
+    journalPath,
+    NAME_RESERVATION_SYNC_LOCK_OPTIONS,
+  )
+  try {
+    return operation()
+  } finally {
+    try {
+      release()
+    } catch {}
+  }
+}
+
+async function openVerifiedBackgroundRecoveryJournal(
+  flags: 'a' | 'r' | 'r+',
+): Promise<Awaited<ReturnType<typeof open>>> {
+  const path = getBackgroundSessionRecoveryJournalPath()
+  const handle = await open(path, flags, 0o600)
+  try {
+    const [pathIdentity, handleIdentity] = await Promise.all([
+      lstat(path),
+      handle.stat(),
+    ])
+    if (
+      !pathIdentity.isFile() ||
+      !handleIdentity.isFile() ||
+      pathIdentity.dev !== handleIdentity.dev ||
+      pathIdentity.ino !== handleIdentity.ino
+    ) {
+      throw new Error('Invalid background recovery journal')
+    }
+    return handle
+  } catch (error) {
+    await handle.close().catch(() => {})
+    throw error
+  }
+}
+
+function openVerifiedBackgroundRecoveryJournalSync(
+  flags: 'a' | 'r' | 'r+',
+): number {
+  const path = getBackgroundSessionRecoveryJournalPath()
+  const fd = openSync(path, flags, 0o600)
+  try {
+    const pathIdentity = lstatSync(path)
+    const handleIdentity = fstatSync(fd)
+    if (
+      !pathIdentity.isFile() ||
+      !handleIdentity.isFile() ||
+      pathIdentity.dev !== handleIdentity.dev ||
+      pathIdentity.ino !== handleIdentity.ino
+    ) {
+      throw new Error('Invalid background recovery journal')
+    }
+    return fd
+  } catch (error) {
+    closeSync(fd)
+    throw error
+  }
+}
+
+function backgroundRecoveryJournalRecord(id: string): string | undefined {
+  if (!SAFE_ID_RE.test(id)) return undefined
+  const record = `${id}\n`
+  return Buffer.byteLength(record) <=
+    BACKGROUND_RECOVERY_JOURNAL_RECORD_MAX_BYTES
+    ? record
+    : undefined
+}
+
+async function enqueueBackgroundSessionRecovery(id: string): Promise<void> {
+  const record = backgroundRecoveryJournalRecord(id)
+  if (!record) return
+  await withBackgroundRecoveryJournalLock(async () => {
+    const handle = await openVerifiedBackgroundRecoveryJournal('a')
+    try {
+      await handle.writeFile(record)
+      await handle.sync()
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  })
+}
+
+function enqueueBackgroundSessionRecoverySync(id: string): void {
+  const record = backgroundRecoveryJournalRecord(id)
+  if (!record) return
+  withBackgroundRecoveryJournalLockSync(() => {
+    const fd = openVerifiedBackgroundRecoveryJournalSync('a')
+    try {
+      writeFileSync(fd, record)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  })
+}
+
+function sameBackgroundRecoveryJournalIdentity(
+  left: Partial<BackgroundSessionRecoveryJournalIdentity>,
+  right: BackgroundSessionRecoveryJournalIdentity,
+): boolean {
+  return (
+    typeof left.dev === 'number' &&
+    typeof left.ino === 'number' &&
+    left.dev === right.dev &&
+    left.ino === right.ino
+  )
+}
+
+async function readBackgroundSessionRecoveryCursor(
+  identity: BackgroundSessionRecoveryJournalIdentity,
+): Promise<number> {
+  try {
+    if (!(await lstat(getBackgroundSessionRecoveryCursorPath())).isFile()) {
+      return 0
+    }
+    const parsed = jsonParse(
+      await readFile(getBackgroundSessionRecoveryCursorPath(), 'utf8'),
+    ) as Partial<BackgroundSessionRecoveryCursor>
+    return parsed.version === BACKGROUND_RECOVERY_JOURNAL_VERSION &&
+      sameBackgroundRecoveryJournalIdentity(parsed, identity) &&
+      Number.isSafeInteger(parsed.offset) &&
+      parsed.offset! >= 0
+      ? parsed.offset!
+      : 0
+  } catch {
+    return 0
+  }
+}
+
+async function writeBackgroundSessionRecoveryCursor(
+  offset: number,
+  identity: BackgroundSessionRecoveryJournalIdentity,
+): Promise<void> {
+  const path = getBackgroundSessionRecoveryCursorPath()
+  const tmp = join(
+    getBackgroundSessionsRoot(),
+    `.recovery-cursor.${process.pid}.${randomUUID()}.tmp`,
+  )
+  const handle = await open(tmp, 'wx', 0o600)
+  try {
+    await handle.writeFile(
+      jsonStringify({
+        version: BACKGROUND_RECOVERY_JOURNAL_VERSION,
+        offset,
+        ...identity,
+      } satisfies BackgroundSessionRecoveryCursor),
+    )
+    await handle.sync()
+    await handle.close()
+    await rename(tmp, path)
+  } finally {
+    await handle.close().catch(() => {})
+    await unlink(tmp).catch(() => {})
+  }
+}
+
+async function rotateBackgroundSessionRecoveryJournal(
+  startOffset: number,
+  expectedIdentity: BackgroundSessionRecoveryJournalIdentity,
+): Promise<boolean> {
+  const journalPath = getBackgroundSessionRecoveryJournalPath()
+  const source = await openVerifiedBackgroundRecoveryJournal('r')
+  const sourceIdentity = await source.stat()
+  if (
+    !sameBackgroundRecoveryJournalIdentity(
+      sourceIdentity,
+      expectedIdentity,
+    )
+  ) {
+    await source.close()
+    return false
+  }
+  const tmp = join(
+    getBackgroundSessionsRoot(),
+    `.recovery-journal.${process.pid}.${randomUUID()}.tmp`,
+  )
+  let target: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    target = await open(tmp, 'wx', 0o600)
+    const buffer = Buffer.alloc(64 * 1024)
+    let position = startOffset
+    while (true) {
+      const { bytesRead } = await source.read(
+        buffer,
+        0,
+        buffer.byteLength,
+        position,
+      )
+      if (bytesRead === 0) break
+      await target.writeFile(buffer.subarray(0, bytesRead))
+      position += bytesRead
+    }
+    await target.sync()
+    await source.close()
+    await target.close()
+    target = undefined
+    await rename(tmp, journalPath)
+    await unlink(getBackgroundSessionRecoveryCursorPath()).catch(() => {})
+    return true
+  } finally {
+    await source.close().catch(() => {})
+    await target?.close().catch(() => {})
+    await unlink(tmp).catch(() => {})
+  }
+}
+
+export async function snapshotBackgroundSessionRecoveryJournal(): Promise<
+  BackgroundSessionRecoverySnapshot
+> {
+  let snapshotSize = 0
+  let snapshotIdentity: BackgroundSessionRecoveryJournalIdentity = {
+    dev: 0,
+    ino: 0,
+  }
+  await withBackgroundRecoveryJournalLock(async () => {
+    const handle = await openVerifiedBackgroundRecoveryJournal('r')
+    try {
+      const identity = await handle.stat()
+      snapshotSize = identity.size
+      snapshotIdentity = { dev: identity.dev, ino: identity.ino }
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  })
+  return {
+    commit: async () =>
+      await withBackgroundRecoveryJournalLock(
+        async () =>
+          await rotateBackgroundSessionRecoveryJournal(
+            snapshotSize,
+            snapshotIdentity,
+          ),
+      ),
+  }
+}
+
+export async function takeBackgroundSessionRecoveryBatch(
+  maxEntries: number,
+): Promise<BackgroundSessionRecoveryBatch> {
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+    return { sessionIds: [], commit: async () => {} }
+  }
+  const boundedMaxEntries = Math.min(
+    maxEntries,
+    BACKGROUND_RECOVERY_JOURNAL_ENTRY_LIMIT,
+  )
+
+  let startOffset = 0
+  let nextOffset = 0
+  let snapshotSize = 0
+  let snapshotIdentity: BackgroundSessionRecoveryJournalIdentity = {
+    dev: 0,
+    ino: 0,
+  }
+  let sessionIds: string[] = []
+  await withBackgroundRecoveryJournalLock(async () => {
+    const handle = await openVerifiedBackgroundRecoveryJournal('r')
+    try {
+      const identity = await handle.stat()
+      snapshotSize = identity.size
+      snapshotIdentity = { dev: identity.dev, ino: identity.ino }
+      startOffset = await readBackgroundSessionRecoveryCursor(
+        snapshotIdentity,
+      )
+      if (startOffset > snapshotSize) startOffset = 0
+      nextOffset = startOffset
+      const maxBytes =
+        boundedMaxEntries * BACKGROUND_RECOVERY_JOURNAL_RECORD_MAX_BYTES
+      const buffer = Buffer.alloc(maxBytes)
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        maxBytes,
+        startOffset,
+      )
+      const contents = buffer.subarray(0, bytesRead)
+      let lineStart = 0
+      let linesRead = 0
+      const ids = new Set<string>()
+      while (linesRead < boundedMaxEntries) {
+        const newline = contents.indexOf(0x0a, lineStart)
+        if (newline < 0) break
+        const id = contents.subarray(lineStart, newline).toString('utf8')
+        if (SAFE_ID_RE.test(id)) ids.add(id)
+        nextOffset = startOffset + newline + 1
+        lineStart = newline + 1
+        linesRead++
+      }
+      if (linesRead === 0 && bytesRead === maxBytes) {
+        nextOffset = startOffset + bytesRead
+      }
+      sessionIds = [...ids]
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  })
+
+  return {
+    sessionIds,
+    commit: async () => {
+      if (nextOffset === startOffset) return
+      await withBackgroundRecoveryJournalLock(async () => {
+        const handle = await openVerifiedBackgroundRecoveryJournal('r')
+        let identity: Stats
+        try {
+          identity = await handle.stat()
+        } finally {
+          await handle.close().catch(() => {})
+        }
+        const currentIdentity = { dev: identity.dev, ino: identity.ino }
+        if (
+          !sameBackgroundRecoveryJournalIdentity(
+            currentIdentity,
+            snapshotIdentity,
+          )
+        ) {
+          return
+        }
+        const currentOffset = await readBackgroundSessionRecoveryCursor(
+          currentIdentity,
+        )
+        if (currentOffset !== startOffset) return
+        const currentSize = identity.size
+        if (currentSize === snapshotSize && nextOffset >= currentSize) {
+          await rotateBackgroundSessionRecoveryJournal(
+            currentSize,
+            currentIdentity,
+          )
+          return
+        }
+        await writeBackgroundSessionRecoveryCursor(
+          nextOffset,
+          currentIdentity,
+        )
+      })
+    },
+  }
 }
 
 function metadataPathForId(id: string): string {
@@ -978,6 +1371,7 @@ async function installTerminalFact(
   const target = terminalFactPathForId(fact.id, kind, fact.generation)
   const tmp = terminalFactTempPath(fact.id)
   let handle: Awaited<ReturnType<typeof open>> | undefined
+  let installed: BackgroundSessionTerminalFact
   try {
     handle = await open(tmp, 'wx', 0o600)
     await handle.writeFile(jsonStringify(fact))
@@ -985,18 +1379,24 @@ async function installTerminalFact(
     await handle.close()
     handle = undefined
     await link(tmp, target)
-    return fact
+    installed = fact
   } catch (error) {
     if (isErrno(error, 'EEXIST')) {
       const existing = await readTerminalFact(fact.id, kind, fact.generation)
-      if (existing) return existing
-      throw new Error(`Invalid background session ${kind} terminal fact`)
+      if (existing) {
+        installed = existing
+      } else {
+        throw new Error(`Invalid background session ${kind} terminal fact`)
+      }
+    } else {
+      throw error
     }
-    throw error
   } finally {
     await handle?.close().catch(() => {})
     await unlink(tmp).catch(() => {})
   }
+  await enqueueBackgroundSessionRecovery(installed.id).catch(() => {})
+  return installed
 }
 
 function installTerminalFactSync(
@@ -1010,6 +1410,7 @@ function installTerminalFactSync(
   const target = terminalFactPathForId(fact.id, kind, fact.generation)
   const tmp = terminalFactTempPath(fact.id)
   let fd: number | undefined
+  let installed: BackgroundSessionTerminalFact
   try {
     fd = openSync(tmp, 'wx', 0o600)
     writeFileSync(fd, jsonStringify(fact))
@@ -1017,14 +1418,18 @@ function installTerminalFactSync(
     closeSync(fd)
     fd = undefined
     linkSync(tmp, target)
-    return fact
+    installed = fact
   } catch (error) {
     if (isErrno(error, 'EEXIST')) {
       const existing = readTerminalFactSync(fact.id, kind, fact.generation)
-      if (existing) return existing
-      throw new Error(`Invalid background session ${kind} terminal fact`)
+      if (existing) {
+        installed = existing
+      } else {
+        throw new Error(`Invalid background session ${kind} terminal fact`)
+      }
+    } else {
+      throw error
     }
-    throw error
   } finally {
     if (fd !== undefined) {
       try {
@@ -1035,6 +1440,12 @@ function installTerminalFactSync(
       unlinkSync(tmp)
     } catch {}
   }
+  try {
+    enqueueBackgroundSessionRecoverySync(installed.id)
+  } catch {
+    // The terminal fact remains the durable fallback for the daily sweep.
+  }
+  return installed
 }
 
 type BackgroundSessionRecord = {
@@ -1396,7 +1807,6 @@ async function cleanupOrphanedTerminalFacts(
   metadataIds: ReadonlySet<string>,
   result: BackgroundCleanupResult,
   fileSystem: BackgroundCleanupFileSystem,
-  scanStartSeed: number = cutoffMs,
   maxDirectoryEntries?: number,
 ): Promise<void> {
   const terminalDirectoryState = await inspectCleanupDirectory(
@@ -1444,24 +1854,7 @@ async function cleanupOrphanedTerminalFacts(
     })
   if (candidates.length === 0) return
 
-  const scanCount = Math.min(
-    candidates.length,
-    ORPHANED_TERMINAL_FACT_SCAN_LIMIT,
-  )
-  const effectiveScanStartSeed = Number.isFinite(scanStartSeed)
-    ? scanStartSeed
-    : cutoffMs
-  const normalizedSeed =
-    ((Math.trunc(effectiveScanStartSeed) % candidates.length) +
-      candidates.length) %
-    candidates.length
-  const startIndex =
-    (normalizedSeed + orphanedTerminalFactScanOffset) % candidates.length
-  orphanedTerminalFactScanOffset =
-    (orphanedTerminalFactScanOffset + scanCount) % candidates.length
-  for (let index = 0; index < scanCount; index++) {
-    const candidate = candidates[(startIndex + index) % candidates.length]
-    if (!candidate) continue
+  for (const candidate of candidates) {
     const factPath = terminalFactPathForId(
       candidate.id,
       candidate.kind,
@@ -1523,7 +1916,6 @@ export async function cleanupBackgroundSessionsBefore(
     _beforeMetadataDirectoryReadForTesting?: () => Promise<void>
     _beforeArtifactRemovalForTesting?: (id: string) => Promise<void>
     _beforeReservationRemovalForTesting?: (path: string) => Promise<void>
-    _orphanedTerminalFactScanStartForTesting?: number
     sessionIds?: readonly string[]
     maxDirectoryEntries?: number
   } = {},
@@ -1591,7 +1983,6 @@ export async function cleanupBackgroundSessionsBefore(
       new Set(),
       result,
       fileSystem,
-      options._orphanedTerminalFactScanStartForTesting,
       options.maxDirectoryEntries,
     )
     return result
@@ -1865,7 +2256,6 @@ export async function cleanupBackgroundSessionsBefore(
       metadataIds,
       result,
       fileSystem,
-      options._orphanedTerminalFactScanStartForTesting,
       options.maxDirectoryEntries,
     )
   }

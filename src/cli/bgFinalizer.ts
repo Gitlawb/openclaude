@@ -3,6 +3,11 @@ import { resolve } from 'node:path'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import { logForDebugging } from '../utils/debug.js'
 import { registerCleanup } from '../utils/cleanupRegistry.js'
+import { SettingsSchema } from '../utils/settings/types.js'
+import {
+  filterInvalidModelPricing,
+  filterInvalidPermissionRules,
+} from '../utils/settings/validation.js'
 import {
   beginBackgroundSessionSignalTracking,
   type ObservedBackgroundSessionSignal,
@@ -32,6 +37,15 @@ const DEFAULT_REGISTRATION_WAIT_MS = 5_000
 const DEFAULT_REGISTRATION_POLL_MS = 10
 const DEFAULT_CLEANUP_WORKER_WAIT_MS = 10_000
 const DEFAULT_CLEANUP_WORKER_POLL_MS = 25
+const BACKGROUND_SESSION_RETENTION_POLICY_STATE_ENV =
+  'OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE'
+
+type BackgroundRetentionPolicyState = 'preserved' | 'invalid'
+
+type BackgroundRetentionSettingsHandoff = {
+  args: string[]
+  policyState: BackgroundRetentionPolicyState
+}
 
 type PrepareBackgroundSessionFinalizerOptions = {
   env?: NodeJS.ProcessEnv
@@ -51,7 +65,9 @@ type PrepareBackgroundSessionFinalizerOptions = {
     ownerPid: number,
     launcherPid: number,
     settingsArgs: string[],
+    policyState: BackgroundRetentionPolicyState,
   ) => void
+  spawnCleanupWorkerProcess?: typeof spawn
   settingsArgs?: string[]
   settingsCwd?: string
   getObservedSignal?: () => ObservedBackgroundSessionSignal | undefined
@@ -186,64 +202,87 @@ type BackgroundSessionCleanupWorkerStartOptions = {
   entrypoint?: string
   settingsArgs?: string[]
   settingsCwd?: string
+  policyState?: BackgroundRetentionPolicyState
   spawnProcess?: typeof spawn
 }
 
-function backgroundRetentionSettingsArgs(
+function backgroundRetentionSettingsHandoff(
   args: string[],
   settingsCwd: string,
-): string[] {
+): BackgroundRetentionSettingsHandoff {
   const selected: string[] = []
+  let policyState: BackgroundRetentionPolicyState = 'preserved'
   for (const flag of ['--settings', '--setting-sources']) {
     const inlinePrefix = `${flag}=`
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index]
       if (arg?.startsWith(inlinePrefix)) {
-        const value = backgroundRetentionSettingsValue(
+        const handoff = backgroundRetentionSettingsValue(
           flag,
           arg.slice(inlinePrefix.length),
           settingsCwd,
         )
-        if (value !== undefined) selected.push(flag, value)
+        if (handoff.policyState === 'invalid') policyState = 'invalid'
+        if (handoff.value !== undefined) selected.push(flag, handoff.value)
         break
       }
       if (arg === flag && index + 1 < args.length) {
-        const value = backgroundRetentionSettingsValue(
+        const handoff = backgroundRetentionSettingsValue(
           flag,
           args[index + 1]!,
           settingsCwd,
         )
-        if (value !== undefined) selected.push(flag, value)
+        if (handoff.policyState === 'invalid') policyState = 'invalid'
+        if (handoff.value !== undefined) selected.push(flag, handoff.value)
         break
       }
     }
   }
-  return selected
+  return { args: selected, policyState }
 }
 
 function backgroundRetentionSettingsValue(
   flag: string,
   value: string,
   settingsCwd: string,
-): string | undefined {
-  if (flag !== '--settings') return value
+): { value?: string; policyState: BackgroundRetentionPolicyState } {
+  if (flag !== '--settings') {
+    return { value, policyState: 'preserved' }
+  }
   const trimmed = value.trim()
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
-    return resolve(settingsCwd, value)
+    return {
+      value: resolve(settingsCwd, value),
+      policyState: 'preserved',
+    }
   }
   try {
     const parsed = JSON.parse(trimmed) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return '{'
+    const inlineErrors = [
+      ...filterInvalidPermissionRules(parsed, '--settings'),
+      ...filterInvalidModelPricing(parsed, '--settings'),
+    ]
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      inlineErrors.length > 0 ||
+      !SettingsSchema().safeParse(parsed).success
+    ) {
+      return { policyState: 'invalid' }
     }
-    if (!Object.hasOwn(parsed, 'cleanupPeriodDays')) return undefined
-    return JSON.stringify({
-      cleanupPeriodDays: (parsed as { cleanupPeriodDays?: unknown })
-        .cleanupPeriodDays,
-    })
+    if (!Object.hasOwn(parsed, 'cleanupPeriodDays')) {
+      return { policyState: 'preserved' }
+    }
+    return {
+      value: JSON.stringify({
+        cleanupPeriodDays: (parsed as { cleanupPeriodDays?: unknown })
+          .cleanupPeriodDays,
+      }),
+      policyState: 'preserved',
+    }
   } catch {
-    // Preserve fail-closed parsing without forwarding unrelated inline data.
-    return '{'
+    return { policyState: 'invalid' }
   }
 }
 
@@ -264,15 +303,20 @@ export function startBackgroundSessionCleanupWorker(
     options.ownerPid,
   )
   workerEnv[BACKGROUND_SESSION_LAUNCHER_PID_ENV] = String(options.launcherPid)
+  const settingsHandoff = backgroundRetentionSettingsHandoff(
+    options.settingsArgs ?? process.argv.slice(2),
+    options.settingsCwd ?? process.cwd(),
+  )
+  workerEnv[BACKGROUND_SESSION_RETENTION_POLICY_STATE_ENV] =
+    options.policyState === 'invalid'
+      ? 'invalid'
+      : settingsHandoff.policyState
   const child = (options.spawnProcess ?? spawn)(
     options.execPath ?? process.execPath,
     [
       ...(options.execArgv ?? process.execArgv),
       entrypoint,
-      ...backgroundRetentionSettingsArgs(
-        options.settingsArgs ?? process.argv.slice(2),
-        options.settingsCwd ?? process.cwd(),
-      ),
+      ...settingsHandoff.args,
     ],
     {
       detached: true,
@@ -325,10 +369,12 @@ export async function runBackgroundSessionCleanupWorker(
     env[BACKGROUND_SESSION_LAUNCHER_PID_ENV],
   )
   const sessionId = env[BACKGROUND_SESSION_ID_ENV]
+  const policyState = env[BACKGROUND_SESSION_RETENTION_POLICY_STATE_ENV]
   delete env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV]
   delete env[BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV]
   delete env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]
   delete env[BACKGROUND_SESSION_ID_ENV]
+  delete env[BACKGROUND_SESSION_RETENTION_POLICY_STATE_ENV]
   if (
     ownerPid === undefined ||
     launcherPid === undefined ||
@@ -337,6 +383,7 @@ export async function runBackgroundSessionCleanupWorker(
   ) {
     return
   }
+  if (policyState !== undefined && policyState !== 'preserved') return
 
   const isProcessAlive = options.isProcessAlive ?? isBackgroundLauncherAlive
   const sleep =
@@ -405,7 +452,7 @@ export async function prepareBackgroundSessionFinalizer(
   const getObservedSignal =
     options.getObservedSignal ?? beginBackgroundSessionSignalTracking()
   const debug = options.debug ?? defaultDebug
-  const retentionSettingsArgs = backgroundRetentionSettingsArgs(
+  const retentionSettingsHandoff = backgroundRetentionSettingsHandoff(
     options.settingsArgs ?? process.argv.slice(2),
     options.settingsCwd ?? process.cwd(),
   )
@@ -416,12 +463,15 @@ export async function prepareBackgroundSessionFinalizer(
       cleanupOwnerPid,
       cleanupLauncherPid,
       cleanupSettingsArgs,
+      cleanupPolicyState,
     ) =>
       startBackgroundSessionCleanupWorker({
         sessionId: cleanupSessionId,
         ownerPid: cleanupOwnerPid,
         launcherPid: cleanupLauncherPid,
         settingsArgs: cleanupSettingsArgs,
+        policyState: cleanupPolicyState,
+        spawnProcess: options.spawnCleanupWorkerProcess,
       }))
   let finalized = false
 
@@ -431,7 +481,8 @@ export async function prepareBackgroundSessionFinalizer(
         id,
         ownerPid,
         launcherPid,
-        retentionSettingsArgs,
+        retentionSettingsHandoff.args,
+        retentionSettingsHandoff.policyState,
       )
     } catch (error) {
       reportPostFinalizationCleanupFailure(debug, error)

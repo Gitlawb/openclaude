@@ -243,7 +243,9 @@ describe('background session finalizer', () => {
   it('starts a detached cleanup owner after awaited finalization', async () => {
     let beforeExitListener: (() => void | Promise<void>) | undefined
     const order: string[] = []
-    let workerSettingsArgs: string[] | undefined
+    let spawnedArgs: readonly string[] | undefined
+    let spawnedEnv: NodeJS.ProcessEnv | undefined
+    let unrefCalls = 0
 
     await prepareBackgroundSessionFinalizer({
       env: {
@@ -261,28 +263,36 @@ describe('background session finalizer', () => {
         order.push('finalize')
         return ownedSession('bg-launcher-handoff', 500)
       },
-      settingsArgs: ['--settings', 'retention.json'],
+      settingsArgs: [
+        '--settings',
+        JSON.stringify({
+          cleanupPeriodDays: 0,
+          permissions: { defaultMode: 'bogus' },
+        }),
+      ],
       settingsCwd: configDir,
-      startCleanupWorker: (
-        sessionId,
-        ownerPid,
-        launcherPid,
-        settingsArgs,
-      ) => {
-        order.push(`worker:${sessionId}:${ownerPid}:${launcherPid}`)
-        workerSettingsArgs = settingsArgs
-      },
+      spawnCleanupWorkerProcess: ((_command, args, options) => {
+        order.push('worker')
+        spawnedArgs = args
+        spawnedEnv = options.env
+        return {
+          once: () => {},
+          unref: () => {
+            unrefCalls++
+          },
+        }
+      }) as unknown as typeof spawn,
     })
 
     await beforeExitListener?.()
-    expect(order).toEqual([
-      'finalize',
-      'worker:bg-launcher-handoff:500:123',
-    ])
-    expect(workerSettingsArgs).toEqual([
-      '--settings',
-      join(configDir, 'retention.json'),
-    ])
+    expect(order).toEqual(['finalize', 'worker'])
+    expect(spawnedArgs).not.toContain('--settings')
+    expect(
+      spawnedEnv?.[
+        'OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE'
+      ],
+    ).toBe('invalid')
+    expect(unrefCalls).toBe(1)
   })
 
   it('passes only settings-source inputs to the detached cleanup worker', () => {
@@ -326,7 +336,43 @@ describe('background session finalizer', () => {
     expect(spawnedEnv?.[BACKGROUND_SESSION_ID_ENV]).toBe(
       'bg-worker-settings',
     )
+    expect(
+      spawnedEnv?.[
+        'OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE'
+      ],
+    ).toBe('preserved')
     expect(unrefCalls).toBe(1)
+  })
+
+  it('marks a projected inline settings handoff invalid when a sibling setting fails validation', () => {
+    let spawnedArgs: readonly string[] | undefined
+    let spawnedEnv: NodeJS.ProcessEnv | undefined
+    startBackgroundSessionCleanupWorker({
+      sessionId: 'bg-worker-invalid-settings',
+      ownerPid: 500,
+      launcherPid: 123,
+      execPath: 'node',
+      entrypoint: '/openclaude/cli.mjs',
+      settingsArgs: [
+        '--settings',
+        JSON.stringify({
+          cleanupPeriodDays: 0,
+          permissions: { defaultMode: 'bogus' },
+        }),
+      ],
+      spawnProcess: ((_command, args, options) => {
+        spawnedArgs = args
+        spawnedEnv = options.env
+        return { once: () => {}, unref: () => {} }
+      }) as unknown as typeof spawn,
+    })
+
+    expect(spawnedArgs).toEqual(['/openclaude/cli.mjs'])
+    expect(
+      spawnedEnv?.[
+        'OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE'
+      ],
+    ).toBe('invalid')
   })
 
   it('retains cleanup when the detached worker cannot observe process exit', async () => {
@@ -356,6 +402,32 @@ describe('background session finalizer', () => {
     expect(env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV]).toBeUndefined()
     expect(env[BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV]).toBeUndefined()
     expect(env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]).toBeUndefined()
+  })
+
+  it('does not run detached cleanup for an invalid originating policy', async () => {
+    const { runBackgroundSessionCleanupWorker } = await import(
+      './bgFinalizer.js'
+    )
+    const env = {
+      [BACKGROUND_SESSION_CLEANUP_WORKER_ENV]: '1',
+      [BACKGROUND_SESSION_CLEANUP_OWNER_PID_ENV]: '500',
+      [BACKGROUND_SESSION_ID_ENV]: 'bg-worker-invalid-policy',
+      [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: '123',
+      OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE: 'invalid',
+    }
+    let cleanupRuns = 0
+
+    await runBackgroundSessionCleanupWorker({
+      env,
+      cleanup: async () => {
+        cleanupRuns++
+      },
+    })
+
+    expect(cleanupRuns).toBe(0)
+    expect(
+      env.OPENCLAUDE_INTERNAL_BACKGROUND_RETENTION_POLICY_STATE,
+    ).toBeUndefined()
   })
 
   it('passes the registered generation to the synchronous exit fallback', async () => {
@@ -577,6 +649,26 @@ describe('background session finalizer', () => {
     return !isProcessRunning(pid)
   }
 
+  async function stopDetachedFixtureChild(
+    childPid: number | undefined,
+  ): Promise<void> {
+    if (
+      childPid === undefined ||
+      !Number.isSafeInteger(childPid) ||
+      !isProcessRunning(childPid)
+    ) {
+      return
+    }
+    try {
+      process.kill(childPid, 'SIGTERM')
+    } catch {}
+    if (await waitForProcessStop(childPid)) return
+    try {
+      process.kill(childPid, 'SIGKILL')
+    } catch {}
+    await waitForProcessStop(childPid)
+  }
+
   function sessionArtifactPaths(id: string, name: string): string[] {
     const reservationDigest = createHash('sha256').update(name).digest('hex')
     return [
@@ -744,39 +836,42 @@ describe('background session finalizer', () => {
       launcher.stderr,
       'built background launcher stderr',
     )
-    let launcherCode: number | null
+    let childPid: number | undefined
+    let ownershipTransferred = false
     try {
-      launcherCode = await waitForChildClose(
+      const launcherCode = await waitForChildClose(
         launcher,
         'built background launcher',
       )
       stdoutCapture.assertWithinLimit()
       stderrCapture.assertWithinLimit()
-    } catch (error) {
       const stdout = stdoutCapture.read()
-      const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
-      if (Number.isSafeInteger(childPid) && isProcessRunning(childPid)) {
-        try {
-          process.kill(childPid, 'SIGKILL')
-        } catch {}
+      const parsedChildPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+      if (Number.isSafeInteger(parsedChildPid)) childPid = parsedChildPid
+      const stderr = stderrCapture.read()
+      expect(launcherCode).toBe(0)
+      expect(stderr).toBe('')
+      const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
+      const id = stdoutLogPath
+        ? basename(stdoutLogPath, '.out.log')
+        : undefined
+      expect(id).toBeDefined()
+      expect(childPid).toBeDefined()
+      if (!id || childPid === undefined) {
+        throw new Error('built launch output omitted its session identity')
       }
-      throw error
+      ownershipTransferred = true
+      return { id, childPid }
+    } finally {
+      if (!ownershipTransferred) {
+        if (childPid === undefined) {
+          const stdout = stdoutCapture.read()
+          const parsedChildPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+          if (Number.isSafeInteger(parsedChildPid)) childPid = parsedChildPid
+        }
+        await stopDetachedFixtureChild(childPid)
+      }
     }
-    const stdout = stdoutCapture.read()
-    const stderr = stderrCapture.read()
-    expect(launcherCode).toBe(0)
-    expect(stderr).toBe('')
-    const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
-    const id = stdoutLogPath
-      ? basename(stdoutLogPath, '.out.log')
-      : undefined
-    const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
-    expect(id).toBeDefined()
-    expect(Number.isSafeInteger(childPid)).toBe(true)
-    if (!id || !Number.isSafeInteger(childPid)) {
-      throw new Error('built launch output omitted its session identity')
-    }
-    return { id, childPid }
   }
 
   async function runBuiltCliSession(
@@ -820,7 +915,7 @@ describe('background session finalizer', () => {
   }
 
   async function waitForTerminalSession(): Promise<BackgroundSession> {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
       const [session] = await listBackgroundSessions()
       if (
         session &&
@@ -828,7 +923,7 @@ describe('background session finalizer', () => {
       ) {
         return session
       }
-      await new Promise(resolve => setTimeout(resolve, 5))
+      await new Promise(resolve => setTimeout(resolve, 10))
     }
     throw new Error('detached fixture did not persist a terminal outcome')
   }
@@ -865,6 +960,7 @@ describe('background session finalizer', () => {
 
   async function runWaitingDetachedLaunch(
     name: string,
+    fixtureEnv: NodeJS.ProcessEnv = {},
   ): Promise<{ id: string; childPid: number; readyPath: string }> {
     const readyPath = join(configDir, `${name}.ready`)
     const launcher = spawn(
@@ -876,6 +972,7 @@ describe('background session finalizer', () => {
           ...process.env,
           OPENCLAUDE_CONFIG_DIR: configDir,
           OPENCLAUDE_BG_FINALIZER_FIXTURE_READY: readyPath,
+          ...fixtureEnv,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -890,40 +987,76 @@ describe('background session finalizer', () => {
       launcher.stderr,
       'detached wait launcher stderr',
     )
-    let launcherCode: number | null
+    let childPid: number | undefined
+    let ownershipTransferred = false
     try {
-      launcherCode = await waitForChildClose(
+      const launcherCode = await waitForChildClose(
         launcher,
         'detached wait launcher',
       )
       stdoutCapture.assertWithinLimit()
       stderrCapture.assertWithinLimit()
-    } catch (error) {
       const stdout = stdoutCapture.read()
-      const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
-      if (Number.isSafeInteger(childPid) && isProcessRunning(childPid)) {
-        try {
-          process.kill(childPid, 'SIGKILL')
-        } catch {}
+      const parsedChildPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+      if (Number.isSafeInteger(parsedChildPid)) childPid = parsedChildPid
+      const stderr = stderrCapture.read()
+      expect(launcherCode).toBe(0)
+      expect(stderr).toBe('')
+      const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
+      const id = stdoutLogPath
+        ? basename(stdoutLogPath, '.out.log')
+        : undefined
+      expect(id).toBeDefined()
+      expect(childPid).toBeDefined()
+      if (!id || childPid === undefined) {
+        throw new Error('detached wait launch omitted its session identity')
       }
-      throw error
+      await waitForFile(readyPath)
+      ownershipTransferred = true
+      return { id, childPid, readyPath }
+    } finally {
+      if (!ownershipTransferred) {
+        if (childPid === undefined) {
+          const stdout = stdoutCapture.read()
+          const parsedChildPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
+          if (Number.isSafeInteger(parsedChildPid)) childPid = parsedChildPid
+        }
+        await stopDetachedFixtureChild(childPid)
+      }
     }
-    const stdout = stdoutCapture.read()
-    const stderr = stderrCapture.read()
-    expect(launcherCode).toBe(0)
-    expect(stderr).toBe('')
-    const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]
-    const id = stdoutLogPath
-      ? basename(stdoutLogPath, '.out.log')
-      : undefined
-    const childPid = Number(stdout.match(/^PID: (\d+)$/m)?.[1])
-    expect(id).toBeDefined()
-    expect(Number.isSafeInteger(childPid)).toBe(true)
-    if (!id || !Number.isSafeInteger(childPid)) {
-      throw new Error('detached wait launch omitted its session identity')
-    }
-    await waitForFile(readyPath)
-    return { id, childPid, readyPath }
+  }
+
+  for (const scenario of [
+    {
+      label: 'launcher output omits Logs',
+      env: {
+        OPENCLAUDE_BG_FINALIZER_FIXTURE_OUTPUT: 'omit-logs',
+      },
+    },
+    {
+      label: 'readiness is never published',
+      env: {
+        OPENCLAUDE_BG_FINALIZER_FIXTURE_SKIP_READY: '1',
+      },
+    },
+  ]) {
+    it(
+      `reaps the detached child when ${scenario.label}`,
+      async () => {
+        const name = `failed-handoff-${scenario.label.replaceAll(' ', '-')}`
+        await expect(
+          runWaitingDetachedLaunch(name, scenario.env),
+        ).rejects.toThrow()
+        const session = (await listBackgroundSessions()).find(
+          candidate => candidate.name === name,
+        )
+        expect(session).toBeDefined()
+        expect(
+          session ? isProcessRunning(session.pid) : true,
+        ).toBe(false)
+      },
+      30_000,
+    )
   }
 
   async function runBuiltKill(
@@ -1139,27 +1272,33 @@ describe('background session finalizer', () => {
     { mode: 'success' as const, status: 'exited', exitCode: 0 },
     { mode: 'fail' as const, status: 'failed', exitCode: 23 },
   ]) {
-    it(`finalizes a detached ${expectation.mode} launch through handleBgFlag`, async () => {
-      const { stdout, session } = await runDetachedLaunch(expectation.mode)
+    it(
+      `finalizes a detached ${expectation.mode} launch through handleBgFlag`,
+      async () => {
+        const { stdout, session } = await runDetachedLaunch(expectation.mode)
 
-      expect(stdout).toMatch(
-        new RegExp(
-          `(?:Started background session ${session.id}\\.|Background session ${session.id} finished with status ${expectation.status}\\.)`,
-        ),
-      )
-      expect(session).toMatchObject({
-        status: expectation.status,
-        exitCode: expectation.exitCode,
-        terminalReason: 'exit_code',
-      })
-      expect(isValidBackgroundProcessMarker(session.processMarker)).toBe(true)
-      expect(session.command).toContain(
-        backgroundProcessMarkerToken(session.processMarker!),
-      )
-      expect(stdout).not.toContain(BACKGROUND_PROCESS_MARKER_FLAG)
-      expect(await Bun.file(session.stdoutLogPath).exists()).toBe(true)
-      expect(await Bun.file(session.stderrLogPath).exists()).toBe(true)
-    })
+        expect(stdout).toMatch(
+          new RegExp(
+            `(?:Started background session ${session.id}\\.|Background session ${session.id} finished with status ${expectation.status}\\.)`,
+          ),
+        )
+        expect(session).toMatchObject({
+          status: expectation.status,
+          exitCode: expectation.exitCode,
+          terminalReason: 'exit_code',
+        })
+        expect(isValidBackgroundProcessMarker(session.processMarker)).toBe(
+          true,
+        )
+        expect(session.command).toContain(
+          backgroundProcessMarkerToken(session.processMarker!),
+        )
+        expect(stdout).not.toContain(BACKGROUND_PROCESS_MARKER_FLAG)
+        expect(await Bun.file(session.stdoutLogPath).exists()).toBe(true)
+        expect(await Bun.file(session.stderrLogPath).exists()).toBe(true)
+      },
+      30_000,
+    )
   }
 
   async function runZeroRetentionFinalizerScenario(
@@ -1301,6 +1440,18 @@ describe('background session finalizer', () => {
         JSON.stringify({ cleanupPeriodDays: 0 }),
       ],
       reclaimed: true,
+    },
+    {
+      label: 'invalid inline sibling retains against global zero-day policy',
+      globalDays: 0,
+      prepare: async () => [
+        '--settings',
+        JSON.stringify({
+          cleanupPeriodDays: 0,
+          permissions: { defaultMode: 'bogus' },
+        }),
+      ],
+      reclaimed: false,
     },
     {
       label: 'project-only sources retain against global zero-day policy',

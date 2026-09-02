@@ -8,6 +8,7 @@ describe('background session housekeeping', () => {
   it('starts recurring background-session reconciliation', async () => {
     let callback: (() => void) | undefined
     let runs = 0
+    let retentionSchedules = 0
     startBackgroundHousekeeping({
       backgroundSessionReconciliation: {
         cleanup: async () => {
@@ -18,9 +19,43 @@ describe('background session housekeeping', () => {
           return { unref: () => {} }
         },
       },
+      backgroundSessionRetention: {
+        setInterval: () => {
+          retentionSchedules++
+          return { unref: () => {} }
+        },
+      },
       _reconciliationOnlyForTesting: true,
     })
 
+    callback?.()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(runs).toBe(1)
+    expect(retentionSchedules).toBe(0)
+  })
+
+  it('schedules recurring positive-retention cleanup every 24 hours', async () => {
+    let callback: (() => void) | undefined
+    let intervalMs: number | undefined
+    let runs = 0
+    startBackgroundHousekeeping({
+      backgroundSessionReconciliation: {
+        setInterval: () => ({ unref: () => {} }),
+      },
+      backgroundSessionRetention: {
+        cleanup: async () => {
+          runs++
+        },
+        setInterval: (scheduledCallback, scheduledIntervalMs) => {
+          callback = scheduledCallback
+          intervalMs = scheduledIntervalMs
+          return { unref: () => {} }
+        },
+      },
+      _backgroundSessionTimersOnlyForTesting: true,
+    })
+
+    expect(intervalMs).toBe(24 * 60 * 60 * 1000)
     callback?.()
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(runs).toBe(1)

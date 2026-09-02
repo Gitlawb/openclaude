@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as lockfile from '../utils/lockfile.js'
@@ -16,6 +23,8 @@ import {
   readBackgroundSessionForOwner,
   refreshBackgroundSessionStatuses,
   resolveBackgroundSession,
+  snapshotBackgroundSessionRecoveryJournal,
+  takeBackgroundSessionRecoveryBatch,
   verifyBackgroundSessionProcessIdentity,
   type BackgroundSession,
 } from './bgRegistry.js'
@@ -1029,6 +1038,182 @@ describe('background session registry', () => {
       finishedAt: '2026-06-15T08:06:00.000Z',
       exitCode: 0,
     })
+  })
+
+  it('does not follow a symlinked recovery journal after terminal persistence', async () => {
+    const session = await createBackgroundSession({
+      id: 'bg-symlinked-recovery-journal',
+      pid: 451,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-symlinked-recovery-journal',
+    })
+    const outside = join(configDir, 'outside-recovery-journal')
+    await writeFile(outside, 'keep')
+    await symlink(
+      outside,
+      join(configDir, 'bg-sessions', '.recovery-journal'),
+    )
+
+    expect(
+      await recordBackgroundSessionNaturalTermination(
+        session.id,
+        { exitCode: 0 },
+        { ownerPid: session.pid },
+      ),
+    ).toMatchObject({ status: 'exited' })
+    expect(await readFile(outside, 'utf8')).toBe('keep')
+  })
+
+  it('queues async terminal persistence for bounded recovery', async () => {
+    const session = await createBackgroundSession({
+      id: 'bg-async-recovery-queue',
+      pid: 452,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-async-recovery-queue',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      session.id,
+      { exitCode: 0 },
+      { ownerPid: session.pid },
+    )
+
+    const batch = await takeBackgroundSessionRecoveryBatch(1)
+    expect(batch.sessionIds).toEqual([session.id])
+    await batch.commit()
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(1)).sessionIds,
+    ).toEqual([])
+  })
+
+  it('caps recovery batches at 256 journal records', async () => {
+    const root = join(configDir, 'bg-sessions')
+    await mkdir(root, { recursive: true })
+    await writeFile(
+      join(root, '.recovery-journal'),
+      `${Array.from({ length: 300 }, (_, index) => `bg-batch-cap-${index}`).join('\n')}\n`,
+    )
+
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(1_000)).sessionIds,
+    ).toHaveLength(256)
+  })
+
+  it('queues sync terminal persistence for bounded recovery', async () => {
+    const session = await createBackgroundSession({
+      id: 'bg-sync-recovery-queue',
+      pid: 453,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-sync-recovery-queue',
+    })
+    recordBackgroundSessionNaturalTerminationSync(
+      session.id,
+      { exitCode: 0 },
+      { ownerPid: session.pid, expectedSession: session },
+    )
+
+    const batch = await takeBackgroundSessionRecoveryBatch(1)
+    expect(batch.sessionIds).toEqual([session.id])
+  })
+
+  it('preserves records appended after a full-sweep journal snapshot', async () => {
+    const first = await createBackgroundSession({
+      id: 'bg-recovery-snapshot-first',
+      pid: 455,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'first'],
+      sessionId: 'conversation-recovery-snapshot-first',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      first.id,
+      { exitCode: 0 },
+      { ownerPid: first.pid },
+    )
+    const snapshot =
+      await snapshotBackgroundSessionRecoveryJournal()
+
+    const second = await createBackgroundSession({
+      id: 'bg-recovery-snapshot-second',
+      pid: 456,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'second'],
+      sessionId: 'conversation-recovery-snapshot-second',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      second.id,
+      { exitCode: 0 },
+      { ownerPid: second.pid },
+    )
+
+    expect(await snapshot.commit()).toBe(true)
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(2)).sessionIds,
+    ).toEqual([second.id])
+  })
+
+  it('ignores a stale batch commit after journal rotation', async () => {
+    const first = await createBackgroundSession({
+      id: 'bg-stale-recovery-batch-first',
+      pid: 457,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'first'],
+      sessionId: 'conversation-stale-recovery-batch-first',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      first.id,
+      { exitCode: 0 },
+      { ownerPid: first.pid },
+    )
+    const staleBatch = await takeBackgroundSessionRecoveryBatch(1)
+    const snapshot =
+      await snapshotBackgroundSessionRecoveryJournal()
+    expect(await snapshot.commit()).toBe(true)
+
+    const second = await createBackgroundSession({
+      id: 'bg-stale-recovery-batch-second',
+      pid: 458,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'second'],
+      sessionId: 'conversation-stale-recovery-batch-second',
+    })
+    await recordBackgroundSessionNaturalTermination(
+      second.id,
+      { exitCode: 0 },
+      { ownerPid: second.pid },
+    )
+    await staleBatch.commit()
+
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(1)).sessionIds,
+    ).toEqual([second.id])
+  })
+
+  it('does not follow a symlinked recovery journal during sync persistence', async () => {
+    const session = await createBackgroundSession({
+      id: 'bg-sync-symlinked-recovery-journal',
+      pid: 454,
+      cwd: '/repo',
+      command: ['openclaude', '--print', 'work'],
+      sessionId: 'conversation-sync-symlinked-recovery-journal',
+    })
+    const outside = join(configDir, 'outside-sync-recovery-journal')
+    await writeFile(outside, 'keep')
+    await symlink(
+      outside,
+      join(configDir, 'bg-sessions', '.recovery-journal'),
+    )
+
+    recordBackgroundSessionNaturalTerminationSync(
+      session.id,
+      { exitCode: 0 },
+      { ownerPid: session.pid, expectedSession: session },
+    )
+    expect((await resolveBackgroundSession(session.id)).status).toBe(
+      'exited',
+    )
+    expect(await readFile(outside, 'utf8')).toBe('keep')
   })
 
   it('does not let a late natural finalizer replace the first valid fact', async () => {
