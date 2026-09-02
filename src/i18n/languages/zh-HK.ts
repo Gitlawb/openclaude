@@ -40,7 +40,7 @@ export default {
   "model.current_model": "當前模型：",
   "model.select_prompt": "輸入或選擇 Model ID：",
   "model.custom_input": "自訂 Model ID",
-  "model.switched_success": "已成功切換模型至 {{model}}",
+  "model.switched_success": "已成功切換模型至 {model}",
 
   "errors.node_not_found": "未找到 Node.js 執行檔。",
   "errors.unsupported_region": "當前地區限制直接連線至 Anthropic。",
