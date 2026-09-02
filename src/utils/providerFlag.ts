@@ -856,6 +856,29 @@ export function applyProviderFlag(
         clearUnsupportedOpenAIShimSettings(provider)
         delete process.env.ANTHROPIC_CUSTOM_HEADERS
       }
+      // DedicatedCredentialsOnly: only CMD_API_KEY / COMMANDCODE_API_KEY
+      // authenticate this route. Mirror the resolved dedicated key into
+      // OPENAI_API_KEY for the shared shim, and clear any unrelated generic
+      // key so another provider's credential is never left in-process
+      // (spawn forwarding, copied-key switch-away, other OPENAI_API_KEY
+      // readers). LLMTR stays on the default generic-fallback path.
+      if (
+        provider === 'commandcode' &&
+        isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        const dedicatedCommandcodeKey = hasUsableOpenAICredential(
+          process.env.CMD_API_KEY,
+        )
+          ? process.env.CMD_API_KEY
+          : hasUsableOpenAICredential(process.env.COMMANDCODE_API_KEY)
+            ? process.env.COMMANDCODE_API_KEY
+            : undefined
+        if (dedicatedCommandcodeKey) {
+          process.env.OPENAI_API_KEY = dedicatedCommandcodeKey
+        } else {
+          delete process.env.OPENAI_API_KEY
+        }
+      }
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }

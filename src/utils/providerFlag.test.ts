@@ -678,6 +678,45 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.CMD_API_KEY).toBe('cmd-secret')
   })
 
+  test('Command Code dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.CMD_API_KEY = 'cmd-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-key')
+  })
+
+  test('Command Code clears a distinct generic OPENAI_API_KEY when no dedicated key is set', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('Command Code keeps a copied dedicated key in OPENAI_API_KEY when selecting commandcode', () => {
+    process.env.CMD_API_KEY = 'cmd-key'
+    process.env.OPENAI_API_KEY = 'cmd-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-key')
+  })
+
+  test('Command Code uses COMMANDCODE_API_KEY when CMD_API_KEY is absent', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.COMMANDCODE_API_KEY = 'commandcode-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('commandcode-key')
+  })
+
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
     process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
     process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
