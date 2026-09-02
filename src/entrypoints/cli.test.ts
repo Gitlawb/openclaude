@@ -572,6 +572,29 @@ describe('cli.tsx — background routing behavior', () => {
 
     expect(order).toEqual(['model', 'validation'])
   })
+
+  it('keeps model-looking text after -- out of early model routing', async () => {
+    await runCliEntrypoint(
+      ['--', '--model=anthropic/claude-sonnet-4-6'],
+      bgOptions,
+    )
+
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes repeated model options through for final-occurrence parsing', async () => {
+    const args = [
+      '--model=anthropic/claude-sonnet-4-6',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Node 24 premature exit regression (issue #1678)', () => {

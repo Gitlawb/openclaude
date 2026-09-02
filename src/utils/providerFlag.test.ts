@@ -1455,6 +1455,29 @@ describe('parseModelFlag', () => {
     expect(parseModelFlag(['--model='])).toBeNull()
   })
 
+  test('ignores model-looking positional text after the option delimiter', () => {
+    expect(
+      parseModelFlag(['--', '--model=anthropic/claude-sonnet-4-6']),
+    ).toBeNull()
+  })
+
+  test('uses the final model occurrence like Commander', () => {
+    expect(
+      parseModelFlag([
+        '--model=anthropic/claude-sonnet-4-6',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+      ]),
+    ).toBe('deepseek/deepseek-v4-flash')
+    expect(
+      parseModelFlag([
+        '--model',
+        'deepseek/deepseek-v4-flash',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toBe('anthropic/claude-sonnet-4-6')
+  })
+
   test('returns null when --model is absent', () => {
     expect(parseModelFlag(['--provider', 'openai'])).toBeNull()
   })

@@ -147,18 +147,21 @@ export function clearRememberedProviderFlagForTests(): void {
  * Returns null if absent.
  */
 export function parseModelFlag(args: string[]): string | null {
+  let model: string | null = null
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]
+    if (arg === '--') break
     if (arg?.startsWith('--model=')) {
-      return arg.slice('--model='.length) || null
+      model = arg.slice('--model='.length) || null
+      continue
     }
     if (arg === '--model') {
       const value = args[index + 1]
-      if (!value || value.startsWith('--')) return null
-      return value
+      model = !value || value.startsWith('--') ? null : value
+      if (model) index++
     }
   }
-  return null
+  return model
 }
 
 function getRouteDefaults(provider: string): {
