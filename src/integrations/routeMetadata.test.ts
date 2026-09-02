@@ -271,6 +271,17 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       CMD_API_KEY: 'cmd-key',
     }),
   ).toBe('cmd-key')
+  expect(
+    getRouteCredentialValue('commandcode', {
+      CMD_API_KEY: 'SUA_CHAVE',
+    }),
+  ).toBeUndefined()
+  expect(
+    getRouteCredentialValue('commandcode', {
+      CMD_API_KEY: 'SUA_CHAVE',
+      COMMANDCODE_API_KEY: 'fallback-key',
+    }),
+  ).toBe('fallback-key')
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {

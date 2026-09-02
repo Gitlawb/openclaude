@@ -3938,6 +3938,24 @@ describe('setActiveProviderProfile', () => {
           processEnv: startupEnv,
         }),
       ).toBe('cmd-test-key')
+
+      delete persisted.env.CMD_API_KEY
+      const migratedStartupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          CMD_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(migratedStartupEnv.OPENAI_API_KEY).toBe('cmd-test-key')
+      expect(migratedStartupEnv.CMD_API_KEY).toBe('cmd-test-key')
+      expect(
+        resolveRouteCredentialValue({
+          routeId: 'commandcode',
+          baseUrl: migratedStartupEnv.OPENAI_BASE_URL,
+          processEnv: migratedStartupEnv,
+        }),
+      ).toBe('cmd-test-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

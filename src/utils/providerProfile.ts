@@ -2344,6 +2344,10 @@ export async function buildLaunchEnv(options: {
             ? sanitizeApiKey(persistedOpenAICredential.value)
             : undefined)
         : undefined
+    // A selected canonical Command Code profile owns its saved credential.
+    // Prefer persisted dedicated keys, then migrate startup files that only
+    // mirrored the secret into OPENAI_API_KEY (LLMTR parity). Do not treat a
+    // live generic OpenAI key as a Command Code credential.
     const persistedCommandcodeProfileKey =
       (dedicatedKey === 'CMD_API_KEY' ||
         dedicatedKey === 'COMMANDCODE_API_KEY') &&
@@ -2351,7 +2355,11 @@ export async function buildLaunchEnv(options: {
       !!dedicatedBaseUrl &&
       isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
         ? sanitizeApiKey(persistedEnv.CMD_API_KEY) ||
-          sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY)
+          sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY) ||
+          (dedicatedKey === 'CMD_API_KEY' &&
+          persistedOpenAICredential?.kind === 'usable'
+            ? sanitizeApiKey(persistedOpenAICredential.value)
+            : undefined)
         : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
