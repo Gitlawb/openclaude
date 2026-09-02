@@ -717,6 +717,28 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_API_KEY).toBe('commandcode-key')
   })
 
+  test('Command Code rejects an incompatible stale model before changing provider state', () => {
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-4.6')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  })
+
+  test('Command Code rejects an explicit incompatible model', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--model',
+      'claude-sonnet-5',
+    ])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
     process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
     process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
@@ -1456,6 +1478,20 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--model', 'gpt-4o-mini'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
+  })
+
+  test('rejects an incompatible model override on the active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+
+    const result = applyModelFlagFromArgs([
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result?.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
   })
 
   test('sets GEMINI_MODEL when CLAUDE_CODE_USE_GEMINI is active', () => {

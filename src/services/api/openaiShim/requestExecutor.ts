@@ -1,6 +1,7 @@
 import type { CredentialLease, CredentialPool } from '../credentialPool.js'
 import type { OpenAICompatibilityFailure } from '../openaiErrorClassification.js'
 import type { OpenAIShimRuntimeContext } from '../../../integrations/runtimeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../../../integrations/gateways/commandcode.js'
 import {
   redactEncodedSecretSubstringsForDisplay,
   redactSecretSubstringsForDisplay,
@@ -241,6 +242,14 @@ export async function executeOpenAIRequest(
     isGithubCopilot,
     isGithubModels,
   } = context
+  if (runtimeShimContext.routeId === 'commandcode') {
+    const modelError = getCommandcodeChatCompletionsModelError(
+      request.resolvedModel,
+    )
+    if (modelError) {
+      throw APIError.generate(400, undefined, modelError, new Headers())
+    }
+  }
   // Existing routes historically accept process-level custom auth even when
   // their profile UI hides those controls. LLMTR is the new fixed-contract
   // route: enforce its explicit capability without changing that compatibility

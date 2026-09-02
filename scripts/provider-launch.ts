@@ -16,6 +16,10 @@ import {
   type ProviderProfile,
 } from '../src/utils/providerProfile.ts'
 import {
+  getRouteCredentialValue,
+  resolveActiveRouteIdFromEnv,
+} from '../src/integrations/routeMetadata.ts'
+import {
   getAtomicChatChatBaseUrl,
   getOllamaChatBaseUrl,
   hasLocalAtomicChat,
@@ -156,6 +160,9 @@ function hasUsableGeminiLaunchAuth(env: NodeJS.ProcessEnv): boolean {
 export function hasUsableOpenAILaunchCredential(
   env: NodeJS.ProcessEnv,
 ): boolean {
+  if (resolveActiveRouteIdFromEnv(env) === 'commandcode') {
+    return Boolean(getRouteCredentialValue('commandcode', env))
+  }
   return resolveOpenAICredentialEnvState(env).configured
 }
 

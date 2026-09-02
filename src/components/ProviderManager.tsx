@@ -80,6 +80,7 @@ import {
   resolvePartnerId,
 } from '../integrations/aimlapi/config.js'
 import { openAIShimSupportsApiFormatForModel } from '../integrations/runtimeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import { probeRouteReadiness } from '../integrations/discoveryService.js'
 import {
   addProviderProfile,
@@ -1920,6 +1921,13 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       return
     }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
+    if (routeId === 'commandcode') {
+      const modelError = getCommandcodeChatCompletionsModelError(nextDraft.model)
+      if (modelError) {
+        setErrorMessage(modelError)
+        return
+      }
+    }
     const supportsApiFormat = routeSupportsApiFormatSelection(routeId)
     const showsAuthHeader = routeShowsAuthHeader(routeId)
     const showsAuthHeaderValue = routeShowsAuthHeaderValue(routeId)

@@ -454,6 +454,8 @@ beforeEach(async () => {
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_API_KEYS
   delete process.env.LLMTR_API_KEY
+  delete process.env.CMD_API_KEY
+  delete process.env.COMMANDCODE_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
@@ -504,6 +506,8 @@ afterEach(() => {
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
+    restoreEnv('CMD_API_KEY', originalEnv.CMD_API_KEY)
+    restoreEnv('COMMANDCODE_API_KEY', originalEnv.COMMANDCODE_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
     restoreEnv('OPENAI_AZURE_STYLE', originalEnv.OPENAI_AZURE_STYLE)
@@ -652,6 +656,28 @@ test('selected Command Code route prefers CMD_API_KEY over a generic OPENAI_API_
   )
 
   expect(captured.authorization).toBe('Bearer cmd-key')
+})
+
+test('Command Code rejects Anthropic-only models before sending a request', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4-6'
+  process.env.CMD_API_KEY = 'cmd-key'
+  delete process.env.OPENAI_API_KEY
+
+  const fetchMock = mock(() => Promise.resolve(makeChatCompletionResponse('unused')))
+  globalThis.fetch = asMockFetch(fetchMock)
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  await expect(
+    client.beta.messages.create({
+      model: 'anthropic/claude-sonnet-4-6',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    }),
+  ).rejects.toThrow('requires the Anthropic Messages protocol')
+  expect(fetchMock).not.toHaveBeenCalled()
 })
 
 test('raw-env LLMTR ignores unsupported custom auth and custom headers', async () => {

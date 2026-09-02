@@ -519,7 +519,12 @@ export async function main(
   // active provider before the banner prints so the override is visible.
   if (args.includes('--model')) {
     const { applyModelFlagFromArgs } = await importers.providerFlag()
-    applyModelFlagFromArgs(args)
+    const result = applyModelFlagFromArgs(args)
+    if (result?.error) {
+      console.error(`Error: ${result.error}`)
+      process.exit(1)
+      return
+    }
   }
 
   // Parse --model early so the startup screen can display the override

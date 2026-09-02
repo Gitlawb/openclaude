@@ -39,6 +39,7 @@ import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
 } from './geminiAuth.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import { readXaiCredentialsAsync } from './xaiCredentials.js'
 
 async function defaultHasStoredXaiOAuthCredentials(): Promise<boolean> {
@@ -616,6 +617,12 @@ export async function getProviderValidationError(
   }
 
   const activeRouteId = resolveActiveRouteIdFromEnv(env)
+  if (activeRouteId === 'commandcode') {
+    const modelError = getCommandcodeChatCompletionsModelError(
+      request.resolvedModel,
+    )
+    if (modelError) return modelError
+  }
   const shouldPreferGenericRouteValidation =
     validationTarget?.kind === 'vendor' &&
     validationTarget.descriptor.id === 'openai' &&

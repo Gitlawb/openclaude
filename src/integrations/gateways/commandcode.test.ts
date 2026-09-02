@@ -7,7 +7,10 @@ import {
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from '../routeMetadata.js'
-import gateway, { mapCommandcodeModel } from './commandcode.js'
+import gateway, {
+  getCommandcodeChatCompletionsModelError,
+  mapCommandcodeModel,
+} from './commandcode.js'
 
 test('Command Code uses a dedicated hybrid OpenAI-compatible gateway contract', () => {
   expect(gateway.defaultBaseUrl).toBe(
@@ -164,4 +167,16 @@ test('Command Code discovery keeps Chat Completions models and drops Claude ids'
   ).toBeNull()
   expect(mapCommandcodeModel({})).toBeNull()
   expect(mapCommandcodeModel(null)).toBeNull()
+})
+
+test('Command Code rejects models that require the Anthropic Messages protocol', () => {
+  expect(
+    getCommandcodeChatCompletionsModelError('anthropic/claude-sonnet-4-6'),
+  ).toContain('requires the Anthropic Messages protocol')
+  expect(getCommandcodeChatCompletionsModelError('Claude-Sonnet-5')).toContain(
+    'requires the Anthropic Messages protocol',
+  )
+  expect(
+    getCommandcodeChatCompletionsModelError('deepseek/deepseek-v4-flash'),
+  ).toBeNull()
 })

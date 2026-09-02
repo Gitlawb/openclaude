@@ -26,13 +26,27 @@ function getPositiveInteger(value: unknown): number | undefined {
 
 const ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN = /^(claude-|anthropic\/)/i
 
+export function getCommandcodeChatCompletionsModelError(
+  model: string | null | undefined,
+): string | null {
+  const normalizedModel = model?.trim()
+  if (
+    !normalizedModel ||
+    !ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN.test(normalizedModel)
+  ) {
+    return null
+  }
+
+  return `Command Code model "${normalizedModel}" requires the Anthropic Messages protocol, but this route uses OpenAI Chat Completions. Choose an OpenAI-compatible model.`
+}
+
 export function mapCommandcodeModel(raw: unknown) {
   if (!isRecord(raw)) {
     return null
   }
 
   const id = getTrimmedString(raw, 'id')
-  if (!id || ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN.test(id)) {
+  if (!id || getCommandcodeChatCompletionsModelError(id)) {
     return null
   }
 

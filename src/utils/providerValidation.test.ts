@@ -195,6 +195,17 @@ test('Command Code validation accepts its dedicated credential on the selected r
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('Command Code validation rejects a model that requires Anthropic Messages', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4-6'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
 test('Command Code validation rejects placeholder dedicated credentials', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'

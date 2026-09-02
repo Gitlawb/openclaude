@@ -29,11 +29,13 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
   isCanonicalCommandcodeInferenceBaseUrl,
+  resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
@@ -287,10 +289,17 @@ function usableProviderModelEnvValue(
  * undefined when --model is absent or --provider is present (that path is
  * handled by applyProviderFlagFromArgs).
  */
-export function applyModelFlagFromArgs(args: string[]): void {
+export function applyModelFlagFromArgs(
+  args: string[],
+): { error?: string } | undefined {
   if (args.includes('--provider')) return
   const model = parseModelFlag(args)
   if (!model) return
+
+  if (resolveActiveRouteIdFromEnv(process.env) === 'commandcode') {
+    const error = getCommandcodeChatCompletionsModelError(model)
+    if (error) return { error }
+  }
 
   const useGemini =
     process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
@@ -314,6 +323,8 @@ export function applyModelFlagFromArgs(args: string[]): void {
   } else {
     process.env.ANTHROPIC_MODEL = model
   }
+
+  return {}
 }
 
 /**
@@ -334,6 +345,22 @@ export function applyProviderFlag(
     return {
       error: `Unknown provider "${provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}`,
     }
+  }
+
+  const model = parseModelFlag(args)
+  const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
+  if (provider === 'commandcode') {
+    const currentBaseUrl = getConfiguredOpenAIBaseUrl()
+    const willUseCommandcodeEndpoint =
+      !currentBaseUrl ||
+      shouldReplaceStaleKnownBaseUrl(provider) ||
+      isCanonicalCommandcodeInferenceBaseUrl(currentBaseUrl)
+    const error = willUseCommandcodeEndpoint
+      ? getCommandcodeChatCompletionsModelError(
+          model ?? process.env.OPENAI_MODEL ?? defaultModel,
+        )
+      : null
+    if (error) return { error }
   }
 
   const opengatewayApiKey = process.env.OPENGATEWAY_API_KEY?.trim()
@@ -404,9 +431,6 @@ export function applyProviderFlag(
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
   }
-
-  const model = parseModelFlag(args)
-  const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
   // Azure-style routing changes both request paths and authentication. It is
   // only meaningful for an explicit OpenAI/Azure configuration, so never let
