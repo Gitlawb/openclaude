@@ -152,6 +152,9 @@ export function modelSupportsThinking(model: string): boolean {
       return false
     }
   }
+  if (provider === 'bedrock' && isClaude5ModelId(canonical)) {
+    return true
+  }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
 }

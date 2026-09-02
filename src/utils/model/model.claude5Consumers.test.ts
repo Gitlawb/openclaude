@@ -22,6 +22,10 @@ import {
 } from './modelOptions.js'
 import { getModelStrings } from './modelStrings.js'
 import { isClaude5ModelId } from './modelIdMatch.js'
+import {
+  resetSettingsCache,
+  setSessionSettingsCache,
+} from '../settings/settingsCache.js'
 
 // Consumers of the contracts this cohort changed: first-party default
 // resolution, accepted Claude 5 ID spellings, and built-in Opus policy
@@ -42,11 +46,13 @@ function clearEnv(): void {
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/model/model.claude5Consumers.test.ts')
   clearEnv()
+  setSessionSettingsCache({ settings: {}, errors: [] })
 })
 
 afterEach(() => {
   try {
     clearEnv()
+    resetSettingsCache()
   } finally {
     releaseSharedMutationLock()
   }
@@ -81,6 +87,14 @@ test('the provider summary falls back to the resolved default Sonnet', () => {
 
 test('an explicitly configured model still wins over the default', () => {
   process.env.ANTHROPIC_MODEL = 'claude-opus-4-6'
+  expect(detectProvider().model).toBe('claude-opus-4-6')
+})
+
+test('a persisted settings model override still wins over the default', () => {
+  setSessionSettingsCache({
+    settings: { model: 'claude-opus-4-6' },
+    errors: [],
+  })
   expect(detectProvider().model).toBe('claude-opus-4-6')
 })
 

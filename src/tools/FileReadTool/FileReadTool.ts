@@ -822,10 +822,9 @@ export const CYBER_RISK_MITIGATION_REMINDER =
   '\n\n<system-reminder>\nWhenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.\n</system-reminder>\n'
 
 // Models where cyber risk mitigation should be skipped. The recent Opus models
-// (5/4.8/4.7) inherit 4.6's exemption — Opus 5 is now the first-party default,
-// so without this it would get the reminder on every file read that 4.6 did not.
+// (4.8/4.7) inherit 4.6's exemption — 4.8 is now the first-party default, so
+// without this it would get the reminder on every file read that 4.6 did not.
 const MITIGATION_EXEMPT_MODELS = new Set([
-  'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
   'claude-opus-4-6',
