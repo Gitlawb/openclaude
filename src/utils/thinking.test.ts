@@ -31,6 +31,12 @@ const ENV_KEYS = [
 
 const originalEnv: Record<string, string | undefined> = {}
 
+import {
+  modelSupportsAdaptiveThinking,
+  modelSupportsThinking,
+  shouldUseThinkingForModel,
+} from './thinking.js'
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/thinking.test.ts')
   for (const key of ENV_KEYS) {
@@ -42,7 +48,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   try {
-    mock.restore()
     for (const key of ENV_KEYS) {
       if (originalEnv[key] === undefined) {
         delete process.env[key]
@@ -56,24 +61,10 @@ afterEach(() => {
   }
 })
 
-async function importFreshThinkingModule() {
-  mock.restore()
-  const originalProviders = await import('./model/providers.js')
-  mock.module('./model/providers.js', () => {
-    return {
-      ...originalProviders,
-      getAPIProvider: () => 'openai',
-    }
-  })
-  const nonce = `${Date.now()}-${Math.random()}`
-  return import(`./thinking.js?ts=${nonce}`)
-}
-
 describe('modelSupportsThinking — Z.AI GLM', () => {
-  test('enables thinking for exact GLM models on api.z.ai', async () => {
+  test('enables thinking for exact GLM models on api.z.ai', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
-    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(true)
     expect(modelSupportsThinking('GLM-5-Turbo')).toBe(true)
@@ -88,29 +79,26 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
     expect(modelSupportsThinking('glm-5.2 ?thinking=disabled')).toBe(true)
   })
 
-  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', async () => {
+  test('does not enable GLM thinking on non-Z.AI OpenAI-compatible endpoints', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-5.1')).toBe(false)
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
   })
 
-  test('does not match unrelated GLM-looking model names', async () => {
+  test('does not match unrelated GLM-looking model names', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
-    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('glm-50')).toBe(false)
   })
 
-  test('does not reuse stale capability overrides after env changes', async () => {
+  test('does not reuse stale capability overrides after env changes', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = 'GLM-5.1'
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES = ''
-    const { modelSupportsThinking } = await importFreshThinkingModule()
 
     expect(modelSupportsThinking('GLM-5.1')).toBe(false)
 
@@ -123,11 +111,12 @@ describe('modelSupportsThinking — Z.AI GLM', () => {
 })
 
 describe('modelSupportsAdaptiveThinking — Claude 4 allowlist', () => {
-  // Provider is mocked to 'openai', so unknown Claude models default to false.
+  // Provider is set to OpenAI, so unknown Claude models default to false.
   // That makes the allowlist the only reason opus-4-8 returns true here, so
   // this test fails if opus-4-8 is dropped from the allowlist (#1769).
-  test('includes Opus 4.8 in the adaptive-thinking allowlist', async () => {
-    const { modelSupportsAdaptiveThinking } = await importFreshThinkingModule()
+  test('includes Opus 4.8 in the adaptive-thinking allowlist', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
     expect(modelSupportsAdaptiveThinking('claude-opus-4-8')).toBe(true)
     // 4.7 stays supported (guards against an accidental allowlist rewrite).
@@ -138,14 +127,71 @@ describe('modelSupportsAdaptiveThinking — Claude 4 allowlist', () => {
 })
 
 describe('shouldUseThinkingForModel — Ollama', () => {
-  test('does not use thinking for Ollama models when app-level thinking is enabled', async () => {
+  test('does not use thinking for Ollama models when app-level thinking is enabled', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
-    const { shouldUseThinkingForModel } = await importFreshThinkingModule()
     const enabledThinking = { type: 'enabled' as const, budgetTokens: 1024 }
 
     expect(shouldUseThinkingForModel('llama3.1:8b', enabledThinking)).toBe(false)
     // Covers catalog-missing local names that would otherwise match Claude 4 heuristics.
     expect(shouldUseThinkingForModel('claude-sonnet-4-local', enabledThinking)).toBe(false)
+  })
+})
+
+describe('Claude 5 provider thinking matrix — Bedrock vs Vertex', () => {
+  const adaptiveConfig = { type: 'adaptive' as const }
+
+  test('Bedrock enables thinking and adaptive thinking for Claude 5 routes', () => {
+    process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+
+    const bedrockModels = [
+      'us.anthropic.claude-opus-5-v1:0',
+      'us.anthropic.claude-sonnet-5-20260501-v1:0',
+      'claude-opus-5',
+      'claude-sonnet-5',
+    ]
+
+    for (const model of bedrockModels) {
+      expect(modelSupportsThinking(model)).toBe(true)
+      expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+      expect(shouldUseThinkingForModel(model, adaptiveConfig)).toBe(true)
+    }
+  })
+
+  test('Vertex excludes Claude 5 models from thinking while keeping legacy Claude 4 enabled', () => {
+    process.env.CLAUDE_CODE_USE_VERTEX = '1'
+
+    const vertexClaude5Models = [
+      'claude-opus-5@20260501',
+      'claude-sonnet-5@20260501',
+      'claude-opus-5',
+      'claude-sonnet-5',
+    ]
+
+    for (const model of vertexClaude5Models) {
+      expect(modelSupportsThinking(model)).toBe(false)
+      expect(shouldUseThinkingForModel(model, adaptiveConfig)).toBe(false)
+    }
+
+    // Legacy Claude 4 models on Vertex remain eligible for thinking
+    expect(modelSupportsThinking('claude-sonnet-4@20250514')).toBe(true)
+    expect(modelSupportsThinking('claude-opus-4@20250514')).toBe(true)
+  })
+
+  test('1P and Foundry enable thinking and adaptive thinking for Claude 5', () => {
+    for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+      // 1P (no provider env set)
+      expect(modelSupportsThinking(model)).toBe(true)
+      expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+      expect(shouldUseThinkingForModel(model, adaptiveConfig)).toBe(true)
+    }
+
+    // Foundry
+    process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
+    for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+      expect(modelSupportsThinking(model)).toBe(true)
+      expect(modelSupportsAdaptiveThinking(model)).toBe(true)
+      expect(shouldUseThinkingForModel(model, adaptiveConfig)).toBe(true)
+    }
   })
 })
