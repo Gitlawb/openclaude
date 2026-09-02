@@ -1287,54 +1287,59 @@ test('ProviderManager adds Command Code with only model selection and API key', 
   }
 })
 
-test('ProviderManager rejects Anthropic-only models for Command Code', async () => {
-  const addProviderProfile = mock((payload: any) => ({
-    id: 'commandcode_profile',
-    ...payload,
-  }))
+test.each([',', ';'])(
+  'ProviderManager rejects Anthropic-only models after a %s in a Command Code model list',
+  async separator => {
+    const addProviderProfile = mock((payload: any) => ({
+      id: 'commandcode_profile',
+      ...payload,
+    }))
 
-  mockProviderManagerDependencies(() => undefined, async () => undefined, {
-    addProviderProfile,
-  })
+    mockProviderManagerDependencies(() => undefined, async () => undefined, {
+      addProviderProfile,
+    })
 
-  const nonce = `${Date.now()}-${Math.random()}`
-  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
-  const mounted = await mountProviderManager(ProviderManager)
+    const nonce = `${Date.now()}-${Math.random()}`
+    const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+    const mounted = await mountProviderManager(ProviderManager)
 
-  try {
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Provider manager'),
-    )
-    mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Choose provider preset'),
-    )
-    await navigateToPreset(mounted.stdin, 'Command Code')
-    mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Step 1 of 2: Default model'),
-    )
+    try {
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('Provider manager'),
+      )
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('Choose provider preset'),
+      )
+      await navigateToPreset(mounted.stdin, 'Command Code')
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('Step 1 of 2: Default model'),
+      )
 
-    mounted.stdin.write('\x7f'.repeat('deepseek/deepseek-v4-flash'.length))
-    mounted.stdin.write('anthropic/claude-sonnet-4-6')
-    await Bun.sleep(25)
-    mounted.stdin.write('\r')
-    await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('Step 2 of 2: API key'),
-    )
-    mounted.stdin.write('cmd-test-key')
-    await Bun.sleep(25)
-    mounted.stdin.write('\r')
+      mounted.stdin.write('\x7f'.repeat('deepseek/deepseek-v4-flash'.length))
+      mounted.stdin.write(
+        `deepseek/deepseek-v4-flash${separator} anthropic/claude-sonnet-4-6`,
+      )
+      await Bun.sleep(25)
+      mounted.stdin.write('\r')
+      await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('Step 2 of 2: API key'),
+      )
+      mounted.stdin.write('cmd-test-key')
+      await Bun.sleep(25)
+      mounted.stdin.write('\r')
 
-    const output = await waitForFrameOutput(mounted.getOutput, frame =>
-      frame.includes('requires the Anthropic Messages protocol'),
-    )
-    expect(output).toContain('OpenAI Chat Completions')
-    expect(addProviderProfile).not.toHaveBeenCalled()
-  } finally {
-    await mounted.dispose()
-  }
-})
+      const output = await waitForFrameOutput(mounted.getOutput, frame =>
+        frame.includes('requires the Anthropic Messages protocol'),
+      )
+      expect(output).toContain('OpenAI Chat Completions')
+      expect(addProviderProfile).not.toHaveBeenCalled()
+    } finally {
+      await mounted.dispose()
+    }
+  },
+)
 
 test('ProviderManager edits query-bearing LLMTR endpoints with generic proxy controls', async () => {
   const llmtrProxyProfile = {

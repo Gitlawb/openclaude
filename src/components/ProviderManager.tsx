@@ -1922,7 +1922,9 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
     }
     const routeId = resolveProviderEditorRouteId(provider, nextDraft.baseUrl)
     if (routeId === 'commandcode') {
-      const modelError = getCommandcodeChatCompletionsModelError(nextDraft.model)
+      const modelError = parseModelList(nextDraft.model)
+        .map(model => getCommandcodeChatCompletionsModelError(model))
+        .find((error): error is string => error !== null)
       if (modelError) {
         setErrorMessage(modelError)
         return
