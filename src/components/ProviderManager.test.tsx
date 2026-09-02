@@ -142,6 +142,7 @@ const PRESET_ORDER = [
   'Bankr',
   'ClinePass',
   'Cloudflare Workers AI',
+  'Command Code',
   'Concentrate',
   'DeepSeek',
   'Codex OAuth',
@@ -315,6 +316,17 @@ function mockProviderProfilesModule(options?: {
           provider: 'llmtr',
           name: 'LLMTR',
           baseUrl: 'https://llmtr.com/v1',
+          model: 'deepseek/deepseek-v4-flash',
+          apiKey: '',
+          requiresApiKey: true,
+        }
+      }
+
+      if (preset === 'commandcode') {
+        return {
+          provider: 'commandcode',
+          name: 'Command Code',
+          baseUrl: 'https://api.commandcode.ai/provider/v1',
           model: 'deepseek/deepseek-v4-flash',
           apiKey: '',
           requiresApiKey: true,
@@ -1198,6 +1210,74 @@ test('ProviderManager adds LLMTR with only model selection and API key', async (
         baseUrl: 'https://llmtr.com/v1',
         model: 'deepseek/deepseek-v4-flash',
         apiKey: 'llmtr-test-key',
+        apiFormat: 'chat_completions',
+      }),
+      expect.objectContaining({ makeActive: true }),
+    )
+  } finally {
+    await mounted.dispose()
+  }
+})
+
+test('ProviderManager adds Command Code with only model selection and API key', async () => {
+  const addProviderProfile = mock((payload: any) => ({
+    id: 'commandcode_profile',
+    ...payload,
+  }))
+
+  mockProviderManagerDependencies(() => undefined, async () => undefined, {
+    addProviderProfile,
+  })
+
+  const nonce = `${Date.now()}-${Math.random()}`
+  const { ProviderManager } = await import(`./ProviderManager.js?ts=${nonce}`)
+  const mounted = await mountProviderManager(ProviderManager)
+
+  try {
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Provider manager'),
+    )
+
+    mounted.stdin.write('\r')
+    await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Choose provider preset'),
+    )
+
+    await navigateToPreset(mounted.stdin, 'Command Code')
+    mounted.stdin.write('\r')
+    const modelOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Create provider profile') &&
+      frame.includes('Step 1 of 2: Default model'),
+    )
+
+    expect(modelOutput).toContain('Command Code')
+    expect(modelOutput).toContain('deepseek/deepseek-v4-flash')
+    expect(modelOutput).not.toContain('Provider name')
+    expect(modelOutput).not.toContain('Base URL')
+    expect(modelOutput).not.toContain('API mode')
+    expect(modelOutput).not.toContain('Custom headers')
+
+    mounted.stdin.write('\r')
+    const keyOutput = await waitForFrameOutput(mounted.getOutput, frame =>
+      frame.includes('Step 2 of 2: API key'),
+    )
+    expect(keyOutput).not.toContain('Provider name')
+    expect(keyOutput).not.toContain('Base URL')
+    expect(keyOutput).not.toContain('API mode')
+    expect(keyOutput).not.toContain('Custom headers')
+
+    mounted.stdin.write('cmd-test-key')
+    await Bun.sleep(25)
+    mounted.stdin.write('\r')
+
+    await waitForCondition(() => addProviderProfile.mock.calls.length > 0)
+    expect(addProviderProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'commandcode',
+        name: 'Command Code',
+        baseUrl: 'https://api.commandcode.ai/provider/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: 'cmd-test-key',
         apiFormat: 'chat_completions',
       }),
       expect.objectContaining({ makeActive: true }),

@@ -21,6 +21,8 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   LLMTR_API_KEY: process.env.LLMTR_API_KEY,
+  CMD_API_KEY: process.env.CMD_API_KEY,
+  COMMANDCODE_API_KEY: process.env.COMMANDCODE_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
   OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
@@ -612,6 +614,44 @@ test('selected LLMTR route prefers its dedicated key over a generic OPENAI_API_K
   )
 
   expect(captured.authorization).toBe('Bearer llmtr-key')
+})
+
+test('selected Command Code route sends CMD_API_KEY through the generic route credential resolver', async () => {
+  process.env.CMD_API_KEY = 'cmd-key'
+  delete process.env.COMMANDCODE_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('commandcode', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+  )
+
+  expect(captured.url).toBe(
+    'https://api.commandcode.ai/provider/v1/chat/completions',
+  )
+  expect(captured.authorization).toBe('Bearer cmd-key')
+})
+
+test('selected Command Code route prefers CMD_API_KEY over a generic OPENAI_API_KEYS pool', async () => {
+  process.env.CMD_API_KEY = 'cmd-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('commandcode', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+  )
+
+  expect(captured.authorization).toBe('Bearer cmd-key')
 })
 
 test('raw-env LLMTR ignores unsupported custom auth and custom headers', async () => {

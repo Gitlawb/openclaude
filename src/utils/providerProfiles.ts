@@ -58,6 +58,7 @@ import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
@@ -185,6 +186,15 @@ function isLlmtrProfile(profile: ProviderProfile): boolean {
   return !baseUrl || isCanonicalLlmtrInferenceBaseUrl(baseUrl)
 }
 
+function isCommandcodeProfile(profile: ProviderProfile): boolean {
+  const { route } = resolveProfileCompatibility(profile.provider)
+  if (route.routeId !== 'commandcode') {
+    return false
+  }
+  const baseUrl = profile.baseUrl?.trim()
+  return !baseUrl || isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+}
+
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl?.trim()) return undefined
   try {
@@ -274,7 +284,8 @@ export function resolveProfileCapabilityRouteId(
     (providerRouteId === 'cloudflare' ||
       providerRouteId === 'longcat' ||
       providerRouteId === 'concentrate' ||
-      providerRouteId === 'llmtr') &&
+      providerRouteId === 'llmtr' ||
+      providerRouteId === 'commandcode') &&
     baseUrl &&
     !(providerRouteId === 'cloudflare'
       ? isCloudflareBaseUrl(baseUrl)
@@ -282,7 +293,9 @@ export function resolveProfileCapabilityRouteId(
         ? isLongcatBaseUrl(baseUrl)
         : providerRouteId === 'concentrate'
           ? isCanonicalConcentrateInferenceBaseUrl(baseUrl)
-          : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
+          : providerRouteId === 'commandcode'
+            ? isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+            : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
@@ -1009,6 +1022,8 @@ export function applyProviderProfileToProcessEnv(
           ? getRouteDefaultBaseUrl('apismart') ?? profile.baseUrl
           : route.routeId === 'concentrate' && !profile.baseUrl?.trim()
             ? getRouteDefaultBaseUrl('concentrate') ?? profile.baseUrl
+            : route.routeId === 'commandcode' && !profile.baseUrl?.trim()
+              ? getRouteDefaultBaseUrl('commandcode') ?? profile.baseUrl
             : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
@@ -1042,11 +1057,14 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'concentrate' && !isConcentrateProfile(profile)
     const withholdRetargetedLlmtrCredential =
       route.routeId === 'llmtr' && !isLlmtrProfile(profile)
+    const withholdRetargetedCommandcodeCredential =
+      route.routeId === 'commandcode' && !isCommandcodeProfile(profile)
     if (
       profile.apiKey &&
       !withholdRetargetedApismartCredential &&
       !withholdRetargetedConcentrateCredential &&
-      !withholdRetargetedLlmtrCredential
+      !withholdRetargetedLlmtrCredential &&
+      !withholdRetargetedCommandcodeCredential
     ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
@@ -1086,6 +1104,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (isConcentrateProfile(profile)) {
         openAIProfileEnv.CONCENTRATE_API_KEY = profile.apiKey
+      }
+      if (isCommandcodeProfile(profile)) {
+        openAIProfileEnv.CMD_API_KEY = profile.apiKey
       }
       if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
@@ -1181,6 +1202,19 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY =
             openAIProfileEnv.OPENAI_API_KEY ?? ambientLlmtrKey
           openAIProfileEnv.LLMTR_API_KEY = ambientLlmtrKey
+        }
+      }
+    }
+    if (route.routeId === 'commandcode') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+      if (isCommandcodeProfile(profile) && !profile.apiKey) {
+        const ambientCommandcodeKey =
+          sanitizeApiKey(process.env.CMD_API_KEY) ||
+          sanitizeApiKey(process.env.COMMANDCODE_API_KEY)
+        if (ambientCommandcodeKey) {
+          openAIProfileEnv.OPENAI_API_KEY =
+            openAIProfileEnv.OPENAI_API_KEY ?? ambientCommandcodeKey
+          openAIProfileEnv.CMD_API_KEY = ambientCommandcodeKey
         }
       }
     }
@@ -1474,17 +1508,22 @@ function buildOpenAICompatibleStartupEnv(
     !isConcentrateProfile(activeProfile)
   const withholdRetargetedLlmtrCredential =
     activeProfileRouteId === 'llmtr' && !isLlmtrProfile(activeProfile)
+  const withholdRetargetedCommandcodeCredential =
+    activeProfileRouteId === 'commandcode' &&
+    !isCommandcodeProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
   const isConcentrateProfileFlag = isConcentrateProfile(activeProfile)
   const isLlmtrProfileFlag = isLlmtrProfile(activeProfile)
+  const isCommandcodeProfileFlag = isCommandcodeProfile(activeProfile)
 
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
     !withholdRetargetedConcentrateCredential &&
-    !withholdRetargetedLlmtrCredential
+    !withholdRetargetedLlmtrCredential &&
+    !withholdRetargetedCommandcodeCredential
   ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
@@ -1518,6 +1557,9 @@ function buildOpenAICompatibleStartupEnv(
       }
       if (isLlmtrProfileFlag) {
         strictEnv.LLMTR_API_KEY = activeProfile.apiKey
+      }
+      if (isCommandcodeProfileFlag) {
+        strictEnv.CMD_API_KEY = activeProfile.apiKey
       }
       if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
@@ -1579,11 +1621,15 @@ function buildOpenAICompatibleStartupEnv(
   if (activeProfileRouteId === 'llmtr') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
   }
+  if (activeProfileRouteId === 'commandcode') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+  }
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
     !withholdRetargetedConcentrateCredential &&
-    !withholdRetargetedLlmtrCredential
+    !withholdRetargetedLlmtrCredential &&
+    !withholdRetargetedCommandcodeCredential
   ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
@@ -1615,6 +1661,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isLlmtrProfileFlag) {
       env.LLMTR_API_KEY = activeProfile.apiKey
+    }
+    if (isCommandcodeProfileFlag) {
+      env.CMD_API_KEY = activeProfile.apiKey
     }
     if (isClinePassProfile(activeProfile)) {
       env.CLINE_API_KEY = activeProfile.apiKey
@@ -1871,6 +1920,9 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'llmtr' && !isLlmtrProfile(profile)) {
+    return
+  }
+  if (route.routeId === 'commandcode' && !isCommandcodeProfile(profile)) {
     return
   }
 

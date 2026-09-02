@@ -33,6 +33,7 @@ import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
@@ -368,6 +369,11 @@ export function applyProviderFlag(
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
                         ? 'llmtr'
+                        : process.env.OPENAI_API_KEY !== undefined &&
+                          (process.env.OPENAI_API_KEY === process.env.CMD_API_KEY ||
+                            process.env.OPENAI_API_KEY ===
+                              process.env.COMMANDCODE_API_KEY)
+                        ? 'commandcode'
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                         ? 'nearai'
@@ -842,10 +848,12 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
       if (
-        provider === 'llmtr' &&
-        isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+        (provider === 'llmtr' &&
+          isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) ||
+        (provider === 'commandcode' &&
+          isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl()))
       ) {
-        clearUnsupportedOpenAIShimSettings('llmtr')
+        clearUnsupportedOpenAIShimSettings(provider)
         delete process.env.ANTHROPIC_CUSTOM_HEADERS
       }
       if (defaultModel) {

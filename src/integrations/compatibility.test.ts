@@ -54,6 +54,7 @@ const EXPECTED_PRESETS = [
   'fireworks',
   'longcat',
   'llmtr',
+  'commandcode',
   'opencode',
   'opencode-go',
   'clinepass',

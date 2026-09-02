@@ -33,6 +33,8 @@ const ENV_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -317,6 +319,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
     expect(VALID_PROVIDERS).toContain('longcat')
+    expect(VALID_PROVIDERS).toContain('commandcode')
     expect(VALID_PROVIDERS).toContain('custom-anthropic')
   })
 })
@@ -638,6 +641,41 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(result.error).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
     expect(process.env.OPENAI_API_KEY).toBe('generic-openai-secret')
+  })
+
+  test('Command Code clears stale custom auth only on its canonical endpoint', () => {
+    process.env.CMD_API_KEY = 'cmd-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.commandcode.ai/provider/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('clears a Command Code key copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.CMD_API_KEY = 'cmd-secret'
+    process.env.OPENAI_API_KEY = 'cmd-secret'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CMD_API_KEY).toBe('cmd-secret')
   })
 
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {

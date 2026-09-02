@@ -19,6 +19,8 @@ const TEST_ENV_KEYS = [
   'CODEX_AUTH_JSON_PATH',
   'CODEX_HOME',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'OPENAI_API_KEYS',
@@ -302,6 +304,17 @@ describe('loadEnvFile', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(loaded).toEqual({ LLMTR_API_KEY: 'llmtr-key' })
+  })
+
+  it('loads the dedicated Command Code credential without selecting a route', () => {
+    const filePath = writeTempEnvFile('CMD_API_KEY=cmd-key')
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(process.env.CMD_API_KEY).toBe('cmd-key')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+    expect(loaded).toEqual({ CMD_API_KEY: 'cmd-key' })
   })
 
   it('loads documented Concentrate env-only provider setup values', () => {

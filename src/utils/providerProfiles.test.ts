@@ -74,6 +74,8 @@ const RESTORED_KEYS = [
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -305,6 +307,17 @@ function buildLlmtrProfile(overrides: Partial<ProviderProfile> = {}): ProviderPr
   })
 }
 
+function buildCommandcodeProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
+  return buildProfile({
+    provider: 'commandcode',
+    name: 'Command Code',
+    baseUrl: 'https://api.commandcode.ai/provider/v1',
+    model: 'deepseek/deepseek-v4-flash',
+    apiKey: 'cmd-test-key',
+    ...overrides,
+  })
+}
+
 function buildClinePassProfile(overrides: Partial<ProviderProfile> = {}): ProviderProfile {
   return buildProfile({
     provider: 'clinepass',
@@ -373,6 +386,55 @@ describe('applyProviderProfileToProcessEnv', () => {
       }),
     ).toBe('ambient-llmtr-key')
   }, 20_000)
+
+  test('Command Code profile persists its dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CMD_API_KEY = 'ambient-old'
+
+    applyProviderProfileToProcessEnv(buildCommandcodeProfile())
+
+    expect(process.env.CMD_API_KEY).toBe('cmd-test-key')
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-test-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'commandcode',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('cmd-test-key')
+  }, 20_000)
+
+  test('keyless canonical Command Code profile adopts its ambient dedicated key', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+    process.env.CMD_API_KEY = 'ambient-cmd-key'
+
+    applyProviderProfileToProcessEnv(buildCommandcodeProfile({ apiKey: undefined }))
+
+    expect(process.env.CMD_API_KEY).toBe('ambient-cmd-key')
+    expect(process.env.OPENAI_API_KEY).toBe('ambient-cmd-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'commandcode',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('ambient-cmd-key')
+  }, 20_000)
+
+  test('retargeted Command Code profile withholds its dedicated credential', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildCommandcodeProfile({ baseUrl: 'https://proxy.example/v1' }),
+    )
+
+    expect(process.env.OPENAI_BASE_URL).toBe('https://proxy.example/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CMD_API_KEY).toBeUndefined()
+  })
 
   test('applies Azure-style routing from a saved OpenAI-compatible profile', async () => {
     const { applyProviderProfileToProcessEnv } =
@@ -3817,6 +3879,65 @@ describe('setActiveProviderProfile', () => {
 
       expect(migratedStartupEnv.OPENAI_API_KEY).toBe('llmtr-test-key')
       expect(migratedStartupEnv.LLMTR_API_KEY).toBe('llmtr-test-key')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('keyed canonical Command Code profiles persist their saved dedicated credential across restart', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const commandcodeProfile = buildCommandcodeProfile({
+        id: 'commandcode_profile',
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [commandcodeProfile],
+      }))
+
+      const result = setActiveProviderProfile('commandcode_profile', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('commandcode_profile')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toMatchObject({
+        OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+        OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+        OPENAI_API_KEY: 'cmd-test-key',
+        CMD_API_KEY: 'cmd-test-key',
+      })
+
+      const { buildStartupEnvFromProfile } = await import(
+        `./providerProfile.js?ts=${Date.now()}-${Math.random()}`
+      )
+      const startupEnv = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          CMD_API_KEY: 'ambient-unrelated-key',
+        },
+      })
+
+      expect(startupEnv.CMD_API_KEY).toBe('cmd-test-key')
+      expect(
+        resolveRouteCredentialValue({
+          routeId: 'commandcode',
+          baseUrl: startupEnv.OPENAI_BASE_URL,
+          processEnv: startupEnv,
+        }),
+      ).toBe('cmd-test-key')
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })

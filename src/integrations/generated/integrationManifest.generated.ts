@@ -177,6 +177,21 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "commandcode",
+    "routeKind": "gateway",
+    "routeId": "commandcode",
+    "vendorId": "openai",
+    "gatewayId": "commandcode",
+    "description": "Command Code hybrid OpenAI-compatible gateway",
+    "apiKeyEnvVars": [
+      "CMD_API_KEY",
+      "COMMANDCODE_API_KEY"
+    ],
+    "modelEnvVars": [
+      "OPENAI_MODEL"
+    ]
+  },
+  {
     "preset": "concentrate",
     "routeKind": "gateway",
     "routeId": "concentrate",
@@ -581,6 +596,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "bankr",
   "clinepass",
   "cloudflare",
+  "commandcode",
   "concentrate",
   "deepseek",
   "fireworks",

@@ -246,7 +246,8 @@ export async function executeOpenAIRequest(
   // route: enforce its explicit capability without changing that compatibility
   // behavior for unrelated providers or generic custom endpoints.
   const supportsConfiguredAuthHeaders =
-    runtimeShimContext.routeId !== 'llmtr' ||
+    (runtimeShimContext.routeId !== 'llmtr' &&
+      runtimeShimContext.routeId !== 'commandcode') ||
     runtimeShimContext.openaiShimConfig.supportsAuthHeaders === true
   const unsupportedCustomHeaderNames = supportsConfiguredAuthHeaders
     ? null
@@ -318,6 +319,8 @@ export async function executeOpenAIRequest(
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
       requestProcessEnv.LLMTR_API_KEY,
+      requestProcessEnv.CMD_API_KEY,
+      requestProcessEnv.COMMANDCODE_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(

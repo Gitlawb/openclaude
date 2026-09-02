@@ -33,6 +33,8 @@ const ENV_KEYS = [
   'MINIMAX_API_KEY',
   'LONGCAT_API_KEY',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
   'APISMART_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
@@ -182,6 +184,35 @@ test('LLMTR validation accepts a dedicated credential despite an invalid generic
   process.env.OPENAI_API_KEY = 'SUA_CHAVE'
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation accepts its dedicated credential on the selected route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation rejects placeholder dedicated credentials', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.CMD_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Command Code auth is required. Set CMD_API_KEY or COMMANDCODE_API_KEY.',
+  )
+})
+
+test('Command Code validation ignores a generic OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_API_KEY = 'sk-openai-generic'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Command Code auth is required. Set CMD_API_KEY or COMMANDCODE_API_KEY.',
+  )
 })
 
 test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEY', async () => {

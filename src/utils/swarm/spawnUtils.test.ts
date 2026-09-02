@@ -52,6 +52,16 @@ test('buildInheritedEnvVars forwards an LLMTR credential without inventing route
   expect(envVars).not.toContain('OPENAI_BASE_URL=')
 })
 
+test('buildInheritedEnvVars forwards a Command Code credential without inventing route state', () => {
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('CMD_API_KEY=cmd-key')
+  expect(envVars).not.toContain('CLAUDE_CODE_USE_OPENAI=1')
+  expect(envVars).not.toContain('OPENAI_BASE_URL=')
+})
+
 test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups', () => {
   process.env.PATH = '/custom/bin:/usr/bin'
 
