@@ -21,6 +21,8 @@ function localeFromEnv(): Locale | undefined {
     ''
   ).toLowerCase()
 
+  if (!raw) return undefined
+
   const [langRegion] = raw.split('.')
   const [lang, region] = langRegion.split(/[-_]/)
 
