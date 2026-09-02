@@ -1445,6 +1445,16 @@ describe('parseModelFlag', () => {
     expect(parseModelFlag(['--model', 'gpt-4o-mini'])).toBe('gpt-4o-mini')
   })
 
+  test('returns model value from equals-separated syntax', () => {
+    expect(parseModelFlag(['--model=deepseek/deepseek-v4-flash'])).toBe(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  test('returns null for an empty equals-separated value', () => {
+    expect(parseModelFlag(['--model='])).toBeNull()
+  })
+
   test('returns null when --model is absent', () => {
     expect(parseModelFlag(['--provider', 'openai'])).toBeNull()
   })
@@ -1491,6 +1501,19 @@ describe('applyModelFlagFromArgs', () => {
     ])
 
     expect(result?.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('rejects an incompatible equals-separated model on the active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+
+    const result = applyModelFlagFromArgs([
+      '--model=anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result?.error).toContain('Anthropic Messages protocol')
     expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
   })
 

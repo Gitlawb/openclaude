@@ -553,6 +553,25 @@ describe('cli.tsx — background routing behavior', () => {
 
     expect(order).toEqual(['model', 'validation'])
   })
+
+  it('applies an equals-separated model override before provider validation', async () => {
+    const order: string[] = []
+    mockApplyModelFlagFromArgs.mockImplementationOnce(args => {
+      order.push('model')
+      expect(args).toEqual(['--model=deepseek/deepseek-v4-flash'])
+      return undefined
+    })
+    mockValidateProviderEnvForStartupOrExit.mockImplementationOnce(async () => {
+      order.push('validation')
+    })
+
+    await runCliEntrypoint(
+      ['--model=deepseek/deepseek-v4-flash'],
+      bgOptions,
+    )
+
+    expect(order).toEqual(['model', 'validation'])
+  })
 })
 
 describe('Node 24 premature exit regression (issue #1678)', () => {

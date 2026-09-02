@@ -514,7 +514,9 @@ export async function main(
   // #808: --model alone (no --provider) — route to the env var matching the
   // active provider before validation and the banner so the highest-precedence
   // CLI override can replace stale persisted model state.
-  if (args.includes('--model')) {
+  if (
+    args.some(arg => arg === '--model' || arg.startsWith('--model='))
+  ) {
     const { applyModelFlagFromArgs } = await importers.providerFlag()
     const result = applyModelFlagFromArgs(args)
     if (result?.error) {
