@@ -26,6 +26,7 @@ import {
   loadEnvFile,
 } from '../utils/envFile.js'
 import {
+  applyModelFlagFromArgs,
   applyProviderFlagFromArgs,
   clearRememberedProviderFlagForTests,
   reapplyRememberedProviderFlag,
@@ -69,7 +70,9 @@ const mockGetInitialSettings = mock(() => ({}))
 const mockRefreshGithubModelsTokenIfNeeded = mock(async () => {})
 const mockHydrateGithubModelsTokenFromSecureStorage = mock(() => {})
 const mockValidateProviderEnvForStartupOrExit = mock(async () => {})
-const mockApplyModelFlagFromArgs = mock((_args: string[]) => undefined)
+const mockApplyModelFlagFromArgs = mock(
+  (_args: string[]): ReturnType<typeof applyModelFlagFromArgs> => undefined,
+)
 const mockPrintStartupScreen = mock((_model: string | undefined) => {})
 const mockStartCapturingEarlyInput = mock(() => {})
 const mockCliMain = mock(async () => {})
@@ -571,6 +574,36 @@ describe('cli.tsx — background routing behavior', () => {
     )
 
     expect(order).toEqual(['model', 'validation'])
+  })
+
+  it('stops before provider validation when a model override is rejected', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    mockApplyModelFlagFromArgs.mockReturnValueOnce({
+      error: 'model is incompatible with the selected provider',
+    })
+
+    try {
+      await runCliEntrypoint(
+        ['--model=anthropic/claude-sonnet-4-6'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      'Error: model is incompatible with the selected provider',
+    )
+    expect(exitMock).toHaveBeenCalledWith(1)
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+    expect(mockPrintStartupScreen).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
   })
 
   it('keeps model-looking text after -- out of early model routing', async () => {

@@ -669,14 +669,17 @@ test('Command Code rejects Anthropic-only models before sending a request', asyn
   globalThis.fetch = asMockFetch(fetchMock)
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
-  await expect(
-    client.beta.messages.create({
-      model: 'anthropic/claude-sonnet-4-6',
-      messages: [{ role: 'user', content: 'hello' }],
-      max_tokens: 32,
-      stream: false,
-    }),
-  ).rejects.toThrow('requires the Anthropic Messages protocol')
+  const requestPromise = client.beta.messages.create({
+    model: 'anthropic/claude-sonnet-4-6',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  await expect(requestPromise).rejects.toMatchObject({ status: 400 })
+  await expect(requestPromise).rejects.toThrow(
+    'requires the Anthropic Messages protocol',
+  )
   expect(fetchMock).not.toHaveBeenCalled()
 })
 
