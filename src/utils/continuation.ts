@@ -131,6 +131,11 @@ const STRONG_INTENT_RE = /\b(i (will|shall|need to|must|should|now)|let (me|us)|
 const JE_SUIS_EN_TRAIN_RE = /je suis en train d'/i
 const ENDS_WITH_COLON_RE = /:\s*$/
 
+// Pre-compiled global continuation regexes for iterating all matches in lateText without dynamic allocation
+const CONTINUATION_SIGNALS_GLOBAL = CONTINUATION_SIGNALS.map(re =>
+  new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+)
+
 /**
  * Single-pass character code scanner for structural cut-offs.
  * Replaces 7 separate regex scans and array allocations with a fast linear pass.
@@ -200,10 +205,10 @@ export function analyzeContinuationIntent(
   const lateWindowSize = 120
   const lateText = lastText.length <= lateWindowSize ? lastText : lastText.slice(-lateWindowSize)
   
-  const hasLateContinuationSignal = CONTINUATION_SIGNALS.some(re => {
-    const globalRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+  const hasLateContinuationSignal = CONTINUATION_SIGNALS_GLOBAL.some(re => {
+    re.lastIndex = 0
     let match: RegExpExecArray | null
-    while ((match = globalRe.exec(lateText)) !== null) {
+    while ((match = re.exec(lateText)) !== null) {
       // Check if any completion marker follows THIS specific continuation signal in the late window
       const afterMatch = lateText.slice(match.index + match[0].length)
       const hasLaterCompletion = COMPLETION_MARKERS.test(afterMatch)
