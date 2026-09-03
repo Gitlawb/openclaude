@@ -673,6 +673,21 @@ function sameOptionalEnvValue(
   return trimOrUndefined(left) === trimOrUndefined(right)
 }
 
+function serializeProfileContextWindows(
+  modelField: string,
+  maxContextLength: number,
+): string {
+  const models = parseModelList(modelField)
+  const configuredModels =
+    models.length > 0 ? models : [getPrimaryModel(modelField)]
+
+  return JSON.stringify(
+    Object.fromEntries(
+      configuredModels.map(model => [model, maxContextLength]),
+    ),
+  )
+}
+
 function isProcessEnvAlignedWithProfile(
   processEnv: NodeJS.ProcessEnv,
   profile: ProviderProfile,
@@ -788,9 +803,7 @@ function isProcessEnvAlignedWithProfile(
   }
 
   const expectedContextWindows = profile.maxContextLength
-    ? JSON.stringify({
-        [primaryModel]: profile.maxContextLength,
-      })
+    ? serializeProfileContextWindows(profile.model, profile.maxContextLength)
     : undefined
   const isAimlapiRoute =
     profile.provider === 'aimlapi' ||
@@ -1188,9 +1201,8 @@ export function applyProviderProfileToProcessEnv(
       openAIProfileEnv.NVIDIA_NIM = '1'
     }
     if (profile.maxContextLength) {
-      openAIProfileEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
-        [primaryModel]: profile.maxContextLength,
-      })
+      openAIProfileEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS =
+        serializeProfileContextWindows(profile.model, profile.maxContextLength)
     }
 
     profileEnv = openAIProfileEnv
@@ -1500,6 +1512,13 @@ function buildOpenAICompatibleStartupEnv(
       processEnv: {},
     })
     if (strictEnv) {
+      if (activeProfile.maxContextLength) {
+        strictEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS =
+          serializeProfileContextWindows(
+            activeProfile.model,
+            activeProfile.maxContextLength,
+          )
+      }
       if (isAimlapiProfile) {
         strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
         strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
@@ -1555,9 +1574,10 @@ function buildOpenAICompatibleStartupEnv(
     ...(activeProfile.authHeaderValue ? { OPENAI_AUTH_HEADER_VALUE: activeProfile.authHeaderValue } : {}),
     ...(activeProfile.maxContextLength
       ? {
-          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
-            [getPrimaryModel(activeProfile.model)]: activeProfile.maxContextLength,
-          }),
+          CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: serializeProfileContextWindows(
+            activeProfile.model,
+            activeProfile.maxContextLength,
+          ),
         }
       : {}),
   }

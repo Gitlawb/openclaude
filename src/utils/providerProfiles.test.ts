@@ -1784,24 +1784,37 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getFreshAPIProvider()).not.toBe('xai')
   })
 
-  test('openai-compatible profile applies maxContextLength env override', async () => {
+  test('openai-compatible profile applies maxContextLength to every configured model', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
+    const { resolveModelRuntimeLimits } = await import(
+      '../integrations/runtimeMetadata.js'
+    )
 
     applyProviderProfileToProcessEnv(
       buildProfile({
         provider: 'custom',
         baseUrl: 'http://localhost:4000/v1',
-        model: 'gpt-4o',
+        model: 'local-large, local-small; local-reasoning',
         maxContextLength: 200_000,
       }),
     )
 
     expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:4000/v1')
-    expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
+    expect(process.env.OPENAI_MODEL).toBe('local-large')
     expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
-      JSON.stringify({ 'gpt-4o': 200_000 }),
+      JSON.stringify({
+        'local-large': 200_000,
+        'local-small': 200_000,
+        'local-reasoning': 200_000,
+      }),
     )
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'local-small',
+        processEnv: process.env,
+      }).contextWindow,
+    ).toBe(200_000)
   })
 
   test('openai-compatible profile switch clears previous same-model context override', async () => {
@@ -3320,6 +3333,7 @@ describe('setActiveProviderProfile', () => {
         model: 'deepseek-v4-flash, deepseek-v4-pro, deepseek-chat',
         apiKey: 'sk-deepseek-live',
         apiFormat: 'responses',
+        maxContextLength: 200_000,
       })
 
       saveMockGlobalConfig(current => ({
@@ -3341,10 +3355,55 @@ describe('setActiveProviderProfile', () => {
         OPENAI_BASE_URL: 'https://api.deepseek.com/v1',
         OPENAI_MODEL: 'deepseek-v4-flash',
         OPENAI_API_KEY: 'sk-deepseek-live',
+        CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS: JSON.stringify({
+          'deepseek-v4-flash': 200_000,
+          'deepseek-v4-pro': 200_000,
+          'deepseek-chat': 200_000,
+        }),
       })
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists context window for every model in a keyless openai-compatible profile', async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const openaiProfile = buildProfile({
+        id: 'keyless_multi_model_prof',
+        provider: 'custom',
+        baseUrl: 'http://localhost:4000/v1',
+        model: 'model-a; model-b, model-c',
+        maxContextLength: 64_000,
+      })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [openaiProfile],
+      }))
+
+      const result = setActiveProviderProfile('keyless_multi_model_prof', {
+        configDir,
+      })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('keyless_multi_model_prof')
+      expect(persisted.env.OPENAI_MODEL).toBe('model-a')
+      expect(persisted.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+        JSON.stringify({
+          'model-a': 64_000,
+          'model-b': 64_000,
+          'model-c': 64_000,
+        }),
+      )
+    } finally {
       rmSync(configDir, { recursive: true, force: true })
     }
   })
