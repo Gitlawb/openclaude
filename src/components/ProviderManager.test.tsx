@@ -1331,7 +1331,7 @@ test.each([',', ';'])(
       mounted.stdin.write('\r')
 
       const output = await waitForFrameOutput(mounted.getOutput, frame =>
-        frame.includes('requires the Anthropic Messages protocol'),
+        frame.includes('Anthropic Messages'),
       )
       expect(output).toContain('OpenAI Chat Completions')
       expect(addProviderProfile).not.toHaveBeenCalled()

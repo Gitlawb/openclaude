@@ -37,7 +37,7 @@ export function getCommandcodeChatCompletionsModelError(
     return null
   }
 
-  return `Command Code model "${normalizedModel}" requires the Anthropic Messages protocol, but this route uses OpenAI Chat Completions. Choose an OpenAI-compatible model.`
+  return 'OpenAI Chat Completions does not support the selected Command Code model; it requires the Anthropic Messages protocol. Choose an OpenAI-compatible model.'
 }
 
 export function mapCommandcodeModel(raw: unknown) {
