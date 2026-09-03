@@ -205,6 +205,17 @@ test('Command Code validation accepts its canonical endpoint through OPENAI_API_
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('Command Code validation does not claim a case-changed endpoint path', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/PROVIDER/V1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error).not.toContain('Command Code')
+})
+
 test('Command Code validation rejects a model that requires Anthropic Messages', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
@@ -220,6 +231,17 @@ test('Command Code validation rejects a Claude model alias', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
   process.env.OPENAI_MODEL = 'sonnet'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
+test('Command Code validation rejects a decorated Claude model alias', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'sonnet?reasoning=high'
   process.env.CMD_API_KEY = 'cmd-key'
 
   await expect(getProviderValidationError(process.env)).resolves.toContain(

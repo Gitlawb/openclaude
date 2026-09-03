@@ -18,6 +18,7 @@ import {
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -303,7 +304,9 @@ function getRuntimeValidationTarget(
         (target.descriptor.id === 'apismart' &&
           !isCanonicalApismartInferenceBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'concentrate' &&
-          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)))
+          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'commandcode' &&
+          !isCanonicalCommandcodeInferenceBaseUrl(request.baseUrl)))
     ) {
       return false
     }

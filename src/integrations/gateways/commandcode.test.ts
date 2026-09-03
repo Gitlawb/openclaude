@@ -197,6 +197,26 @@ test('Command Code rejects every supported Claude model alias', () => {
   }
 })
 
+test('Command Code classifies protocol identity before model modifiers', () => {
+  for (const model of [
+    'sonnet?reasoning=high',
+    'opus?thinking=enabled',
+    'haiku[1m]?reasoning=low',
+    'anthropic/claude-sonnet-4-6?reasoning=xhigh',
+    'claude-sonnet-5?thinking=disabled[1m]',
+  ]) {
+    expect(getCommandcodeChatCompletionsModelError(model)).toContain(
+      'requires the Anthropic Messages protocol',
+    )
+  }
+
+  expect(
+    getCommandcodeChatCompletionsModelError(
+      'deepseek/deepseek-v4-flash?reasoning=high',
+    ),
+  ).toBeNull()
+})
+
 test('Command Code protocol errors do not echo a rejected model value', () => {
   const secretShapedModel = 'anthropic/provider-secret-123456'
   const error = getCommandcodeChatCompletionsModelError(secretShapedModel)

@@ -1351,6 +1351,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getProviderProfiles()).toEqual([])
   })
 
+  test('addProviderProfile rejects decorated Claude aliases before persistence', async () => {
+    const { addProviderProfile, getProviderProfiles } =
+      await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'sonnet?reasoning=high',
+      apiKey: 'cmd-test-key',
+    })
+
+    expect(saved).toBeNull()
+    expect(getProviderProfiles()).toEqual([])
+  })
+
   test('addProviderProfile captures CMD_API_KEY when Command Code env adoption omits apiKey', async () => {
     const { addProviderProfile, getProviderProfiles } =
       await importFreshProviderProfileModules()
@@ -1394,6 +1416,54 @@ describe('applyProviderProfileToProcessEnv', () => {
     })
 
     expect(saved?.apiKey).toBe('env-cmd-key')
+  })
+
+  test('environment adoption never promotes a generic OpenAI key to Command Code auth', async () => {
+    const { addProviderProfile, getProviderProfiles } =
+      await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile(
+      {
+        provider: 'commandcode',
+        name: 'Command Code',
+        baseUrl: 'https://api.commandcode.ai/provider/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: process.env.OPENAI_API_KEY,
+      },
+      { credentialSource: 'environment' },
+    )
+
+    expect(saved).toBeNull()
+    expect(getProviderProfiles()).toEqual([])
+    expect(process.env.CMD_API_KEY).toBeUndefined()
+  })
+
+  test('explicit Command Code setup remains allowed without an ambient dedicated key', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+    process.env.OPENAI_API_KEY = 'same-value-as-explicit-input'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+      apiKey: 'same-value-as-explicit-input',
+    })
+
+    expect(saved?.apiKey).toBe('same-value-as-explicit-input')
   })
 
   test('addProviderProfile captures COMMANDCODE_API_KEY when CMD_API_KEY is unset', async () => {
@@ -1444,6 +1514,38 @@ describe('applyProviderProfileToProcessEnv', () => {
     })
 
     expect(refreshed?.apiKey).toBe('rotated-cmd-key')
+  })
+
+  test('rejected Command Code environment refresh leaves the saved profile unchanged', async () => {
+    const { addProviderProfile, getProviderProfiles, updateProviderProfile } =
+      await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+      apiKey: 'saved-commandcode-key',
+    })
+    delete process.env.CMD_API_KEY
+    delete process.env.COMMANDCODE_API_KEY
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+
+    const refreshed = updateProviderProfile(
+      saved!.id,
+      { ...saved!, apiKey: process.env.OPENAI_API_KEY },
+      { credentialSource: 'environment' },
+    )
+
+    expect(refreshed).toBeNull()
+    expect(getProviderProfiles()[0]?.apiKey).toBe('saved-commandcode-key')
+    expect(process.env.CMD_API_KEY).toBeUndefined()
   })
 
   test('addProviderProfile does not apply Command Code write rules to a retargeted URL', async () => {

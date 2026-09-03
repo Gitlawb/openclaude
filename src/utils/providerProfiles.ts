@@ -93,6 +93,11 @@ export type ProviderProfileInput = {
   maxContextLength?: ProviderProfile['maxContextLength']
 }
 
+export type ProviderProfileWriteOptions = {
+  /** Marks credentials adopted from process env rather than entered by a user. */
+  credentialSource?: 'environment'
+}
+
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
   provider: ProviderProfile['provider']
   requiresApiKey: boolean
@@ -468,6 +473,7 @@ function nextProfileId(): string {
 
 function applyCommandcodeProfileWriteContract(
   profile: ProviderProfile,
+  options?: ProviderProfileWriteOptions,
 ): ProviderProfile | null {
   if (!isCommandcodeProfile(profile)) {
     return profile
@@ -481,9 +487,9 @@ function applyCommandcodeProfileWriteContract(
   }
 
   // Dedicated env keys are the Command Code credential. Generic OPENAI_API_KEY
-  // is never route auth, so env adoption that copies OPENAI_API_KEY — or omits
-  // apiKey entirely — must persist the dedicated secret or the startup file
-  // relaunches unauthenticated.
+  // is never route auth, so environment-sourced writes must persist the
+  // dedicated secret or fail without mutating a profile. Explicit setup keeps
+  // accepting the credential the user entered.
   const dedicatedKey = sanitizeApiKey(
     resolveRouteCredentialValue({
       routeId: 'commandcode',
@@ -491,6 +497,9 @@ function applyCommandcodeProfileWriteContract(
     }),
   )
   const genericOpenAIKey = sanitizeApiKey(process.env.OPENAI_API_KEY)
+  if (options?.credentialSource === 'environment') {
+    return dedicatedKey ? { ...profile, apiKey: dedicatedKey } : null
+  }
   if (
     dedicatedKey &&
     (!profile.apiKey ||
@@ -504,6 +513,7 @@ function applyCommandcodeProfileWriteContract(
 function toProfile(
   input: ProviderProfileInput,
   id: string = nextProfileId(),
+  options?: ProviderProfileWriteOptions,
 ): ProviderProfile | null {
   const profile = sanitizeProfile({
     id,
@@ -520,7 +530,7 @@ function toProfile(
     customHeaders: input.customHeaders,
     maxContextLength: input.maxContextLength,
   })
-  return profile ? applyCommandcodeProfileWriteContract(profile) : null
+  return profile ? applyCommandcodeProfileWriteContract(profile, options) : null
 }
 
 function getSupportedProfileCustomHeadersEnv(
@@ -1367,9 +1377,9 @@ export function applyActiveProviderProfileFromConfig(
 
 export function addProviderProfile(
   input: ProviderProfileInput,
-  options?: { makeActive?: boolean },
+  options?: { makeActive?: boolean } & ProviderProfileWriteOptions,
 ): ProviderProfile | null {
-  const profile = toProfile(input)
+  const profile = toProfile(input, undefined, options)
   if (!profile) {
     return null
   }
@@ -1422,8 +1432,9 @@ export function addProviderProfile(
 export function updateProviderProfile(
   profileId: string,
   input: ProviderProfileInput,
+  options?: ProviderProfileWriteOptions,
 ): ProviderProfile | null {
-  const updatedProfile = toProfile(input, profileId)
+  const updatedProfile = toProfile(input, profileId, options)
   if (!updatedProfile) {
     return null
   }

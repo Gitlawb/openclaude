@@ -523,59 +523,64 @@ test('/model current resolves effort against the active session model', async ()
   expect(messages[0]).not.toContain('(effort: xhigh)')
 })
 
-test('/model rejects a Claude alias on the active Command Code route', async () => {
-  process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
-  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
-  process.env.CMD_API_KEY = 'cmd-key'
-  delete process.env.COMMANDCODE_API_KEY
-  delete process.env.CLAUDE_CODE_USE_GEMINI
-  delete process.env.CLAUDE_CODE_USE_GITHUB
-  delete process.env.CLAUDE_CODE_USE_MISTRAL
-  delete process.env.CLAUDE_CODE_USE_BEDROCK
-  delete process.env.CLAUDE_CODE_USE_VERTEX
-  delete process.env.CLAUDE_CODE_USE_FOUNDRY
-  delete process.env.OPENAI_API_BASE
+test.each(['sonnet', 'sonnet?reasoning=high'])(
+  '/model rejects Claude alias %s on the active Command Code route',
+  async rejectedModel => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+    process.env.CMD_API_KEY = 'cmd-key'
+    delete process.env.COMMANDCODE_API_KEY
+    delete process.env.CLAUDE_CODE_USE_GEMINI
+    delete process.env.CLAUDE_CODE_USE_GITHUB
+    delete process.env.CLAUDE_CODE_USE_MISTRAL
+    delete process.env.CLAUDE_CODE_USE_BEDROCK
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    delete process.env.CLAUDE_CODE_USE_FOUNDRY
+    delete process.env.OPENAI_API_BASE
 
-  const { call } = await importFreshModelModule('commandcode-reject-sonnet-alias')
-  const { AppStateProvider, getDefaultAppState } = await import(
-    '../../state/AppState.js'
-  )
-  const { render } = await import('../../ink.js')
-  const messages: string[] = []
-  const stdout = new PassThrough()
-  ;(stdout as unknown as { columns: number }).columns = 120
+    const { call } = await importFreshModelModule(
+      `commandcode-reject-${rejectedModel}`,
+    )
+    const { AppStateProvider, getDefaultAppState } = await import(
+      '../../state/AppState.js'
+    )
+    const { render } = await import('../../ink.js')
+    const messages: string[] = []
+    const stdout = new PassThrough()
+    ;(stdout as unknown as { columns: number }).columns = 120
 
-  const element = await call(
-    result => {
-      if (result) messages.push(result)
-    },
-    {} as never,
-    'sonnet',
-  )
+    const element = await call(
+      result => {
+        if (result) messages.push(result)
+      },
+      {} as never,
+      rejectedModel,
+    )
 
-  const instance = await render(
-    <AppStateProvider
-      initialState={{
-        ...getDefaultAppState(),
-        mainLoopModel: 'deepseek/deepseek-v4-flash',
-      }}
-    >
-      {element}
-    </AppStateProvider>,
-    stdout as unknown as NodeJS.WriteStream,
-  )
+    const instance = await render(
+      <AppStateProvider
+        initialState={{
+          ...getDefaultAppState(),
+          mainLoopModel: 'deepseek/deepseek-v4-flash',
+        }}
+      >
+        {element}
+      </AppStateProvider>,
+      stdout as unknown as NodeJS.WriteStream,
+    )
 
-  try {
-    await waitForCondition(() => messages.length > 0)
-  } finally {
-    instance.unmount()
-    stdout.end()
-  }
+    try {
+      await waitForCondition(() => messages.length > 0)
+    } finally {
+      instance.unmount()
+      stdout.end()
+    }
 
-  expect(messages[0]).toContain('requires the Anthropic Messages protocol')
-  expect(messages[0]).not.toContain('Set model to')
-})
+    expect(messages[0]).toContain('requires the Anthropic Messages protocol')
+    expect(messages[0]).not.toContain('Set model to')
+  },
+)
 
 test('/model still applies a Claude alias on a non-Command-Code OpenAI route', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'

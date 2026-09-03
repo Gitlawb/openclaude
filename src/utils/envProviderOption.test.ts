@@ -86,4 +86,38 @@ describe('getEnvProviderOption — availability and var naming', () => {
     expect(getEnvProviderOption({ OPENAI_MODEL: 'gpt-4o' }).available).toBe(false)
     expect(getEnvProviderOption({}).available).toBe(false)
   })
+
+  test('canonical Command Code adoption requires its dedicated credential', () => {
+    const option = getEnvProviderOption({
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      OPENAI_API_KEY: 'generic-openai-secret',
+    })
+
+    expect(option.available).toBe(false)
+    expect(option.apiKey).toBeUndefined()
+  })
+
+  test('canonical Command Code adoption carries only its dedicated credential', () => {
+    const option = getEnvProviderOption({
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      OPENAI_API_KEY: 'generic-openai-secret',
+      CMD_API_KEY: 'commandcode-secret',
+    })
+
+    expect(option.available).toBe(true)
+    expect(option.apiKey).toBe('commandcode-secret')
+  })
+
+  test('custom OpenAI-compatible adoption still carries its generic credential', () => {
+    const option = getEnvProviderOption({
+      OPENAI_BASE_URL: 'https://proxy.example/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'generic-openai-secret',
+    })
+
+    expect(option.available).toBe(true)
+    expect(option.apiKey).toBe('generic-openai-secret')
+  })
 })

@@ -28,8 +28,19 @@ function getPositiveInteger(value: unknown): number | undefined {
 
 const ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN = /^(claude-|anthropic\/)/i
 
+function getProtocolModelIdentity(model: string): string {
+  const withoutTrailingContextTag = model.trim().replace(/\[1m\]$/i, '').trim()
+  const baseModel =
+    withoutTrailingContextTag.split('?', 1)[0] ?? withoutTrailingContextTag
+  return baseModel
+    .trim()
+    .replace(/\[1m\]$/i, '')
+    .trim()
+    .toLowerCase()
+}
+
 function requiresAnthropicMessages(model: string): boolean {
-  const normalizedModel = model.trim().toLowerCase()
+  const normalizedModel = getProtocolModelIdentity(model)
   return (
     ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN.test(normalizedModel) ||
     isModelAlias(normalizedModel)
