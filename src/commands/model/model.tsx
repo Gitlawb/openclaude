@@ -19,6 +19,7 @@ import {
   getDiscoveryCacheKey,
   resolveDiscoveryRequestOptions,
 } from '../../integrations/discoveryService.js'
+import { getCommandcodeChatCompletionsModelError } from '../../integrations/gateways/commandcode.js'
 import {
   getRouteDescriptor,
   isNativeVendorCatalogRoute,
@@ -828,6 +829,12 @@ function ModelPickerWrapper({
       return
     }
 
+    const commandcodeModelError = getActiveCommandcodeModelError(model)
+    if (commandcodeModelError) {
+      onDone(commandcodeModelError, { display: 'system' })
+      return
+    }
+
     logEvent('tengu_model_command_menu', {
       action: String(model) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       from_model: String(mainLoopModel) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1091,6 +1098,14 @@ function SetModelAndClose({
         return
       }
 
+      const commandcodeModelError = getActiveCommandcodeModelError(model)
+      if (commandcodeModelError) {
+        onDone(commandcodeModelError, {
+          display: 'system',
+        })
+        return
+      }
+
       if (isKnownAlias(model)) {
         setModel(model)
         return
@@ -1156,6 +1171,15 @@ function SetModelAndClose({
   }, [isFastMode, model, onDone, setAppState])
 
   return null
+}
+
+function getActiveCommandcodeModelError(
+  model: string | null | undefined,
+): string | null {
+  if (!model || resolveActiveRouteIdFromEnv(process.env) !== 'commandcode') {
+    return null
+  }
+  return getCommandcodeChatCompletionsModelError(model)
 }
 
 function isKnownAlias(model: string): boolean {

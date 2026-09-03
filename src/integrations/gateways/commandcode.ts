@@ -1,5 +1,6 @@
 import { defineCatalog, defineGateway } from '../define.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
+import { parseModelList } from '../../utils/providerModels.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -39,10 +40,13 @@ export function getCommandcodeChatCompletionsModelError(
   model: string | null | undefined,
 ): string | null {
   const normalizedModel = model?.trim()
-  if (
-    !normalizedModel ||
-    !requiresAnthropicMessages(normalizedModel)
-  ) {
+  if (!normalizedModel) {
+    return null
+  }
+
+  const modelIds = parseModelList(normalizedModel)
+  const ids = modelIds.length > 0 ? modelIds : [normalizedModel]
+  if (!ids.some(id => requiresAnthropicMessages(id))) {
     return null
   }
 

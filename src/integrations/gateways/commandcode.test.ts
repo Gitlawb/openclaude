@@ -204,3 +204,21 @@ test('Command Code protocol errors do not echo a rejected model value', () => {
   expect(error).toContain('requires the Anthropic Messages protocol')
   expect(error).not.toContain(secretShapedModel)
 })
+
+test('Command Code rejects a Claude member in a compound model list', () => {
+  expect(
+    getCommandcodeChatCompletionsModelError(
+      'deepseek/deepseek-v4-flash, anthropic/claude-sonnet-4-6',
+    ),
+  ).toContain('requires the Anthropic Messages protocol')
+  expect(
+    getCommandcodeChatCompletionsModelError(
+      'deepseek/deepseek-v4-flash; sonnet',
+    ),
+  ).toContain('requires the Anthropic Messages protocol')
+  expect(
+    getCommandcodeChatCompletionsModelError(
+      'deepseek/deepseek-v4-flash, gpt-5.6-sol',
+    ),
+  ).toBeNull()
+})

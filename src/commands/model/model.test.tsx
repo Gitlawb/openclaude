@@ -48,6 +48,8 @@ const originalEnv = {
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  CMD_API_KEY: process.env.CMD_API_KEY,
+  COMMANDCODE_API_KEY: process.env.COMMANDCODE_API_KEY,
   ANTHROPIC_CUSTOM_HEADERS: process.env.ANTHROPIC_CUSTOM_HEADERS,
   CLAUDE_CODE_EFFORT_LEVEL: process.env.CLAUDE_CODE_EFFORT_LEVEL,
   CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED:
@@ -230,6 +232,8 @@ afterEach(() => {
     restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('OPENROUTER_API_KEY', originalEnv.OPENROUTER_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
+    restoreEnv('CMD_API_KEY', originalEnv.CMD_API_KEY)
+    restoreEnv('COMMANDCODE_API_KEY', originalEnv.COMMANDCODE_API_KEY)
     restoreEnv('ANTHROPIC_CUSTOM_HEADERS', originalEnv.ANTHROPIC_CUSTOM_HEADERS)
     restoreEnv('CLAUDE_CODE_EFFORT_LEVEL', originalEnv.CLAUDE_CODE_EFFORT_LEVEL)
     restoreEnv(
@@ -517,6 +521,108 @@ test('/model current resolves effort against the active session model', async ()
   expect(messages[0]).toContain('Base model:')
   expect(messages[0]).toContain('(effort: high)')
   expect(messages[0]).not.toContain('(effort: xhigh)')
+})
+
+test('/model rejects a Claude alias on the active Command Code route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+  delete process.env.COMMANDCODE_API_KEY
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+  delete process.env.OPENAI_API_BASE
+
+  const { call } = await importFreshModelModule('commandcode-reject-sonnet-alias')
+  const { AppStateProvider, getDefaultAppState } = await import(
+    '../../state/AppState.js'
+  )
+  const { render } = await import('../../ink.js')
+  const messages: string[] = []
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+
+  const element = await call(
+    result => {
+      if (result) messages.push(result)
+    },
+    {} as never,
+    'sonnet',
+  )
+
+  const instance = await render(
+    <AppStateProvider
+      initialState={{
+        ...getDefaultAppState(),
+        mainLoopModel: 'deepseek/deepseek-v4-flash',
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  await waitForCondition(() => messages.length > 0)
+  instance.unmount()
+  stdout.end()
+
+  expect(messages[0]).toContain('requires the Anthropic Messages protocol')
+  expect(messages[0]).not.toContain('Set model to')
+})
+
+test('/model still applies a Claude alias on a non-Command-Code OpenAI route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8080/v1'
+  process.env.OPENAI_MODEL = 'qwen2.5-coder-7b-instruct'
+  delete process.env.CMD_API_KEY
+  delete process.env.COMMANDCODE_API_KEY
+  delete process.env.OPENAI_API_BASE
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+
+  const { call } = await importFreshModelModule('openai-compat-apply-sonnet-alias')
+  const { AppStateProvider, getDefaultAppState } = await import(
+    '../../state/AppState.js'
+  )
+  const { render } = await import('../../ink.js')
+  const messages: string[] = []
+  const stdout = new PassThrough()
+  ;(stdout as unknown as { columns: number }).columns = 120
+
+  const element = await call(
+    result => {
+      if (result) messages.push(result)
+    },
+    {} as never,
+    'sonnet',
+  )
+
+  const instance = await render(
+    <AppStateProvider
+      initialState={{
+        ...getDefaultAppState(),
+        mainLoopModel: 'qwen2.5-coder-7b-instruct',
+      }}
+    >
+      {element}
+    </AppStateProvider>,
+    stdout as unknown as NodeJS.WriteStream,
+  )
+
+  await waitForCondition(() => messages.length > 0)
+  instance.unmount()
+  stdout.end()
+
+  expect(messages[0]).toContain('Set model to')
+  expect(messages[0]).not.toContain('requires the Anthropic Messages protocol')
 })
 
 test('opens the model picker without awaiting descriptor-backed route refresh', async () => {
