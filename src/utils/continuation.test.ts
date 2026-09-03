@@ -58,4 +58,9 @@ describe('analyzeContinuationIntent', () => {
   test('evaluates all matches of continuation signals in lateText window', () => {
     expect(analyzeContinuationIntent("Now process the files. Done. Now update the code.").shouldNudge).toBe(true)
   })
+
+  test('does not treat language-tagged line as closing fence for open code block', () => {
+    expect(checkStructuralTruncation("```markdown\n```ts\nconst x = 1").hasUnclosedCodeBlock).toBe(true)
+    expect(checkStructuralTruncation("```markdown\n```ts\nconst x = 1\n```").hasUnclosedCodeBlock).toBe(false)
+  })
 })

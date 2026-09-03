@@ -142,7 +142,7 @@ const CONTINUATION_SIGNALS_GLOBAL = CONTINUATION_SIGNALS.map(re =>
  * Note: Net depth counters (parenDepth > 0) strictly reproduce historical openCount > closeCount parity.
  */
 export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock: boolean; hasUnclosedPair: boolean } {
-  let codeBlockCount = 0
+  let inCodeBlock = false
   let parenDepth = 0
   let bracketDepth = 0
   let braceDepth = 0
@@ -161,13 +161,34 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
       (i === 0 || text.charCodeAt(i - 1) === 10 || text.charCodeAt(i - 1) === 13) &&
       i + 2 < len && text.charCodeAt(i + 1) === 96 && text.charCodeAt(i + 2) === 96
     ) {
-      codeBlockCount++
-      i += 2
+      let endFence = i + 3
+      while (endFence < len && text.charCodeAt(endFence) === 96) {
+        endFence++
+      }
+      if (inCodeBlock) {
+        // CommonMark closing fence: must contain only trailing spaces or tabs on the line
+        let j = endFence
+        let isClosing = true
+        while (j < len && text.charCodeAt(j) !== 10 && text.charCodeAt(j) !== 13) {
+          const c = text.charCodeAt(j)
+          if (c !== 32 && c !== 9) {
+            isClosing = false
+            break
+          }
+          j++
+        }
+        if (isClosing) {
+          inCodeBlock = false
+        }
+      } else {
+        inCodeBlock = true
+      }
+      i = endFence - 1
     }
   }
 
   return {
-    hasUnclosedCodeBlock: codeBlockCount % 2 !== 0,
+    hasUnclosedCodeBlock: inCodeBlock,
     hasUnclosedPair: parenDepth > 0 || bracketDepth > 0 || braceDepth > 0,
   }
 }
