@@ -143,6 +143,7 @@ const CONTINUATION_SIGNALS_GLOBAL = CONTINUATION_SIGNALS.map(re =>
  */
 export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock: boolean; hasUnclosedPair: boolean } {
   let inCodeBlock = false
+  let codeFenceLength = 0
   let parenDepth = 0
   let bracketDepth = 0
   let braceDepth = 0
@@ -165,8 +166,10 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
       while (endFence < len && text.charCodeAt(endFence) === 96) {
         endFence++
       }
+      const fenceLength = endFence - i
       if (inCodeBlock) {
         // CommonMark closing fence: must contain only trailing spaces or tabs on the line
+        // and must be at least as long as the opening fence
         let j = endFence
         let isClosing = true
         while (j < len && text.charCodeAt(j) !== 10 && text.charCodeAt(j) !== 13) {
@@ -177,11 +180,13 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
           }
           j++
         }
-        if (isClosing) {
+        if (isClosing && fenceLength >= codeFenceLength) {
           inCodeBlock = false
+          codeFenceLength = 0
         }
       } else {
         inCodeBlock = true
+        codeFenceLength = fenceLength
       }
       i = endFence - 1
     }

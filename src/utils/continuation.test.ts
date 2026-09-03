@@ -63,4 +63,11 @@ describe('analyzeContinuationIntent', () => {
     expect(checkStructuralTruncation("```markdown\n```ts\nconst x = 1").hasUnclosedCodeBlock).toBe(true)
     expect(checkStructuralTruncation("```markdown\n```ts\nconst x = 1\n```").hasUnclosedCodeBlock).toBe(false)
   })
+
+  test('requires closing fence to have at least opening fence backtick length', () => {
+    // 4-backtick opening fence cannot be closed by a 3-backtick fence
+    expect(checkStructuralTruncation("````markdown\n```\nconst x = 1").hasUnclosedCodeBlock).toBe(true)
+    // 4-backtick opening fence is closed by a 4-backtick fence
+    expect(checkStructuralTruncation("````markdown\n```\nconst x = 1\n````").hasUnclosedCodeBlock).toBe(false)
+  })
 })
