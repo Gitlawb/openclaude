@@ -42,6 +42,19 @@ test('buildInheritedEnvVars forwards pooled OpenAI credentials', () => {
   expect(envVars).toContain('OPENAI_API_KEYS=key-a\\,key-b')
 })
 
+test('buildInheritedEnvVars forwards the supported OpenAI base URL alias', () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('OPENAI_API_BASE=')
+  expect(envVars).toContain('api.commandcode.ai/provider/v1')
+  expect(envVars).toContain('CMD_API_KEY=cmd-key')
+})
+
 test('buildInheritedEnvVars forwards an LLMTR credential without inventing route state', () => {
   process.env.LLMTR_API_KEY = 'llmtr-key'
 

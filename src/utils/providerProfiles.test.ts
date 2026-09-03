@@ -405,6 +405,31 @@ describe('applyProviderProfileToProcessEnv', () => {
     ).toBe('cmd-test-key')
   }, 20_000)
 
+  test('canonical generic OpenAI profile preserves legacy Command Code credential ownership', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        name: 'Legacy Command Code',
+        baseUrl: 'https://api.commandcode.ai/provider/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: 'legacy-cmd-key',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('commandcode')
+    expect(process.env.CMD_API_KEY).toBe('legacy-cmd-key')
+    expect(
+      resolveRouteCredentialValue({
+        routeId: 'commandcode',
+        baseUrl: process.env.OPENAI_BASE_URL,
+        processEnv: process.env,
+      }),
+    ).toBe('legacy-cmd-key')
+  }, 20_000)
+
   test('keyless canonical Command Code profile adopts its ambient dedicated key', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()

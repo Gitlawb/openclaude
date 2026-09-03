@@ -57,8 +57,9 @@ const mockApplySafeConfigEnvironmentVariables = mock(() => {})
 const mockApplyStartupEnvFromProfile = mock(
   async (_input: {
     processEnv: NodeJS.ProcessEnv
+    modelOverride?: string
     onValidationError: (message: string) => void
-  }) => {},
+  }): Promise<string | null> => null,
 )
 const mockGetProviderValidationError = mock(
   async (_env: NodeJS.ProcessEnv) => undefined,
@@ -687,6 +688,38 @@ describe('cli.tsx — background routing behavior', () => {
     expect(exitMock).toHaveBeenCalledWith(1)
     expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
     expect(mockPrintStartupScreen).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back after a saved Command Code profile rejects the root model', async () => {
+    const modelError =
+      'OpenAI Chat Completions does not support the selected Command Code model; it requires the Anthropic Messages protocol. Choose an OpenAI-compatible model.'
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    mockApplyStartupEnvFromProfile.mockImplementationOnce(async input => {
+      input.onValidationError(`Warning: ignoring saved provider profile. ${modelError}`)
+      return modelError
+    })
+
+    try {
+      await runCliEntrypoint(
+        ['--model', 'anthropic/claude-sonnet-4-6'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).toHaveBeenCalledTimes(1)
+    expect(consoleErrorMock).toHaveBeenCalledWith(`Error: ${modelError}`)
+    expect(exitMock).toHaveBeenCalledWith(1)
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
     expect(mockCliMain).not.toHaveBeenCalled()
   })
 

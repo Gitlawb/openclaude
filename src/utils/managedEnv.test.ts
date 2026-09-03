@@ -6,6 +6,7 @@ import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
 } from '../test/sharedMutationLock.js'
+import { isAzureStyleBaseUrl } from '../services/api/providerConfig.js'
 import type { GlobalConfig } from './config.js'
 import {
   enableConfigs,
@@ -25,6 +26,7 @@ const ENV_KEYS = [
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
   'OPENAI_API_KEY',
+  'OPENAI_AZURE_STYLE',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
 ]
@@ -106,6 +108,7 @@ describe('applyConfigEnvironmentVariables', () => {
         OPENAI_BASE_URL: 'https://settings.example/v1',
         OPENAI_MODEL: 'settings-model',
         OPENAI_API_KEY: 'settings-key',
+        OPENAI_AZURE_STYLE: '1',
         CMD_API_KEY: 'stale-settings-primary-key',
         COMMANDCODE_API_KEY: 'stale-settings-fallback-key',
       },
@@ -119,6 +122,10 @@ describe('applyConfigEnvironmentVariables', () => {
     )
     expect(process.env.OPENAI_MODEL).toBe('leader-model')
     expect(process.env.OPENAI_API_KEY).toBe('leader-primary-key')
+    expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
+    expect(
+      isAzureStyleBaseUrl(process.env.OPENAI_BASE_URL, process.env),
+    ).toBe(false)
     expect(process.env.CMD_API_KEY).toBe('leader-primary-key')
     expect(process.env.COMMANDCODE_API_KEY).toBe('leader-fallback-key')
   })

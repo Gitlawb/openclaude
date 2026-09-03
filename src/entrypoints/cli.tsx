@@ -459,13 +459,30 @@ export async function main(
     : undefined
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
-  await applyStartupEnvFromProfile({
+  let startupProfileWarning: string | undefined
+  const startupProfileError = await applyStartupEnvFromProfile({
     processEnv: process.env,
     modelOverride: parsedRootModel,
     onValidationError: message => {
-      console.error(message)
+      startupProfileWarning = message
     },
   })
+  if (parsedRootModel && startupProfileError) {
+    const { getCommandcodeChatCompletionsModelError } = await import(
+      '../integrations/gateways/commandcode.js'
+    )
+    if (
+      startupProfileError ===
+      getCommandcodeChatCompletionsModelError(parsedRootModel)
+    ) {
+      console.error(`Error: ${startupProfileError}`)
+      process.exit(1)
+      return
+    }
+  }
+  if (startupProfileWarning) {
+    console.error(startupProfileWarning)
+  }
   reapplyExplicitProviderInputs()
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent

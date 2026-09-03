@@ -187,12 +187,18 @@ function isLlmtrProfile(profile: ProviderProfile): boolean {
 }
 
 function isCommandcodeProfile(profile: ProviderProfile): boolean {
-  const { route } = resolveProfileCompatibility(profile.provider)
-  if (route.routeId !== 'commandcode') {
-    return false
-  }
+  const { route, compatibilityMode } = resolveProfileCompatibility(
+    profile.provider,
+  )
+  if (compatibilityMode !== 'openai') return false
   const baseUrl = profile.baseUrl?.trim()
-  return !baseUrl || isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+  if (route.routeId === 'commandcode') {
+    return !baseUrl || isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+  }
+  // Legacy generic OpenAI profiles are runtime-classified by their endpoint.
+  // Treat only the exact canonical inference URL as Command Code ownership;
+  // generic or retargeted URLs must never receive the dedicated credential.
+  return Boolean(baseUrl && isCanonicalCommandcodeInferenceBaseUrl(baseUrl))
 }
 
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
@@ -1209,9 +1215,9 @@ export function applyProviderProfileToProcessEnv(
         }
       }
     }
-    if (route.routeId === 'commandcode') {
+    if (isCommandcodeProfile(profile)) {
       openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
-      if (isCommandcodeProfile(profile) && !profile.apiKey) {
+      if (!profile.apiKey) {
         const ambientCommandcodeKey =
           sanitizeApiKey(process.env.CMD_API_KEY) ||
           sanitizeApiKey(process.env.COMMANDCODE_API_KEY)
