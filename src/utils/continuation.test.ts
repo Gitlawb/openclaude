@@ -41,4 +41,9 @@ describe('analyzeContinuationIntent', () => {
     expect(analyzeContinuationIntent("All tests pass. Done.").shouldNudge).toBe(false)
     expect(analyzeContinuationIntent("The analysis is complete and no code changes are needed here").shouldNudge).toBe(false)
   })
+
+  test('detects code fence starter with long language info string', () => {
+    const longLang = "customlanguageidentifierthatislongerthansixtycharactersandnumbers"
+    expect(analyzeContinuationIntent(`Here is the code:\n\`\`\`${longLang}`).shouldNudge).toBe(true)
+  })
 })

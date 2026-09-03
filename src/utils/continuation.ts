@@ -116,6 +116,11 @@ export const UNFINISHED_SENTIMENT_SIGNALS = [
   /```[a-z]*\s*$/i,
 ]
 
+// Suffix signals safe for the 60-character tail window
+const UNFINISHED_TAIL_SIGNALS = UNFINISHED_SENTIMENT_SIGNALS.slice(0, -1)
+// Code-fence starter pattern run against full text to support arbitrarily long fence info strings
+const CODE_FENCE_STARTER_RE = UNFINISHED_SENTIMENT_SIGNALS[3]
+
 // Pre-compiled intent regexes at module scope to eliminate allocations during analyzeContinuationIntent
 const PRESENT_PROGRESSIVE_RE = new RegExp(`\\bnow (?:${VERB_ING})\\b`, 'i')
 const IMPERATIVE_RE_1 = new RegExp(`(?<!\\b(?:you|i|we|they|he|she|it)\\s+)\\bneed to (?:${VERB_ALT})\\b`, 'i')
@@ -175,7 +180,9 @@ export function analyzeContinuationIntent(
 
   // Check for trailing connectors on the tail of the string (e.g., "... and", "... with")
   const tail = lastText.length <= 60 ? lastText : lastText.slice(-60)
-  const hasUnfinishedSuffix = UNFINISHED_SENTIMENT_SIGNALS.some(re => re.test(tail))
+  const hasUnfinishedSuffix =
+    UNFINISHED_TAIL_SIGNALS.some(re => re.test(tail)) ||
+    (lastText.includes('```') && CODE_FENCE_STARTER_RE.test(lastText))
 
   if (hasUnclosedCodeBlock || hasUnclosedPair || hasUnfinishedSuffix) {
     // Structural cut-offs always trigger a nudge, even if "done" was said earlier.
