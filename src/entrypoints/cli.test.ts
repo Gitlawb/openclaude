@@ -654,6 +654,42 @@ describe('cli.tsx — background routing behavior', () => {
     )
   })
 
+  it('still applies a root model after a required option consumes the -- delimiter', async () => {
+    const args = [
+      '--system-prompt',
+      '--',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyStartupEnvFromProfile.mock.calls[0]?.[0]).toMatchObject({
+      modelOverride: 'deepseek/deepseek-v4-flash',
+    })
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  it('does not treat --model after a real end-of-options marker as a root model', async () => {
+    const args = [
+      '--system-prompt',
+      'hello',
+      '--',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(
+      mockApplyStartupEnvFromProfile.mock.calls[0]?.[0].modelOverride,
+    ).toBeUndefined()
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+  })
+
   it('preserves a teammate provider override resolved from an inline model alias', async () => {
     const providerOverride = {
       model: 'actual-provider-model',

@@ -39,6 +39,26 @@ describe('parseRootOptionValue', () => {
       '--model',
     )).toBe('second')
   })
+
+  test('finds --model after a required option consumes the -- delimiter', () => {
+    expect(parseRootOptionValue(
+      ['--system-prompt', '--', '--model', 'deepseek/deepseek-v4-flash'],
+      '--model',
+    )).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('stops at a real end-of-options marker', () => {
+    expect(parseRootOptionValue(
+      [
+        '--system-prompt',
+        'hello',
+        '--',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+      ],
+      '--model',
+    )).toBeUndefined()
+  })
 })
 
 describe('hasPrintFlag', () => {

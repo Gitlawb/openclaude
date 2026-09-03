@@ -447,10 +447,11 @@ export async function main(
     return
   }
 
-  const { argsBeforeDelimiter } = await importers.cliArgs()
-  const modelOptionArgs = argsBeforeModelOwningSubcommand(
-    argsBeforeDelimiter(args),
-  )
+  // Pass the full argv into the arity-aware scanners. Required-value options
+  // such as --system-prompt consume a following `--` token, so a later root
+  // --model must remain visible. parseRootOptionValue still stops at a real
+  // end-of-options marker that was not consumed as an option value.
+  const modelOptionArgs = argsBeforeModelOwningSubcommand(args)
   const parsedRootModel =
     (await importers.providerFlag()).parseModelFlag(modelOptionArgs) ?? undefined
   const hasRootModelOption = parsedRootModel !== undefined

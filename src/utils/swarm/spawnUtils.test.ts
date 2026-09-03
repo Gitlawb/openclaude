@@ -53,6 +53,7 @@ test('buildInheritedEnvVars forwards the supported OpenAI base URL alias', () =>
   expect(envVars).toContain('OPENAI_API_BASE=')
   expect(envVars).toContain('api.commandcode.ai/provider/v1')
   expect(envVars).toContain('CMD_API_KEY=cmd-key')
+  expect(envVars).toContain('OPENAI_MODEL=deepseek/deepseek-v4-flash')
 })
 
 test('buildInheritedEnvVars forwards an LLMTR credential without inventing route state', () => {
