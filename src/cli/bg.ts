@@ -8,7 +8,10 @@ import {
   argsBeforeDelimiter,
   parseModelFlagValue,
 } from '../utils/cliArgs.js'
-import { hasPrintFlag } from '../utils/printFlag.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  hasPrintFlag,
+} from '../utils/printFlag.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
   assertBackgroundSessionNameAvailable,
@@ -1149,7 +1152,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     cwd: process.cwd(),
     command,
     provider: findFlagValue(childArgs, '--provider'),
-    model: parseModelFlagValue(childArgs),
+    model: parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs)),
     sessionId,
     processMarker,
     stdoutLogPath: logPaths.stdoutLogPath,

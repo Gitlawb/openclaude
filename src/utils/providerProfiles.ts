@@ -65,7 +65,9 @@ import {
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
   resolveEnvOnlyProviderRouteId,
+  resolveRouteCredentialValue,
 } from '../integrations/routeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -464,11 +466,41 @@ function nextProfileId(): string {
   return `provider_${randomBytes(6).toString('hex')}`
 }
 
+function applyCommandcodeProfileWriteContract(
+  profile: ProviderProfile,
+): ProviderProfile | null {
+  if (!isCommandcodeProfile(profile)) {
+    return profile
+  }
+
+  // Command Code is Chat Completions only. Reject the write so Console OAuth
+  // env adoption, /provider, and any future caller share one gate instead of
+  // persisting Claude/alias models that later startup and /model paths inherit.
+  if (getCommandcodeChatCompletionsModelError(profile.model)) {
+    return null
+  }
+
+  if (profile.apiKey) {
+    return profile
+  }
+
+  // Dedicated env keys are the Command Code credential. Generic OPENAI_API_KEY
+  // is never route auth, so a CMD-only env must still land on the saved profile
+  // or the startup file relaunches unauthenticated.
+  const dedicatedKey = sanitizeApiKey(
+    resolveRouteCredentialValue({
+      routeId: 'commandcode',
+      baseUrl: profile.baseUrl,
+    }),
+  )
+  return dedicatedKey ? { ...profile, apiKey: dedicatedKey } : profile
+}
+
 function toProfile(
   input: ProviderProfileInput,
   id: string = nextProfileId(),
 ): ProviderProfile | null {
-  return sanitizeProfile({
+  const profile = sanitizeProfile({
     id,
     provider: input.provider ?? 'openai',
     name: input.name,
@@ -483,6 +515,7 @@ function toProfile(
     customHeaders: input.customHeaders,
     maxContextLength: input.maxContextLength,
   })
+  return profile ? applyCommandcodeProfileWriteContract(profile) : null
 }
 
 function getSupportedProfileCustomHeadersEnv(

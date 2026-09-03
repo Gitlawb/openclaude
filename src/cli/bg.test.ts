@@ -110,7 +110,9 @@ describe('background session CLI parsing', () => {
   it('records the effective model with the shared CLI parser', async () => {
     const src = await Bun.file(`${import.meta.dir}/bg.ts`).text()
 
-    expect(src).toContain('model: parseModelFlagValue(childArgs)')
+    expect(src).toContain(
+      'model: parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs))',
+    )
   })
 
   it('generates a fresh bounded lower-case hex marker from 32 random bytes', () => {

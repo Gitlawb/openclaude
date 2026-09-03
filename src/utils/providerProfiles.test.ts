@@ -1329,6 +1329,125 @@ describe('applyProviderProfileToProcessEnv', () => {
     },
   )
 
+  test('addProviderProfile rejects Claude and alias models on canonical Command Code', async () => {
+    const { addProviderProfile, getProviderProfiles } =
+      await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'sonnet, deepseek/deepseek-v4-flash',
+      apiKey: 'cmd-test-key',
+    })
+
+    expect(saved).toBeNull()
+    expect(getProviderProfiles()).toEqual([])
+  })
+
+  test('addProviderProfile captures CMD_API_KEY when Command Code env adoption omits apiKey', async () => {
+    const { addProviderProfile, getProviderProfiles } =
+      await importFreshProviderProfileModules()
+    process.env.CMD_API_KEY = 'env-cmd-key'
+    process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+    })
+
+    expect(saved?.apiKey).toBe('env-cmd-key')
+    expect(getProviderProfiles()[0]?.apiKey).toBe('env-cmd-key')
+  })
+
+  test('addProviderProfile captures COMMANDCODE_API_KEY when CMD_API_KEY is unset', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+    process.env.COMMANDCODE_API_KEY = 'env-commandcode-key'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+    })
+
+    expect(saved?.apiKey).toBe('env-commandcode-key')
+  })
+
+  test('updateProviderProfile captures dedicated Command Code env when refreshing a keyless profile', async () => {
+    const { addProviderProfile, updateProviderProfile } =
+      await importFreshProviderProfileModules()
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+      apiKey: 'cmd-test-key',
+    })
+    expect(saved?.id).toBeTruthy()
+
+    process.env.CMD_API_KEY = 'rotated-cmd-key'
+    const refreshed = updateProviderProfile(saved!.id, {
+      provider: 'commandcode',
+      name: saved!.name,
+      baseUrl: saved!.baseUrl,
+      model: saved!.model,
+    })
+
+    expect(refreshed?.apiKey).toBe('rotated-cmd-key')
+  })
+
+  test('addProviderProfile does not apply Command Code write rules to a retargeted URL', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+    process.env.CMD_API_KEY = 'env-cmd-key'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code proxy',
+      baseUrl: 'https://proxy.example/v1',
+      model: 'sonnet',
+    })
+
+    expect(saved).toMatchObject({
+      baseUrl: 'https://proxy.example/v1',
+      model: 'sonnet',
+    })
+    expect(saved?.apiKey).toBeUndefined()
+  })
+
   test('cloudflare profile applies OpenAI-compatible env with CLOUDFLARE_API_TOKEN mirror', async () => {
     // Account-scoped URL: a real user has substituted `<ACCOUNT_ID>` for their
     // Cloudflare account id. The env-build path should mirror the api key into
@@ -4006,6 +4125,44 @@ describe('setActiveProviderProfile', () => {
           processEnv: migratedStartupEnv,
         }),
       ).toBe('cmd-test-key')
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('CMD-only env adoption persists Command Code dedicated key into the startup file', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CMD_API_KEY = 'env-cmd-key'
+
+    try {
+      const { addProviderProfile, setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const saved = addProviderProfile(
+        {
+          provider: 'commandcode',
+          name: 'Command Code',
+          baseUrl: 'https://api.commandcode.ai/provider/v1',
+          model: 'deepseek/deepseek-v4-flash',
+        },
+        { makeActive: false },
+      )
+      expect(saved?.id).toBeTruthy()
+      setActiveProviderProfile(saved!.id, { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(saved?.apiKey).toBe('env-cmd-key')
+      expect(persisted.env).toMatchObject({
+        OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+        OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+        CMD_API_KEY: 'env-cmd-key',
+      })
     } finally {
       process.chdir(originalCwd)
       rmSync(tempDir, { recursive: true, force: true })
