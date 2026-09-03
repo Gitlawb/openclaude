@@ -592,6 +592,41 @@ describe('cli.tsx — background routing behavior', () => {
     expect(order).toEqual(['model', 'validation'])
   })
 
+  it.each([
+    {
+      args: ['aimlapi', 'topup', '--model', 'anthropic/claude-sonnet-4-6'],
+    },
+    {
+      args: ['auto-mode', 'critique', '--model=anthropic/claude-sonnet-4-6'],
+    },
+  ])('leaves nested command model options to their owning command', async ({ args }) => {
+    await runCliEntrypoint([...args], bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(undefined)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('still applies a root model option before a nested model command', async () => {
+    const args = [
+      '--model=deepseek/deepseek-v4-flash',
+      'aimlapi',
+      'topup',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--model=deepseek/deepseek-v4-flash',
+    ])
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
   it('preserves a teammate provider override resolved from an inline model alias', async () => {
     const providerOverride = {
       model: 'actual-provider-model',

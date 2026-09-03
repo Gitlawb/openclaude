@@ -20,7 +20,10 @@ import {
 import { applyConfigEnvironmentVariables } from './managedEnv.js'
 
 const ENV_KEYS = [
+  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
   'CLAUDE_CODE_USE_OPENAI',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
@@ -88,6 +91,24 @@ function writeTempEnvFile(content: string): string {
 }
 
 describe('applyConfigEnvironmentVariables', () => {
+  it('preserves host-managed Command Code credentials against settings env', () => {
+    process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+    process.env.CMD_API_KEY = 'leader-primary-key'
+    process.env.COMMANDCODE_API_KEY = 'leader-fallback-key'
+    saveGlobalConfig(current => ({
+      ...current,
+      env: {
+        CMD_API_KEY: 'stale-settings-primary-key',
+        COMMANDCODE_API_KEY: 'stale-settings-fallback-key',
+      },
+    }))
+
+    applyConfigEnvironmentVariables()
+
+    expect(process.env.CMD_API_KEY).toBe('leader-primary-key')
+    expect(process.env.COMMANDCODE_API_KEY).toBe('leader-fallback-key')
+  })
+
   it('restores remembered provider env-file values after full settings env merge', () => {
     const filePath = writeTempEnvFile([
       'CLAUDE_CODE_USE_OPENAI=1',

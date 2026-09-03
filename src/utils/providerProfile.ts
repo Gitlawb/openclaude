@@ -2348,10 +2348,15 @@ export async function buildLaunchEnv(options: {
     // Prefer persisted dedicated keys, then migrate startup files that only
     // mirrored the secret into OPENAI_API_KEY (LLMTR parity). Do not treat a
     // live generic OpenAI key as a Command Code credential.
+    const persistedCommandcodeProfileIdentity =
+      persistedOpenAIRouteId === 'commandcode' ||
+      (!persistedOpenAIRouteId &&
+        isCanonicalCommandcodeInferenceBaseUrl(persistedOpenAIBaseUrl))
     const persistedCommandcodeProfileKey =
       (dedicatedKey === 'CMD_API_KEY' ||
         dedicatedKey === 'COMMANDCODE_API_KEY') &&
       effectiveOpenAIRouteId === 'commandcode' &&
+      persistedCommandcodeProfileIdentity &&
       !!dedicatedBaseUrl &&
       isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
         ? sanitizeApiKey(persistedEnv.CMD_API_KEY) ||

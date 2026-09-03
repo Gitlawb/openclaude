@@ -3224,6 +3224,42 @@ test('openai launch withholds ambient Command Code credentials from a keyless pr
   assert.equal(canonical.CMD_API_KEY, 'ambient-cmd-key')
 })
 
+test('openai launch does not migrate an unrelated persisted OpenAI key into Command Code', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'persisted-openai-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      CMD_API_KEY: 'live-commandcode-key',
+    },
+  })
+
+  assert.equal(env.CMD_API_KEY, 'live-commandcode-key')
+})
+
+test('openai launch still migrates a legacy canonical Command Code profile key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      OPENAI_API_KEY: 'legacy-commandcode-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+    },
+  })
+
+  assert.equal(env.CMD_API_KEY, 'legacy-commandcode-key')
+})
+
 test('openai launch removes a legacy persisted Concentrate key from a noncanonical URL', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

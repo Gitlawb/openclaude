@@ -517,7 +517,9 @@ export async function main(
   // active provider before validation and the banner so the highest-precedence
   // CLI override can replace stale persisted model state.
   const { argsBeforeDelimiter } = await importers.cliArgs()
-  const modelOptionArgs = argsBeforeDelimiter(args)
+  const modelOptionArgs = argsBeforeModelOwningSubcommand(
+    argsBeforeDelimiter(args),
+  )
   let earlyModelFlag: string | undefined
   if (
     modelOptionArgs.some(
@@ -776,6 +778,24 @@ export async function main(
   profileCheckpoint('cli_after_main_import');
   await cliMain();
   profileCheckpoint('cli_after_main_complete');
+}
+
+const MODEL_OWNING_SUBCOMMANDS = [
+  ['aimlapi', 'topup'],
+  ['auto-mode', 'critique'],
+] as const
+
+function argsBeforeModelOwningSubcommand(args: string[]): string[] {
+  let cutoff = args.length
+  for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
+    for (let index = 0; index < cutoff - 1; index += 1) {
+      if (args[index] === command && args[index + 1] === subcommand) {
+        cutoff = index
+        break
+      }
+    }
+  }
+  return args.slice(0, cutoff)
 }
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
