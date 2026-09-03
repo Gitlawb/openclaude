@@ -16,6 +16,7 @@ import {
   LOG_STREAM_CHUNK_SIZE,
   parseBackgroundInvocation,
   parseLogsInvocation,
+  resolveBackgroundSessionModel,
 } from './bg.js'
 import {
   BACKGROUND_SESSION_ID_ENV,
@@ -107,12 +108,48 @@ async function withTempFile<T>(
 }
 
 describe('background session CLI parsing', () => {
-  it('records the effective model with the shared CLI parser', async () => {
-    const src = await Bun.file(`${import.meta.dir}/bg.ts`).text()
+  it('records the root session model when a nested command also has --model', async () => {
+    const generatedSessionId = '00000000-0000-4000-8000-000000000001'
 
-    expect(src).toContain(
-      'model: parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs))',
+    for (const nested of [
+      ['aimlapi', 'topup'],
+      ['auto-mode', 'critique'],
+    ] as const) {
+      const parsed = parseBackgroundInvocation([
+        '--model',
+        'deepseek/deepseek-v4-flash',
+        ...nested,
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+        '--bg',
+        'do the work',
+      ])
+      const launch = await buildBackgroundSessionLaunch(
+        parsed.childArgs,
+        generatedSessionId,
+      )
+
+      expect(resolveBackgroundSessionModel(launch.childArgs)).toBe(
+        'deepseek/deepseek-v4-flash',
+      )
+    }
+  })
+
+  it('does not record a nested --model as the background session model', async () => {
+    const parsed = parseBackgroundInvocation([
+      'aimlapi',
+      'topup',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+      '--bg',
+      'do the work',
+    ])
+    const launch = await buildBackgroundSessionLaunch(
+      parsed.childArgs,
+      '00000000-0000-4000-8000-000000000001',
     )
+
+    expect(resolveBackgroundSessionModel(launch.childArgs)).toBeUndefined()
   })
 
   it('generates a fresh bounded lower-case hex marker from 32 random bytes', () => {

@@ -347,6 +347,17 @@ function findSessionName(args: string[]): string | undefined {
   return findFlagValue(args, '--name') ?? findFlagValue(args, '-n')
 }
 
+/**
+ * Background session metadata must record the same root `--model` that CLI
+ * startup applies. Nested `aimlapi topup` / `auto-mode critique` flags are not
+ * the session model.
+ */
+export function resolveBackgroundSessionModel(
+  childArgs: readonly string[],
+): string | undefined {
+  return parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs))
+}
+
 function hasPrintMode(args: string[]): boolean {
   return hasPrintFlag(args)
 }
@@ -1152,7 +1163,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     cwd: process.cwd(),
     command,
     provider: findFlagValue(childArgs, '--provider'),
-    model: parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs)),
+    model: resolveBackgroundSessionModel(childArgs),
     sessionId,
     processMarker,
     stdoutLogPath: logPaths.stdoutLogPath,
