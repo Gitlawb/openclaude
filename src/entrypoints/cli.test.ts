@@ -29,6 +29,7 @@ import {
   applyModelFlagFromArgs,
   applyProviderFlagFromArgs,
   clearRememberedProviderFlagForTests,
+  parseModelFlag,
   reapplyRememberedProviderFlag,
 } from '../utils/providerFlag.js'
 import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
@@ -370,6 +371,7 @@ const mockImporters = {
   providerFlag: async () => ({
     applyModelFlagFromArgs: mockApplyModelFlagFromArgs,
     applyProviderFlagFromArgs,
+    parseModelFlag,
     reapplyRememberedProviderFlag,
   }),
   flagSettings: async () => ({
@@ -608,17 +610,19 @@ describe('cli.tsx — background routing behavior', () => {
 
   it('keeps model-looking text after -- out of early model routing', async () => {
     await runCliEntrypoint(
-      ['--', '--model=anthropic/claude-sonnet-4-6'],
+      ['--', '--model', 'anthropic/claude-sonnet-4-6'],
       bgOptions,
     )
 
     expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
     expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(undefined)
   })
 
   it('passes repeated model options through for final-occurrence parsing', async () => {
     const args = [
-      '--model=anthropic/claude-sonnet-4-6',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
       '--model',
       'deepseek/deepseek-v4-flash',
     ]
@@ -627,6 +631,9 @@ describe('cli.tsx — background routing behavior', () => {
 
     expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
     expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
   })
 })
 

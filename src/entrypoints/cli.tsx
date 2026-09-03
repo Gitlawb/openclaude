@@ -516,12 +516,15 @@ export async function main(
   // CLI override can replace stale persisted model state.
   const { argsBeforeDelimiter } = await importers.cliArgs()
   const modelOptionArgs = argsBeforeDelimiter(args)
+  let earlyModelFlag: string | undefined
   if (
     modelOptionArgs.some(
       arg => arg === '--model' || arg.startsWith('--model='),
     )
   ) {
-    const { applyModelFlagFromArgs } = await importers.providerFlag()
+    const { applyModelFlagFromArgs, parseModelFlag } =
+      await importers.providerFlag()
+    earlyModelFlag = parseModelFlag(modelOptionArgs) ?? undefined
     const result = applyModelFlagFromArgs(modelOptionArgs)
     if (result?.error) {
       console.error(`Error: ${result.error}`)
@@ -533,10 +536,6 @@ export async function main(
   const { validateProviderEnvForStartupOrExit } =
     await importers.providerValidation()
   await validateProviderEnvForStartupOrExit()
-
-  // Parse --model early so the startup screen can display the override
-  const { eagerParseCliFlag } = await importers.cliArgs()
-  const earlyModelFlag = eagerParseCliFlag('--model')
 
   // Print the gradient startup screen before the Ink UI loads. Plain CLI
   // management subcommands should stay script-friendly and avoid the banner.
