@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test'
 import { analyzeContinuationIntent as analyzeContinuationIntent_Optimized } from './continuation.js'
 
-// Exact original implementation from git HEAD before optimizations
+// Pre-optimization baseline implementation embedded for head-to-head parity and benchmark comparisons
 const ACTION_VERBS = [
   'do', 'create', 'write', 'edit', 'update', 'fix', 'implement', 'add', 'run',
   'check', 'make', 'build', 'set up', 'start', 'begin', 'go', 'proceed', 'apply',
