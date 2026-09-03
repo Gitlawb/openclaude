@@ -161,12 +161,76 @@ function assertNoNewStagedInstallDirs(before: string[]): void {
   assert.deepEqual(stagedInstallTempDirs().sort(), before.sort())
 }
 
+const REMOTE_REGISTRY_URL = 'https://registry.test/registry.json'
+const REMOTE_REVOCATIONS_URL = 'https://registry.test/revocations.json'
+const REMOTE_SKILL_URL = 'https://registry.test/skills/sample-skill/SKILL.md'
+
+type FetchHandler = (url: string) => Response | Promise<Response>
+
+/**
+ * Serves a registry and its skill through a mocked fetch, so the install
+ * resolves revocations.json as the registry's remote sibling and reads it
+ * over HTTP. `revocations` decides that one route; every requested URL is
+ * recorded so a test can prove the transport boundary was exercised.
+ */
+function remoteRegistryFetch(
+  revocations: () => Response | Promise<Response>,
+  requested: string[],
+): FetchHandler {
+  return url => {
+    requested.push(url)
+    switch (url) {
+      case REMOTE_REGISTRY_URL:
+        return new Response(
+          JSON.stringify([
+            buildRegistryEntry('', {
+              source: 'skills/sample-skill/SKILL.md',
+              sha256: sha256OfSkillSource(VALID_SKILL),
+            }),
+          ]),
+          { status: 200 },
+        )
+      case REMOTE_SKILL_URL:
+        return new Response(VALID_SKILL, { status: 200 })
+      case REMOTE_REVOCATIONS_URL:
+        return revocations()
+      default:
+        throw new Error(`Unexpected fetch during install: ${url}`)
+    }
+  }
+}
+
+async function withMockedFetch<T>(
+  handler: FetchHandler,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request) =>
+    handler(input instanceof Request ? input.url : String(input))) as typeof fetch
+  try {
+    return await fn()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 async function withTempDir<T>(fn: (tempDir: string) => Promise<T>): Promise<T> {
   const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-skill-install-test-'))
+  // The revocation override is process-global input that the fixtures below
+  // resolve against, and production gives it precedence over the sibling
+  // revocations.json. Own it here: clear any value inherited from the host
+  // process so each fixture reads its own list, and hand it back afterwards.
+  const inheritedRevocationsUrl = process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+  delete process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
   try {
     return await fn(tempDir)
   } finally {
     process.exitCode = 0
+    if (inheritedRevocationsUrl === undefined) {
+      delete process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+    } else {
+      process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = inheritedRevocationsUrl
+    }
     rmSync(tempDir, { recursive: true, force: true })
   }
 }
@@ -784,24 +848,68 @@ test.serial('OPENCLAUDE_SKILLS_REVOCATIONS_URL takes precedence over the registr
       'utf8',
     )
 
-    const previous = process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+    // Set inside the fixture, which cleared any inherited value on entry and
+    // restores it on exit.
     process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = overridePath
-    try {
-      await skillsInstallHandler('sample-skill', {
-        projectDir: cwd,
-        registry: registryPath,
-      })
-    } finally {
-      if (previous === undefined) {
-        delete process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
-      } else {
-        process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = previous
-      }
-    }
+    await skillsInstallHandler('sample-skill', {
+      projectDir: cwd,
+      registry: registryPath,
+    })
 
     assert.equal(process.exitCode, 1)
     assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
   })
+})
+
+test.serial('an inherited OPENCLAUDE_SKILLS_REVOCATIONS_URL cannot redirect sibling-list fixtures', async () => {
+  // Simulate a host process (developer shell, CI runner) that already
+  // configures the override before the suite runs. Production gives that
+  // variable precedence, so without fixture isolation every sibling-list
+  // test would silently read this absent path instead of its own fixture.
+  const hostValue = process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+  const inheritedAbsentPath = join(tmpdir(), 'openclaude-revocations-never-written.json')
+  process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = inheritedAbsentPath
+  try {
+    await withTempDir(async tempDir => {
+      assert.equal(process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL, undefined)
+
+      const cwd = join(tempDir, 'project')
+      const sourceDir = writeSkillDir(join(tempDir, 'registry-source'))
+      const registryPath = join(tempDir, 'registry.json')
+      mkdirSync(cwd, { recursive: true })
+      writeFileSync(
+        registryPath,
+        JSON.stringify([
+          buildRegistryEntry(sourceDir, {
+            sha256: sha256OfSkillSource(VALID_SKILL),
+          }),
+        ]),
+        'utf8',
+      )
+      writeFileSync(
+        join(tempDir, 'revocations.json'),
+        JSON.stringify([{ id: 'gitlawb/sample-skill' }]),
+        'utf8',
+      )
+
+      await skillsInstallHandler('sample-skill', {
+        projectDir: cwd,
+        registry: registryPath,
+      })
+
+      // The sibling list revoked the skill: the inherited override was not read.
+      assert.equal(process.exitCode, 1)
+      assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    })
+    // The fixture hands the host's value back once it is done.
+    assert.equal(process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL, inheritedAbsentPath)
+  } finally {
+    if (hostValue === undefined) {
+      delete process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL
+    } else {
+      process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL = hostValue
+    }
+  }
 })
 
 test.serial('rejects registry installs when a revocation entry is invalid', async () => {
@@ -888,6 +996,84 @@ test.serial('fails closed when the revocation list exists but cannot be read', a
 
     assert.equal(process.exitCode, 1)
     assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+  })
+})
+
+test.serial('installs a non-revoked registry skill when the remote revocation list is HTTP 404', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    mkdirSync(cwd, { recursive: true })
+    const requested: string[] = []
+
+    await withMockedFetch(
+      remoteRegistryFetch(() => new Response('not found', { status: 404 }), requested),
+      () =>
+        skillsInstallHandler('sample-skill', {
+          projectDir: cwd,
+          registry: REMOTE_REGISTRY_URL,
+        }),
+    )
+
+    // A registry that publishes no list at all is a confirmed absence: it
+    // revokes nothing, and the sha256 pin still governs the install.
+    assert.ok(requested.includes(REMOTE_REVOCATIONS_URL))
+    assert.equal(process.exitCode, 0)
+    assert.equal(
+      readFileSync(
+        join(cwd, '.openclaude', 'skills', 'sample-skill', 'SKILL.md'),
+        'utf8',
+      ),
+      VALID_SKILL,
+    )
+  })
+})
+
+test.serial('fails closed when the remote revocation list is HTTP 500', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    mkdirSync(cwd, { recursive: true })
+    const requested: string[] = []
+
+    const stagedBefore = stagedInstallTempDirs()
+    await withMockedFetch(
+      remoteRegistryFetch(() => new Response('upstream error', { status: 500 }), requested),
+      () =>
+        skillsInstallHandler('sample-skill', {
+          projectDir: cwd,
+          registry: REMOTE_REGISTRY_URL,
+        }),
+    )
+
+    // A list that exists but cannot be served is not an empty list.
+    assert.ok(requested.includes(REMOTE_REVOCATIONS_URL))
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
+  })
+})
+
+test.serial('fails closed when the remote revocation list is unreachable', async () => {
+  await withTempDir(async tempDir => {
+    const cwd = join(tempDir, 'project')
+    mkdirSync(cwd, { recursive: true })
+    const requested: string[] = []
+
+    const stagedBefore = stagedInstallTempDirs()
+    await withMockedFetch(
+      remoteRegistryFetch(() => {
+        throw new TypeError('fetch failed')
+      }, requested),
+      () =>
+        skillsInstallHandler('sample-skill', {
+          projectDir: cwd,
+          registry: REMOTE_REGISTRY_URL,
+        }),
+    )
+
+    assert.ok(requested.includes(REMOTE_REVOCATIONS_URL))
+    assert.equal(process.exitCode, 1)
+    assert.equal(existsSync(join(cwd, '.openclaude', 'skills')), false)
+    assertNoNewStagedInstallDirs(stagedBefore)
   })
 })
 

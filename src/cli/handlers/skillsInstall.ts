@@ -52,6 +52,21 @@ type SkillRevocation = {
   reason?: unknown
 }
 
+/**
+ * A remote source answered with a non-success status. Carries the status
+ * so callers can tell a confirmed-absent source (404) from a failing one
+ * without parsing the message.
+ */
+class RemoteSourceHttpError extends Error {
+  status: number
+
+  constructor(source: string, status: number) {
+    super(`Failed to fetch ${source}: HTTP ${status}`)
+    this.name = 'RemoteSourceHttpError'
+    this.status = status
+  }
+}
+
 const DEFAULT_SKILLS_REGISTRY_URL =
   'https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/registry.json'
 const VALID_INSTALL_SKILL_NAME = /^[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)*$/
@@ -112,7 +127,7 @@ async function readSourceText(source: string): Promise<string> {
     try {
       const response = await fetch(url, { signal })
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${source}: HTTP ${response.status}`)
+        throw new RemoteSourceHttpError(source, response.status)
       }
 
       const contentLength = response.headers.get('content-length')
@@ -209,7 +224,7 @@ function isAbsentSourceError(error: unknown): boolean {
   if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
     return true
   }
-  return error instanceof Error && / HTTP 404$/.test(error.message)
+  return error instanceof RemoteSourceHttpError && error.status === 404
 }
 
 /**
