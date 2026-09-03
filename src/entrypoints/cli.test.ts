@@ -627,6 +627,15 @@ describe('cli.tsx — background routing behavior', () => {
     )
   })
 
+  it('does not treat a spaced root model value as a nested command path', async () => {
+    const args = ['--model', 'aimlapi', 'topup']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith('aimlapi')
+  })
+
   it('preserves a teammate provider override resolved from an inline model alias', async () => {
     const providerOverride = {
       model: 'actual-provider-model',

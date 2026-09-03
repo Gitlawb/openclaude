@@ -14,6 +14,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_API_BASE',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'CODEX_API_KEY',
@@ -189,6 +190,15 @@ test('LLMTR validation accepts a dedicated credential despite an invalid generic
 test('Command Code validation accepts its dedicated credential on the selected route', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation accepts its canonical endpoint through OPENAI_API_BASE', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
   process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
   process.env.CMD_API_KEY = 'cmd-key'
 

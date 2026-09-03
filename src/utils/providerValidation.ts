@@ -282,7 +282,7 @@ function getRuntimeValidationTarget(
 
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
-    baseUrl: env.OPENAI_BASE_URL,
+    baseUrl: env.OPENAI_BASE_URL?.trim() || env.OPENAI_API_BASE?.trim(),
     fallbackModel: getRouteDefaultModel('openai'),
   })
 

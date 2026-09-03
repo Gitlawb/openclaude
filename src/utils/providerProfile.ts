@@ -32,6 +32,7 @@ import {
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
+  resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
@@ -2555,10 +2556,11 @@ export function applyProfileEnvToProcessEnv(
 type StartupEnvOptions = NonNullable<Parameters<typeof buildStartupEnvFromProfile>[0]>
 
 export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
+  modelOverride?: string
   onValidationError?: (message: string) => void
 }): Promise<string | null> {
   const processEnv = options?.processEnv ?? process.env
-  const { onValidationError, ...startupOptions } = options ?? {}
+  const { modelOverride, onValidationError, ...startupOptions } = options ?? {}
   // Resolve the persisted profile HERE (once) so the warning gate below has
   // explicit provenance. Sniffing the DEFAULT_STARTUP_PROVIDER_ENV_VAR marker
   // alone is not enough: a persisted profile's launch env spreads processEnv,
@@ -2575,6 +2577,16 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
   })
   if (startupEnv === processEnv) {
     return null
+  }
+
+  // A root CLI --model is higher precedence than saved profile state. Apply
+  // it to the candidate before Command Code's model contract is validated so
+  // a compatible override can recover a stale saved model.
+  if (
+    modelOverride &&
+    resolveActiveRouteIdFromEnv(startupEnv) === 'commandcode'
+  ) {
+    startupEnv.OPENAI_MODEL = modelOverride
   }
 
   const validationError = await getProviderValidationError(startupEnv)

@@ -446,9 +446,22 @@ export async function main(
     return
   }
 
+  const { argsBeforeDelimiter } = await importers.cliArgs()
+  const modelOptionArgs = argsBeforeModelOwningSubcommand(
+    argsBeforeDelimiter(args),
+  )
+  const hasRootModelOption = modelOptionArgs.some(
+    arg => arg === '--model' || arg.startsWith('--model='),
+  )
+  const parsedRootModel = hasRootModelOption
+    ? (await importers.providerFlag()).parseModelFlag(modelOptionArgs) ??
+      undefined
+    : undefined
+
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   await applyStartupEnvFromProfile({
     processEnv: process.env,
+    modelOverride: parsedRootModel,
     onValidationError: message => {
       console.error(message)
     },
@@ -516,20 +529,11 @@ export async function main(
   // #808: --model alone (no --provider) — route to the env var matching the
   // active provider before validation and the banner so the highest-precedence
   // CLI override can replace stale persisted model state.
-  const { argsBeforeDelimiter } = await importers.cliArgs()
-  const modelOptionArgs = argsBeforeModelOwningSubcommand(
-    argsBeforeDelimiter(args),
-  )
   let earlyModelFlag: string | undefined
-  if (
-    modelOptionArgs.some(
-      arg => arg === '--model' || arg.startsWith('--model='),
-    )
-  ) {
-    const { applyModelFlagFromArgs, parseModelFlag } =
-      await importers.providerFlag()
+  if (hasRootModelOption) {
+    const { applyModelFlagFromArgs } = await importers.providerFlag()
     earlyModelFlag =
-      appliedTeammateModel ?? parseModelFlag(modelOptionArgs) ?? undefined
+      appliedTeammateModel ?? parsedRootModel ?? undefined
     if (!appliedTeammateModel) {
       const result = applyModelFlagFromArgs(modelOptionArgs)
       if (result?.error) {
@@ -790,6 +794,9 @@ function argsBeforeModelOwningSubcommand(args: string[]): string[] {
   for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
     for (let index = 0; index < cutoff - 1; index += 1) {
       if (args[index] === command && args[index + 1] === subcommand) {
+        // A spaced root model consumes the next token. Do not reinterpret its
+        // value plus a following positional token as a nested command path.
+        if (index > 0 && args[index - 1] === '--model') continue
         cutoff = index
         break
       }

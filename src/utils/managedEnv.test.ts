@@ -91,13 +91,21 @@ function writeTempEnvFile(content: string): string {
 }
 
 describe('applyConfigEnvironmentVariables', () => {
-  it('preserves host-managed Command Code credentials against settings env', () => {
+  it('preserves the complete host-managed Command Code route against settings env', () => {
     process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'leader-model'
+    process.env.OPENAI_API_KEY = 'leader-primary-key'
     process.env.CMD_API_KEY = 'leader-primary-key'
     process.env.COMMANDCODE_API_KEY = 'leader-fallback-key'
     saveGlobalConfig(current => ({
       ...current,
       env: {
+        CLAUDE_CODE_USE_OPENAI: '0',
+        OPENAI_BASE_URL: 'https://settings.example/v1',
+        OPENAI_MODEL: 'settings-model',
+        OPENAI_API_KEY: 'settings-key',
         CMD_API_KEY: 'stale-settings-primary-key',
         COMMANDCODE_API_KEY: 'stale-settings-fallback-key',
       },
@@ -105,6 +113,12 @@ describe('applyConfigEnvironmentVariables', () => {
 
     applyConfigEnvironmentVariables()
 
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.commandcode.ai/provider/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('leader-model')
+    expect(process.env.OPENAI_API_KEY).toBe('leader-primary-key')
     expect(process.env.CMD_API_KEY).toBe('leader-primary-key')
     expect(process.env.COMMANDCODE_API_KEY).toBe('leader-fallback-key')
   })
