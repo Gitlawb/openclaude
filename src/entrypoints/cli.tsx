@@ -451,13 +451,9 @@ export async function main(
   const modelOptionArgs = argsBeforeModelOwningSubcommand(
     argsBeforeDelimiter(args),
   )
-  const hasRootModelOption = modelOptionArgs.some(
-    arg => arg === '--model' || arg.startsWith('--model='),
-  )
-  const parsedRootModel = hasRootModelOption
-    ? (await importers.providerFlag()).parseModelFlag(modelOptionArgs) ??
-      undefined
-    : undefined
+  const parsedRootModel =
+    (await importers.providerFlag()).parseModelFlag(modelOptionArgs) ?? undefined
+  const hasRootModelOption = parsedRootModel !== undefined
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   let startupProfileWarning: string | undefined

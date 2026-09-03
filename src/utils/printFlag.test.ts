@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { findRootCommandPathIndex, hasPrintFlag } from './printFlag.js'
+import {
+  findRootCommandPathIndex,
+  hasPrintFlag,
+  parseRootOptionValue,
+} from './printFlag.js'
 
 describe('findRootCommandPathIndex', () => {
   test('finds a real command path after boolean root options', () => {
@@ -18,6 +22,22 @@ describe('findRootCommandPathIndex', () => {
       ['--debug', 'aimlapi', 'topup', '--model', 'gpt-4o'],
       ['aimlapi', 'topup'],
     )).toBe(-1)
+  })
+})
+
+describe('parseRootOptionValue', () => {
+  test('ignores option-looking text consumed by another root option', () => {
+    expect(parseRootOptionValue(
+      ['--system-prompt', '--model=not-a-real-option'],
+      '--model',
+    )).toBeUndefined()
+  })
+
+  test('returns the final real option occurrence', () => {
+    expect(parseRootOptionValue(
+      ['--name', 'worker', '--model=first', '--model', 'second'],
+      '--model',
+    )).toBe('second')
   })
 })
 

@@ -2365,8 +2365,10 @@ export async function buildLaunchEnv(options: {
       persistedCommandcodeProfileIdentity &&
       !!dedicatedBaseUrl &&
       isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
-        ? sanitizeApiKey(persistedEnv.CMD_API_KEY) ||
-          sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY) ||
+        ? sanitizeApiKey(persistedEnv[dedicatedKey]) ||
+          (dedicatedKey === 'CMD_API_KEY'
+            ? sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY)
+            : undefined) ||
           (dedicatedKey === 'CMD_API_KEY' &&
           persistedOpenAICredential?.kind === 'usable'
             ? sanitizeApiKey(persistedOpenAICredential.value)

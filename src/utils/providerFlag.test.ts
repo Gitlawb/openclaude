@@ -1451,6 +1451,15 @@ describe('parseModelFlag', () => {
     )
   })
 
+  test('ignores model-looking text consumed by another root option', () => {
+    expect(
+      parseModelFlag([
+        '--system-prompt',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toBeNull()
+  })
+
   test('returns null for an empty equals-separated value', () => {
     expect(parseModelFlag(['--model='])).toBeNull()
   })

@@ -1,3 +1,5 @@
+import { parseRootOptionValue } from './printFlag.js'
+
 /**
  * Parse a CLI flag value early, before Commander.js processes arguments.
  * Supports both space-separated (--flag value) and equals-separated (--flag=value) syntax.
@@ -41,21 +43,7 @@ export function argsBeforeDelimiter(args: string[]): string[] {
 export function parseModelFlagValue(
   args: readonly string[],
 ): string | undefined {
-  let model: string | undefined
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]
-    if (arg === '--') break
-    if (arg?.startsWith('--model=')) {
-      model = arg.slice('--model='.length) || undefined
-      continue
-    }
-    if (arg === '--model') {
-      const value = args[index + 1]
-      model = !value || value.startsWith('--') ? undefined : value
-      if (model) index++
-    }
-  }
-  return model
+  return parseRootOptionValue(args, '--model')
 }
 
 /**

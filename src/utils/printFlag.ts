@@ -150,6 +150,59 @@ export function findRootCommandPathIndex(
   return -1
 }
 
+/** Resolve the final real occurrence of a root option through the same arity scan. */
+export function parseRootOptionValue(
+  argv: readonly string[],
+  option: string,
+): string | undefined {
+  let value: string | undefined
+  let i = 0
+  while (i < argv.length) {
+    const arg = argv[i]!
+    if (arg === '--') break
+
+    const name = optionName(arg)
+    if (name === option) {
+      if (arg.includes('=')) {
+        value = arg.slice(arg.indexOf('=') + 1) || undefined
+        i++
+      } else {
+        const next = argv[i + 1]
+        value = !next || next.startsWith('--') ? undefined : next
+        i += 2
+      }
+      continue
+    }
+    if (REQUIRED_VALUE_OPTIONS.has(name)) {
+      i += arg.includes('=') ? 1 : 2
+      continue
+    }
+    if (VARIADIC_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        i++
+      } else {
+        i += 2
+        while (
+          i < argv.length &&
+          !argv[i]!.startsWith('-') &&
+          argv[i] !== '--'
+        ) {
+          i++
+        }
+      }
+      continue
+    }
+    if (OPTIONAL_VALUE_OPTIONS.has(name)) {
+      const next = argv[i + 1]
+      i +=
+        next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+      continue
+    }
+    i++
+  }
+  return value
+}
+
 export function hasPrintFlag(argv: readonly string[]): boolean {
   let i = 0
   while (i < argv.length) {
