@@ -216,6 +216,17 @@ test('Command Code validation rejects a model that requires Anthropic Messages',
   )
 })
 
+test('Command Code validation rejects a Claude model alias', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'sonnet'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
 test('Command Code validation rejects placeholder dedicated credentials', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'

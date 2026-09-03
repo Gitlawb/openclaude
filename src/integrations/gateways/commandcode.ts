@@ -1,4 +1,5 @@
 import { defineCatalog, defineGateway } from '../define.js'
+import { isModelAlias } from '../../utils/model/aliases.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -26,13 +27,21 @@ function getPositiveInteger(value: unknown): number | undefined {
 
 const ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN = /^(claude-|anthropic\/)/i
 
+function requiresAnthropicMessages(model: string): boolean {
+  const normalizedModel = model.trim().toLowerCase()
+  return (
+    ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN.test(normalizedModel) ||
+    isModelAlias(normalizedModel)
+  )
+}
+
 export function getCommandcodeChatCompletionsModelError(
   model: string | null | undefined,
 ): string | null {
   const normalizedModel = model?.trim()
   if (
     !normalizedModel ||
-    !ANTHROPIC_MESSAGES_ONLY_MODEL_PATTERN.test(normalizedModel)
+    !requiresAnthropicMessages(normalizedModel)
   ) {
     return null
   }

@@ -683,6 +683,31 @@ test('Command Code rejects Anthropic-only models before sending a request', asyn
   expect(fetchMock).not.toHaveBeenCalled()
 })
 
+test('Command Code rejects Claude aliases before sending a request', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'sonnet'
+  process.env.CMD_API_KEY = 'cmd-key'
+  delete process.env.OPENAI_API_KEY
+
+  const fetchMock = mock(() => Promise.resolve(makeChatCompletionResponse('unused')))
+  globalThis.fetch = asMockFetch(fetchMock)
+  const client = createOpenAIShimClient({}) as OpenAIShimClient
+
+  const requestPromise = client.beta.messages.create({
+    model: 'sonnet',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 32,
+    stream: false,
+  })
+
+  await expect(requestPromise).rejects.toMatchObject({ status: 400 })
+  await expect(requestPromise).rejects.toThrow(
+    'requires the Anthropic Messages protocol',
+  )
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
 test('raw-env LLMTR ignores unsupported custom auth and custom headers', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://llmtr.com/v1'

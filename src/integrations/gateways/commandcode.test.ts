@@ -181,6 +181,22 @@ test('Command Code rejects models that require the Anthropic Messages protocol',
   ).toBeNull()
 })
 
+test('Command Code rejects every supported Claude model alias', () => {
+  for (const model of [
+    'sonnet',
+    'opus',
+    'haiku',
+    'best',
+    'sonnet[1m]',
+    'opus[1m]',
+    'opusplan',
+  ]) {
+    expect(getCommandcodeChatCompletionsModelError(model)).toContain(
+      'requires the Anthropic Messages protocol',
+    )
+  }
+})
+
 test('Command Code protocol errors do not echo a rejected model value', () => {
   const secretShapedModel = 'anthropic/provider-secret-123456'
   const error = getCommandcodeChatCompletionsModelError(secretShapedModel)
