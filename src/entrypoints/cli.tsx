@@ -467,21 +467,14 @@ export async function main(
       startupProfileWarning = message
     },
   })
+  let startupProfileIsCommandcodeModelError = false
   if (parsedRootModel && startupProfileError) {
     const { getCommandcodeChatCompletionsModelError } = await import(
       '../integrations/gateways/commandcode.js'
     )
-    if (
+    startupProfileIsCommandcodeModelError =
       startupProfileError ===
       getCommandcodeChatCompletionsModelError(parsedRootModel)
-    ) {
-      console.error(`Error: ${startupProfileError}`)
-      process.exit(1)
-      return
-    }
-  }
-  if (startupProfileWarning) {
-    console.error(startupProfileWarning)
   }
   reapplyExplicitProviderInputs()
 
@@ -489,6 +482,7 @@ export async function main(
   // selected a configured agentModels key, apply that route before provider
   // validation and --model env routing run in this child process.
   let appliedTeammateModel: string | undefined
+  let appliedTeammateProviderOverride = false
   {
     const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
     const settingsLoadResult = eagerLoadSettingsFromArgs(args)
@@ -514,7 +508,23 @@ export async function main(
     if (providerOverride) {
       applyAgentProviderOverrideToEnv(providerOverride)
       appliedTeammateModel = providerOverride.model
+      appliedTeammateProviderOverride = true
     }
+  }
+
+  if (
+    startupProfileIsCommandcodeModelError &&
+    !appliedTeammateProviderOverride
+  ) {
+    console.error(`Error: ${startupProfileError}`)
+    process.exit(1)
+    return
+  }
+  if (
+    startupProfileWarning &&
+    !(startupProfileIsCommandcodeModelError && appliedTeammateProviderOverride)
+  ) {
+    console.error(startupProfileWarning)
   }
 
   // Fast-path for `--bg`/`--background` after profile routing has been applied

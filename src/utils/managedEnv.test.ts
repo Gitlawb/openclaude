@@ -22,6 +22,8 @@ import { applyConfigEnvironmentVariables } from './managedEnv.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
+  'CLAUDE_CODE_USE_GEMINI',
+  'CLAUDE_CODE_USE_MISTRAL',
   'CLAUDE_CODE_USE_OPENAI',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
@@ -109,6 +111,8 @@ describe('applyConfigEnvironmentVariables', () => {
         OPENAI_MODEL: 'settings-model',
         OPENAI_API_KEY: 'settings-key',
         OPENAI_AZURE_STYLE: '1',
+        CLAUDE_CODE_USE_GEMINI: '1',
+        CLAUDE_CODE_USE_MISTRAL: '1',
         CMD_API_KEY: 'stale-settings-primary-key',
         COMMANDCODE_API_KEY: 'stale-settings-fallback-key',
       },
@@ -123,6 +127,8 @@ describe('applyConfigEnvironmentVariables', () => {
     expect(process.env.OPENAI_MODEL).toBe('leader-model')
     expect(process.env.OPENAI_API_KEY).toBe('leader-primary-key')
     expect(process.env.OPENAI_AZURE_STYLE).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_GEMINI).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_MISTRAL).toBeUndefined()
     expect(
       isAzureStyleBaseUrl(process.env.OPENAI_BASE_URL, process.env),
     ).toBe(false)

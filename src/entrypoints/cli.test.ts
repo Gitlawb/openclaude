@@ -723,6 +723,50 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockCliMain).not.toHaveBeenCalled()
   })
 
+  it('lets a configured teammate override replace a rejected saved Command Code model', async () => {
+    const modelError =
+      'OpenAI Chat Completions does not support the selected Command Code model; it requires the Anthropic Messages protocol. Choose an OpenAI-compatible model.'
+    const providerOverride = {
+      model: 'actual-provider-model',
+      baseURL: 'https://provider.example/v1',
+      apiKey: 'provider-key',
+    }
+    const originalConsoleError = console.error
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    console.error = consoleErrorMock
+    mockApplyStartupEnvFromProfile.mockImplementationOnce(async input => {
+      input.onValidationError(`Warning: ignoring saved provider profile. ${modelError}`)
+      return modelError
+    })
+    mockResolveOutOfProcessTeammateProviderFromCliArgs.mockReturnValueOnce(
+      providerOverride,
+    )
+
+    try {
+      await runCliEntrypoint(
+        [
+          '--agent-name=worker-a',
+          '--team-name=review',
+          '--model=anthropic/claude-sonnet-4-6',
+        ],
+        bgOptions,
+      )
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(mockApplyAgentProviderOverrideToEnv).toHaveBeenCalledWith(
+      providerOverride,
+    )
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'actual-provider-model',
+    )
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps model-looking text after -- out of early model routing', async () => {
     await runCliEntrypoint(
       ['--', '--model', 'anthropic/claude-sonnet-4-6'],
