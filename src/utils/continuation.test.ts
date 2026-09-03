@@ -46,4 +46,8 @@ describe('analyzeContinuationIntent', () => {
     const longLang = "customlanguageidentifierthatislongerthansixtycharactersandnumbers"
     expect(analyzeContinuationIntent(`Here is the code:\n\`\`\`${longLang}`).shouldNudge).toBe(true)
   })
+
+  test('returns false for complete closed code blocks', () => {
+    expect(analyzeContinuationIntent("```ts\nconst a = 1\n```").shouldNudge).toBe(false)
+  })
 })

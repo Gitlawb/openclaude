@@ -180,9 +180,7 @@ export function analyzeContinuationIntent(
 
   // Check for trailing connectors on the tail of the string (e.g., "... and", "... with")
   const tail = lastText.length <= 60 ? lastText : lastText.slice(-60)
-  const hasUnfinishedSuffix =
-    UNFINISHED_TAIL_SIGNALS.some(re => re.test(tail)) ||
-    (lastText.includes('```') && CODE_FENCE_STARTER_RE.test(lastText))
+  const hasUnfinishedSuffix = UNFINISHED_TAIL_SIGNALS.some(re => re.test(tail))
 
   if (hasUnclosedCodeBlock || hasUnclosedPair || hasUnfinishedSuffix) {
     // Structural cut-offs always trigger a nudge, even if "done" was said earlier.
