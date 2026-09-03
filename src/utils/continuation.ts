@@ -127,7 +127,7 @@ const IMPERATIVE_RE_2 = new RegExp(`\\bnow (?:${VERB_ALT})\\b(?!\\s+you\\b)`, 'i
 const IMPERATIVE_RE_3 = new RegExp(`\\bnext (?:i|we)\\s+(?:need to|will|shall|should|must)?\\s*(?:${VERB_ALT})\\b`, 'i')
 const STRONG_ACTION_RE = /\b(let me|i will|i'll|je vais|je suis en train)\b/i
 const TERMINAL_PUNCTUATION_RE = /[.!??"'`)\]]\s*$/
-const STRONG_INTENT_RE = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|continuing with|proceeding to|next step is to)\b/i
+const STRONG_INTENT_RE = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens|dois|continue avec|passe à)|l'étape suivante est de|passons à|moving on to|starting to|time to|proceeding to|continuing with|applying (the|these) changes|next step is to)\b/i
 const JE_SUIS_EN_TRAIN_RE = /je suis en train d'/i
 const ENDS_WITH_COLON_RE = /:\s*$/
 
@@ -151,13 +151,7 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
   const len = text.length
   for (let i = 0; i < len; i++) {
     const code = text.charCodeAt(i)
-    if (code === 40) parenDepth++        // '('
-    else if (code === 41) parenDepth--   // ')'
-    else if (code === 91) bracketDepth++ // '['
-    else if (code === 93) bracketDepth-- // ']'
-    else if (code === 123) braceDepth++  // '{'
-    else if (code === 125) braceDepth--  // '}'
-    else if (
+    if (
       code === 96 &&
       (i === 0 || text.charCodeAt(i - 1) === 10 || text.charCodeAt(i - 1) === 13) &&
       i + 2 < len && text.charCodeAt(i + 1) === 96 && text.charCodeAt(i + 2) === 96
@@ -189,6 +183,13 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
         codeFenceLength = fenceLength
       }
       i = endFence - 1
+    } else if (!inCodeBlock) {
+      if (code === 40) parenDepth++        // '('
+      else if (code === 41) parenDepth--   // ')'
+      else if (code === 91) bracketDepth++ // '['
+      else if (code === 93) bracketDepth-- // ']'
+      else if (code === 123) braceDepth++  // '{'
+      else if (code === 125) braceDepth--  // '}'
     }
   }
 
@@ -251,8 +252,8 @@ export function analyzeContinuationIntent(
     // If the sentence is punctuated but has a transition word, only nudge if 
     // it's a strong 1st person intent or open tasks are present.
     if (hasTerminalPunctuation) {
-      const strongIntent = STRONG_INTENT_RE.test(lastText) || 
-                           JE_SUIS_EN_TRAIN_RE.test(lastText) || /◻/.test(lastText)
+      const strongIntent = STRONG_INTENT_RE.test(lateText) || 
+                           JE_SUIS_EN_TRAIN_RE.test(lateText) || /◻/.test(lastText)
       const presentProgressive = PRESENT_PROGRESSIVE_RE.test(lateText)
       // Imperative/declarative patterns also signal intent when punctuated
       // (e.g. "Need to process files.", "Now create the component.", "Next we need to add tests.")

@@ -70,4 +70,15 @@ describe('analyzeContinuationIntent', () => {
     // 4-backtick opening fence is closed by a 4-backtick fence
     expect(checkStructuralTruncation("````markdown\n```\nconst x = 1\n````").hasUnclosedCodeBlock).toBe(false)
   })
+
+  test('ignores bracket disparity inside closed code blocks', () => {
+    expect(checkStructuralTruncation("```ts\nconst re = /\\(/\nconst x = [1, 2\n```").hasUnclosedPair).toBe(false)
+    expect(checkStructuralTruncation("```ts\nconst re = /\\(/\nconst x = [1, 2\n```\n(").hasUnclosedPair).toBe(true)
+  })
+
+  test('handles punctuated French intent patterns and action phrases', () => {
+    expect(analyzeContinuationIntent("L'étape suivante est de créer le composant.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Starting to build the package.").shouldNudge).toBe(true)
+    expect(analyzeContinuationIntent("Time to compile the source.").shouldNudge).toBe(true)
+  })
 })

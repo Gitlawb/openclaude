@@ -2617,8 +2617,7 @@ async function* queryLoop(
                 b.type === 'text',
             )
             .map(b => b.text)
-            .join(' ')
-            .toLowerCase()
+            .join('\n')
 
           const { shouldNudge, reason: nudgeReason } = analyzeContinuationIntent(
             lastText,
