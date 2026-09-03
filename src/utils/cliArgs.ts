@@ -34,6 +34,31 @@ export function argsBeforeDelimiter(args: string[]): string[] {
 }
 
 /**
+ * Resolve the effective --model option using Commander-compatible precedence.
+ * Supports space and inline forms, ignores arguments after --, and lets the
+ * final occurrence win.
+ */
+export function parseModelFlagValue(
+  args: readonly string[],
+): string | undefined {
+  let model: string | undefined
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg === '--') break
+    if (arg?.startsWith('--model=')) {
+      model = arg.slice('--model='.length) || undefined
+      continue
+    }
+    if (arg === '--model') {
+      const value = args[index + 1]
+      model = !value || value.startsWith('--') ? undefined : value
+      if (model) index++
+    }
+  }
+  return model
+}
+
+/**
  * Handle the standard Unix `--` separator convention in CLI arguments.
  *
  * When using Commander.js with `.passThroughOptions()`, the `--` separator

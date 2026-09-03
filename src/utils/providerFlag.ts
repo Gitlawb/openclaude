@@ -39,6 +39,7 @@ import {
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
+import { parseModelFlagValue } from './cliArgs.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -147,21 +148,7 @@ export function clearRememberedProviderFlagForTests(): void {
  * Returns null if absent.
  */
 export function parseModelFlag(args: string[]): string | null {
-  let model: string | null = null
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]
-    if (arg === '--') break
-    if (arg?.startsWith('--model=')) {
-      model = arg.slice('--model='.length) || null
-      continue
-    }
-    if (arg === '--model') {
-      const value = args[index + 1]
-      model = !value || value.startsWith('--') ? null : value
-      if (model) index++
-    }
-  }
-  return model
+  return parseModelFlagValue(args) ?? null
 }
 
 function getRouteDefaults(provider: string): {

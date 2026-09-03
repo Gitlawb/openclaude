@@ -234,6 +234,18 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
   })
 
+  it('uses the effective early model for system-prompt dumps', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const dumpPathIndex = src.indexOf("feature('DUMP_SYSTEM_PROMPT')")
+    const promptCallIndex = src.indexOf('getSystemPrompt([], model)', dumpPathIndex)
+    const dumpPath = src.slice(dumpPathIndex, promptCallIndex)
+
+    expect(dumpPathIndex).toBeGreaterThanOrEqual(0)
+    expect(promptCallIndex).toBeGreaterThan(dumpPathIndex)
+    expect(dumpPath).toContain('earlyModelFlag ?? getMainLoopModel()')
+    expect(dumpPath).not.toContain("args.indexOf('--model')")
+  })
+
   it('remembers provider env-file values so later managed settings env merges can restore them', async () => {
     const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
     const envFileImportIndex = src.indexOf('rememberLoadedEnvFileValues')

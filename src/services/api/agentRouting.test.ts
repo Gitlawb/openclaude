@@ -646,6 +646,34 @@ describe('resolveOutOfProcessTeammateProviderFromCliArgs', () => {
     expect(result?.model).toBe('gpt-4o')
   })
 
+  test.each([
+    [
+      ['--model', 'deepseek-chat', '--model', 'gpt-4o'],
+      'gpt-4o',
+    ],
+    [
+      ['--model=deepseek-chat', '--model', 'gpt-4o'],
+      'gpt-4o',
+    ],
+    [
+      ['--model', 'gpt-4o', '--', '--model', 'deepseek-chat'],
+      'gpt-4o',
+    ],
+  ])('routes the effective CLI model from %j', (modelArgs, expectedModel) => {
+    const result = resolveOutOfProcessTeammateProviderFromCliArgs(
+      [
+        '--agent-name',
+        'worker-a',
+        '--team-name',
+        'review-team',
+        ...modelArgs,
+      ],
+      baseSettings,
+    )
+
+    expect(result?.model).toBe(expectedModel)
+  })
+
   test('does not route non-teammate CLI processes', () => {
     expect(
       resolveOutOfProcessTeammateProviderFromCliArgs(

@@ -4,7 +4,10 @@ import { closeSync, openSync } from 'node:fs'
 import { open, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import treeKill from 'tree-kill'
-import { argsBeforeDelimiter } from '../utils/cliArgs.js'
+import {
+  argsBeforeDelimiter,
+  parseModelFlagValue,
+} from '../utils/cliArgs.js'
 import { hasPrintFlag } from '../utils/printFlag.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
@@ -1146,7 +1149,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     cwd: process.cwd(),
     command,
     provider: findFlagValue(childArgs, '--provider'),
-    model: findFlagValue(childArgs, '--model'),
+    model: parseModelFlagValue(childArgs),
     sessionId,
     processMarker,
     stdoutLogPath: logPaths.stdoutLogPath,

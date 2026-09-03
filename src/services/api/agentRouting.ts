@@ -2,6 +2,7 @@ import type { SettingsJson } from '../../utils/settings/types.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
+import { parseModelFlagValue } from '../../utils/cliArgs.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -318,7 +319,7 @@ export function resolveOutOfProcessTeammateProviderFromCliArgs(
   if (!agentName || !teamName) return null
 
   return resolveOutOfProcessTeammateProvider({
-    cliModel: parseCliFlag(args, '--model'),
+    cliModel: parseModelFlagValue(args),
     agentName,
     agentType: parseCliFlag(args, '--agent-type'),
     settings,
