@@ -151,7 +151,11 @@ export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock:
     else if (code === 93) bracketDepth-- // ']'
     else if (code === 123) braceDepth++  // '{'
     else if (code === 125) braceDepth--  // '}'
-    else if (code === 96 && i + 2 < len && text.charCodeAt(i + 1) === 96 && text.charCodeAt(i + 2) === 96) {
+    else if (
+      code === 96 &&
+      (i === 0 || text.charCodeAt(i - 1) === 10 || text.charCodeAt(i - 1) === 13) &&
+      i + 2 < len && text.charCodeAt(i + 1) === 96 && text.charCodeAt(i + 2) === 96
+    ) {
       codeBlockCount++
       i += 2
     }
@@ -197,17 +201,19 @@ export function analyzeContinuationIntent(
   const lateText = lastText.length <= lateWindowSize ? lastText : lastText.slice(-lateWindowSize)
   
   const hasLateContinuationSignal = CONTINUATION_SIGNALS.some(re => {
-    const match = re.exec(lateText)
-    if (!match) return false
-    
-    // Check if any completion marker follows THIS specific continuation signal in the late window
-    const afterMatch = lateText.slice(match.index + match[0].length)
-    const hasLaterCompletion = COMPLETION_MARKERS.test(afterMatch)
-    
-    // Very strong action intents (I will now, Let me, Je vais) override any later markers
-    const strongAction = STRONG_ACTION_RE.test(match[0])
-    
-    return strongAction || !hasLaterCompletion
+    const globalRe = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+    let match: RegExpExecArray | null
+    while ((match = globalRe.exec(lateText)) !== null) {
+      // Check if any completion marker follows THIS specific continuation signal in the late window
+      const afterMatch = lateText.slice(match.index + match[0].length)
+      const hasLaterCompletion = COMPLETION_MARKERS.test(afterMatch)
+      
+      // Very strong action intents (I will now, Let me, Je vais) override any later markers
+      const strongAction = STRONG_ACTION_RE.test(match[0])
+      
+      if (strongAction || !hasLaterCompletion) return true
+    }
+    return false
   })
 
   if (hasLateContinuationSignal) {

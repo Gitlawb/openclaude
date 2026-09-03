@@ -50,4 +50,12 @@ describe('analyzeContinuationIntent', () => {
   test('returns false for complete closed code blocks', () => {
     expect(analyzeContinuationIntent("```ts\nconst a = 1\n```").shouldNudge).toBe(false)
   })
+
+  test('handles inline triple backticks inside closed code blocks without false cut-off', () => {
+    expect(analyzeContinuationIntent("```ts\nconst fence = '```'\n```").shouldNudge).toBe(false)
+  })
+
+  test('evaluates all matches of continuation signals in lateText window', () => {
+    expect(analyzeContinuationIntent("Now process the files. Done. Now update the code.").shouldNudge).toBe(true)
+  })
 })
