@@ -566,9 +566,12 @@ test('/model rejects a Claude alias on the active Command Code route', async () 
     stdout as unknown as NodeJS.WriteStream,
   )
 
-  await waitForCondition(() => messages.length > 0)
-  instance.unmount()
-  stdout.end()
+  try {
+    await waitForCondition(() => messages.length > 0)
+  } finally {
+    instance.unmount()
+    stdout.end()
+  }
 
   expect(messages[0]).toContain('requires the Anthropic Messages protocol')
   expect(messages[0]).not.toContain('Set model to')
@@ -617,9 +620,12 @@ test('/model still applies a Claude alias on a non-Command-Code OpenAI route', a
     stdout as unknown as NodeJS.WriteStream,
   )
 
-  await waitForCondition(() => messages.length > 0)
-  instance.unmount()
-  stdout.end()
+  try {
+    await waitForCondition(() => messages.length > 0)
+  } finally {
+    instance.unmount()
+    stdout.end()
+  }
 
   expect(messages[0]).toContain('Set model to')
   expect(messages[0]).not.toContain('requires the Anthropic Messages protocol')
