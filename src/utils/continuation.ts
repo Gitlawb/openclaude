@@ -1,5 +1,3 @@
-import { tokenCountWithEstimation } from './tokens.js'
-
 /**
  * Heuristics to detect if the agent intends to continue its task
  * but stopped (potentially due to truncation or missed tool calls).
@@ -118,6 +116,49 @@ export const UNFINISHED_SENTIMENT_SIGNALS = [
   /```[a-z]*\s*$/i,
 ]
 
+// Pre-compiled intent regexes at module scope to eliminate allocations during analyzeContinuationIntent
+const PRESENT_PROGRESSIVE_RE = new RegExp(`\\bnow (?:${VERB_ING})\\b`, 'i')
+const IMPERATIVE_RE_1 = new RegExp(`(?<!\\b(?:you|i|we|they|he|she|it)\\s+)\\bneed to (?:${VERB_ALT})\\b`, 'i')
+const IMPERATIVE_RE_2 = new RegExp(`\\bnow (?:${VERB_ALT})\\b(?!\\s+you\\b)`, 'i')
+const IMPERATIVE_RE_3 = new RegExp(`\\bnext (?:i|we)\\s+(?:need to|will|shall|should|must)?\\s*(?:${VERB_ALT})\\b`, 'i')
+const STRONG_ACTION_RE = /\b(let me|i will|i'll|je vais|je suis en train)\b/i
+const TERMINAL_PUNCTUATION_RE = /[.!??"'`)\]]\s*$/
+const STRONG_INTENT_RE = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|continuing with|proceeding to|next step is to)\b/i
+const JE_SUIS_EN_TRAIN_RE = /je suis en train d'/i
+const ENDS_WITH_COLON_RE = /:\s*$/
+
+/**
+ * Single-pass character code scanner for structural cut-offs.
+ * Replaces 7 separate regex scans and array allocations with a fast linear pass.
+ * Note: Net depth counters (parenDepth > 0) strictly reproduce historical openCount > closeCount parity.
+ */
+export function checkStructuralTruncation(text: string): { hasUnclosedCodeBlock: boolean; hasUnclosedPair: boolean } {
+  let codeBlockCount = 0
+  let parenDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+
+  const len = text.length
+  for (let i = 0; i < len; i++) {
+    const code = text.charCodeAt(i)
+    if (code === 40) parenDepth++        // '('
+    else if (code === 41) parenDepth--   // ')'
+    else if (code === 91) bracketDepth++ // '['
+    else if (code === 93) bracketDepth-- // ']'
+    else if (code === 123) braceDepth++  // '{'
+    else if (code === 125) braceDepth--  // '}'
+    else if (code === 96 && i + 2 < len && text.charCodeAt(i + 1) === 96 && text.charCodeAt(i + 2) === 96) {
+      codeBlockCount++
+      i += 2
+    }
+  }
+
+  return {
+    hasUnclosedCodeBlock: codeBlockCount % 2 !== 0,
+    hasUnclosedPair: parenDepth > 0 || bracketDepth > 0 || braceDepth > 0,
+  }
+}
+
 /**
  * Analyzes assistant text to determine if a continuation nudge is required.
  */
@@ -126,47 +167,41 @@ export function analyzeContinuationIntent(
 ): ContinuationResult {
   const lastText = text.trim()
   if (lastText.length === 0) return { shouldNudge: false }
-  
-  const lowerText = lastText.toLowerCase()
 
   // 1. High-Confidence Structural Truncation signals (Strongest - Ignore completion markers)
   
-  // Check for unclosed markdown code blocks
-  const codeBlockCount = (lastText.match(/```/g) || []).length
-  const hasUnclosedCodeBlock = codeBlockCount % 2 !== 0
+  // Fast single-pass check for unclosed markdown code blocks and parens/brackets/braces
+  const { hasUnclosedCodeBlock, hasUnclosedPair } = checkStructuralTruncation(lastText)
 
-  // Check for unclosed structural elements (brackets, parens, braces)
-  const unclosedPairs = [['(', ')'], ['[', ']'], ['{', '}']]
-  const hasUnclosedPair = unclosedPairs.some(([open, close]) => {
-    const openCount = (lastText.match(new RegExp('\\' + open, 'g')) || []).length
-    const closeCount = (lastText.match(new RegExp('\\' + close, 'g')) || []).length
-    return openCount > closeCount
-  })
-
-  // Check for trailing connectors (e.g., "... and", "... with")
-  const hasUnfinishedSuffix = UNFINISHED_SENTIMENT_SIGNALS.some(re => re.test(lastText))
+  // Check for trailing connectors on the tail of the string (e.g., "... and", "... with")
+  const tail = lastText.length <= 60 ? lastText : lastText.slice(-60)
+  const hasUnfinishedSuffix = UNFINISHED_SENTIMENT_SIGNALS.some(re => re.test(tail))
 
   if (hasUnclosedCodeBlock || hasUnclosedPair || hasUnfinishedSuffix) {
     // Structural cut-offs always trigger a nudge, even if "done" was said earlier.
     return { shouldNudge: true, reason: 'possible_truncation' }
   }
 
+  // Common check for terminal punctuation reused across intent and fallback stages
+  const hasTerminalPunctuation = TERMINAL_PUNCTUATION_RE.test(lastText) || lastText.endsWith('`')
+
   // 2. Late Intent-based signals (Overriding earlier completion markers)
 
   // Check if continuation signals match in the last 120 characters
+  // All patterns define the /i flag, avoiding redundant full-text lowercase transformations
   const lateWindowSize = 120
-  const lateText = lowerText.slice(-lateWindowSize)
+  const lateText = lastText.length <= lateWindowSize ? lastText : lastText.slice(-lateWindowSize)
   
   const hasLateContinuationSignal = CONTINUATION_SIGNALS.some(re => {
-    const match = lateText.match(re)
+    const match = re.exec(lateText)
     if (!match) return false
     
     // Check if any completion marker follows THIS specific continuation signal in the late window
-    const afterMatch = lateText.slice(match.index! + match[0].length)
+    const afterMatch = lateText.slice(match.index + match[0].length)
     const hasLaterCompletion = COMPLETION_MARKERS.test(afterMatch)
     
     // Very strong action intents (I will now, Let me, Je vais) override any later markers
-    const strongAction = /\b(let me|i will|i'll|je vais|je suis en train)\b/i.test(match[0])
+    const strongAction = STRONG_ACTION_RE.test(match[0])
     
     return strongAction || !hasLaterCompletion
   })
@@ -174,18 +209,17 @@ export function analyzeContinuationIntent(
   if (hasLateContinuationSignal) {
     // If the sentence is punctuated but has a transition word, only nudge if 
     // it's a strong 1st person intent or open tasks are present.
-    const hasTerminalPunctuation = /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
     if (hasTerminalPunctuation) {
-      const strongIntent = /\b(i (will|shall|need to|must|should|now)|let (me|us)|je (vais|reviens)|passons à|moving on to|continuing with|proceeding to|next step is to)\b/i.test(lowerText) || 
-                           /je suis en train d'/i.test(lowerText) || /◻/.test(lastText)
-      const presentProgressive = new RegExp(`\\bnow (?:${VERB_ING})\\b`, 'i').test(lateText)
+      const strongIntent = STRONG_INTENT_RE.test(lastText) || 
+                           JE_SUIS_EN_TRAIN_RE.test(lastText) || /◻/.test(lastText)
+      const presentProgressive = PRESENT_PROGRESSIVE_RE.test(lateText)
       // Imperative/declarative patterns also signal intent when punctuated
       // (e.g. "Need to process files.", "Now create the component.", "Next we need to add tests.")
       // Use lateText (last 120 chars) for consistency with the late-window intent check above.
-      const hasImperativeSignal = new RegExp(`(?<!\\b(?:you|i|we|they|he|she|it)\\s+)\\bneed to (?:${VERB_ALT})\\b`, 'i').test(lateText) ||
-        new RegExp(`\\bnow (?:${VERB_ALT})\\b(?!\\s+you\\b)`, 'i').test(lateText) ||
-        new RegExp(`\\bnext (?:i|we)\\s+(?:need to|will|shall|should|must)?\\s*(?:${VERB_ALT})\\b`, 'i').test(lateText)
-      const endsWithColon = /:\s*$/.test(lastText)
+      const hasImperativeSignal = IMPERATIVE_RE_1.test(lateText) ||
+        IMPERATIVE_RE_2.test(lateText) ||
+        IMPERATIVE_RE_3.test(lateText)
+      const endsWithColon = ENDS_WITH_COLON_RE.test(lastText)
       if (strongIntent || endsWithColon || presentProgressive || hasImperativeSignal) {
         return { shouldNudge: true, reason: 'continuation_signal' }
       }
@@ -198,15 +232,17 @@ export function analyzeContinuationIntent(
   // Only block continuation if no continuation signal is present (prevents false
   // positives when "complete" or "done" appears mid-sentence, e.g. "The download
   // is complete. Now processing the files...")
-  if (COMPLETION_MARKERS.test(lowerText) && !hasLateContinuationSignal && !CONTINUATION_SIGNALS.some(re => re.test(lowerText))) {
+  let hasGlobalContinuationSignal: boolean | undefined = undefined
+  const getHasGlobalSignal = () => (hasGlobalContinuationSignal ??= CONTINUATION_SIGNALS.some(re => re.test(lastText)))
+
+  if (COMPLETION_MARKERS.test(lastText) && !hasLateContinuationSignal && !getHasGlobalSignal()) {
     return { shouldNudge: false }
   }
 
   // Global fallback for unpunctuated signals (must be a clear transition)
-  const hasTerminalPunctuation = /[.!??"'`)\]]\s*$/.test(lastText) || lastText.endsWith('`')
   if (
-    CONTINUATION_SIGNALS.some(re => re.test(lowerText)) && 
-    !hasTerminalPunctuation
+    !hasTerminalPunctuation && 
+    getHasGlobalSignal()
   ) {
     return { shouldNudge: true, reason: 'continuation_signal' }
   }
