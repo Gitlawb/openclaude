@@ -759,6 +759,45 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.GEMINI_API_KEY).toBe('gemini-key')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-key')
   })
+
+  test('materializes a Command Code override with its configured dedicated key', () => {
+    const env: Record<string, string | undefined> = {
+      CMD_API_KEY: 'stale-parent-key',
+      COMMANDCODE_API_KEY: 'stale-fallback-key',
+    }
+
+    applyAgentProviderOverrideToEnv(
+      {
+        model: 'deepseek/deepseek-v4-flash',
+        baseURL: 'https://api.commandcode.ai/provider/v1',
+        apiKey: 'configured-agent-key',
+      },
+      env,
+    )
+
+    expect(env.OPENAI_API_KEY).toBe('configured-agent-key')
+    expect(env.CMD_API_KEY).toBe('configured-agent-key')
+    expect(env.COMMANDCODE_API_KEY).toBeUndefined()
+  })
+
+  test('clears inherited Command Code keys for unrelated overrides', () => {
+    const env: Record<string, string | undefined> = {
+      CMD_API_KEY: 'stale-parent-key',
+      COMMANDCODE_API_KEY: 'stale-fallback-key',
+    }
+
+    applyAgentProviderOverrideToEnv(
+      {
+        model: 'deepseek-chat',
+        baseURL: 'https://api.deepseek.com/v1',
+        apiKey: 'configured-agent-key',
+      },
+      env,
+    )
+
+    expect(env.CMD_API_KEY).toBeUndefined()
+    expect(env.COMMANDCODE_API_KEY).toBeUndefined()
+  })
 })
 
 describe('shouldEnforceModelAllowlist', () => {

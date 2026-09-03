@@ -458,6 +458,7 @@ export async function main(
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider
   // validation and --model env routing run in this child process.
+  let appliedTeammateModel: string | undefined
   {
     const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
     const settingsLoadResult = eagerLoadSettingsFromArgs(args)
@@ -482,6 +483,7 @@ export async function main(
     )
     if (providerOverride) {
       applyAgentProviderOverrideToEnv(providerOverride)
+      appliedTeammateModel = providerOverride.model
     }
   }
 
@@ -524,12 +526,15 @@ export async function main(
   ) {
     const { applyModelFlagFromArgs, parseModelFlag } =
       await importers.providerFlag()
-    earlyModelFlag = parseModelFlag(modelOptionArgs) ?? undefined
-    const result = applyModelFlagFromArgs(modelOptionArgs)
-    if (result?.error) {
-      console.error(`Error: ${result.error}`)
-      process.exit(1)
-      return
+    earlyModelFlag =
+      appliedTeammateModel ?? parseModelFlag(modelOptionArgs) ?? undefined
+    if (!appliedTeammateModel) {
+      const result = applyModelFlagFromArgs(modelOptionArgs)
+      if (result?.error) {
+        console.error(`Error: ${result.error}`)
+        process.exit(1)
+        return
+      }
     }
   }
 

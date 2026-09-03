@@ -21,6 +21,7 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
+import type { ProviderOverride } from '../services/api/agentRouting.js'
 import {
   applyLoadedEnvFileValues,
   loadEnvFile,
@@ -64,7 +65,8 @@ const mockGetProviderValidationError = mock(
 )
 const mockEagerLoadSettingsFromArgs = mock((_args: string[]) => ({ ok: true }))
 const mockResolveOutOfProcessTeammateProviderFromCliArgs = mock(
-  (_args: string[], _settings: unknown) => undefined,
+  (_args: string[], _settings: unknown): ProviderOverride | undefined =>
+    undefined,
 )
 const mockApplyAgentProviderOverrideToEnv = mock((_override: unknown) => {})
 const mockGetInitialSettings = mock(() => ({}))
@@ -588,6 +590,30 @@ describe('cli.tsx — background routing behavior', () => {
     )
 
     expect(order).toEqual(['model', 'validation'])
+  })
+
+  it('preserves a teammate provider override resolved from an inline model alias', async () => {
+    const providerOverride = {
+      model: 'actual-provider-model',
+      baseURL: 'https://provider.example/v1',
+      apiKey: 'provider-key',
+    }
+    mockResolveOutOfProcessTeammateProviderFromCliArgs.mockReturnValueOnce(
+      providerOverride,
+    )
+
+    await runCliEntrypoint(
+      ['--agent-name=worker-a', '--team-name=review', '--model=route-alias'],
+      bgOptions,
+    )
+
+    expect(mockApplyAgentProviderOverrideToEnv).toHaveBeenCalledWith(
+      providerOverride,
+    )
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'actual-provider-model',
+    )
   })
 
   it('stops before provider validation when a model override is rejected', async () => {
