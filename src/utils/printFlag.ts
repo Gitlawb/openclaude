@@ -150,6 +150,29 @@ export function findRootCommandPathIndex(
   return -1
 }
 
+const MODEL_OWNING_SUBCOMMANDS = [
+  ['aimlapi', 'topup'],
+  ['auto-mode', 'critique'],
+] as const
+
+/**
+ * Slice argv before the first nested command that owns its own `--model`.
+ * Root `--model` / `--provider` model preflight must not steal that nested flag.
+ */
+export function argsBeforeModelOwningSubcommand(
+  args: readonly string[],
+): string[] {
+  let cutoff = args.length
+  for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
+    const index = findRootCommandPathIndex(
+      args.slice(0, cutoff),
+      [command, subcommand],
+    )
+    if (index !== -1) cutoff = index
+  }
+  return args.slice(0, cutoff)
+}
+
 /** Resolve the final real occurrence of a root option through the same arity scan. */
 export function parseRootOptionValue(
   argv: readonly string[],

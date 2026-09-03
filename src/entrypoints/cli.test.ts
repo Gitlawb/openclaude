@@ -609,6 +609,66 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockCliMain).toHaveBeenCalledTimes(1)
   })
 
+  it('does not treat a nested command --model as the Command Code session model', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalModel = process.env.OPENAI_MODEL
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI
+    const originalApiKey = process.env.OPENAI_API_KEY
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+
+    try {
+      await runCliEntrypoint(
+        [
+          '--provider',
+          'commandcode',
+          '--model',
+          'deepseek/deepseek-v4-flash',
+          'aimlapi',
+          'topup',
+          '--model',
+          'anthropic/claude-sonnet-4-6',
+        ],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      if (originalModel === undefined) {
+        delete process.env.OPENAI_MODEL
+      } else {
+        process.env.OPENAI_MODEL = originalModel
+      }
+      if (originalBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalBaseUrl
+      }
+      if (originalUseOpenAI === undefined) {
+        delete process.env.CLAUDE_CODE_USE_OPENAI
+      } else {
+        process.env.CLAUDE_CODE_USE_OPENAI = originalUseOpenAI
+      }
+      if (originalApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY
+      } else {
+        process.env.OPENAI_API_KEY = originalApiKey
+      }
+    }
+
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
   it('still applies a root model option before a nested model command', async () => {
     const args = [
       '--model=deepseek/deepseek-v4-flash',

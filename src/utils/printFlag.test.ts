@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  argsBeforeModelOwningSubcommand,
   findRootCommandPathIndex,
   hasPrintFlag,
   parseRootOptionValue,
@@ -22,6 +23,50 @@ describe('findRootCommandPathIndex', () => {
       ['--debug', 'aimlapi', 'topup', '--model', 'gpt-4o'],
       ['aimlapi', 'topup'],
     )).toBe(-1)
+  })
+})
+
+describe('argsBeforeModelOwningSubcommand', () => {
+  test('drops argv from nested aimlapi topup onward', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--provider',
+        'commandcode',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual([
+      '--provider',
+      'commandcode',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ])
+  })
+
+  test('drops argv from nested auto-mode critique onward', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--model=deepseek/deepseek-v4-flash',
+        'auto-mode',
+        'critique',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual(['--model=deepseek/deepseek-v4-flash'])
+  })
+
+  test('does not treat a required option value as a nested command path', () => {
+    const args = [
+      '--name',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+    expect(argsBeforeModelOwningSubcommand(args)).toEqual(args)
   })
 })
 

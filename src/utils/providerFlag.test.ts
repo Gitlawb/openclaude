@@ -739,6 +739,51 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
   })
 
+  test('Command Code ignores nested model-owning subcommand --model', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+      'aimlapi',
+      'topup',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('Command Code ignores nested-only --model when selecting the provider', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      'auto-mode',
+      'critique',
+      '--model=anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('Command Code still rejects a root incompatible --model before a nested command', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
     process.env.OPENAI_API_BASE = 'http://proxy.local:8080/v1'
     process.env.OPENGATEWAY_API_KEY = 'fake-ogw-key'
@@ -1435,6 +1480,31 @@ describe('applyProviderFlagFromArgs', () => {
       'https://opengateway.gitlawb.com/v1',
     )
     expect(process.env.OPENAI_MODEL).toBe('custom-ogw-model')
+  })
+
+  test('remembered Command Code --model ignores nested subcommand --model', () => {
+    const result = applyProviderFlagFromArgs(
+      [
+        '--provider',
+        'commandcode',
+        '--model',
+        'deepseek/deepseek-v4-pro',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ],
+      { rememberForSettingsEnv: true },
+    )
+
+    expect(result?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-pro')
+
+    process.env.OPENAI_MODEL = 'stale-openai-model'
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-pro')
   })
 })
 

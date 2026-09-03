@@ -3,7 +3,7 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
-import { findRootCommandPathIndex } from '../utils/printFlag.js'
+import { argsBeforeModelOwningSubcommand } from '../utils/printFlag.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -807,23 +807,6 @@ export async function main(
   profileCheckpoint('cli_after_main_import');
   await cliMain();
   profileCheckpoint('cli_after_main_complete');
-}
-
-const MODEL_OWNING_SUBCOMMANDS = [
-  ['aimlapi', 'topup'],
-  ['auto-mode', 'critique'],
-] as const
-
-function argsBeforeModelOwningSubcommand(args: string[]): string[] {
-  let cutoff = args.length
-  for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
-    const index = findRootCommandPathIndex(
-      args.slice(0, cutoff),
-      [command, subcommand],
-    )
-    if (index !== -1) cutoff = index
-  }
-  return args.slice(0, cutoff)
 }
 
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level

@@ -40,6 +40,7 @@ import {
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 import { parseModelFlagValue } from './cliArgs.js'
+import { argsBeforeModelOwningSubcommand } from './printFlag.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -120,7 +121,7 @@ export function applyProviderFlagFromArgs(
   if (!provider) return undefined
   const result = applyProviderFlag(provider, args)
   if (!result.error && options?.rememberForSettingsEnv) {
-    const model = parseModelFlag(args)
+    const model = parseProviderModelFlag(args)
     rememberedProviderFlag = model ? { provider, model } : { provider }
   }
   return result
@@ -149,6 +150,10 @@ export function clearRememberedProviderFlagForTests(): void {
  */
 export function parseModelFlag(args: string[]): string | null {
   return parseModelFlagValue(args) ?? null
+}
+
+function parseProviderModelFlag(args: string[]): string | null {
+  return parseModelFlag(argsBeforeModelOwningSubcommand(args))
 }
 
 function getRouteDefaults(provider: string): {
@@ -344,7 +349,7 @@ export function applyProviderFlag(
     }
   }
 
-  const model = parseModelFlag(args)
+  const model = parseProviderModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
   if (provider === 'commandcode') {
     const currentBaseUrl = getConfiguredOpenAIBaseUrl()
