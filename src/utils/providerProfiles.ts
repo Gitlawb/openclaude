@@ -480,20 +480,25 @@ function applyCommandcodeProfileWriteContract(
     return null
   }
 
-  if (profile.apiKey) {
-    return profile
-  }
-
   // Dedicated env keys are the Command Code credential. Generic OPENAI_API_KEY
-  // is never route auth, so a CMD-only env must still land on the saved profile
-  // or the startup file relaunches unauthenticated.
+  // is never route auth, so env adoption that copies OPENAI_API_KEY — or omits
+  // apiKey entirely — must persist the dedicated secret or the startup file
+  // relaunches unauthenticated.
   const dedicatedKey = sanitizeApiKey(
     resolveRouteCredentialValue({
       routeId: 'commandcode',
       baseUrl: profile.baseUrl,
     }),
   )
-  return dedicatedKey ? { ...profile, apiKey: dedicatedKey } : profile
+  const genericOpenAIKey = sanitizeApiKey(process.env.OPENAI_API_KEY)
+  if (
+    dedicatedKey &&
+    (!profile.apiKey ||
+      (profile.apiKey === genericOpenAIKey && profile.apiKey !== dedicatedKey))
+  ) {
+    return { ...profile, apiKey: dedicatedKey }
+  }
+  return profile
 }
 
 function toProfile(

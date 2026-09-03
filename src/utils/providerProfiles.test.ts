@@ -1374,6 +1374,28 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(getProviderProfiles()[0]?.apiKey).toBe('env-cmd-key')
   })
 
+  test('addProviderProfile prefers CMD_API_KEY over a leftover generic OPENAI_API_KEY', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+    process.env.CMD_API_KEY = 'env-cmd-key'
+    process.env.OPENAI_API_KEY = 'generic-openai-key'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+
+    expect(saved?.apiKey).toBe('env-cmd-key')
+  })
+
   test('addProviderProfile captures COMMANDCODE_API_KEY when CMD_API_KEY is unset', async () => {
     const { addProviderProfile } = await importFreshProviderProfileModules()
     process.env.COMMANDCODE_API_KEY = 'env-commandcode-key'
