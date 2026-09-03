@@ -637,6 +637,23 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockPrintStartupScreen).toHaveBeenCalledWith('aimlapi')
   })
 
+  it('does not treat a required root option value as a nested command path', async () => {
+    const args = [
+      '--name',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
   it('preserves a teammate provider override resolved from an inline model alias', async () => {
     const providerOverride = {
       model: 'actual-provider-model',

@@ -98,6 +98,58 @@ function isPrintFlag(arg: string): boolean {
   return arg === '-p' || arg === '--print'
 }
 
+/**
+ * Find an exact root command path without mistaking option values for
+ * positional command tokens. The shared option tables keep early entrypoint
+ * routing aligned with Commander's value-consumption rules.
+ */
+export function findRootCommandPathIndex(
+  argv: readonly string[],
+  commandPath: readonly string[],
+): number {
+  let i = 0
+  while (i < argv.length) {
+    const arg = argv[i]!
+    if (arg === '--') return -1
+
+    const name = optionName(arg)
+    if (REQUIRED_VALUE_OPTIONS.has(name)) {
+      i += arg.includes('=') ? 1 : 2
+      continue
+    }
+    if (VARIADIC_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        i++
+      } else {
+        i += 2
+        while (
+          i < argv.length &&
+          !argv[i]!.startsWith('-') &&
+          argv[i] !== '--'
+        ) {
+          i++
+        }
+      }
+      continue
+    }
+    if (OPTIONAL_VALUE_OPTIONS.has(name)) {
+      const next = argv[i + 1]
+      i +=
+        next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+      continue
+    }
+    if (arg.startsWith('-')) {
+      i++
+      continue
+    }
+
+    return commandPath.every((token, offset) => argv[i + offset] === token)
+      ? i
+      : -1
+  }
+  return -1
+}
+
 export function hasPrintFlag(argv: readonly string[]): boolean {
   let i = 0
   while (i < argv.length) {

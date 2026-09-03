@@ -1,5 +1,25 @@
 import { describe, expect, test } from 'bun:test'
-import { hasPrintFlag } from './printFlag.js'
+import { findRootCommandPathIndex, hasPrintFlag } from './printFlag.js'
+
+describe('findRootCommandPathIndex', () => {
+  test('finds a real command path after boolean root options', () => {
+    expect(findRootCommandPathIndex(
+      ['--bare', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(1)
+  })
+
+  test('does not mistake required or optional option values for commands', () => {
+    expect(findRootCommandPathIndex(
+      ['--name', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(-1)
+    expect(findRootCommandPathIndex(
+      ['--debug', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(-1)
+  })
+})
 
 describe('hasPrintFlag', () => {
   test('detects the standalone -p and --print boolean flags', () => {

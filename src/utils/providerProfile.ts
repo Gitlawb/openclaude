@@ -1598,10 +1598,15 @@ export async function buildLaunchEnv(options: {
       processEnv as SecretValueSource,
     ),
   )
-  const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
-    processEnv.OPENAI_BASE_URL,
-    processEnv as SecretValueSource,
-  )
+  const shellOpenAIBaseUrl =
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_BASE_URL,
+      processEnv as SecretValueSource,
+    ) ??
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_API_BASE,
+      processEnv as SecretValueSource,
+    )
   const persistedGeminiModel = normalizeProfileModel(
     sanitizeProviderConfigValue(
       persistedEnv.GEMINI_MODEL,

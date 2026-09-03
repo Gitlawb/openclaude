@@ -3248,6 +3248,27 @@ test('openai launch withholds ambient Command Code credentials from a keyless pr
   assert.equal(canonical.CMD_API_KEY, 'ambient-cmd-key')
 })
 
+test('openai launch preserves a canonical Command Code route supplied through OPENAI_API_BASE', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: null,
+    goal: 'coding',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_BASE: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      CMD_API_KEY: 'live-commandcode-key',
+    },
+  })
+
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    'https://api.commandcode.ai/provider/v1',
+  )
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'commandcode')
+  assert.equal(env.CMD_API_KEY, 'live-commandcode-key')
+})
+
 test('openai launch does not migrate an unrelated persisted OpenAI key into Command Code', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

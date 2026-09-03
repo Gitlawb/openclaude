@@ -3,6 +3,7 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
+import { findRootCommandPathIndex } from '../utils/printFlag.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -819,15 +820,11 @@ const MODEL_OWNING_SUBCOMMANDS = [
 function argsBeforeModelOwningSubcommand(args: string[]): string[] {
   let cutoff = args.length
   for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
-    for (let index = 0; index < cutoff - 1; index += 1) {
-      if (args[index] === command && args[index + 1] === subcommand) {
-        // A spaced root model consumes the next token. Do not reinterpret its
-        // value plus a following positional token as a nested command path.
-        if (index > 0 && args[index - 1] === '--model') continue
-        cutoff = index
-        break
-      }
-    }
+    const index = findRootCommandPathIndex(
+      args.slice(0, cutoff),
+      [command, subcommand],
+    )
+    if (index !== -1) cutoff = index
   }
   return args.slice(0, cutoff)
 }
