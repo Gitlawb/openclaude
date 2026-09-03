@@ -119,7 +119,7 @@ export const UNFINISHED_SENTIMENT_SIGNALS = [
 // Suffix signals safe for the 60-character tail window
 const UNFINISHED_TAIL_SIGNALS = UNFINISHED_SENTIMENT_SIGNALS.slice(0, -1)
 // Code-fence starter pattern run against full text to support arbitrarily long fence info strings
-const CODE_FENCE_STARTER_RE = UNFINISHED_SENTIMENT_SIGNALS[3]
+const CODE_FENCE_STARTER_RE = UNFINISHED_SENTIMENT_SIGNALS.at(-1)!
 
 // Pre-compiled intent regexes at module scope to eliminate allocations during analyzeContinuationIntent
 const PRESENT_PROGRESSIVE_RE = new RegExp(`\\bnow (?:${VERB_ING})\\b`, 'i')

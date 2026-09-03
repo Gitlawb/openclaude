@@ -156,7 +156,9 @@ describe('Direct Head-to-Head Performance Benchmark', () => {
     }
   })
 
-  test('Live Head-to-Head Benchmark Execution (200,000 Total Calls across Dataset)', () => {
+  const runBench = process.env.BENCHMARK === '1' ? test : test.skip
+
+  runBench('Live Head-to-Head Benchmark Execution (200,000 Total Calls across Dataset)', () => {
     const iterations = 10000
 
     // Warmup JIT for both implementations
