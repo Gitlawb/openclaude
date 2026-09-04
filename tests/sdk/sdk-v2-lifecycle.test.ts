@@ -130,25 +130,30 @@ describe('V2: session creation', () => {
 
     const session1 = unstable_v2_createSession({ cwd: process.cwd() })
     const session2 = unstable_v2_createSession({ cwd: process.cwd() })
-    const engine1 = new ContextCapturingEngine()
-    const engine2 = new ContextCapturingEngine()
-    attachMockEngine(session1, engine1)
-    attachMockEngine(session2, engine2)
+    try {
+      const engine1 = new ContextCapturingEngine()
+      const engine2 = new ContextCapturingEngine()
+      attachMockEngine(session1, engine1)
+      attachMockEngine(session2, engine2)
 
-    const drain = async (messages: AsyncIterable<unknown>) => {
-      for await (const _message of messages) {
-        // The capturing engines intentionally yield no messages.
+      const drain = async (messages: AsyncIterable<unknown>) => {
+        for await (const _message of messages) {
+          // The capturing engines intentionally yield no messages.
+        }
       }
-    }
-    await Promise.all([
-      drain(session1.sendMessage('context-a')),
-      drain(session2.sendMessage('context-b')),
-    ])
+      await Promise.all([
+        drain(session1.sendMessage('context-a')),
+        drain(session2.sendMessage('context-b')),
+      ])
 
-    expect(engine1.observedSessionId).toBe(session1.sessionId)
-    expect(engine2.observedSessionId).toBe(session2.sessionId)
-    expect(engine1.observedSessionId).not.toBe(engine2.observedSessionId)
-    expect(getSessionId()).toBe(globalId)
+      expect(engine1.observedSessionId).toBe(session1.sessionId)
+      expect(engine2.observedSessionId).toBe(session2.sessionId)
+      expect(engine1.observedSessionId).not.toBe(engine2.observedSessionId)
+      expect(getSessionId()).toBe(globalId)
+    } finally {
+      session1.close()
+      session2.close()
+    }
   })
 
   test('createSession() returns SDKSession with valid sessionId', () => {

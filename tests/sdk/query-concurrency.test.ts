@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { query } from '../../src/entrypoints/sdk/index.js'
+import { query, queryAsync } from '../../src/entrypoints/sdk/index.js'
 import { getSessionId, getSessionProjectDir, runWithSdkContext } from '../../src/bootstrap/state.js'
+import { init } from '../../src/entrypoints/init.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -113,12 +114,53 @@ describe('SEC-1: env override isolation', () => {
 
 describe('CON-1: CWD and session isolation between concurrent queries', () => {
   test('queryAsync keeps eager process-global initialization detached', async () => {
-    const source = await Bun.file(
-      new URL('../../src/entrypoints/sdk/query.ts', import.meta.url),
-    ).text()
-    const queryAsyncSource = source.slice(source.indexOf('export async function queryAsync'))
+    const globalId = getSessionId()
+    const sdkSession = '00000000-0000-4000-8000-0000000000aa' as SessionId
+    const memoizedInit = init as typeof init & {
+      cache: { has(key: unknown): boolean; get(key: unknown): Promise<void> }
+    }
+    const originalCache = memoizedInit.cache
+    let observedDuringInit: SessionId | undefined
+    const probeCache = {
+      has: () => true,
+      get: () => {
+        observedDuringInit = getSessionId()
+        return Promise.resolve()
+      },
+      set() {
+        return this
+      },
+      delete() {
+        return true
+      },
+      clear() {},
+    }
+    memoizedInit.cache = probeCache as typeof originalCache
 
-    expect(queryAsyncSource).toContain('await runOutsideSdkContext(init)')
+    let created: ReturnType<typeof query> | undefined
+    try {
+      await runWithSdkContext(
+        {
+          sessionId: sdkSession,
+          sessionProjectDir: null,
+          cwd: process.cwd(),
+          originalCwd: process.cwd(),
+        },
+        async () => {
+          created = await queryAsync({
+            prompt: 'init-scope',
+            options: { cwd: process.cwd() },
+          })
+        },
+      )
+
+      expect(observedDuringInit).toBe(globalId)
+      expect(observedDuringInit).not.toBe(sdkSession)
+      expect(getSessionId()).toBe(globalId)
+    } finally {
+      created?.close()
+      memoizedInit.cache = originalCache
+    }
   })
 
   test('lazy query iteration keeps each query session scoped to its engine work', async () => {
