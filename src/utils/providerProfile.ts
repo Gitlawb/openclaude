@@ -1702,7 +1702,8 @@ export async function buildLaunchEnv(options: {
           normalizeProfileModel(
             sanitizeProviderConfigValue(persistedEnv.ANTHROPIC_MODEL),
           ) ||
-          'claude-sonnet-4-6',
+          getRouteDefaultModel('anthropic') ||
+          'claude-sonnet-5',
         ...(anthropicApiKey
           ? { ANTHROPIC_API_KEY: anthropicApiKey }
           : {}),

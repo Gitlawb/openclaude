@@ -437,4 +437,28 @@ describe('configured third-party effort precedence', () => {
       resolveAppliedEffort('claude-opus-4-6', undefined, context),
     ).toBe('medium')
   })
+
+  test('Sonnet 5 effort help and capability gates agree', async () => {
+    const {
+      getEffortLevelDescription,
+      modelSupportsMaxEffort,
+      modelSupportsXHighEffort,
+    } = await importFreshEffortModule()
+
+    expect(getEffortLevelDescription('max')).toContain('Sonnet 5')
+    expect(getEffortLevelDescription('max')).toContain('Opus 4.8+')
+    expect(getEffortLevelDescription('xhigh')).toContain('Sonnet 5')
+
+    // Sonnet 5 supports both max and xhigh
+    expect(modelSupportsMaxEffort('claude-sonnet-5')).toBe(true)
+    expect(modelSupportsXHighEffort('claude-sonnet-5')).toBe(true)
+
+    // Older Sonnet does not support max or xhigh
+    expect(modelSupportsMaxEffort('claude-sonnet-4-6')).toBe(false)
+    expect(modelSupportsXHighEffort('claude-sonnet-4-6')).toBe(false)
+
+    // Haiku does not support max or xhigh
+    expect(modelSupportsMaxEffort('claude-haiku-4-5')).toBe(false)
+    expect(modelSupportsXHighEffort('claude-haiku-4-5')).toBe(false)
+  })
 })

@@ -516,7 +516,10 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (matchesModelIdAtBoundary(name, 'claude-opus-4-7')) {
     return 'claude-opus-4-7'
   }
-  if (matchesModelIdAtBoundary(name, 'claude-opus-4-6')) {
+  if (
+    matchesModelIdAtBoundary(name, 'claude-opus-4-6') ||
+    matchesModelIdAtBoundary(name, 'claude-opus-4.6')
+  ) {
     return 'claude-opus-4-6'
   }
   if (matchesModelIdAtBoundary(name, 'claude-opus-4-5')) {
@@ -528,7 +531,10 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (matchesModelIdAtBoundary(name, 'claude-opus-4')) {
     return 'claude-opus-4'
   }
-  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4-6')) {
+  if (
+    matchesModelIdAtBoundary(name, 'claude-sonnet-4-6') ||
+    matchesModelIdAtBoundary(name, 'claude-sonnet-4.6')
+  ) {
     return 'claude-sonnet-4-6'
   }
   if (matchesModelIdAtBoundary(name, 'claude-sonnet-4-5')) {

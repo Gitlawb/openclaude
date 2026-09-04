@@ -39,3 +39,44 @@ test('effort callout covers Opus 5 on first party but excludes Vertex', () => {
     }
   }
 })
+
+test('effort callout respects reasoning capability context for custom routes and overrides', () => {
+  // Custom OpenAI-compatible route named claude-opus-5 with no reasoning metadata is not covered
+  expect(effortCalloutCoversModel('claude-opus-5', { apiProvider: 'openai' })).toBe(false)
+
+  // Route with explicit effort capability override supporting medium is covered
+  expect(
+    effortCalloutCoversModel('claude-opus-5', {
+      routeId: 'custom',
+      catalogEntries: [
+        {
+          id: 'claude-opus-5',
+          apiName: 'claude-opus-5',
+          reasoning: {
+            wireFormat: 'reasoning_effort',
+            mode: 'levels',
+            levels: ['low', 'medium', 'high'],
+          },
+        },
+      ],
+    }),
+  ).toBe(true)
+
+  // Route with explicit effort capability override lacking medium is not covered
+  expect(
+    effortCalloutCoversModel('claude-opus-5', {
+      routeId: 'custom',
+      catalogEntries: [
+        {
+          id: 'claude-opus-5',
+          apiName: 'claude-opus-5',
+          reasoning: {
+            wireFormat: 'reasoning_effort',
+            mode: 'levels',
+            levels: ['low', 'high'],
+          },
+        },
+      ],
+    }),
+  ).toBe(false)
+})

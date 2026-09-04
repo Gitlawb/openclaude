@@ -3,11 +3,9 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { Box, Text } from '../ink.js';
 import { isMaxSubscriber, isProSubscriber, isTeamSubscriber } from '../utils/auth.js';
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
-import type { EffortLevel } from '../utils/effort.js';
-import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, modelGetsMediumEffortDefault, toPersistableEffort } from '../utils/effort.js';
+import type { EffortLevel, ReasoningControlContext } from '../utils/effort.js';
+import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, getAvailableEffortLevels, modelGetsMediumEffortDefault, toPersistableEffort } from '../utils/effort.js';
 import { parseUserSpecifiedModel } from '../utils/model/model.js';
-import { getAPIProvider } from '../utils/model/providers.js';
-import { isClaude5ModelId } from '../utils/model/modelIdMatch.js';
 import { updateSettingsForSource } from '../utils/settings/settings.js';
 import type { OptionWithDescription } from './CustomSelect/select.js';
 import { Select } from './CustomSelect/select.js';
@@ -223,18 +221,24 @@ function EffortOptionLabel(t0) {
 // shared predicate rather than a second version list here. Re-exported as a pure
 // predicate so the regression can be tested deterministically without mocking
 // the subscriber/config gates (see EffortCallout.modelGate.test).
-export function effortCalloutCoversModel(model: string): boolean {
+export function effortCalloutCoversModel(
+  model: string,
+  context?: ReasoningControlContext,
+): boolean {
   // The callout receives the user's model setting, which may be an alias, so it
   // resolves before asking the shared cohort predicate.
   const resolved = parseUserSpecifiedModel(model);
-  if (getAPIProvider() === 'vertex' && isClaude5ModelId(resolved)) {
-    return false;
-  }
-  return modelGetsMediumEffortDefault(resolved);
+  return (
+    getAvailableEffortLevels(resolved, context).includes('medium') &&
+    modelGetsMediumEffortDefault(resolved)
+  );
 }
 
-export function shouldShowEffortCallout(model: string): boolean {
-  if (!effortCalloutCoversModel(model)) {
+export function shouldShowEffortCallout(
+  model: string,
+  context?: ReasoningControlContext,
+): boolean {
+  if (!effortCalloutCoversModel(model, context)) {
     return false;
   }
   const config = getGlobalConfig();

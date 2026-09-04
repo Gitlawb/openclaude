@@ -55,15 +55,21 @@ function normalizeModelApiName(
 }
 
 function getBaseModelApiName(value: string | undefined): string | null {
-  const trimmed = value?.trim()
+  let trimmed = value?.trim()
   if (!trimmed) {
     return null
   }
 
   const queryIndex = trimmed.indexOf('?')
-  const baseModel =
-    queryIndex === -1 ? trimmed : trimmed.slice(0, queryIndex).trim()
-  return baseModel || null
+  if (queryIndex !== -1) {
+    trimmed = trimmed.slice(0, queryIndex).trim()
+  }
+
+  if (trimmed.endsWith('[1m]')) {
+    trimmed = trimmed.slice(0, -4).trim()
+  }
+
+  return trimmed || null
 }
 
 function matchesCatalogEntryModel(
@@ -358,6 +364,22 @@ function getProviderScopedModelSegments(modelApiName: string): string[] {
   return [...suffixes, ...accountQualifiedSuffixes]
 }
 
+function matchesModelDescriptorPrefix(target: string, prefix: string): boolean {
+  if (!target.startsWith(prefix)) {
+    return false
+  }
+  const next = target[prefix.length]
+  return (
+    next === undefined ||
+    next === '-' ||
+    next === '@' ||
+    next === ':' ||
+    next === '/' ||
+    next === '?' ||
+    next === '['
+  )
+}
+
 function findModelDescriptorForApiName(
   routeId: string | null,
   modelApiName: string | undefined,
@@ -403,13 +425,25 @@ function findModelDescriptorForApiName(
   }
 
   for (const candidate of models) {
-    if (candidate.names.some(name => trimmedModel.startsWith(name.trim()))) {
+    if (
+      candidate.names.some(name =>
+        matchesModelDescriptorPrefix(trimmedModel, name.trim()),
+      )
+    ) {
       return candidate.model
     }
   }
 
   for (const candidate of models) {
-    if (candidate.names.some(name => providerScopedSegments.includes(name.trim()))) {
+    if (
+      candidate.names.some(name =>
+        providerScopedSegments.some(
+          segment =>
+            segment === name.trim() ||
+            matchesModelDescriptorPrefix(segment, name.trim()),
+        ),
+      )
+    ) {
       return candidate.model
     }
   }
@@ -420,8 +454,12 @@ function findModelDescriptorForApiName(
         const normalizedName = name.trim().toLowerCase()
         return (
           normalizedModel === normalizedName ||
-          normalizedModel.startsWith(normalizedName) ||
-          normalizedProviderScopedSegments.includes(normalizedName)
+          matchesModelDescriptorPrefix(normalizedModel, normalizedName) ||
+          normalizedProviderScopedSegments.some(
+            segment =>
+              segment === normalizedName ||
+              matchesModelDescriptorPrefix(segment, normalizedName),
+          )
         )
       })
     ) {

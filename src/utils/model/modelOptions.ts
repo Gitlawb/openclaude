@@ -41,7 +41,7 @@ import {
   renderDefaultModelSetting,
   type ModelSetting,
 } from './model.js'
-import { has1mContext } from '../context.js'
+import { has1mContext, modelHasUnconditional1MContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
 import {
   getActiveOpenAIModelOptionsCache,
@@ -667,12 +667,19 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
     if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
       // Max and Team Premium users: Opus is default, show Sonnet as alternative
       const premiumOptions = [getDefaultOptionForUser(fastMode)]
-      if (!isOpus1mMergeEnabled() && checkOpus1mAccess()) {
+      if (
+        !isOpus1mMergeEnabled() &&
+        checkOpus1mAccess() &&
+        !modelHasUnconditional1MContext(getDefaultOpusModel())
+      ) {
         premiumOptions.push(getMaxOpus46_1MOption(fastMode))
       }
 
       premiumOptions.push(getMaxSonnetOption())
-      if (checkSonnet1mAccess()) {
+      if (
+        checkSonnet1mAccess() &&
+        !modelHasUnconditional1MContext(getDefaultSonnetModel())
+      ) {
         premiumOptions.push(getMaxSonnet46_1MOption())
       }
 
@@ -683,15 +690,24 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
     // Pro/Team Standard/Enterprise users: Sonnet is default, show Opus as alternative
     const standardOptions = [getDefaultOptionForUser(fastMode)]
-    if (checkSonnet1mAccess()) {
+    if (
+      checkSonnet1mAccess() &&
+      !modelHasUnconditional1MContext(getDefaultSonnetModel())
+    ) {
       standardOptions.push(getMaxSonnet46_1MOption())
     }
 
-    if (isOpus1mMergeEnabled()) {
+    if (
+      isOpus1mMergeEnabled() &&
+      !modelHasUnconditional1MContext(getDefaultOpusModel())
+    ) {
       standardOptions.push(getMergedOpus1MOption(fastMode))
     } else {
       standardOptions.push(getMaxOpusOption(fastMode))
-      if (checkOpus1mAccess()) {
+      if (
+        checkOpus1mAccess() &&
+        !modelHasUnconditional1MContext(getDefaultOpusModel())
+      ) {
         standardOptions.push(getMaxOpus46_1MOption(fastMode))
       }
     }
@@ -732,10 +748,16 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.8 + Opus 4.7 + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty' && isFirstPartyAnthropicBaseUrl()) {
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
-    if (checkSonnet1mAccess()) {
+    if (
+      checkSonnet1mAccess() &&
+      !modelHasUnconditional1MContext(getDefaultSonnetModel())
+    ) {
       payg1POptions.push(getSonnet46_1MOption())
     }
-    if (isOpus1mMergeEnabled()) {
+    if (
+      isOpus1mMergeEnabled() &&
+      !modelHasUnconditional1MContext(getDefaultOpusModel())
+    ) {
       payg1POptions.push(getMergedOpus1MOption(fastMode))
     } else {
       payg1POptions.push(getOpus48Option(fastMode))
