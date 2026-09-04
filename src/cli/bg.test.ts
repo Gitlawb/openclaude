@@ -17,6 +17,7 @@ import {
   parseBackgroundInvocation,
   parseLogsInvocation,
   resolveBackgroundSessionModel,
+  resolveBackgroundSessionProvider,
 } from './bg.js'
 import {
   BACKGROUND_SESSION_ID_ENV,
@@ -108,6 +109,39 @@ async function withTempFile<T>(
 }
 
 describe('background session CLI parsing', () => {
+  it('records the final root provider selected by CLI startup', async () => {
+    const parsed = parseBackgroundInvocation([
+      '--provider',
+      'anthropic',
+      '--provider=commandcode',
+      '--bg',
+      'do the work',
+    ])
+    const launch = await buildBackgroundSessionLaunch(
+      parsed.childArgs,
+      '00000000-0000-4000-8000-000000000001',
+    )
+
+    expect(resolveBackgroundSessionProvider(launch.childArgs)).toBe(
+      'commandcode',
+    )
+  })
+
+  it('does not record provider-looking text consumed by a root option', async () => {
+    const parsed = parseBackgroundInvocation([
+      '--system-prompt',
+      '--provider=commandcode',
+      '--bg',
+      'do the work',
+    ])
+    const launch = await buildBackgroundSessionLaunch(
+      parsed.childArgs,
+      '00000000-0000-4000-8000-000000000001',
+    )
+
+    expect(resolveBackgroundSessionProvider(launch.childArgs)).toBeUndefined()
+  })
+
   it('records the root session model when a nested command also has --model', async () => {
     const generatedSessionId = '00000000-0000-4000-8000-000000000001'
 

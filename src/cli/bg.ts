@@ -11,6 +11,7 @@ import {
 import {
   argsBeforeModelOwningSubcommand,
   hasPrintFlag,
+  parseRootOptionValue,
 } from '../utils/printFlag.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
@@ -356,6 +357,13 @@ export function resolveBackgroundSessionModel(
   childArgs: readonly string[],
 ): string | undefined {
   return parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs))
+}
+
+/** Keep registry metadata aligned with the provider selected by CLI startup. */
+export function resolveBackgroundSessionProvider(
+  childArgs: readonly string[],
+): string | undefined {
+  return parseRootOptionValue(childArgs, '--provider')
 }
 
 function hasPrintMode(args: string[]): boolean {
@@ -1162,7 +1170,7 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     pid: child.pid,
     cwd: process.cwd(),
     command,
-    provider: findFlagValue(childArgs, '--provider'),
+    provider: resolveBackgroundSessionProvider(childArgs),
     model: resolveBackgroundSessionModel(childArgs),
     sessionId,
     processMarker,
