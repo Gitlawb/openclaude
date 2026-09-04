@@ -12,6 +12,7 @@ import { getCanonicalName } from './model/model.js'
 import {
   isClaude5ModelId,
   isOpus5ModelId,
+  isOpus48ModelId,
   isSonnet5ModelId,
 } from './model/modelIdMatch.js'
 import { getModelCapability } from './model/modelCapabilities.js'
@@ -161,7 +162,7 @@ export function modelSupports1M(model: string): boolean {
     canonical.includes('claude-sonnet-4') ||
     canonical.includes('opus-4-6') ||
     canonical.includes('opus-4-7') ||
-    canonical.includes('opus-4-8') ||
+    isOpus48ModelId(canonical) ||
     isClaude5ModelId(canonical)
   )
 }
@@ -175,7 +176,7 @@ export function modelHasUnconditional1MContext(model: string): boolean {
     return false
   }
   const canonical = getCanonicalName(model)
-  return isClaude5ModelId(canonical) || canonical.includes('opus-4-8')
+  return isClaude5ModelId(canonical) || isOpus48ModelId(canonical)
 }
 
 /**
@@ -480,7 +481,7 @@ export function getModelMaxOutputTokens(model: string): {
   // at 64k for native Anthropic routes.
   if (
     isOpus5ModelId(m) ||
-    m.includes('opus-4-8') ||
+    isOpus48ModelId(m) ||
     m.includes('opus-4-7') ||
     m.includes('opus-4-6')
   ) {

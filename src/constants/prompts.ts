@@ -23,6 +23,7 @@ import {
   getCanonicalName,
   getMarketingNameForModel,
 } from '../utils/model/model.js'
+import { isOpus5ModelId, isOpus48ModelId } from '../utils/model/modelIdMatch.js'
 import { getSkillToolCommands } from 'src/commands.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
 import { getOutputStyleConfig } from './outputStyles.js'
@@ -706,10 +707,10 @@ export async function computeSimpleEnvInfo(
 // @[MODEL LAUNCH]: Add a knowledge cutoff date for the new model.
 function getKnowledgeCutoff(modelId: string): string | null {
   const canonical = getCanonicalName(modelId)
-  if (canonical.includes('claude-opus-5')) {
+  if (isOpus5ModelId(canonical)) {
     return 'May 2026'
   } else if (
-    canonical.includes('claude-opus-4-8') ||
+    isOpus48ModelId(canonical) ||
     canonical.includes('claude-opus-4-7')
   ) {
     return 'January 2026'

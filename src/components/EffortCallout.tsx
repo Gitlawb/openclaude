@@ -6,6 +6,8 @@ import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
 import type { EffortLevel } from '../utils/effort.js';
 import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, modelGetsMediumEffortDefault, toPersistableEffort } from '../utils/effort.js';
 import { parseUserSpecifiedModel } from '../utils/model/model.js';
+import { getAPIProvider } from '../utils/model/providers.js';
+import { isClaude5ModelId } from '../utils/model/modelIdMatch.js';
 import { updateSettingsForSource } from '../utils/settings/settings.js';
 import type { OptionWithDescription } from './CustomSelect/select.js';
 import { Select } from './CustomSelect/select.js';
@@ -224,7 +226,11 @@ function EffortOptionLabel(t0) {
 export function effortCalloutCoversModel(model: string): boolean {
   // The callout receives the user's model setting, which may be an alias, so it
   // resolves before asking the shared cohort predicate.
-  return modelGetsMediumEffortDefault(parseUserSpecifiedModel(model));
+  const resolved = parseUserSpecifiedModel(model);
+  if (getAPIProvider() === 'vertex' && isClaude5ModelId(resolved)) {
+    return false;
+  }
+  return modelGetsMediumEffortDefault(resolved);
 }
 
 export function shouldShowEffortCallout(model: string): boolean {
