@@ -434,6 +434,41 @@ export function runWithSdkContext<T>(context: SdkContext, fn: () => T): T {
   return sdkContextStorage.run(context, fn)
 }
 
+/** Run process-global setup without inheriting the active SDK session. */
+export function runOutsideSdkContext<T>(fn: () => T): T {
+  return sdkContextStorage.exit(fn)
+}
+
+/**
+ * Bind every continuation of a lazy async generator to one SDK context.
+ * Creating a generator inside `AsyncLocalStorage.run()` is insufficient:
+ * its body executes later, when `next()`, `return()`, or `throw()` is called.
+ */
+export function bindSdkContextToAsyncGenerator<
+  TYield,
+  TReturn = void,
+  TNext = unknown,
+>(
+  context: SdkContext,
+  generator: AsyncGenerator<TYield, TReturn, TNext>,
+): AsyncGenerator<TYield, TReturn, TNext> {
+  const bound = {
+    next: (value?: TNext) =>
+      runWithSdkContext(context, () => generator.next(value as TNext)),
+    return: (value: TReturn | PromiseLike<TReturn>) =>
+      runWithSdkContext(context, () => generator.return(value)),
+    throw: (error?: unknown) =>
+      runWithSdkContext(context, () => generator.throw(error)),
+    [Symbol.asyncDispose]: () =>
+      runWithSdkContext(context, () => generator[Symbol.asyncDispose]()),
+    [Symbol.asyncIterator]() {
+      return this
+    },
+  }
+
+  return bound as AsyncGenerator<TYield, TReturn, TNext>
+}
+
 function getSdkContext(): SdkContext | undefined {
   return sdkContextStorage.getStore()
 }

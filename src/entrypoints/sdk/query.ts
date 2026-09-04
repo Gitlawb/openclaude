@@ -33,7 +33,8 @@ import {
   switchSession,
   regenerateSessionId,
   getSessionId,
-  runWithSdkContext,
+  bindSdkContextToAsyncGenerator,
+  runOutsideSdkContext,
 } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
 import {
@@ -510,8 +511,9 @@ class QueryImpl implements Query {
     }
 
     const self = this
-    const inner = runWithSdkContext(sdkContext, () => {
-      return (async function* (): AsyncGenerator<SDKMessage> {
+    const inner = bindSdkContextToAsyncGenerator(
+      sdkContext,
+      (async function* (): AsyncGenerator<SDKMessage> {
         // Fast exit: if interrupt()/close() was called before iteration
         // started, skip init entirely — avoids auth/network side-effects.
         if (self.abortController.signal.aborted) return
@@ -519,7 +521,7 @@ class QueryImpl implements Query {
         // Skip init for mock/host-injected engines; they are self-contained.
         const engineWasOverridden = self._engineWasInjected
         if (!engineWasOverridden) {
-          await init()
+          await runOutsideSdkContext(init)
         }
 
         // Load agent definitions BEFORE creating engine context
@@ -721,8 +723,8 @@ class QueryImpl implements Query {
               releaseEnvMutex()
             }
           }
-      })()
-    })
+      })(),
+    )
 
     yield* inner
   }
