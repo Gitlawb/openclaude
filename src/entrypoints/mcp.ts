@@ -202,7 +202,7 @@ export async function startMCPServer(
         if (typeof data === 'string') {
           content = [{ type: 'text', text: data }]
         } else if (Array.isArray(data)) {
-          content = data.map((block: any) => {
+          content = data.map((block: { type: string; text?: string; source?: { type: string; media_type: string; data: string } }) => {
             if (block.type === 'text') {
               return { type: 'text', text: block.text || '' }
             } else if (block.type === 'image' && block.source) {
@@ -223,7 +223,7 @@ export async function startMCPServer(
 
         return {
           content,
-          isError: !!(finalResult as any).isError,
+          isError: !!(finalResult as { isError?: unknown }).isError,
         }
       } catch (error) {
         logError(error)
