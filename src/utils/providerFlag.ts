@@ -400,7 +400,9 @@ export function applyProviderFlag(
                         : process.env.OPENAI_API_KEY !== undefined &&
                           (process.env.OPENAI_API_KEY === process.env.CMD_API_KEY ||
                             process.env.OPENAI_API_KEY ===
-                              process.env.COMMANDCODE_API_KEY)
+                              process.env.COMMANDCODE_API_KEY ||
+                            process.env.OPENAI_API_KEY ===
+                              process.env.COMMAND_CODE_API_KEY)
                         ? 'commandcode'
                         : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
@@ -881,7 +883,7 @@ export function applyProviderFlag(
         clearUnsupportedOpenAIShimSettings(provider)
         delete process.env.ANTHROPIC_CUSTOM_HEADERS
       }
-      // DedicatedCredentialsOnly: only CMD_API_KEY / COMMANDCODE_API_KEY
+      // DedicatedCredentialsOnly: only Command Code-owned credential aliases
       // authenticate this route. Mirror the resolved dedicated key into
       // OPENAI_API_KEY for the shared shim, and clear any unrelated generic
       // key so another provider's credential is never left in-process
@@ -897,7 +899,9 @@ export function applyProviderFlag(
           ? process.env.CMD_API_KEY
           : hasUsableOpenAICredential(process.env.COMMANDCODE_API_KEY)
             ? process.env.COMMANDCODE_API_KEY
-            : undefined
+            : hasUsableOpenAICredential(process.env.COMMAND_CODE_API_KEY)
+              ? process.env.COMMAND_CODE_API_KEY
+              : undefined
         if (dedicatedCommandcodeKey) {
           process.env.OPENAI_API_KEY = dedicatedCommandcodeKey
         } else {

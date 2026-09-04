@@ -634,6 +634,17 @@ describe('AIMLAPI runtime attribution', () => {
       'part_62yQoGYDq4Yqnrj2R1iGrDNJ',
     )
   })
+
+  it('does not forward caller headers during Command Code discovery', () => {
+    expect(
+      getRouteDiscoveryHeaders('commandcode', {
+        baseUrl: 'https://api.commandcode.ai/provider/v1',
+        headers: {
+          'X-Proxy-Secret': 'must-not-leak',
+        },
+      }),
+    ).toBeUndefined()
+  })
 })
 
 describe('resolveOpenAIShimRuntimeContext - Z.A.I GLM-5.2', () => {

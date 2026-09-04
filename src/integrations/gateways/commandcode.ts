@@ -157,7 +157,11 @@ export default defineGateway({
   setup: {
     requiresAuth: true,
     authMode: 'api-key',
-    credentialEnvVars: ['CMD_API_KEY', 'COMMANDCODE_API_KEY'],
+    credentialEnvVars: [
+      'CMD_API_KEY',
+      'COMMANDCODE_API_KEY',
+      'COMMAND_CODE_API_KEY',
+    ],
     dedicatedCredentialsOnly: true,
   },
   startup: {
@@ -175,7 +179,11 @@ export default defineGateway({
     id: 'commandcode',
     description: 'Command Code hybrid OpenAI-compatible gateway',
     vendorId: 'openai',
-    apiKeyEnvVars: ['CMD_API_KEY', 'COMMANDCODE_API_KEY'],
+    apiKeyEnvVars: [
+      'CMD_API_KEY',
+      'COMMANDCODE_API_KEY',
+      'COMMAND_CODE_API_KEY',
+    ],
     modelEnvVars: ['OPENAI_MODEL'],
   },
   validation: {
@@ -183,9 +191,13 @@ export default defineGateway({
     routing: {
       matchDefaultBaseUrl: true,
     },
-    credentialEnvVars: ['CMD_API_KEY', 'COMMANDCODE_API_KEY'],
+    credentialEnvVars: [
+      'CMD_API_KEY',
+      'COMMANDCODE_API_KEY',
+      'COMMAND_CODE_API_KEY',
+    ],
     missingCredentialMessage:
-      'Command Code auth is required. Set CMD_API_KEY or COMMANDCODE_API_KEY.',
+      'Command Code auth is required. Set CMD_API_KEY, COMMANDCODE_API_KEY, or COMMAND_CODE_API_KEY.',
   },
   catalog,
   usage: { supported: false },

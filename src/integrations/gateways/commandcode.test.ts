@@ -20,16 +20,22 @@ test('Command Code uses a dedicated hybrid OpenAI-compatible gateway contract', 
   expect(gateway.setup.credentialEnvVars).toEqual([
     'CMD_API_KEY',
     'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
   ])
   expect(gateway.setup.dedicatedCredentialsOnly).toBe(true)
   expect(gateway.preset?.apiKeyEnvVars).toEqual([
     'CMD_API_KEY',
     'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
   ])
   expect(gateway.validation).toMatchObject({
     kind: 'credential-env',
     routing: { matchDefaultBaseUrl: true },
-    credentialEnvVars: ['CMD_API_KEY', 'COMMANDCODE_API_KEY'],
+    credentialEnvVars: [
+      'CMD_API_KEY',
+      'COMMANDCODE_API_KEY',
+      'COMMAND_CODE_API_KEY',
+    ],
   })
   expect(gateway.transportConfig).toEqual({
     kind: 'openai-compatible',
@@ -78,6 +84,12 @@ test('Command Code preset uses the existing generic profile path', () => {
 
   expect(
     getProviderPresetUiMetadata('commandcode', {
+      COMMAND_CODE_API_KEY: 'official-key',
+    }).apiKey,
+  ).toBe('official-key')
+
+  expect(
+    getProviderPresetUiMetadata('commandcode', {
       CMD_API_KEY: 'SUA_CHAVE',
     }).apiKey,
   ).toBe('')
@@ -120,6 +132,13 @@ test('Command Code dedicated credentials require the canonical inference URL', (
       processEnv: { COMMANDCODE_API_KEY: 'fallback-key' },
     }),
   ).toBe('fallback-key')
+  expect(
+    resolveRouteCredentialValue({
+      routeId: 'commandcode',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      processEnv: { COMMAND_CODE_API_KEY: 'official-key' },
+    }),
+  ).toBe('official-key')
   expect(
     resolveRouteCredentialValue({
       routeId: 'custom',

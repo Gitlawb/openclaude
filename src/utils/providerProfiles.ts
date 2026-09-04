@@ -913,7 +913,12 @@ function isProcessEnvAlignedWithProfile(
       : true) &&
     (isCommandcodeProfile(profile)
       ? !includeApiKey ||
-        sameOptionalEnvValue(processEnv.CMD_API_KEY, profile.apiKey)
+        sameOptionalEnvValue(
+          processEnv.CMD_API_KEY ??
+            processEnv.COMMANDCODE_API_KEY ??
+            processEnv.COMMAND_CODE_API_KEY,
+          profile.apiKey,
+        )
       : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
@@ -1263,7 +1268,8 @@ export function applyProviderProfileToProcessEnv(
       if (!profile.apiKey) {
         const ambientCommandcodeKey =
           sanitizeApiKey(process.env.CMD_API_KEY) ||
-          sanitizeApiKey(process.env.COMMANDCODE_API_KEY)
+          sanitizeApiKey(process.env.COMMANDCODE_API_KEY) ||
+          sanitizeApiKey(process.env.COMMAND_CODE_API_KEY)
         if (ambientCommandcodeKey) {
           openAIProfileEnv.OPENAI_API_KEY =
             openAIProfileEnv.OPENAI_API_KEY ?? ambientCommandcodeKey

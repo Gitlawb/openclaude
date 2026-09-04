@@ -36,6 +36,7 @@ const ENV_KEYS = [
   'LLMTR_API_KEY',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'APISMART_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
@@ -196,6 +197,15 @@ test('Command Code validation accepts its dedicated credential on the selected r
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
 })
 
+test('Command Code validation accepts the official client credential variable', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.COMMAND_CODE_API_KEY = 'official-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
 test('Command Code validation accepts its canonical endpoint through OPENAI_API_BASE', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
@@ -267,7 +277,7 @@ test('Command Code validation rejects placeholder dedicated credentials', async 
   process.env.CMD_API_KEY = 'SUA_CHAVE'
 
   await expect(getProviderValidationError(process.env)).resolves.toBe(
-    'Command Code auth is required. Set CMD_API_KEY or COMMANDCODE_API_KEY.',
+    'Command Code auth is required. Set CMD_API_KEY, COMMANDCODE_API_KEY, or COMMAND_CODE_API_KEY.',
   )
 })
 
@@ -277,7 +287,7 @@ test('Command Code validation ignores a generic OPENAI_API_KEY', async () => {
   process.env.OPENAI_API_KEY = 'sk-openai-generic'
 
   await expect(getProviderValidationError(process.env)).resolves.toBe(
-    'Command Code auth is required. Set CMD_API_KEY or COMMANDCODE_API_KEY.',
+    'Command Code auth is required. Set CMD_API_KEY, COMMANDCODE_API_KEY, or COMMAND_CODE_API_KEY.',
   )
 })
 

@@ -259,6 +259,7 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
   expect(getRouteCredentialEnvVars('commandcode')).toEqual([
     'CMD_API_KEY',
     'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
   ])
   expect(
     getRouteCredentialValue('commandcode', {
@@ -282,6 +283,13 @@ test('getRouteCredentialEnvVars omits the openai fallback for dedicatedCredentia
       COMMANDCODE_API_KEY: 'fallback-key',
     }),
   ).toBe('fallback-key')
+  expect(
+    getRouteCredentialValue('commandcode', {
+      CMD_API_KEY: 'SUA_CHAVE',
+      COMMANDCODE_API_KEY: 'undefined',
+      COMMAND_CODE_API_KEY: 'official-key',
+    }),
+  ).toBe('official-key')
 })
 
 test('getRouteCredentialValue reads the first configured route credential', () => {

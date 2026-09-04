@@ -27,6 +27,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'OPENAI_API_KEY',
   'OPENAI_AZURE_STYLE',
   'OPENAI_BASE_URL',
@@ -103,6 +104,7 @@ describe('applyConfigEnvironmentVariables', () => {
     process.env.OPENAI_API_KEY = 'leader-primary-key'
     process.env.CMD_API_KEY = 'leader-primary-key'
     process.env.COMMANDCODE_API_KEY = 'leader-fallback-key'
+    process.env.COMMAND_CODE_API_KEY = 'leader-official-key'
     saveGlobalConfig(current => ({
       ...current,
       env: {
@@ -115,6 +117,7 @@ describe('applyConfigEnvironmentVariables', () => {
         CLAUDE_CODE_USE_MISTRAL: '1',
         CMD_API_KEY: 'stale-settings-primary-key',
         COMMANDCODE_API_KEY: 'stale-settings-fallback-key',
+        COMMAND_CODE_API_KEY: 'stale-settings-official-key',
       },
     }))
 
@@ -134,6 +137,7 @@ describe('applyConfigEnvironmentVariables', () => {
     ).toBe(false)
     expect(process.env.CMD_API_KEY).toBe('leader-primary-key')
     expect(process.env.COMMANDCODE_API_KEY).toBe('leader-fallback-key')
+    expect(process.env.COMMAND_CODE_API_KEY).toBe('leader-official-key')
   })
 
   it('restores remembered provider env-file values after full settings env merge', () => {

@@ -330,6 +330,7 @@ export async function executeOpenAIRequest(
       requestProcessEnv.LLMTR_API_KEY,
       requestProcessEnv.CMD_API_KEY,
       requestProcessEnv.COMMANDCODE_API_KEY,
+      requestProcessEnv.COMMAND_CODE_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(

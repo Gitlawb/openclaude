@@ -185,7 +185,8 @@ export const PROVIDER_PRESET_MANIFEST = [
     "description": "Command Code hybrid OpenAI-compatible gateway",
     "apiKeyEnvVars": [
       "CMD_API_KEY",
-      "COMMANDCODE_API_KEY"
+      "COMMANDCODE_API_KEY",
+      "COMMAND_CODE_API_KEY"
     ],
     "modelEnvVars": [
       "OPENAI_MODEL"

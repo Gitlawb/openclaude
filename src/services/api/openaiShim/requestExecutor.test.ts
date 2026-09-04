@@ -23,6 +23,7 @@ const originalEnv = {
   LLMTR_API_KEY: process.env.LLMTR_API_KEY,
   CMD_API_KEY: process.env.CMD_API_KEY,
   COMMANDCODE_API_KEY: process.env.COMMANDCODE_API_KEY,
+  COMMAND_CODE_API_KEY: process.env.COMMAND_CODE_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_API_FORMAT: process.env.OPENAI_API_FORMAT,
   OPENAI_AZURE_STYLE: process.env.OPENAI_AZURE_STYLE,
@@ -456,6 +457,7 @@ beforeEach(async () => {
   delete process.env.LLMTR_API_KEY
   delete process.env.CMD_API_KEY
   delete process.env.COMMANDCODE_API_KEY
+  delete process.env.COMMAND_CODE_API_KEY
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_API_FORMAT
   delete process.env.OPENAI_AZURE_STYLE
@@ -508,6 +510,7 @@ afterEach(() => {
     restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
     restoreEnv('CMD_API_KEY', originalEnv.CMD_API_KEY)
     restoreEnv('COMMANDCODE_API_KEY', originalEnv.COMMANDCODE_API_KEY)
+    restoreEnv('COMMAND_CODE_API_KEY', originalEnv.COMMAND_CODE_API_KEY)
     restoreEnv('OPENAI_MODEL', originalEnv.OPENAI_MODEL)
     restoreEnv('OPENAI_API_FORMAT', originalEnv.OPENAI_API_FORMAT)
     restoreEnv('OPENAI_AZURE_STYLE', originalEnv.OPENAI_AZURE_STYLE)
@@ -639,6 +642,25 @@ test('selected Command Code route sends CMD_API_KEY through the generic route cr
     'https://api.commandcode.ai/provider/v1/chat/completions',
   )
   expect(captured.authorization).toBe('Bearer cmd-key')
+})
+
+test('selected Command Code route accepts the official client credential variable', async () => {
+  process.env.COMMAND_CODE_API_KEY = 'official-key'
+  delete process.env.CMD_API_KEY
+  delete process.env.COMMANDCODE_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('commandcode', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest(
+    'deepseek/deepseek-v4-flash',
+  )
+
+  expect(captured.authorization).toBe('Bearer official-key')
 })
 
 test('selected Command Code route prefers CMD_API_KEY over a generic OPENAI_API_KEYS pool', async () => {

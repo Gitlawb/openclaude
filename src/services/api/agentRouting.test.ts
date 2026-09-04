@@ -775,6 +775,7 @@ describe('applyAgentProviderOverrideToEnv', () => {
     const env: Record<string, string | undefined> = {
       CMD_API_KEY: 'stale-parent-key',
       COMMANDCODE_API_KEY: 'stale-fallback-key',
+      COMMAND_CODE_API_KEY: 'stale-official-key',
     }
 
     applyAgentProviderOverrideToEnv(
@@ -789,12 +790,14 @@ describe('applyAgentProviderOverrideToEnv', () => {
     expect(env.OPENAI_API_KEY).toBe('configured-agent-key')
     expect(env.CMD_API_KEY).toBe('configured-agent-key')
     expect(env.COMMANDCODE_API_KEY).toBeUndefined()
+    expect(env.COMMAND_CODE_API_KEY).toBeUndefined()
   })
 
   test('clears inherited Command Code keys for unrelated overrides', () => {
     const env: Record<string, string | undefined> = {
       CMD_API_KEY: 'stale-parent-key',
       COMMANDCODE_API_KEY: 'stale-fallback-key',
+      COMMAND_CODE_API_KEY: 'stale-official-key',
     }
 
     applyAgentProviderOverrideToEnv(
@@ -808,6 +811,7 @@ describe('applyAgentProviderOverrideToEnv', () => {
 
     expect(env.CMD_API_KEY).toBeUndefined()
     expect(env.COMMANDCODE_API_KEY).toBeUndefined()
+    expect(env.COMMAND_CODE_API_KEY).toBeUndefined()
   })
 })
 

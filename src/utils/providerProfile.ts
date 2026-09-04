@@ -124,6 +124,7 @@ const PROFILE_ENV_KEYS = [
   'LLMTR_API_KEY',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -133,6 +134,14 @@ const PROFILE_ENV_KEYS = [
   'CLOUDFLARE_API_TOKEN',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
+
+function isCommandcodeCredentialEnvVar(envVar: string): boolean {
+  return (
+    envVar === 'CMD_API_KEY' ||
+    envVar === 'COMMANDCODE_API_KEY' ||
+    envVar === 'COMMAND_CODE_API_KEY'
+  )
+}
 
 export type CompatibilityProfileMode =
   | 'anthropic'
@@ -217,6 +226,7 @@ export type ProfileEnv = {
   LLMTR_API_KEY?: string
   CMD_API_KEY?: string
   COMMANDCODE_API_KEY?: string
+  COMMAND_CODE_API_KEY?: string
   CONCENTRATE_API_KEY?: string
   CONCENTRATE_BASE_URL?: string
   CONCENTRATE_MODEL?: string
@@ -2223,6 +2233,7 @@ export async function buildLaunchEnv(options: {
     'LLMTR_API_KEY',
     'CMD_API_KEY',
     'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
@@ -2248,7 +2259,7 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (
-      (dedicatedKey === 'CMD_API_KEY' || dedicatedKey === 'COMMANDCODE_API_KEY') &&
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
       effectiveOpenAIRouteId !== 'commandcode'
     ) {
       continue
@@ -2285,8 +2296,7 @@ export async function buildLaunchEnv(options: {
       !!dedicatedBaseUrl &&
       !isCanonicalLlmtrInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientCommandcodeKey =
-      (dedicatedKey === 'CMD_API_KEY' ||
-        dedicatedKey === 'COMMANDCODE_API_KEY') &&
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
       !!dedicatedBaseUrl &&
       !isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
@@ -2359,15 +2369,15 @@ export async function buildLaunchEnv(options: {
       (!persistedOpenAIRouteId &&
         isCanonicalCommandcodeInferenceBaseUrl(persistedOpenAIBaseUrl))
     const persistedCommandcodeProfileKey =
-      (dedicatedKey === 'CMD_API_KEY' ||
-        dedicatedKey === 'COMMANDCODE_API_KEY') &&
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
       effectiveOpenAIRouteId === 'commandcode' &&
       persistedCommandcodeProfileIdentity &&
       !!dedicatedBaseUrl &&
       isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
         ? sanitizeApiKey(persistedEnv[dedicatedKey]) ||
           (dedicatedKey === 'CMD_API_KEY'
-            ? sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY)
+            ? sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY) ||
+              sanitizeApiKey(persistedEnv.COMMAND_CODE_API_KEY)
             : undefined) ||
           (dedicatedKey === 'CMD_API_KEY' &&
           persistedOpenAICredential?.kind === 'usable'

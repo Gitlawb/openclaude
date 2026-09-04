@@ -170,7 +170,7 @@ export function getOpenAILaunchCredentialError(
     if (getRouteCredentialValue('commandcode', env)) {
       return null
     }
-    return 'CMD_API_KEY is required for the Command Code route (fallback: COMMANDCODE_API_KEY) and cannot include placeholder values such as SUA_CHAVE. Set one of those environment variables, rerun the launcher, then use /provider to save the Command Code profile.'
+    return 'CMD_API_KEY is required for the Command Code route (fallbacks: COMMANDCODE_API_KEY or COMMAND_CODE_API_KEY) and cannot include placeholder values such as SUA_CHAVE. Set one of those environment variables, rerun the launcher, then use /provider to save the Command Code profile.'
   }
   if (resolveOpenAICredentialEnvState(env).configured) {
     return null

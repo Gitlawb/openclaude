@@ -46,7 +46,8 @@ function hasUsableEnvValue(envVar: string, value: string | undefined): boolean {
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'LLMTR_API_KEY' ||
     envVar === 'CMD_API_KEY' ||
-    envVar === 'COMMANDCODE_API_KEY'
+    envVar === 'COMMANDCODE_API_KEY' ||
+    envVar === 'COMMAND_CODE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }

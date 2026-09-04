@@ -3287,6 +3287,22 @@ test('openai launch preserves distinct persisted Command Code credentials', asyn
   assert.equal(env.COMMANDCODE_API_KEY, 'fallback-commandcode-key')
 })
 
+test('openai launch accepts the official Command Code credential variable', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: null,
+    goal: 'coding',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      COMMAND_CODE_API_KEY: 'official-command-code-key',
+    },
+  })
+
+  assert.equal(env.COMMAND_CODE_API_KEY, 'official-command-code-key')
+})
+
 test('openai launch does not migrate an unrelated persisted OpenAI key into Command Code', async () => {
   const env = await buildLaunchEnv({
     profile: 'openai',

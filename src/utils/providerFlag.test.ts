@@ -35,6 +35,7 @@ const ENV_KEYS = [
   'LLMTR_API_KEY',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -742,6 +743,16 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 
     expect(result.error).toBeUndefined()
     expect(process.env.OPENAI_API_KEY).toBe('commandcode-key')
+  })
+
+  test('Command Code uses the official client key when other aliases are absent', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.COMMAND_CODE_API_KEY = 'official-command-code-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('official-command-code-key')
   })
 
   test('Command Code rejects an incompatible stale model before changing provider state', () => {

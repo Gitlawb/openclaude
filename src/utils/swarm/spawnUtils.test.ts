@@ -76,6 +76,16 @@ test('buildInheritedEnvVars forwards a Command Code credential without inventing
   expect(envVars).not.toContain('OPENAI_BASE_URL=')
 })
 
+test('buildInheritedEnvVars forwards the official Command Code credential alias', () => {
+  process.env.COMMAND_CODE_API_KEY = 'official-key'
+
+  const envVars = buildInheritedEnvVars()
+
+  expect(envVars).toContain('COMMAND_CODE_API_KEY=official-key')
+  expect(envVars).not.toContain('CLAUDE_CODE_USE_OPENAI=1')
+  expect(envVars).not.toContain('OPENAI_BASE_URL=')
+})
+
 test('buildInheritedEnvVars forwards PATH for source-built teammate tool lookups', () => {
   process.env.PATH = '/custom/bin:/usr/bin'
 

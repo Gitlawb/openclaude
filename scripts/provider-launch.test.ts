@@ -53,7 +53,11 @@ describe('provider-launch OpenAI credential validation', () => {
     ).toBe(false)
   })
 
-  test.each(['CMD_API_KEY', 'COMMANDCODE_API_KEY'] as const)(
+  test.each([
+    'CMD_API_KEY',
+    'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
+  ] as const)(
     'rejects a placeholder %s on the selected Command Code route',
     credentialEnvVar => {
       expect(
@@ -73,7 +77,7 @@ describe('provider-launch OpenAI credential validation', () => {
         OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
       } as NodeJS.ProcessEnv),
     ).toBe(
-      'CMD_API_KEY is required for the Command Code route (fallback: COMMANDCODE_API_KEY) and cannot include placeholder values such as SUA_CHAVE. Set one of those environment variables, rerun the launcher, then use /provider to save the Command Code profile.',
+      'CMD_API_KEY is required for the Command Code route (fallbacks: COMMANDCODE_API_KEY or COMMAND_CODE_API_KEY) and cannot include placeholder values such as SUA_CHAVE. Set one of those environment variables, rerun the launcher, then use /provider to save the Command Code profile.',
     )
   })
 

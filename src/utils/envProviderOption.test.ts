@@ -110,6 +110,17 @@ describe('getEnvProviderOption — availability and var naming', () => {
     expect(option.apiKey).toBe('commandcode-secret')
   })
 
+  test('canonical Command Code adoption accepts the official client key', () => {
+    const option = getEnvProviderOption({
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      COMMAND_CODE_API_KEY: 'official-command-code-key',
+    })
+
+    expect(option.available).toBe(true)
+    expect(option.apiKey).toBe('official-command-code-key')
+  })
+
   test('custom OpenAI-compatible adoption still carries its generic credential', () => {
     const option = getEnvProviderOption({
       OPENAI_BASE_URL: 'https://proxy.example/v1',

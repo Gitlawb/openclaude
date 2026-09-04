@@ -76,6 +76,7 @@ const RESTORED_KEYS = [
   'LLMTR_API_KEY',
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -1488,6 +1489,26 @@ describe('applyProviderProfileToProcessEnv', () => {
     })
 
     expect(saved?.apiKey).toBe('env-commandcode-key')
+  })
+
+  test('addProviderProfile captures the official Command Code client key', async () => {
+    const { addProviderProfile } = await importFreshProviderProfileModules()
+    process.env.COMMAND_CODE_API_KEY = 'official-command-code-key'
+
+    saveMockGlobalConfig(current => ({
+      ...current,
+      providerProfiles: [],
+      activeProviderProfileId: undefined,
+    }))
+
+    const saved = addProviderProfile({
+      provider: 'commandcode',
+      name: 'Command Code',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      model: 'deepseek/deepseek-v4-flash',
+    })
+
+    expect(saved?.apiKey).toBe('official-command-code-key')
   })
 
   test('updateProviderProfile captures dedicated Command Code env when refreshing a keyless profile', async () => {
