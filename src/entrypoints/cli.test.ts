@@ -688,6 +688,20 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockCliMain).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    ['--', '--provider=anthropic'],
+    ['--system-prompt', '--provider=anthropic'],
+  ])(
+    'does not treat provider-looking prompt data as an explicit selection: %j',
+    async (firstArg, secondArg) => {
+      await runCliEntrypoint([firstArg, secondArg], bgOptions)
+
+      expect(mockApplyStartupEnvFromProfile).toHaveBeenCalledTimes(1)
+      expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+      expect(mockCliMain).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('does not treat a nested command --model as the Command Code session model', async () => {
     const originalExit = process.exit
     const originalConsoleError = console.error

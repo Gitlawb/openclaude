@@ -2798,6 +2798,81 @@ test('/model refresh passes first pooled OpenAI credential to descriptor discove
   })
 })
 
+test('/model refresh uses OPENAI_API_BASE for Command Code discovery', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  delete process.env.OPENAI_BASE_URL
+  process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
+  process.env.CMD_API_KEY = 'cmd-key'
+  delete process.env.COMMANDCODE_API_KEY
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_API_KEYS
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  delete process.env.CLAUDE_CODE_USE_GEMINI
+  delete process.env.CLAUDE_CODE_USE_GITHUB
+  delete process.env.CLAUDE_CODE_USE_MISTRAL
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+  delete process.env.CLAUDE_CODE_USE_VERTEX
+  delete process.env.CLAUDE_CODE_USE_FOUNDRY
+
+  const discoverModelsForRoute = mock(async () => ({
+    routeId: 'commandcode',
+    models: [
+      {
+        id: 'deepseek/deepseek-v4-flash',
+        apiName: 'deepseek/deepseek-v4-flash',
+      },
+    ],
+    stale: false,
+    error: null,
+    source: 'network',
+  }))
+
+  mock.module('../../integrations/discoveryCache.js', () => ({
+    clearDiscoveryCache: mock(async () => {}),
+    getCachedModels: mock(async () => ({
+      models: [],
+      updatedAt: Date.now(),
+      error: null,
+    })),
+    isCacheStale: mock(async () => false),
+    parseDurationString: (value: number | string) =>
+      typeof value === 'number' ? value : 86_400_000,
+  }))
+
+  mock.module('../../integrations/discoveryService.js', () => ({
+    getDiscoveryCacheKey: (
+      routeId: string,
+      options?: {
+        apiKey?: string
+        baseUrl?: string
+        headers?: Record<string, string>
+      },
+    ) =>
+      `${routeId}|${options?.baseUrl ?? ''}|${options?.apiKey ?? ''}|${JSON.stringify(options?.headers ?? {})}`,
+    discoverModelsForRoute,
+    probeRouteReadiness: mock(async () => null),
+  }))
+
+  mockProviderProfiles({
+    getActiveOpenAIModelOptionsCache: () => [],
+    getActiveProviderProfile: () => undefined,
+    getProfileModelOptions: () => [],
+    setActiveOpenAIModelOptionsCache: () => {},
+  })
+
+  const { call } = await importFreshModelModule(
+    'commandcode-refresh-openai-api-base',
+  )
+  await call(() => {}, {} as never, 'refresh')
+
+  expect(discoverModelsForRoute).toHaveBeenCalledWith('commandcode', {
+    apiKey: 'cmd-key',
+    baseUrl: 'https://api.commandcode.ai/provider/v1',
+    headers: undefined,
+    forceRefresh: true,
+  })
+})
+
 test('/model refresh clears descriptor cache and reports updates', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
   process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'

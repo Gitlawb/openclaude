@@ -659,6 +659,17 @@ describe('resolveOutOfProcessTeammateProviderFromCliArgs', () => {
       ['--model', 'gpt-4o', '--', '--model', 'deepseek-chat'],
       'gpt-4o',
     ],
+    [
+      [
+        '--model',
+        'deepseek-chat',
+        'aimlapi',
+        'topup',
+        '--model',
+        'gpt-4o',
+      ],
+      'deepseek-chat',
+    ],
   ])('routes the effective CLI model from %j', (modelArgs, expectedModel) => {
     const result = resolveOutOfProcessTeammateProviderFromCliArgs(
       [

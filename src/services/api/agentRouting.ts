@@ -3,6 +3,7 @@ import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
 import { parseModelFlagValue } from '../../utils/cliArgs.js'
+import { argsBeforeModelOwningSubcommand } from '../../utils/printFlag.js'
 import { resolveRouteIdFromBaseUrl } from '../../integrations/routeMetadata.js'
 
 /**
@@ -322,7 +323,7 @@ export function resolveOutOfProcessTeammateProviderFromCliArgs(
   if (!agentName || !teamName) return null
 
   return resolveOutOfProcessTeammateProvider({
-    cliModel: parseModelFlagValue(args),
+    cliModel: parseModelFlagValue(argsBeforeModelOwningSubcommand(args)),
     agentName,
     agentType: parseCliFlag(args, '--agent-type'),
     settings,

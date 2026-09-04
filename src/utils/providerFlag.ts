@@ -40,7 +40,10 @@ import {
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 import { parseModelFlagValue } from './cliArgs.js'
-import { argsBeforeModelOwningSubcommand } from './printFlag.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  parseRootOptionValue,
+} from './printFlag.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -100,15 +103,7 @@ let rememberedProviderFlag:
  * Returns null if the flag is absent or has no value.
  */
 export function parseProviderFlag(args: string[]): string | null {
-  const idx = args.indexOf('--provider')
-  if (idx !== -1) {
-    const value = args[idx + 1]
-    if (!value || value.startsWith('--')) return null
-    return value
-  }
-
-  const inline = args.find(arg => arg.startsWith('--provider='))
-  return inline?.slice('--provider='.length) || null
+  return parseRootOptionValue(args, '--provider') ?? null
 }
 
 /**
@@ -298,7 +293,7 @@ function usableProviderModelEnvValue(
 export function applyModelFlagFromArgs(
   args: string[],
 ): { error?: string } | undefined {
-  if (args.includes('--provider')) return
+  if (parseProviderFlag(args)) return
   const model = parseModelFlag(args)
   if (!model) return
 

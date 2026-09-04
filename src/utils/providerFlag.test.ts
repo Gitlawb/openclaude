@@ -149,6 +149,15 @@ describe('parseProviderFlag', () => {
     expect(parseProviderFlag(['--provider=anthropic'])).toBe('anthropic')
   })
 
+  test('uses the final provider occurrence across spaced and inline syntax', () => {
+    expect(
+      parseProviderFlag(['--provider', 'anthropic', '--provider=openai']),
+    ).toBe('openai')
+    expect(
+      parseProviderFlag(['--provider=commandcode', '--provider', 'anthropic']),
+    ).toBe('anthropic')
+  })
+
   test('returns provider name with --model alongside', () => {
     expect(parseProviderFlag(['--provider', 'gemini', '--model', 'gemini-2.0-flash'])).toBe('gemini')
   })
@@ -167,6 +176,16 @@ describe('parseProviderFlag', () => {
 
   test('returns null when inline --provider has no value', () => {
     expect(parseProviderFlag(['--provider='])).toBeNull()
+  })
+
+  test('ignores provider-looking values consumed by another root option', () => {
+    expect(
+      parseProviderFlag(['--system-prompt', '--provider=commandcode']),
+    ).toBeNull()
+  })
+
+  test('ignores provider-looking prompt text after the option delimiter', () => {
+    expect(parseProviderFlag(['--', '--provider=commandcode'])).toBeNull()
   })
 
   test('returns null when --provider value starts with --', () => {
@@ -1592,6 +1611,15 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--provider', 'openai', '--model', 'gpt-4o'])
     expect(process.env.OPENAI_MODEL).toBeUndefined()
+  })
+
+  test('is a no-op when inline --provider is present', () => {
+    const result = applyModelFlagFromArgs([
+      '--provider=anthropic',
+      '--model=sonnet',
+    ])
+    expect(result).toBeUndefined()
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
   })
 
   test('sets OPENAI_MODEL when CLAUDE_CODE_USE_OPENAI is active', () => {

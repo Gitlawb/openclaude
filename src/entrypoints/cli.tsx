@@ -3,7 +3,10 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
-import { argsBeforeModelOwningSubcommand } from '../utils/printFlag.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  parseRootOptionValue,
+} from '../utils/printFlag.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -404,13 +407,12 @@ export async function main(
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
   let appliedExplicitAnthropic = false
-  if (args.some(arg => arg === '--provider' || arg.startsWith('--provider='))) {
+  const requestedProvider = parseRootOptionValue(args, '--provider')
+  if (requestedProvider) {
     const {
       applyProviderFlagFromArgs,
-      parseProviderFlag,
       reapplyRememberedProviderFlag,
     } = await importers.providerFlag()
-    const requestedProvider = parseProviderFlag(args)
     reapplyProviderFlagValues = reapplyRememberedProviderFlag
     const result = applyProviderFlagFromArgs(args, {
       rememberForSettingsEnv: true,
