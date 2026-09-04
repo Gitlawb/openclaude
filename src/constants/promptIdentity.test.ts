@@ -230,3 +230,21 @@ test('knowledge cutoff matches exact Claude Opus 5 and Opus 4.8 without matching
     expect(env).not.toContain('Assistant knowledge cutoff is January 2026.')
   }
 })
+
+test('knowledge cutoff matches Claude Sonnet 5 including dated and provider-prefixed forms without matching near-miss IDs', async () => {
+  const sonnet5Env = await computeSimpleEnvInfo('claude-sonnet-5')
+  expect(sonnet5Env).toContain('Assistant knowledge cutoff is January 2026.')
+
+  const datedSonnet5Env = await computeSimpleEnvInfo('us.anthropic.claude-sonnet-5-20260101-v1:0')
+  expect(datedSonnet5Env).toContain('Assistant knowledge cutoff is January 2026.')
+
+  const nearMatches = [
+    'claude-sonnet-50',
+    'claude-sonnet-5x',
+    'notclaude-sonnet-5',
+  ]
+  for (const model of nearMatches) {
+    const env = await computeSimpleEnvInfo(model)
+    expect(env).not.toContain('Assistant knowledge cutoff is January 2026.')
+  }
+})

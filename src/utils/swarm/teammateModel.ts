@@ -15,7 +15,11 @@ export function getHardcodedTeammateModelFallback(): string {
     return CLAUDE_OPUS_5_CONFIG.firstParty
   }
   if (isCustomAnthropicProvider()) {
-    return process.env.ANTHROPIC_MODEL || CLAUDE_OPUS_4_8_CONFIG.firstParty
+    return (
+      process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+      process.env.ANTHROPIC_MODEL ||
+      CLAUDE_OPUS_4_8_CONFIG.firstParty
+    )
   }
   const provider = getAPIProvider()
   return CLAUDE_OPUS_4_8_CONFIG[provider]

@@ -19,20 +19,27 @@
  * `claude-opus-5`.
  */
 export function matchesModelIdAtBoundary(name: string, id: string): boolean {
-  const index = name.indexOf(id)
-  if (index === -1) {
-    return false
-  }
-  const previous = name[index - 1]
-  const next = name[index + id.length]
-  return (
-    (previous === undefined || !/[a-z0-9]/i.test(previous)) &&
-    (next === undefined ||
+  let startIndex = 0
+  while (true) {
+    const index = name.indexOf(id, startIndex)
+    if (index === -1) {
+      return false
+    }
+    const previous = name[index - 1]
+    const next = name[index + id.length]
+    const leftValid = previous === undefined || !/[a-z0-9_]/i.test(previous)
+    const rightValid =
+      next === undefined ||
       next === '-' ||
       next === '@' ||
       next === '?' ||
-      next === '[')
-  )
+      next === '[' ||
+      next === ':'
+    if (leftValid && rightValid) {
+      return true
+    }
+    startIndex = index + 1
+  }
 }
 
 // @[MODEL LAUNCH]: Add the new model's family fragment here rather than adding

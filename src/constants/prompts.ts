@@ -23,7 +23,7 @@ import {
   getCanonicalName,
   getMarketingNameForModel,
 } from '../utils/model/model.js'
-import { isOpus5ModelId, isOpus48ModelId } from '../utils/model/modelIdMatch.js'
+import { isOpus5ModelId, isSonnet5ModelId, isOpus48ModelId } from '../utils/model/modelIdMatch.js'
 import { getSkillToolCommands } from 'src/commands.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
 import { getOutputStyleConfig } from './outputStyles.js'
@@ -709,6 +709,8 @@ function getKnowledgeCutoff(modelId: string): string | null {
   const canonical = getCanonicalName(modelId)
   if (isOpus5ModelId(canonical)) {
     return 'May 2026'
+  } else if (isSonnet5ModelId(canonical)) {
+    return 'January 2026'
   } else if (
     isOpus48ModelId(canonical) ||
     canonical.includes('claude-opus-4-7')

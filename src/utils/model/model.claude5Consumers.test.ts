@@ -17,6 +17,7 @@ import {
 } from './model.js'
 import {
   getMaxSonnetOption,
+  getModelOptions,
   getOpus46_1MOption,
   getSonnet46_1MOption,
 } from './modelOptions.js'
@@ -210,4 +211,11 @@ test.each(['opus40', 'opus41', 'opus45', 'opus46', 'opus47', 'opus48', 'opus5'])
 test('an arbitrary custom Opus override is still excluded', () => {
   expect(isNonCustomOpusModel('my-proxy/opus-turbo')).toBe(false)
   expect(isNonCustomOpusModel('claude-opus-50')).toBe(false)
+})
+
+test('first-party picker suppresses duplicate 1M options for unconditional Claude 5 models', () => {
+  const options = getModelOptions(false)
+  const optionValues = options.map(o => o.value)
+  // Sonnet 5 has 1M unconditionally, so sonnet[1m] is not offered
+  expect(optionValues).not.toContain('sonnet[1m]')
 })

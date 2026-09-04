@@ -331,55 +331,60 @@ export function getContextWindowForModel(
   const useRuntimeLimits = usesRouteContextWindow(runtimeLimits)
   const routeContextWindow = resolveRouteContextWindow(model, runtimeLimits)
 
-  if (has1mContext(model)) {
-    if (routeContextWindow !== undefined && routeContextWindow < 1_000_000) {
+  const resolveEffectiveContext = (): number => {
+    if (has1mContext(model)) {
+      if (routeContextWindow !== undefined && routeContextWindow < 1_000_000) {
+        return routeContextWindow
+      }
+      return 1_000_000
+    }
+
+    if (routeContextWindow !== undefined) {
       return routeContextWindow
     }
-    return 1_000_000
-  }
 
-  if (routeContextWindow !== undefined) {
-    return routeContextWindow
-  }
-
-  // Models that ship with 1M context unconditionally (no [1m] suffix or
-  // extra-usage opt-in required) — e.g. claude-sonnet-5, claude-opus-5,
-  // claude-opus-4-8. Applied only when the route supplied no limit of its own,
-  // so an unknown Anthropic-proxy route still gets 1M rather than the 128k
-  // fallback below.
-  if (modelHasUnconditional1MContext(model)) {
-    return 1_000_000
-  }
-
-  if (useRuntimeLimits) {
-    warnUnknownIntegrationRuntimeLimits(model)
-    return OPENAI_FALLBACK_CONTEXT_WINDOW
-  }
-
-  const cap = getModelCapability(model)
-  if (cap?.max_input_tokens && cap.max_input_tokens >= 100_000) {
-    if (
-      cap.max_input_tokens > MODEL_CONTEXT_WINDOW_DEFAULT &&
-      is1mContextDisabled()
-    ) {
-      return MODEL_CONTEXT_WINDOW_DEFAULT
+    // Models that ship with 1M context unconditionally (no [1m] suffix or
+    // extra-usage opt-in required) — e.g. claude-sonnet-5, claude-opus-5,
+    // claude-opus-4-8. Applied only when the route supplied no limit of its own,
+    // so an unknown Anthropic-proxy route still gets 1M rather than the 128k
+    // fallback below.
+    if (modelHasUnconditional1MContext(model)) {
+      return 1_000_000
     }
-    return cap.max_input_tokens
+
+    if (useRuntimeLimits) {
+      warnUnknownIntegrationRuntimeLimits(model)
+      return OPENAI_FALLBACK_CONTEXT_WINDOW
+    }
+
+    const cap = getModelCapability(model)
+    if (cap?.max_input_tokens && cap.max_input_tokens >= 100_000) {
+      return cap.max_input_tokens
+    }
+
+    if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
+      return 1_000_000
+    }
+    if (getSonnet1mExpTreatmentEnabled(model)) {
+      return 1_000_000
+    }
+    if (process.env.USER_TYPE === 'ant') {
+      const antModel = resolveAntModel(model)
+      if (antModel?.contextWindow) {
+        return antModel.contextWindow
+      }
+    }
+    return MODEL_CONTEXT_WINDOW_DEFAULT
   }
 
-  if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
-    return 1_000_000
+  const effectiveContext = resolveEffectiveContext()
+  if (
+    is1mContextDisabled() &&
+    effectiveContext > MODEL_CONTEXT_WINDOW_DEFAULT
+  ) {
+    return MODEL_CONTEXT_WINDOW_DEFAULT
   }
-  if (getSonnet1mExpTreatmentEnabled(model)) {
-    return 1_000_000
-  }
-  if (process.env.USER_TYPE === 'ant') {
-    const antModel = resolveAntModel(model)
-    if (antModel?.contextWindow) {
-      return antModel.contextWindow
-    }
-  }
-  return MODEL_CONTEXT_WINDOW_DEFAULT
+  return effectiveContext
 }
 
 export function getSonnet1mExpTreatmentEnabled(model: string): boolean {

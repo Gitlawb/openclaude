@@ -1266,9 +1266,9 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.8+)'
+      return 'Maximum capability with deepest reasoning (Sonnet 5, Opus 4.8+)'
     case 'xhigh':
-      return 'Extra high reasoning effort for complex tasks'
+      return 'Extra high reasoning effort for complex tasks (OpenAI/Codex, Sonnet 5, Opus 4.7+)'
     case 'ultracode':
       return 'xhigh effort + standing permission for multi-agent orchestration'
   }
