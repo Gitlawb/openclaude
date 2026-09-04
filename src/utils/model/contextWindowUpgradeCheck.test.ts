@@ -9,6 +9,7 @@ import { getUpgradeMessage } from './contextWindowUpgradeCheck.js'
 const originalSonnetEnv = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL
 const originalOpusEnv = process.env.ANTHROPIC_DEFAULT_OPUS_MODEL
 const originalModelEnv = process.env.ANTHROPIC_MODEL
+const originalDisable1mEnv = process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
 
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/model/contextWindowUpgradeCheck.test.ts')
@@ -41,6 +42,11 @@ afterEach(() => {
       process.env.ANTHROPIC_MODEL = originalModelEnv
     } else {
       delete process.env.ANTHROPIC_MODEL
+    }
+    if (originalDisable1mEnv !== undefined) {
+      process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT = originalDisable1mEnv
+    } else {
+      delete process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT
     }
   } finally {
     releaseSharedMutationLock()

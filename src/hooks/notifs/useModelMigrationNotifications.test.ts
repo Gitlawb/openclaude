@@ -92,3 +92,17 @@ test('stale migration timestamps do not emit notifications', () => {
   const notifs = getMigrationNotifications(config)
   expect(notifs).toHaveLength(0)
 })
+
+test('stale legacy timestamp alongside recent Opus Pro timestamp falls back to Opus Pro notification', () => {
+  const stale = Date.now() - 10000
+  const recent = Date.now()
+  const config: Partial<GlobalConfig> = {
+    legacyOpusMigrationTimestamp: stale,
+    opusProMigrationTimestamp: recent,
+  }
+
+  const notifs = getMigrationNotifications(config)
+  expect(notifs).toHaveLength(1)
+  expect(notifs[0].key).toBe('opus-pro-update')
+  expect('text' in notifs[0] ? notifs[0].text : undefined).toBe('Model updated to Opus 5')
+})

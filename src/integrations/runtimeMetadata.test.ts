@@ -295,6 +295,25 @@ describe('resolveModelRuntimeLimits', () => {
     expect(limits.maxOutputTokens).toBe(131_072)
   })
 
+  it('resolves provider-specific runtime metadata and limits for a model identifier ending in [1M]', () => {
+    const limits = resolveModelRuntimeLimits({
+      model: 'glm-5.3[1M]',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4',
+      },
+    })
+
+    expect(limits.contextWindow).toBe(1_000_000)
+    expect(limits.maxOutputTokens).toBe(131_072)
+
+    const context = resolveOpenAIShimRuntimeContext({
+      model: 'glm-5.3[1M]',
+      activeProfileProvider: 'zai',
+    })
+    expect(context?.catalogEntry?.id).toBe('glm-5.3')
+  })
+
   it('keeps the built-in Z.AI GLM-5.2 runtime limits', () => {
     const limits = resolveModelRuntimeLimits({
       model: 'glm-5.2',
