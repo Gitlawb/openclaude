@@ -2802,7 +2802,7 @@ test('/model refresh passes first pooled OpenAI credential to descriptor discove
 
 test('/model refresh uses OPENAI_API_BASE for Command Code discovery', async () => {
   process.env.CLAUDE_CODE_USE_OPENAI = '1'
-  delete process.env.OPENAI_BASE_URL
+  process.env.OPENAI_BASE_URL = '   '
   process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
   process.env.CMD_API_KEY = 'cmd-key'
   delete process.env.COMMANDCODE_API_KEY

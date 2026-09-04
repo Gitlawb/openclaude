@@ -1116,6 +1116,28 @@ test('applyStartupEnvFromProfile overlays a root model before validating a saved
   assert.equal(processEnv.CMD_API_KEY, 'cmd-key')
 })
 
+test('applyStartupEnvFromProfile resolves the reserved default model for Command Code', async () => {
+  const processEnv: NodeJS.ProcessEnv = {}
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: {
+      profile: 'openai',
+      env: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+        OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+        OPENAI_MODEL: 'anthropic/claude-sonnet-4-6',
+        CMD_API_KEY: 'cmd-key',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    processEnv,
+    modelOverride: 'default',
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.OPENAI_MODEL, 'deepseek/deepseek-v4-flash')
+})
+
 test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env without a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,

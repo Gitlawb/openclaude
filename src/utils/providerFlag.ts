@@ -297,8 +297,14 @@ export function applyModelFlagFromArgs(
   const model = parseModelFlag(args)
   if (!model) return
 
-  if (resolveActiveRouteIdFromEnv(process.env) === 'commandcode') {
-    const error = getCommandcodeChatCompletionsModelError(model)
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
+  const effectiveModel =
+    activeRouteId === 'commandcode' && model === 'default'
+      ? getRouteDefaults('commandcode').defaultModel ?? model
+      : model
+
+  if (activeRouteId === 'commandcode') {
+    const error = getCommandcodeChatCompletionsModelError(effectiveModel)
     if (error) return { error }
   }
 
@@ -316,13 +322,13 @@ export function applyModelFlagFromArgs(
     process.env.CLAUDE_CODE_USE_GITHUB === 'true'
 
   if (useGemini) {
-    process.env.GEMINI_MODEL = model
+    process.env.GEMINI_MODEL = effectiveModel
   } else if (useMistral) {
-    process.env.MISTRAL_MODEL = model
+    process.env.MISTRAL_MODEL = effectiveModel
   } else if (useOpenAI || useGithub) {
-    process.env.OPENAI_MODEL = model
+    process.env.OPENAI_MODEL = effectiveModel
   } else {
-    process.env.ANTHROPIC_MODEL = model
+    process.env.ANTHROPIC_MODEL = effectiveModel
   }
 
   return {}
@@ -350,6 +356,10 @@ export function applyProviderFlag(
 
   const model = parseProviderModelFlag(args)
   const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
+  const effectiveModel =
+    provider === 'commandcode' && model === 'default'
+      ? defaultModel ?? model
+      : model
   if (provider === 'commandcode') {
     const currentBaseUrl = getConfiguredOpenAIBaseUrl()
     const willUseCommandcodeEndpoint =
@@ -358,7 +368,7 @@ export function applyProviderFlag(
       isCanonicalCommandcodeInferenceBaseUrl(currentBaseUrl)
     const error = willUseCommandcodeEndpoint
       ? getCommandcodeChatCompletionsModelError(
-          model ?? process.env.OPENAI_MODEL ?? defaultModel,
+          effectiveModel ?? process.env.OPENAI_MODEL ?? defaultModel,
         )
       : null
     if (error) return { error }
@@ -508,7 +518,7 @@ export function applyProviderFlag(
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (model) process.env.OPENAI_MODEL = model
+      if (effectiveModel) process.env.OPENAI_MODEL = effectiveModel
       break
 
     case 'gemini':
@@ -911,7 +921,7 @@ export function applyProviderFlag(
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }
-      if (model) process.env.OPENAI_MODEL = model
+      if (effectiveModel) process.env.OPENAI_MODEL = effectiveModel
       break
   }
 

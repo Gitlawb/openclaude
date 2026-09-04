@@ -2599,11 +2599,11 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
   // A root CLI --model is higher precedence than saved profile state. Apply
   // it to the candidate before Command Code's model contract is validated so
   // a compatible override can recover a stale saved model.
-  if (
-    modelOverride &&
-    resolveActiveRouteIdFromEnv(startupEnv) === 'commandcode'
-  ) {
-    startupEnv.OPENAI_MODEL = modelOverride
+  if (modelOverride && resolveActiveRouteIdFromEnv(startupEnv) === 'commandcode') {
+    startupEnv.OPENAI_MODEL =
+      modelOverride === 'default'
+        ? getRouteDefaultModel('commandcode') ?? modelOverride
+        : modelOverride
   }
 
   const validationError = await getProviderValidationError(startupEnv)

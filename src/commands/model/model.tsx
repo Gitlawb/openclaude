@@ -379,7 +379,9 @@ async function getOpenAIDiscoveryRequestOptions(
 }> {
   const request = resolveProviderRequest({
     model: process.env.OPENAI_MODEL,
-    baseUrl: process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+    baseUrl:
+      process.env.OPENAI_BASE_URL?.trim() ||
+      process.env.OPENAI_API_BASE?.trim(),
   })
 
   return resolveDiscoveryRequestOptions(routeId ?? 'custom', {

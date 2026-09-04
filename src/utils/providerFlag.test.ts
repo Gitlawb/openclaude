@@ -777,6 +777,16 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
   })
 
+  test('Command Code resolves the reserved default model before applying it', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--model',
+      'default',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
   test('Command Code ignores nested model-owning subcommand --model', () => {
     const result = applyProviderFlag('commandcode', [
       '--provider',
@@ -1637,6 +1647,17 @@ describe('applyModelFlagFromArgs', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--model', 'gpt-4o-mini'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
+  })
+
+  test('resolves default for an active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+
+    const result = applyModelFlagFromArgs(['--model', 'default'])
+
+    expect(result?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
   })
 
   test('rejects an incompatible model override on the active Command Code route', () => {
