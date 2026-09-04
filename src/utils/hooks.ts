@@ -176,6 +176,15 @@ import type {
 
 const TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000
 
+export function prepareWindowsBashHookCommand(command: string): string {
+  const trimmed = command.trim()
+  const isDirectShellScript =
+    /^(?:"[^"]+\.sh"|'[^']+\.sh'|(?:\\.|[^\s"';&|()<>])+\.sh)(?:\s|$)/.test(
+      trimmed,
+    )
+  return isDirectShellScript ? `bash ${command}` : command
+}
+
 function dedupeRegisteredPluginHooks(
   registeredHooks: Array<HookCallbackMatcher | PluginHookMatcher>,
 ): Array<HookCallbackMatcher | PluginHookMatcher> {
@@ -1048,10 +1057,8 @@ async function execCommandHook(
   // On Windows (bash only), auto-prepend `bash` for .sh scripts so they
   // execute instead of opening in the default file handler. PowerShell
   // runs .ps1 files natively — no prepend needed.
-  if (isWindows && !isPowerShell && command.trim().match(/\.sh(\s|$|")/)) {
-    if (!command.trim().startsWith('bash ')) {
-      command = `bash ${command}`
-    }
+  if (isWindows && !isPowerShell) {
+    command = prepareWindowsBashHookCommand(command)
   }
 
   // CLAUDE_CODE_SHELL_PREFIX wraps the command via POSIX quoting
