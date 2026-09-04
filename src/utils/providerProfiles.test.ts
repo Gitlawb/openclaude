@@ -1407,13 +1407,16 @@ describe('applyProviderProfileToProcessEnv', () => {
       activeProviderProfileId: undefined,
     }))
 
-    const saved = addProviderProfile({
-      provider: 'commandcode',
-      name: 'Command Code',
-      baseUrl: 'https://api.commandcode.ai/provider/v1',
-      model: 'deepseek/deepseek-v4-flash',
-      apiKey: process.env.OPENAI_API_KEY,
-    })
+    const saved = addProviderProfile(
+      {
+        provider: 'commandcode',
+        name: 'Command Code',
+        baseUrl: 'https://api.commandcode.ai/provider/v1',
+        model: 'deepseek/deepseek-v4-flash',
+        apiKey: process.env.OPENAI_API_KEY,
+      },
+      { credentialSource: 'environment' },
+    )
 
     expect(saved?.apiKey).toBe('env-cmd-key')
   })
@@ -1445,9 +1448,10 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CMD_API_KEY).toBeUndefined()
   })
 
-  test('explicit Command Code setup remains allowed without an ambient dedicated key', async () => {
+  test('explicit Command Code setup preserves its input over a stale ambient dedicated key', async () => {
     const { addProviderProfile } = await importFreshProviderProfileModules()
     process.env.OPENAI_API_KEY = 'same-value-as-explicit-input'
+    process.env.CMD_API_KEY = 'stale-commandcode-key'
 
     saveMockGlobalConfig(current => ({
       ...current,

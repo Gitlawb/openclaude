@@ -496,15 +496,10 @@ function applyCommandcodeProfileWriteContract(
       baseUrl: profile.baseUrl,
     }),
   )
-  const genericOpenAIKey = sanitizeApiKey(process.env.OPENAI_API_KEY)
   if (options?.credentialSource === 'environment') {
     return dedicatedKey ? { ...profile, apiKey: dedicatedKey } : null
   }
-  if (
-    dedicatedKey &&
-    (!profile.apiKey ||
-      (profile.apiKey === genericOpenAIKey && profile.apiKey !== dedicatedKey))
-  ) {
+  if (dedicatedKey && !profile.apiKey) {
     return { ...profile, apiKey: dedicatedKey }
   }
   return profile
