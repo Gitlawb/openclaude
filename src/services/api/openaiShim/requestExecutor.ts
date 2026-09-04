@@ -284,7 +284,8 @@ export async function executeOpenAIRequest(
   // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
   const isXaiRoute =
     runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
-  const isOpenCodeGoRoute = runtimeShimContext.routeId === 'opencode-go'
+  const openCodeGoSessionId =
+    runtimeShimContext.routeId === 'opencode-go' ? getSessionId() : null
   const openAIApiKeysPoolRaw =
     routeAcceptsGenericOpenAICredentials &&
     parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0
@@ -481,7 +482,7 @@ export async function executeOpenAIRequest(
     // and a product-specific user agent for traffic attribution. Enforce the
     // route contract after caller headers are merged so stale custom values
     // cannot make otherwise valid Go traffic non-compliant.
-    if (isOpenCodeGoRoute) {
+    if (openCodeGoSessionId !== null) {
       for (const name of Object.keys(headers)) {
         const normalizedName = name.toLowerCase()
         if (
@@ -491,7 +492,7 @@ export async function executeOpenAIRequest(
           delete headers[name]
         }
       }
-      headers['x-opencode-session'] = getSessionId()
+      headers['x-opencode-session'] = openCodeGoSessionId
       headers['User-Agent'] = getOpenClaudeUserAgent()
     }
 

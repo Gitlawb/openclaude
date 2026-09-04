@@ -5,7 +5,7 @@ import { asMockFetch } from '../../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
 import { applyProviderFlag } from '../../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../../utils/providerProfiles.ts'
-import { getSessionId } from '../../../bootstrap/state.ts'
+import { getSessionId, switchSession } from '../../../bootstrap/state.ts'
 import { getOpenClaudeUserAgent } from '../../../utils/userAgent.ts'
 import {
   getAssistantMessageFromError,
@@ -2151,11 +2151,14 @@ test('opencode go sends required session and product identity headers', async ()
   expect(headers.get('user-agent')).toBe(getOpenClaudeUserAgent())
 })
 
-test('opencode go messages endpoint rotates raw x-api-key credentials after rate-limit failure', async () => {
+test('opencode go messages endpoint keeps its session while rotating raw x-api-key credentials', async () => {
   const capturedUrls: string[] = []
   const capturedKeys: Array<string | null> = []
   const capturedSessions: Array<string | null> = []
   const capturedUserAgents: Array<string | null> = []
+  const originalSessionId = getSessionId()
+  const replacementSessionId =
+    '00000000-0000-4000-8000-000000000001' as typeof originalSessionId
 
   process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
   delete process.env.OPENAI_API_KEY
@@ -2172,6 +2175,7 @@ test('opencode go messages endpoint rotates raw x-api-key credentials after rate
     capturedUserAgents.push(headers.get('user-agent'))
 
     if (capturedKeys.length === 1) {
+      switchSession(replacementSessionId)
       return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -2202,23 +2206,27 @@ test('opencode go messages endpoint rotates raw x-api-key credentials after rate
 
   const client = createOpenAIShimClient({}) as OpenAIShimClient
 
-  await client.beta.messages.create({
-    model: 'minimax-m3',
-    messages: [{ role: 'user', content: 'hello' }],
-    max_tokens: 32,
-    stream: false,
-  })
+  try {
+    await client.beta.messages.create({
+      model: 'minimax-m3',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 32,
+      stream: false,
+    })
 
-  expect(capturedUrls).toEqual([
-    'https://opencode.ai/zen/go/v1/messages',
-    'https://opencode.ai/zen/go/v1/messages',
-  ])
-  expect(capturedKeys).toEqual(['fake-opencode-a', 'fake-opencode-b'])
-  expect(capturedSessions).toEqual([getSessionId(), getSessionId()])
-  expect(capturedUserAgents).toEqual([
-    getOpenClaudeUserAgent(),
-    getOpenClaudeUserAgent(),
-  ])
+    expect(capturedUrls).toEqual([
+      'https://opencode.ai/zen/go/v1/messages',
+      'https://opencode.ai/zen/go/v1/messages',
+    ])
+    expect(capturedKeys).toEqual(['fake-opencode-a', 'fake-opencode-b'])
+    expect(capturedSessions).toEqual([originalSessionId, originalSessionId])
+    expect(capturedUserAgents).toEqual([
+      getOpenClaudeUserAgent(),
+      getOpenClaudeUserAgent(),
+    ])
+  } finally {
+    switchSession(originalSessionId)
+  }
 })
 
 test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY as bearer auth despite stale generic base URL', async () => {
