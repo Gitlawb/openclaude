@@ -482,6 +482,15 @@ export async function executeOpenAIRequest(
     // route contract after caller headers are merged so stale custom values
     // cannot make otherwise valid Go traffic non-compliant.
     if (isOpenCodeGoRoute) {
+      for (const name of Object.keys(headers)) {
+        const normalizedName = name.toLowerCase()
+        if (
+          normalizedName === 'x-opencode-session' ||
+          normalizedName === 'user-agent'
+        ) {
+          delete headers[name]
+        }
+      }
       headers['x-opencode-session'] = getSessionId()
       headers['User-Agent'] = getOpenClaudeUserAgent()
     }

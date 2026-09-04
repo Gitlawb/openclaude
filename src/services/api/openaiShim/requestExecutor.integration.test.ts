@@ -2139,8 +2139,8 @@ test('opencode go sends required session and product identity headers', async ()
   delete process.env.OPENAI_API_KEY
 
   const captured = await captureChatCompletionRequest('mimo-v2.5-pro', {
-    'User-Agent': 'generic-client',
-    'x-opencode-session': 'stale-session',
+    'user-agent': 'generic-client',
+    'X-OpenCode-Session': 'stale-session',
   })
   const headers = new Headers(captured.headers)
 

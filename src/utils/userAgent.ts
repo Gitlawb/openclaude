@@ -10,7 +10,11 @@ export function getClaudeCodeUserAgent(): string {
 }
 
 export function getOpenClaudeUserAgent(): string {
-  const version =
-    typeof MACRO !== 'undefined' && MACRO.VERSION ? MACRO.VERSION : '0.0.0'
-  return `openclaude/${version}`
+  try {
+    // Keep macro properties in a direct expression so Bun substitutes them in
+    // shipped bundles. The fallback supports unbundled unit-test execution.
+    return `openclaude/${MACRO.DISPLAY_VERSION ?? MACRO.VERSION}`
+  } catch {
+    return 'openclaude/0.0.0'
+  }
 }
