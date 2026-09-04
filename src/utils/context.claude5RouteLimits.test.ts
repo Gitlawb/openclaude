@@ -171,3 +171,35 @@ test('the [1m] suffix still budgets 1M when the route reports no window', async 
   expect(modelResolvesTo1MContext('claude-opus-5[1m]')).toBe(true)
   expect(getAllModelBetas('claude-opus-5[1m]')).toContain(CONTEXT_1M_BETA_HEADER)
 })
+
+test('near-match model IDs do not receive Opus 5 or Opus 4.8 1M context or 128k output tokens', async () => {
+  const {
+    modelSupports1M,
+    modelHasUnconditional1MContext,
+    getModelMaxOutputTokens,
+  } = await importFresh()
+
+  // Exact matches
+  expect(modelSupports1M('claude-opus-5')).toBe(true)
+  expect(modelHasUnconditional1MContext('claude-opus-5')).toBe(true)
+  expect(getModelMaxOutputTokens('claude-opus-5').upperLimit).toBe(128_000)
+
+  expect(modelSupports1M('claude-opus-4-8')).toBe(true)
+  expect(modelHasUnconditional1MContext('claude-opus-4-8')).toBe(true)
+  expect(getModelMaxOutputTokens('claude-opus-4-8').upperLimit).toBe(128_000)
+
+  // Near matches with alphanumeric suffixes or prefixes
+  const nearMatches = [
+    'claude-opus-50',
+    'claude-opus-5x',
+    'notclaude-opus-5',
+    'claude-opus-4-80',
+    'claude-opus-4-8x',
+    'notclaude-opus-4-8',
+  ]
+
+  for (const model of nearMatches) {
+    expect(modelHasUnconditional1MContext(model)).toBe(false)
+    expect(getModelMaxOutputTokens(model).upperLimit).not.toBe(128_000)
+  }
+})

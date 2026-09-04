@@ -63,6 +63,11 @@ export function isSonnet5ModelId(name: string): boolean {
   return matchesModelFragment(name, 'claude-sonnet-5')
 }
 
+/** Claude Opus 4.8, in any provider spelling. */
+export function isOpus48ModelId(name: string): boolean {
+  return matchesModelFragment(name, 'claude-opus-4-8')
+}
+
 /** Claude Opus 5 or its legacy underscore alias, for 3P fallback only. */
 export function isOpus5FallbackModelId(name: string): boolean {
   const normalized = name.toLowerCase()

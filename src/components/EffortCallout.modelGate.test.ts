@@ -20,3 +20,22 @@ test('effort callout covers the recent Opus models including 4.8 (#1769)', () =>
   expect(effortCalloutCoversModel('claude-sonnet-4-6')).toBe(false)
   expect(effortCalloutCoversModel('gpt-5')).toBe(false)
 })
+
+test('effort callout covers Opus 5 on first party but excludes Vertex', () => {
+  const originalVertex = process.env.CLAUDE_CODE_USE_VERTEX
+  try {
+    delete process.env.CLAUDE_CODE_USE_VERTEX
+    expect(effortCalloutCoversModel('claude-opus-5')).toBe(true)
+
+    process.env.CLAUDE_CODE_USE_VERTEX = '1'
+    expect(effortCalloutCoversModel('claude-opus-5')).toBe(false)
+    // Legacy models remain covered on Vertex
+    expect(effortCalloutCoversModel('claude-opus-4-8')).toBe(true)
+  } finally {
+    if (originalVertex !== undefined) {
+      process.env.CLAUDE_CODE_USE_VERTEX = originalVertex
+    } else {
+      delete process.env.CLAUDE_CODE_USE_VERTEX
+    }
+  }
+})
