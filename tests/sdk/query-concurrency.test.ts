@@ -112,6 +112,15 @@ describe('SEC-1: env override isolation', () => {
 })
 
 describe('CON-1: CWD and session isolation between concurrent queries', () => {
+  test('queryAsync keeps eager process-global initialization detached', async () => {
+    const source = await Bun.file(
+      new URL('../../src/entrypoints/sdk/query.ts', import.meta.url),
+    ).text()
+    const queryAsyncSource = source.slice(source.indexOf('export async function queryAsync'))
+
+    expect(queryAsyncSource).toContain('await runOutsideSdkContext(init)')
+  })
+
   test('lazy query iteration keeps each query session scoped to its engine work', async () => {
     const globalId = getSessionId()
     let arrivals = 0

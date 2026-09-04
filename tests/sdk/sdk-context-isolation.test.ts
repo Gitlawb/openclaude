@@ -120,6 +120,26 @@ describe('SDK context isolation', () => {
       expect(throwCleanupSession).toBe(throwSession)
     })
 
+    test('falls back to return when async disposal is unavailable', async () => {
+      const sdkSession = '00000000-0000-4000-8000-00000000000f' as SessionId
+      let cleanupSession: SessionId | undefined
+      const generator = {
+        next: async () => ({ value: 'ready', done: false as const }),
+        return: async () => {
+          cleanupSession = getSessionId()
+          return { value: undefined, done: true as const }
+        },
+        throw: async (error?: unknown) => { throw error },
+        [Symbol.asyncIterator]() { return this },
+      } as AsyncGenerator<string, void, unknown>
+      const bound = bindSessionGenerator(sdkSession, generator)
+
+      await bound[Symbol.asyncDispose]()
+
+      expect(cleanupSession).toBe(sdkSession)
+      expect(getSessionId()).toBe(originalSessionId)
+    })
+
     test('keeps process-global async setup outside the SDK context', async () => {
       const sdkSession = '00000000-0000-4000-8000-00000000000e' as SessionId
       const observedSession = await runWithSdkContext(

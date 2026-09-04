@@ -1176,6 +1176,6 @@ export async function queryAsync(params: {
   prompt: string | AsyncIterable<SDKUserMessage>
   options?: QueryOptions
 }): Promise<Query> {
-  await init()
+  await runOutsideSdkContext(init)
   return query(params)
 }

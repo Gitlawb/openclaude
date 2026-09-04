@@ -460,7 +460,14 @@ export function bindSdkContextToAsyncGenerator<
     throw: (error?: unknown) =>
       runWithSdkContext(context, () => generator.throw(error)),
     [Symbol.asyncDispose]: () =>
-      runWithSdkContext(context, () => generator[Symbol.asyncDispose]()),
+      runWithSdkContext(context, async () => {
+        const dispose = generator[Symbol.asyncDispose]
+        if (typeof dispose === 'function') {
+          await dispose.call(generator)
+          return
+        }
+        await generator.return(undefined as TReturn)
+      }),
     [Symbol.asyncIterator]() {
       return this
     },
