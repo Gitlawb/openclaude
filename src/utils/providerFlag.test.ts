@@ -145,6 +145,10 @@ describe('parseProviderFlag', () => {
     expect(parseProviderFlag(['--provider', 'openai'])).toBe('openai')
   })
 
+  test('returns provider name when --provider uses inline syntax', () => {
+    expect(parseProviderFlag(['--provider=anthropic'])).toBe('anthropic')
+  })
+
   test('returns provider name with --model alongside', () => {
     expect(parseProviderFlag(['--provider', 'gemini', '--model', 'gemini-2.0-flash'])).toBe('gemini')
   })
@@ -159,6 +163,10 @@ describe('parseProviderFlag', () => {
 
   test('returns null when --provider has no value', () => {
     expect(parseProviderFlag(['--provider'])).toBeNull()
+  })
+
+  test('returns null when inline --provider has no value', () => {
+    expect(parseProviderFlag(['--provider='])).toBeNull()
   })
 
   test('returns null when --provider value starts with --', () => {

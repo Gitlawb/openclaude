@@ -24,6 +24,13 @@ describe('findRootCommandPathIndex', () => {
       ['aimlapi', 'topup'],
     )).toBe(-1)
   })
+
+  test('finds a command after an inline optional option value', () => {
+    expect(findRootCommandPathIndex(
+      ['--debug=api', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(1)
+  })
 })
 
 describe('argsBeforeModelOwningSubcommand', () => {
@@ -67,6 +74,18 @@ describe('argsBeforeModelOwningSubcommand', () => {
       'deepseek/deepseek-v4-flash',
     ]
     expect(argsBeforeModelOwningSubcommand(args)).toEqual(args)
+  })
+
+  test('keeps inline optional values before a nested command boundary', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--debug=api',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual(['--debug=api'])
   })
 })
 

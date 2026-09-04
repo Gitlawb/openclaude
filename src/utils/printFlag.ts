@@ -91,6 +91,14 @@ function optionName(arg: string): string {
   return eq === -1 ? arg : arg.slice(0, eq)
 }
 
+function optionalValueOptionWidth(
+  arg: string,
+  next: string | undefined,
+): 1 | 2 {
+  if (arg.includes('=')) return 1
+  return next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+}
+
 function isPrintFlag(arg: string): boolean {
   // The root command registers `-p, --print` as a boolean. Only the exact
   // spellings are valid; `--print=prompt` and `-pprompt` are rejected by the
@@ -133,9 +141,7 @@ export function findRootCommandPathIndex(
       continue
     }
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
-      const next = argv[i + 1]
-      i +=
-        next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+      i += optionalValueOptionWidth(arg, argv[i + 1])
       continue
     }
     if (arg.startsWith('-')) {
@@ -216,9 +222,7 @@ export function parseRootOptionValue(
       continue
     }
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
-      const next = argv[i + 1]
-      i +=
-        next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+      i += optionalValueOptionWidth(arg, argv[i + 1])
       continue
     }
     i++
@@ -260,12 +264,7 @@ export function hasPrintFlag(argv: readonly string[]): boolean {
     }
 
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
-      const next = argv[i + 1]
-      if (next !== undefined && next !== '--' && !next.startsWith('-')) {
-        i += 2
-      } else {
-        i++
-      }
+      i += optionalValueOptionWidth(arg, argv[i + 1])
       continue
     }
 

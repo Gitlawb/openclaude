@@ -101,10 +101,14 @@ let rememberedProviderFlag:
  */
 export function parseProviderFlag(args: string[]): string | null {
   const idx = args.indexOf('--provider')
-  if (idx === -1) return null
-  const value = args[idx + 1]
-  if (!value || value.startsWith('--')) return null
-  return value
+  if (idx !== -1) {
+    const value = args[idx + 1]
+    if (!value || value.startsWith('--')) return null
+    return value
+  }
+
+  const inline = args.find(arg => arg.startsWith('--provider='))
+  return inline?.slice('--provider='.length) || null
 }
 
 /**

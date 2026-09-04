@@ -31,6 +31,7 @@ import {
   applyProviderFlagFromArgs,
   clearRememberedProviderFlagForTests,
   parseModelFlag,
+  parseProviderFlag,
   reapplyRememberedProviderFlag,
 } from '../utils/providerFlag.js'
 import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
@@ -387,6 +388,7 @@ const mockImporters = {
     applyModelFlagFromArgs: mockApplyModelFlagFromArgs,
     applyProviderFlagFromArgs,
     parseModelFlag,
+    parseProviderFlag,
     reapplyRememberedProviderFlag,
   }),
   flagSettings: async () => ({
@@ -600,12 +602,89 @@ describe('cli.tsx — background routing behavior', () => {
     {
       args: ['auto-mode', 'critique', '--model=anthropic/claude-sonnet-4-6'],
     },
+    {
+      args: [
+        '--debug=api',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ],
+    },
   ])('leaves nested command model options to their owning command', async ({ args }) => {
     await runCliEntrypoint([...args], bgOptions)
 
     expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
     expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
     expect(mockPrintStartupScreen).toHaveBeenCalledWith(undefined)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restore or validate a saved profile after an explicit Anthropic selection', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalEnv = { ...process.env }
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    try {
+      await runCliEntrypoint(
+        ['--provider', 'anthropic', '--model', 'sonnet'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      for (const key of Object.keys(process.env)) {
+        if (!(key in originalEnv)) delete process.env[key]
+      }
+      Object.assign(process.env, originalEnv)
+    }
+
+    expect(mockApplyStartupEnvFromProfile).not.toHaveBeenCalled()
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--provider',
+      'anthropic',
+      '--model',
+      'sonnet',
+    ])
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors an inline explicit Anthropic selection before saved-profile restoration', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalEnv = { ...process.env }
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    try {
+      await runCliEntrypoint(
+        ['--provider=anthropic', '--model=sonnet'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      for (const key of Object.keys(process.env)) {
+        if (!(key in originalEnv)) delete process.env[key]
+      }
+      Object.assign(process.env, originalEnv)
+    }
+
+    expect(mockApplyStartupEnvFromProfile).not.toHaveBeenCalled()
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--provider=anthropic',
+      '--model=sonnet',
+    ])
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
     expect(mockCliMain).toHaveBeenCalledTimes(1)
   })
 

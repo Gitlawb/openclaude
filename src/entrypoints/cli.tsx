@@ -403,11 +403,14 @@ export async function main(
 
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
-  if (args.includes('--provider')) {
+  let appliedExplicitAnthropic = false
+  if (args.some(arg => arg === '--provider' || arg.startsWith('--provider='))) {
     const {
       applyProviderFlagFromArgs,
+      parseProviderFlag,
       reapplyRememberedProviderFlag,
     } = await importers.providerFlag()
+    const requestedProvider = parseProviderFlag(args)
     reapplyProviderFlagValues = reapplyRememberedProviderFlag
     const result = applyProviderFlagFromArgs(args, {
       rememberForSettingsEnv: true,
@@ -416,6 +419,8 @@ export async function main(
       // biome-ignore lint/suspicious/noConsole:: intentional error output
       console.error(`Error: ${result.error}`);
       process.exit(1);
+    } else if (result && requestedProvider === 'anthropic') {
+      appliedExplicitAnthropic = true
     }
   }
 
@@ -458,13 +463,18 @@ export async function main(
 
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
   let startupProfileWarning: string | undefined
-  const startupProfileError = await applyStartupEnvFromProfile({
-    processEnv: process.env,
-    modelOverride: parsedRootModel,
-    onValidationError: message => {
-      startupProfileWarning = message
-    },
-  })
+  // Built-in Anthropic has no positive CLAUDE_CODE_USE_* flag, so process-env
+  // inference cannot preserve an explicit `--provider anthropic` selection.
+  // Other providers retain their existing profile/credential recovery path.
+  const startupProfileError = appliedExplicitAnthropic
+    ? null
+    : await applyStartupEnvFromProfile({
+        processEnv: process.env,
+        modelOverride: parsedRootModel,
+        onValidationError: message => {
+          startupProfileWarning = message
+        },
+      })
   let startupProfileIsCommandcodeModelError = false
   if (parsedRootModel && startupProfileError) {
     const { getCommandcodeChatCompletionsModelError } = await import(
