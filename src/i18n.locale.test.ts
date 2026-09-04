@@ -16,6 +16,14 @@ beforeEach(() => {
   ORIGINAL_ENV.LC_ALL = process.env.LC_ALL
   ORIGINAL_ENV.LC_MESSAGES = process.env.LC_MESSAGES
   ORIGINAL_ENV.LANG = process.env.LANG
+
+  // Clear after snapshotting so every test starts from a known-clean
+  // environment, regardless of what the CI/host machine's locale is set
+  // to. Without this, settings-based fallback tests (e.g. zh_CN, en_HK)
+  // can flakily pass or fail depending on the runner's real LC_ALL/LANG.
+  delete process.env.LC_ALL
+  delete process.env.LC_MESSAGES
+  delete process.env.LANG
 })
 
 afterEach(() => {
