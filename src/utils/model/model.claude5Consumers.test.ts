@@ -219,3 +219,9 @@ test('first-party picker suppresses duplicate 1M options for unconditional Claud
   // Sonnet 5 has 1M unconditionally, so sonnet[1m] is not offered
   expect(optionValues).not.toContain('sonnet[1m]')
 })
+
+test('PAYG 1P options suppress redundant Opus 1M option when checkOpus1mAccess() is true and default Opus has unconditional 1M context', () => {
+  const options = getModelOptions(false)
+  const optionValues = options.map(o => o.value)
+  expect(optionValues).not.toContain('opus[1m]')
+})

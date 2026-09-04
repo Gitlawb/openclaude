@@ -29,9 +29,10 @@ export function getMigrationNotifications(config: Partial<GlobalConfig>): Notifi
 
   // Opus Pro → default, or pinned 4.0/4.1 → opus alias. Both land on the
   // current Opus default.
-  const isLegacyRemap = Boolean(config.legacyOpusMigrationTimestamp);
-  const ts = config.legacyOpusMigrationTimestamp ?? config.opusProMigrationTimestamp;
-  if (recent(ts)) {
+  const hasRecentLegacy = recent(config.legacyOpusMigrationTimestamp);
+  const hasRecentPro = !hasRecentLegacy && recent(config.opusProMigrationTimestamp);
+  if (hasRecentLegacy || hasRecentPro) {
+    const isLegacyRemap = hasRecentLegacy;
     const opusName =
       getMarketingNameForModel(getDefaultOpusModel()) ?? 'Opus 5';
     notifs.push({

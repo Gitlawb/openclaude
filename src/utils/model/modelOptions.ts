@@ -763,7 +763,10 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
       payg1POptions.push(getOpus48Option(fastMode))
       payg1POptions.push(getOpus47Option(fastMode))
       payg1POptions.push(getOpus46Option(fastMode))
-      if (checkOpus1mAccess()) {
+      if (
+        checkOpus1mAccess() &&
+        !modelHasUnconditional1MContext(getDefaultOpusModel())
+      ) {
         payg1POptions.push(getOpus46_1MOption(fastMode))
       }
     }

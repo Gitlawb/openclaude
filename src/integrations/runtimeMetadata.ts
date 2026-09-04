@@ -65,7 +65,7 @@ function getBaseModelApiName(value: string | undefined): string | null {
     trimmed = trimmed.slice(0, queryIndex).trim()
   }
 
-  if (trimmed.endsWith('[1m]')) {
+  if (trimmed.toLowerCase().endsWith('[1m]')) {
     trimmed = trimmed.slice(0, -4).trim()
   }
 
