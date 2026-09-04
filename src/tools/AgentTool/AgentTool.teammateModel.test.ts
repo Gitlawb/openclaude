@@ -454,7 +454,7 @@ test('rejects built-in agents from being spawned as teammates even when built-in
   clearAgentDefinitionsCache()
 
   try {
-    const definitions = await getAgentDefinitionsWithOverrides()
+    const definitions = await getAgentDefinitionsWithOverrides('')
 
     await expect(
       callTeammateAgentTool(

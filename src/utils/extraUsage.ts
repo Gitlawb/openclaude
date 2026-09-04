@@ -1,5 +1,7 @@
 import { isClaudeAISubscriber } from './auth.js'
 import { has1mContext } from './context.js'
+import { getCanonicalName, parseUserSpecifiedModel } from './model/model.js'
+import { isClaude5ModelId } from './model/modelIdMatch.js'
 
 export function isBilledAsExtraUsage(
   model: string | null,
@@ -9,6 +11,12 @@ export function isBilledAsExtraUsage(
   if (!isClaudeAISubscriber()) return false
   if (isFastMode) return true
   if (model === null || !has1mContext(model)) return false
+
+  const resolved = parseUserSpecifiedModel(model)
+  const canonical = getCanonicalName(resolved)
+  if (isClaude5ModelId(canonical)) {
+    return false
+  }
 
   const m = model
     .toLowerCase()

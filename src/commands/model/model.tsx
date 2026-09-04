@@ -68,6 +68,7 @@ import { discoverOpenAICompatibleModelOptions } from '../../utils/model/openaiMo
 import {
   getDefaultMainLoopModelSetting,
   isOpus1mMergeEnabled,
+  parseUserSpecifiedModel,
   renderDefaultModelSetting,
 } from '../../utils/model/model.js'
 import { isModelAllowed } from '../../utils/model/modelAllowlist.js'
@@ -1194,8 +1195,12 @@ function ShowModelAndClose({
   )
   const effortValue = useAppState((s: AppState) => s.effortValue)
   const displayModel = renderModelLabel(mainLoopModel)
-  const activeModel =
-    mainLoopModelForSession ?? mainLoopModel ?? getDefaultMainLoopModelSetting()
+  // These app-state values may still be an alias (`opus`), and the effort
+  // resolvers match on model id, so resolve first — otherwise this summary
+  // reports a different effort than the request path applies.
+  const activeModel = parseUserSpecifiedModel(
+    mainLoopModelForSession ?? mainLoopModel ?? getDefaultMainLoopModelSetting(),
+  )
   const effectiveEffort = resolveAppliedEffort(
     activeModel,
     effortValue,

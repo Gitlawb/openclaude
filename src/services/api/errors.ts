@@ -31,6 +31,10 @@ import {
 } from 'src/utils/model/model.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
 import {
+  isOpus5FallbackModelId,
+  isSonnet5FallbackModelId,
+} from 'src/utils/model/modelIdMatch.js'
+import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
   isFirstPartyAnthropicProvider,
@@ -1362,7 +1366,7 @@ export function getAssistantMessageFromError(
  * For 3P users, suggest a fallback model when the selected model is unavailable.
  * Returns a model name suggestion, or undefined if no suggestion is applicable.
  */
-function get3PModelFallbackSuggestion(model: string): string | undefined {
+export function get3PModelFallbackSuggestion(model: string): string | undefined {
   if (isFirstPartyAnthropicProvider()) {
     return undefined
   }
@@ -1370,6 +1374,12 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
   const m = model.toLowerCase()
   // Mirror the validation-time fallback chain in validateModel.ts so the error
   // path suggests the previous Opus for the recent models too.
+  if (isOpus5FallbackModelId(m)) {
+    return getModelStrings().opus48
+  }
+  if (isSonnet5FallbackModelId(m)) {
+    return getModelStrings().sonnet46
+  }
   if (m.includes('opus-4-8') || m.includes('opus_4_8')) {
     return getModelStrings().opus47
   }

@@ -60,14 +60,14 @@ function writePricing(opusInput: number, opusOutput: number): void {
     pricingSettingsPath,
     `${JSON.stringify({
       modelPricing: {
-        'claude-sonnet-4-6': {
+        'claude-sonnet-5': {
           inputTokens: 9,
           outputTokens: 10,
           promptCacheReadTokens: 0,
           promptCacheWriteTokens: 0,
           webSearchRequests: 0,
         },
-        'claude-opus-4-8': {
+        'claude-opus-5': {
           inputTokens: opusInput,
           outputTokens: opusOutput,
           promptCacheReadTokens: 0,
