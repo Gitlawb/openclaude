@@ -165,9 +165,13 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
+  const provider = getAPIProvider()
   const canonical = getCanonicalName(model)
+  if (isClaude5ModelId(canonical)) {
+    return provider !== 'vertex'
+  }
   // Supported by a subset of Claude 4 models
-  if (isClaude5ModelId(canonical) || canonical.includes('opus-4-8') || canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
+  if (canonical.includes('opus-4-8') || canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
     return true
   }
   // Exclude any other known legacy models (allowlist above catches 4-6 variants first)
@@ -189,7 +193,6 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   // Default to true for unknown model strings on 1P and Foundry (because Foundry
   // is a proxy). Do not default to true for other 3P as they have different formats
   // for their model strings.
-  const provider = getAPIProvider()
   return provider === 'firstParty' || provider === 'foundry'
 }
 

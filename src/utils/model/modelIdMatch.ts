@@ -23,13 +23,15 @@ export function matchesModelIdAtBoundary(name: string, id: string): boolean {
   if (index === -1) {
     return false
   }
+  const previous = name[index - 1]
   const next = name[index + id.length]
   return (
-    next === undefined ||
-    next === '-' ||
-    next === '@' ||
-    next === '?' ||
-    next === '['
+    (previous === undefined || !/[a-z0-9]/i.test(previous)) &&
+    (next === undefined ||
+      next === '-' ||
+      next === '@' ||
+      next === '?' ||
+      next === '[')
   )
 }
 

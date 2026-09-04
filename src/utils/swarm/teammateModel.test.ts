@@ -4,21 +4,38 @@ import {
   releaseSharedMutationLock,
 } from '../../test/sharedMutationLock.js'
 
+const actualProviders = await import('../model/providers.js')
+let originalAnthropicModel: string | undefined
+
 beforeEach(async () => {
   await acquireSharedMutationLock('utils/swarm/teammateModel.test.ts')
+  originalAnthropicModel = process.env.ANTHROPIC_MODEL
 })
 
 afterEach(() => {
   try {
+    if (originalAnthropicModel !== undefined) {
+      process.env.ANTHROPIC_MODEL = originalAnthropicModel
+    } else {
+      delete process.env.ANTHROPIC_MODEL
+    }
+    mock.module('../model/providers.js', () => actualProviders)
     mock.restore()
   } finally {
     releaseSharedMutationLock()
   }
 })
 
-async function importFreshTeammateModelModule(provider = 'mistral') {
+async function importFreshTeammateModelModule(
+  provider = 'mistral',
+  options?: { isFirstParty?: boolean; isCustom?: boolean },
+) {
   mock.module('../model/providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: () => provider,
+    isFirstPartyAnthropicProvider: () =>
+      options?.isFirstParty ?? (provider === 'firstParty' && !options?.isCustom),
+    isCustomAnthropicProvider: () => options?.isCustom ?? false,
   }))
   const nonce = `${Date.now()}-${Math.random()}`
   return import(`./teammateModel.js?ts=${nonce}`)
@@ -36,9 +53,27 @@ test('getHardcodedTeammateModelFallback returns the current default Opus (5) for
   // moved on, so new teammates spawned on an older model. First party now
   // defaults to Opus 5; 3P stays on the Opus 4.8 ids until it rolls out there.
   const { getHardcodedTeammateModelFallback } =
-    await importFreshTeammateModelModule('firstParty')
+    await importFreshTeammateModelModule('firstParty', { isFirstParty: true })
 
   expect(getHardcodedTeammateModelFallback()).toBe('claude-opus-5')
+})
+
+test('getHardcodedTeammateModelFallback distinguishes custom Anthropic endpoints', async () => {
+  delete process.env.ANTHROPIC_MODEL
+  const { getHardcodedTeammateModelFallback: getFallbackWithoutEnv } =
+    await importFreshTeammateModelModule('firstParty', {
+      isFirstParty: false,
+      isCustom: true,
+    })
+  expect(getFallbackWithoutEnv()).toBe('claude-opus-4-8')
+
+  process.env.ANTHROPIC_MODEL = 'custom-claude-model'
+  const { getHardcodedTeammateModelFallback: getFallbackWithEnv } =
+    await importFreshTeammateModelModule('firstParty', {
+      isFirstParty: false,
+      isCustom: true,
+    })
+  expect(getFallbackWithEnv()).toBe('custom-claude-model')
 })
 
 test('getHardcodedTeammateModelFallback is provider-aware (Bedrock gets the Opus 4.8 Bedrock id)', async () => {
