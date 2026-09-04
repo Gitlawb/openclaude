@@ -676,14 +676,22 @@ function sameOptionalEnvValue(
 function serializeProfileContextWindows(
   modelField: string,
   maxContextLength: number,
+  activeModel?: string,
 ): string {
   const models = parseModelList(modelField)
   const configuredModels =
     models.length > 0 ? models : [getPrimaryModel(modelField)]
+  // A saved /model choice can be valid for the provider catalog without
+  // being listed in profile.model. Include the model that will actually run
+  // so it does not fall back to a different context limit.
+  const selectedModel = trimOrUndefined(activeModel)
+  const contextModels = selectedModel
+    ? [...new Set([...configuredModels, selectedModel])]
+    : configuredModels
 
   return JSON.stringify(
     Object.fromEntries(
-      configuredModels.map(model => [model, maxContextLength]),
+      contextModels.map(model => [model, maxContextLength]),
     ),
   )
 }
@@ -803,7 +811,11 @@ function isProcessEnvAlignedWithProfile(
   }
 
   const expectedContextWindows = profile.maxContextLength
-    ? serializeProfileContextWindows(profile.model, profile.maxContextLength)
+    ? serializeProfileContextWindows(
+        profile.model,
+        profile.maxContextLength,
+        primaryModel,
+      )
     : undefined
   const isAimlapiRoute =
     profile.provider === 'aimlapi' ||
@@ -1202,7 +1214,11 @@ export function applyProviderProfileToProcessEnv(
     }
     if (profile.maxContextLength) {
       openAIProfileEnv.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS =
-        serializeProfileContextWindows(profile.model, profile.maxContextLength)
+        serializeProfileContextWindows(
+          profile.model,
+          profile.maxContextLength,
+          primaryModel,
+        )
     }
 
     profileEnv = openAIProfileEnv

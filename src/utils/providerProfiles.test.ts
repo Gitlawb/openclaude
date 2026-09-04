@@ -2616,12 +2616,16 @@ describe('applyActiveProviderProfileFromConfig', () => {
       applyActiveProviderProfileFromConfig,
       getProviderProfiles,
     } = await importFreshProviderProfileModules()
+    const { resolveModelRuntimeLimits } = await import(
+      '../integrations/runtimeMetadata.js'
+    )
     _setSavedModelOverrideForTesting('gpt-5.4')
     const activeProfile = buildProfile({
       id: 'saved_hicap',
       provider: 'hicap',
       baseUrl: 'https://api.hicap.ai/v1',
       model: 'glm-5.2',
+      maxContextLength: 200_000,
     })
 
     const applied = applyActiveProviderProfileFromConfig({
@@ -2632,6 +2636,18 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(applied?.id).toBe(activeProfile.id)
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.hicap.ai/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+      JSON.stringify({
+        'glm-5.2': 200_000,
+        'gpt-5.4': 200_000,
+      }),
+    )
+    expect(
+      resolveModelRuntimeLimits({
+        model: 'gpt-5.4',
+        processEnv: process.env,
+      }).contextWindow,
+    ).toBe(200_000)
     const saved = getProviderProfiles({
       providerProfiles: [activeProfile],
       activeProviderProfileId: activeProfile.id,
