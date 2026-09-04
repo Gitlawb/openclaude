@@ -5,6 +5,8 @@ import { asMockFetch } from '../../../test/typedMocks.js'
 import { _clearRegistryForTesting, ensureIntegrationsLoaded, registerGateway } from '../../../integrations/index.ts'
 import { applyProviderFlag } from '../../../utils/providerFlag.ts'
 import { applyProviderProfileToProcessEnv } from '../../../utils/providerProfiles.ts'
+import { getSessionId } from '../../../bootstrap/state.ts'
+import { getOpenClaudeUserAgent } from '../../../utils/userAgent.ts'
 import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
@@ -405,19 +407,25 @@ function makeChatCompletionResponse(model: string): Response {
 
 async function captureChatCompletionRequest(
   model = 'mimo-v2.5-pro',
-): Promise<{ authorization: string | null; url: string | null }> {
+  defaultHeaders: Record<string, string> = {},
+): Promise<{
+  authorization: string | null
+  headers: Record<string, string>
+  url: string | null
+}> {
   let authorization: string | null = null
+  let headers: Record<string, string> = {}
   let url: string | null = null
 
   globalThis.fetch = (async (input, init) => {
     url = String(input)
-    const headers = init?.headers as Record<string, string> | undefined
-    authorization = headers?.Authorization ?? headers?.authorization ?? null
+    headers = (init?.headers as Record<string, string> | undefined) ?? {}
+    authorization = headers.Authorization ?? headers.authorization ?? null
 
     return makeChatCompletionResponse(model)
   }) as unknown as FetchType
 
-  const client = createOpenAIShimClient({}) as OpenAIShimClient
+  const client = createOpenAIShimClient({ defaultHeaders }) as OpenAIShimClient
 
   await client.beta.messages.create({
     model,
@@ -426,7 +434,7 @@ async function captureChatCompletionRequest(
     stream: false,
   })
 
-  return { authorization, url }
+  return { authorization, headers, url }
 }
 
 beforeEach(async () => {
@@ -2105,6 +2113,8 @@ test.each([
   expect(capturedUrl).toBe('https://opencode.ai/zen/go/v1/messages')
   expect(capturedHeaders?.get('x-api-key')).toBe('fake-opencode-key')
   expect(capturedHeaders?.get('authorization')).toBeNull()
+  expect(capturedHeaders?.get('x-opencode-session')).toBe(getSessionId())
+  expect(capturedHeaders?.get('user-agent')).toBe(getOpenClaudeUserAgent())
   expect(capturedBody).toEqual({
     model,
     messages: [
@@ -2121,9 +2131,31 @@ test.each([
   expect(capturedBody).not.toHaveProperty('store')
 })
 
+test('opencode go sends required session and product identity headers', async () => {
+  process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
+  process.env.OPENAI_MODEL = 'mimo-v2.5-pro'
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENCODE_API_KEY = 'fake-opencode-key'
+  delete process.env.OPENAI_API_KEY
+
+  const captured = await captureChatCompletionRequest('mimo-v2.5-pro', {
+    'User-Agent': 'generic-client',
+    'x-opencode-session': 'stale-session',
+  })
+  const headers = new Headers(captured.headers)
+
+  expect(captured.url).toBe(
+    'https://opencode.ai/zen/go/v1/chat/completions',
+  )
+  expect(headers.get('x-opencode-session')).toBe(getSessionId())
+  expect(headers.get('user-agent')).toBe(getOpenClaudeUserAgent())
+})
+
 test('opencode go messages endpoint rotates raw x-api-key credentials after rate-limit failure', async () => {
   const capturedUrls: string[] = []
   const capturedKeys: Array<string | null> = []
+  const capturedSessions: Array<string | null> = []
+  const capturedUserAgents: Array<string | null> = []
 
   process.env.OPENAI_BASE_URL = 'https://opencode.ai/zen/go/v1'
   delete process.env.OPENAI_API_KEY
@@ -2136,6 +2168,8 @@ test('opencode go messages endpoint rotates raw x-api-key credentials after rate
     const headers = new Headers(init?.headers)
     capturedUrls.push(String(input))
     capturedKeys.push(headers.get('x-api-key'))
+    capturedSessions.push(headers.get('x-opencode-session'))
+    capturedUserAgents.push(headers.get('user-agent'))
 
     if (capturedKeys.length === 1) {
       return new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
@@ -2180,6 +2214,11 @@ test('opencode go messages endpoint rotates raw x-api-key credentials after rate
     'https://opencode.ai/zen/go/v1/messages',
   ])
   expect(capturedKeys).toEqual(['fake-opencode-a', 'fake-opencode-b'])
+  expect(capturedSessions).toEqual([getSessionId(), getSessionId()])
+  expect(capturedUserAgents).toEqual([
+    getOpenClaudeUserAgent(),
+    getOpenClaudeUserAgent(),
+  ])
 })
 
 test('gitlawb opengateway provider flag sends OPENGATEWAY_API_KEY as bearer auth despite stale generic base URL', async () => {

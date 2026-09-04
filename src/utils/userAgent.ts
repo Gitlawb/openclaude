@@ -8,3 +8,9 @@
 export function getClaudeCodeUserAgent(): string {
   return `claude-code/${MACRO.VERSION}`
 }
+
+export function getOpenClaudeUserAgent(): string {
+  const version =
+    typeof MACRO !== 'undefined' && MACRO.VERSION ? MACRO.VERSION : '0.0.0'
+  return `openclaude/${version}`
+}

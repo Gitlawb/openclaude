@@ -6,6 +6,7 @@ import {
   redactSecretSubstringsForDisplay,
 } from '../../../utils/providerSecrets.js'
 import { parseCustomHeadersEnv } from '../../../utils/providerCustomHeaders.js'
+import { getOpenClaudeUserAgent } from '../../../utils/userAgent.js'
 
 export function formatRetryAfterHint(response: Response): string {
   const retryAfter = response.headers.get('retry-after')
@@ -283,6 +284,7 @@ export async function executeOpenAIRequest(
   // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
   const isXaiRoute =
     runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+  const isOpenCodeGoRoute = runtimeShimContext.routeId === 'opencode-go'
   const openAIApiKeysPoolRaw =
     routeAcceptsGenericOpenAICredentials &&
     parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0
@@ -473,6 +475,15 @@ export async function executeOpenAIRequest(
     // implementation (RELEASE_v0.8.0 PR #5604).
     if (isXaiRoute) {
       headers['x-grok-conv-id'] ??= getSessionId()
+    }
+
+    // OpenCode Go requires a stable session header for prompt-cache affinity
+    // and a product-specific user agent for traffic attribution. Enforce the
+    // route contract after caller headers are merged so stale custom values
+    // cannot make otherwise valid Go traffic non-compliant.
+    if (isOpenCodeGoRoute) {
+      headers['x-opencode-session'] = getSessionId()
+      headers['User-Agent'] = getOpenClaudeUserAgent()
     }
 
     return headers
