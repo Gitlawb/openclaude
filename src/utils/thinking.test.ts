@@ -170,6 +170,7 @@ describe('Claude 5 provider thinking matrix — Bedrock vs Vertex', () => {
 
     for (const model of vertexClaude5Models) {
       expect(modelSupportsThinking(model)).toBe(false)
+      expect(modelSupportsAdaptiveThinking(model)).toBe(false)
       expect(shouldUseThinkingForModel(model, adaptiveConfig)).toBe(false)
     }
 

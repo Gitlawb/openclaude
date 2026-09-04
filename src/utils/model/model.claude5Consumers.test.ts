@@ -126,6 +126,8 @@ test.each([
 test.each([
   'claude-opus-50',
   'claude-sonnet-5x',
+  'notclaude-opus-5',
+  'prefixclaude-sonnet-5',
   'arbitrary-proxy-opus-5',
   'arbitrary-proxy-sonnet-5',
 ])(

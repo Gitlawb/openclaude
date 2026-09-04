@@ -218,7 +218,7 @@ export const CLAUDE_OPUS_4_7_CONFIG = {
 
 export const CLAUDE_OPUS_5_CONFIG = {
   firstParty: 'claude-opus-5',
-  bedrock: 'us.anthropic.claude-opus-5-v1',
+  bedrock: 'us.anthropic.claude-opus-5',
   vertex: 'claude-opus-5',
   foundry: 'claude-opus-5',
   openai: 'gpt-4o',
