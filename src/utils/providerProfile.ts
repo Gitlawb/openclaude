@@ -2205,6 +2205,7 @@ export async function buildLaunchEnv(options: {
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
     'AIMLAPI_API_KEY',
+    'MINIMAX_API_KEY',
     'MIMO_API_KEY',
     'NVIDIA_API_KEY',
     'VENICE_API_KEY',

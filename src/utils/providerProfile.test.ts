@@ -7,6 +7,7 @@ import test, { afterEach, beforeEach } from 'node:test'
 import { acquireEnvMutex, releaseEnvMutex } from '../entrypoints/sdk/shared.js'
 import {
   resolveActiveRouteIdFromEnv,
+  resolveEnvOnlyProviderRouteId,
   resolveRouteCredentialValue,
 } from '../integrations/routeMetadata.js'
 import { DEFAULT_CODEX_BASE_URL } from '../services/api/providerConfig.js'
@@ -257,6 +258,67 @@ test('openai launch preserves persisted dedicated vendor credentials across rest
   assert.equal(env.OPENAI_MODEL, 'deepseek-ai/deepseek-v4-pro')
   assert.equal(env.OPENAI_API_KEY, 'atlas-secret-key')
   assert.equal(env.ATLAS_CLOUD_API_KEY, 'atlas-secret-key')
+})
+
+test('openai launch preserves a persisted MiniMax credential and reselects the native route after restart', async () => {
+  // A generic OpenAI profile pointed at the canonical MiniMax host persists its
+  // key as MINIMAX_API_KEY. buildLaunchEnv must carry that dedicated credential
+  // into the clean-shell launch environment; the MiniMax client only enters its
+  // native setup while MINIMAX_API_KEY is present, so dropping it on restart
+  // would silently fall back to generic OpenAI behavior.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.minimax.io/v1',
+      OPENAI_MODEL: 'MiniMax-M2.5',
+      OPENAI_API_KEY: 'minimax-secret-key',
+      MINIMAX_API_KEY: 'minimax-secret-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://api.minimax.io/v1')
+  assert.equal(env.MINIMAX_API_KEY, 'minimax-secret-key')
+  // Assert the reconstructed launch environment actually selects the native
+  // MiniMax route, not merely that the key survived serialization.
+  assert.equal(resolveEnvOnlyProviderRouteId(env), 'minimax')
+})
+
+test('openai launch prefers a live MiniMax key over the persisted one', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.minimax.io/v1',
+      OPENAI_MODEL: 'MiniMax-M2.5',
+      OPENAI_API_KEY: 'persisted-key',
+      MINIMAX_API_KEY: 'persisted-key',
+    }),
+    goal: 'coding',
+    processEnv: { MINIMAX_API_KEY: 'live-shell-key' },
+  })
+
+  assert.equal(env.MINIMAX_API_KEY, 'live-shell-key')
+  assert.equal(resolveEnvOnlyProviderRouteId(env), 'minimax')
+})
+
+test('openai launch does not synthesize a MiniMax credential for a generic profile', async () => {
+  // A generic OpenAI-compatible profile on an unrelated host never persisted a
+  // MINIMAX_API_KEY (the host guard on the persistence side withholds it), so a
+  // clean relaunch must not conjure one or route to MiniMax.
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.example.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'generic-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.MINIMAX_API_KEY, undefined)
+  assert.notEqual(resolveEnvOnlyProviderRouteId(env), 'minimax')
 })
 
 test('openai launch preserves persisted ApiSmart dedicated credentials across restart', async () => {
