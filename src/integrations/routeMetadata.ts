@@ -270,7 +270,11 @@ export function isMiniMaxBaseUrl(value: string | undefined): boolean {
 
   try {
     const hostname = new URL(trimmed).hostname.toLowerCase()
-    return hostname === 'api.minimax.io' || hostname === 'api.minimax.chat'
+    return (
+      hostname === 'api.minimax.io' ||
+      hostname === 'api.minimax.chat' ||
+      hostname === 'api.minimaxi.com'
+    )
   } catch {
     return false
   }

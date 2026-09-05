@@ -316,6 +316,18 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "minimax-cn",
+    "routeKind": "vendor",
+    "routeId": "minimax-cn",
+    "vendorId": "minimax-cn",
+    "description": "MiniMax (China) — api.minimaxi.com",
+    "label": "MiniMax (China)",
+    "name": "MiniMax (China)",
+    "apiKeyEnvVars": [
+      "MINIMAX_API_KEY"
+    ]
+  },
+  {
     "preset": "minimax",
     "routeKind": "vendor",
     "routeId": "minimax",
@@ -592,6 +604,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "atomic-chat",
   "ollama",
   "longcat",
+  "minimax-cn",
   "minimax",
   "mistral",
   "moonshotai",

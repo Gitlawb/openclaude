@@ -149,6 +149,7 @@ export type ProviderProfile =
   | 'atomic-chat'
   | 'nvidia-nim'
   | 'minimax'
+  | 'minimax-cn'
   | 'mistral'
   | 'github'
   | 'github-enterprise'
@@ -337,6 +338,7 @@ export function isProviderProfile(value: unknown): value is ProviderProfile {
     value === 'atomic-chat' ||
     value === 'nvidia-nim' ||
     value === 'minimax' ||
+    value === 'minimax-cn' ||
     value === 'mistral' ||
     value === 'github' ||
     value === 'github-enterprise' ||
@@ -480,18 +482,27 @@ export function buildMiniMaxProfileEnv(options: {
   model?: string | null
   baseUrl?: string | null
   apiKey?: string | null
+  /**
+   * Route id whose defaults should be used when options.baseUrl / options.model
+   * are absent. Defaults to 'minimax' (overseas). Pass 'minimax-cn' for the
+   * mainland-China endpoint.
+   */
+  routeId?: string
   processEnv?: NodeJS.ProcessEnv
 }): ProfileEnv | null {
   const processEnv = options.processEnv ?? process.env
+  const routeId = options.routeId ?? 'minimax'
   const key = sanitizeApiKey(options.apiKey ?? processEnv.MINIMAX_API_KEY)
   if (!key) {
     return null
   }
 
-  const defaultBaseUrl = getRouteDefaultBaseUrl('minimax')
-  const defaultModel = getRouteDefaultModel('minimax')
+  const defaultBaseUrl = getRouteDefaultBaseUrl(routeId)
+  const defaultModel = getRouteDefaultModel(routeId)
   if (!defaultBaseUrl || !defaultModel) {
-    throw new Error('MiniMax route defaults are missing from integration metadata.')
+    throw new Error(
+      `MiniMax route defaults are missing from integration metadata (routeId=${routeId}).`,
+    )
   }
   const secretSource: SecretValueSource = {
     ANTHROPIC_API_KEY: key,
@@ -2014,6 +2025,38 @@ export async function buildLaunchEnv(options: {
         ...(codexAccountId ? { CHATGPT_ACCOUNT_ID: codexAccountId } : {}),
       },
     })
+  }
+
+  if (selectedProfile === 'minimax' || selectedProfile === 'minimax-cn') {
+    // Source the credential from any environment variable the user may have
+    // populated (or previously persisted). MINIMAX_API_KEY is the canonical
+    // alias; ANTHROPIC_API_KEY / OPENAI_API_KEY cover the legacy cases where
+    // a generic env var was reused for this vendor.
+    const minimaxKey =
+      sanitizeApiKey(processEnv.MINIMAX_API_KEY) ||
+      sanitizeApiKey(persistedEnv.MINIMAX_API_KEY) ||
+      sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
+      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY) ||
+      sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
+      sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+    const minimaxProfileEnv = buildMiniMaxProfileEnv({
+      baseUrl:
+        persistedEnv.ANTHROPIC_BASE_URL ||
+        persistedEnv.OPENAI_BASE_URL ||
+        processEnv.ANTHROPIC_BASE_URL ||
+        processEnv.OPENAI_BASE_URL,
+      model:
+        persistedEnv.ANTHROPIC_MODEL ||
+        persistedEnv.OPENAI_MODEL ||
+        processEnv.ANTHROPIC_MODEL ||
+        processEnv.OPENAI_MODEL,
+      apiKey: minimaxKey,
+      routeId: selectedProfile,
+      processEnv,
+    })
+    if (minimaxProfileEnv) {
+      return { ...processEnv, ...minimaxProfileEnv }
+    }
   }
 
   const defaultOpenAIModel = getGoalDefaultOpenAIModel(options.goal)
