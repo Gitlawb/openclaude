@@ -41,6 +41,7 @@ import type {
   PermissionResult,
   SDKResultMessage as GeneratedSDKResultMessage,
 } from './coreTypes.generated.js'
+import type { Message } from '../../types/message.js'
 import type {
   SDKMessage,
   SDKPermissionTimeoutMessage,
@@ -176,11 +177,11 @@ export type SDKResultMessage = GeneratedSDKResultMessage
  * These definitions can be passed to `createSdkMcpServer()` to register
  * custom MCP tools.
  */
-export interface SdkMcpToolDefinition<Schema = any> {
+export interface SdkMcpToolDefinition<Schema = unknown> {
   name: string
   description: string
   inputSchema: Schema
-  handler: (args: any, extra: unknown) => Promise<CallToolResult>
+  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>
   annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean
@@ -516,7 +517,7 @@ class SDKSessionImpl implements SDKSession {
 function createEngineFromOptions(
   options: SDKSessionOptions,
   permissionTarget: PermissionTarget & { pushTimeout?: (msg: SDKPermissionTimeoutMessage) => void },
-  initialMessages?: any[],
+  initialMessages?: Message[],
   sessionId?: string,
 ): { engine: QueryEngine; appStateStore: Store<AppState>; abortController: AbortController } {
   const {
@@ -676,7 +677,7 @@ export async function unstable_v2_resumeSession(
   // Load prior messages from JSONL with compact-aware chain building.
   // Matches CLI's loadTranscriptFile → buildConversationChain → removeExtraFields.
   const resolved = await resolveSessionFilePath(sessionId, options.cwd)
-  let initialMessages: any[]
+  let initialMessages: Message[] = []
 
   if (resolved) {
     const { size: fileSize } = await stat(resolved.filePath)
@@ -762,7 +763,7 @@ export async function unstable_v2_resumeSession(
       }
       if (leaf) {
         const chain = buildChain(byUuid, leaf)
-        initialMessages = stripChainFields(chain)
+        initialMessages = stripChainFields(chain) as Message[]
       } else {
         initialMessages = []
       }
@@ -777,7 +778,7 @@ export async function unstable_v2_resumeSession(
   const { engine, appStateStore, abortController } = createEngineFromOptions(
     options,
     session,
-    initialMessages as any[],
+    initialMessages,
     sessionId,
   )
   session.setEngine(engine)

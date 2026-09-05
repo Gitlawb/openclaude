@@ -141,8 +141,41 @@ interface LegacySource {
   path: string
   kind: 'json' | 'sqlite'
   mtimeMs: number
-  data: any
+  data: LegacyData
   artifactBytes: Map<string, Buffer>
+}
+
+// Legacy knowledge-graph shapes (JSON stores written by older OpenClaude
+// versions and the SQLite store read at line ~400). All field types are
+// `unknown` because the on-disk format predates our schema; helpers in this
+// file sanitize as they read.
+type LegacyEntity = {
+  id?: unknown
+  name?: unknown
+  type?: unknown
+  attributes?: Record<string, unknown>
+}
+type LegacyRelation = {
+  sourceId?: unknown
+  targetId?: unknown
+  type?: unknown
+}
+type LegacySummary = {
+  id?: unknown
+  content?: unknown
+  keywords?: unknown
+  timestamp?: unknown
+}
+// Some older JSON dumps stored entities as an array; the SQLite reader
+// produces a record keyed by id. Both shapes are normalized to the
+// `Record<string, LegacyEntity>` form before `mergeLegacySources` consumes them.
+type LegacyEntityBag = Record<string, LegacyEntity> | LegacyEntity[]
+type LegacyData = {
+  entities: LegacyEntityBag
+  relations: LegacyRelation[]
+  summaries: LegacySummary[]
+  rules: string[]
+  _droppedEntityAliases?: Map<string, string>
 }
 
 function getLegacySourceMtime(path: string, kind: LegacySource['kind']): number {
@@ -219,12 +252,29 @@ function sqliteDataArtifactsMatch(
   })
 }
 
-function normalizeLegacyData(value: any): any {
+function normalizeLegacyData(value: unknown): LegacyData {
+  const v = value as Partial<LegacyData> | null | undefined
+  const rawEntities = v?.entities
+  let entities: LegacyEntityBag = {}
+  if (Array.isArray(rawEntities)) {
+    const out: Record<string, LegacyEntity> = {}
+    for (const e of rawEntities) {
+      if (e && typeof e === 'object') {
+        const id = (e as LegacyEntity).id
+        if (typeof id === 'string' || typeof id === 'number') {
+          out[String(id)] = e as LegacyEntity
+        }
+      }
+    }
+    entities = out
+  } else if (rawEntities && typeof rawEntities === 'object') {
+    entities = rawEntities as Record<string, LegacyEntity>
+  }
   return {
-    entities: value?.entities && typeof value.entities === 'object' ? value.entities : {},
-    relations: Array.isArray(value?.relations) ? value.relations : [],
-    summaries: Array.isArray(value?.summaries) ? value.summaries : [],
-    rules: Array.isArray(value?.rules) ? value.rules : [],
+    entities,
+    relations: Array.isArray(v?.relations) ? (v.relations as LegacyRelation[]) : [],
+    summaries: Array.isArray(v?.summaries) ? (v.summaries as LegacySummary[]) : [],
+    rules: Array.isArray(v?.rules) ? (v.rules as string[]) : [],
   }
 }
 
@@ -241,7 +291,7 @@ function isLegacyDataShape(value: unknown): boolean {
 }
 
 /** Merge every recoverable legacy location, preferring the newest copy on conflicts. */
-function mergeLegacySources(sources: LegacySource[]): any {
+function mergeLegacySources(sources: LegacySource[]): LegacyData {
   const merged = normalizeLegacyData(null)
   const droppedAliases = new Map<string, string>()
   const entityNames = new Map<string, string>()
@@ -251,7 +301,7 @@ function mergeLegacySources(sources: LegacySource[]): any {
 
   for (const source of [...sources].sort((a, b) => b.mtimeMs - a.mtimeMs)) {
     const data = normalizeLegacyData(source.data)
-    for (const [entryKey, rawEntity] of Object.entries(data.entities) as [string, any][]) {
+    for (const [entryKey, rawEntity] of Object.entries(data.entities)) {
       if (!rawEntity || typeof rawEntity !== 'object') continue
       const id = String(rawEntity.id ?? entryKey)
       const nameKey = String(rawEntity.name ?? '').trim().toLowerCase()
@@ -394,18 +444,23 @@ function migrateLegacyKnowledgeGraph(): void {
 }
 
 type SqliteReadResult =
-  | { ok: true; data: any }
+  | { ok: true; data: LegacyData }
   | { ok: false; reason: 'not_found' | 'unavailable' | 'error' }
+
+interface SqliteDb {
+  close?: () => void
+}
+type SqliteRow = Record<string, unknown>
 
 function readLegacySqliteStore(dbPath: string): SqliteReadResult {
   if (!existsSync(dbPath)) return { ok: false, reason: 'not_found' }
 
-  let openDatabase: () => { db: any; queryAll: (sql: string) => any[] }
+  let openDatabase: () => { db: SqliteDb; queryAll: (sql: string) => SqliteRow[] }
   try {
     const Database = _require('bun:sqlite').Database
     openDatabase = () => {
-      const db = new Database(dbPath, { readonly: true })
-      return { db, queryAll: sql => db.query(sql).all() as any[] }
+      const db: { query: (sql: string) => { all: () => SqliteRow[] }; close?: () => void } = new Database(dbPath, { readonly: true })
+      return { db, queryAll: sql => db.query(sql).all() }
     }
   } catch {
     try {
@@ -414,8 +469,8 @@ function readLegacySqliteStore(dbPath: string): SqliteReadResult {
       // OpenClaude install can still migrate after the user changes runtimes.
       const DatabaseSync = _require('node:sqlite').DatabaseSync
       openDatabase = () => {
-        const db = new DatabaseSync(dbPath, { readOnly: true })
-        return { db, queryAll: sql => db.prepare(sql).all() as any[] }
+        const db: { prepare: (sql: string) => { all: () => SqliteRow[] }; close?: () => void } = new DatabaseSync(dbPath, { readOnly: true })
+        return { db, queryAll: sql => db.prepare(sql).all() }
       }
     } catch {
       console.error(
@@ -425,43 +480,58 @@ function readLegacySqliteStore(dbPath: string): SqliteReadResult {
     }
   }
 
-  let db: any
+  let db: SqliteDb | null = null
   try {
     const opened = openDatabase()
     db = opened.db
     const queryAll = opened.queryAll
-    const data: any = { entities: {}, relations: [], summaries: [], rules: [] }
+    const data: LegacyData = { entities: {}, relations: [], summaries: [], rules: [] }
 
     const entityRows = queryAll('SELECT id, type, name, attributes FROM entities')
     for (const row of entityRows) {
-      data.entities[row.id] = {
+      const id = String(row.id ?? '')
+      const rawAttrs = row.attributes
+      data.entities[id] = {
         id: row.id,
         type: row.type ?? '',
         name: row.name ?? '',
-        attributes: row.attributes ? JSON.parse(row.attributes) : {},
+        attributes:
+          typeof rawAttrs === 'string' && rawAttrs.length > 0
+            ? (JSON.parse(rawAttrs) as Record<string, unknown>)
+            : {},
       }
     }
 
-    data.relations = queryAll('SELECT source_id, target_id, type FROM relations').map(
-      (r: any) => ({ sourceId: r.source_id, targetId: r.target_id, type: r.type }),
-    )
-
-    const summaryRows = queryAll('SELECT id, content, keywords, timestamp FROM summaries')
-    data.summaries = summaryRows.map((r: any) => ({
-      id: r.id,
-      content: r.content ?? '',
-      keywords: r.keywords ? JSON.parse(r.keywords) : [],
-      timestamp: r.timestamp ?? 0,
+    data.relations = queryAll('SELECT source_id, target_id, type FROM relations').map(r => ({
+      sourceId: r.source_id,
+      targetId: r.target_id,
+      type: r.type,
     }))
 
-    data.rules = queryAll('SELECT content FROM rules').map((r: any) => r.content)
+    const summaryRows = queryAll('SELECT id, content, keywords, timestamp FROM summaries')
+    data.summaries = summaryRows.map(r => {
+      const rawKeywords = r.keywords
+      return {
+        id: r.id,
+        content: r.content ?? '',
+        keywords:
+          typeof rawKeywords === 'string' && rawKeywords.length > 0
+            ? (JSON.parse(rawKeywords) as unknown)
+            : [],
+        timestamp: r.timestamp ?? 0,
+      }
+    })
+
+    data.rules = queryAll('SELECT content FROM rules')
+      .map(r => r.content)
+      .filter((c): c is string => typeof c === 'string')
 
     return { ok: true, data }
   } catch (e) {
     console.error('[knowledgeGraph] Failed to read SQLite store:', e)
     return { ok: false, reason: 'error' }
   } finally {
-    try { db?.close() } catch { /* ignore close failures after read */ }
+    try { db?.close?.() } catch { /* ignore close failures after read */ }
   }
 }
 
@@ -547,7 +617,7 @@ function archiveLegacySources(sources: LegacySource[]): boolean {
   return true
 }
 
-function doMigration(data: any, sources: LegacySource[], projectKey: string): void {
+function doMigration(data: LegacyData, sources: LegacySource[], projectKey: string): void {
   // Archive and byte-verify every discovered source before writing facts. If
   // any root/cwd store cannot be preserved, leave all live stores in place and
   // retry later rather than completing a partial migration.
@@ -590,7 +660,7 @@ function doMigration(data: any, sources: LegacySource[], projectKey: string): vo
     // into the YAML title and body (P1). The old fact extractor stored raw env
     // values in both attributes and names.
     const legacyEntities = Object.entries(data.entities ?? {})
-    for (const [legacyId, entity] of legacyEntities as [string, any][]) {
+    for (const [legacyId, entity] of legacyEntities) {
       const safeName = safeEntityName(entity)
       if (!safeName) {
         continue
@@ -681,7 +751,7 @@ ${safeRule}
     }
 
     // Preserve legacy relations as a single relation-set fact (remapped using legacyToNewId, H4)
-    const relations: Relation[] = (data.relations ?? []).flatMap((r: any) => {
+    const relations: Relation[] = (data.relations ?? []).flatMap((r: LegacyRelation) => {
       const rawSourceId = String(r.sourceId ?? '')
       const rawTargetId = String(r.targetId ?? '')
       const sourceId = legacyToNewId.get(rawSourceId) || sanitizeLegacyReference(rawSourceId)
