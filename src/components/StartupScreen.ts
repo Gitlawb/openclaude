@@ -166,7 +166,14 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
-  const name = isMiniMaxBaseUrl(baseUrl) ? 'MiniMax' : 'Anthropic'
+  let name = isMiniMaxBaseUrl(baseUrl) ? 'MiniMax' : 'Anthropic'
+  try {
+    if (new URL(baseUrl).hostname.toLowerCase() === 'api.minimaxi.com') {
+      name = 'MiniMax (China)'
+    }
+  } catch {
+    // baseUrl is already guarded by isLocalProviderUrl; URL parse failure is benign.
+  }
   return { name, model: resolvedModel, baseUrl, isLocal }
 }
 

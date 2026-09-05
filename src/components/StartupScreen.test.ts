@@ -378,6 +378,15 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     expect(detectProvider().name).toBe('MiniMax')
     expect(detectProvider().baseUrl).toBe('https://api.minimax.io/anthropic')
   })
+
+  test('Anthropic-compatible MiniMax (China) profile is labeled MiniMax (China)', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimaxi.com/anthropic'
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+    process.env.ANTHROPIC_MODEL = 'MiniMax-M3'
+
+    expect(detectProvider().name).toBe('MiniMax (China)')
+    expect(detectProvider().baseUrl).toBe('https://api.minimaxi.com/anthropic')
+  })
 })
 
 // --- modelOverride from --model flag ---
