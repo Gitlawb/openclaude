@@ -1418,20 +1418,24 @@ describe('background session finalizer', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
-    let stdout = ''
-    let stderr = ''
-    launcher.stdout?.setEncoding('utf8')
-    launcher.stderr?.setEncoding('utf8')
-    launcher.stdout?.on('data', chunk => {
-      stdout += chunk
-    })
-    launcher.stderr?.on('data', chunk => {
-      stderr += chunk
-    })
-    const launcherClose = once(launcher, 'close')
+    const stdoutCapture = captureBoundedOutput(
+      launcher,
+      launcher.stdout,
+      'zero-retention launcher stdout',
+    )
+    const stderrCapture = captureBoundedOutput(
+      launcher,
+      launcher.stderr,
+      'zero-retention launcher stderr',
+    )
+    const launcherClose = waitForChildClose(launcher, 'zero-retention launcher')
     let childPid: number | undefined
     try {
-      const [launcherCode] = (await launcherClose) as [number]
+      const launcherCode = await launcherClose
+      stdoutCapture.assertWithinLimit()
+      stderrCapture.assertWithinLimit()
+      const stdout = stdoutCapture.read()
+      const stderr = stderrCapture.read()
       expect(launcherCode).toBe(0)
       expect(stderr).toBe('')
       const stdoutLogPath = stdout.match(/^Logs: (.+)$/m)?.[1]

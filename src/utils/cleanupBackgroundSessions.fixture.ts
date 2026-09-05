@@ -120,9 +120,17 @@ try {
             ? await cleanupBackgroundSessionsInBackground()
             : await runBackgroundSessionRetention({
                 trigger: 'periodic-recovery',
-                _recoveryBatchLimitForTesting: Number(
-                  process.env.OPENCLAUDE_CLEANUP_RECOVERY_LIMIT,
-                ),
+                _recoveryBatchLimitForTesting: (() => {
+                  const limit = Number(
+                    process.env.OPENCLAUDE_CLEANUP_RECOVERY_LIMIT,
+                  )
+                  if (!Number.isSafeInteger(limit) || limit < 1) {
+                    throw new Error(
+                      'OPENCLAUDE_CLEANUP_RECOVERY_LIMIT must be a positive safe integer',
+                    )
+                  }
+                  return limit
+                })(),
               }),
       })}\n`,
     )
@@ -362,7 +370,11 @@ try {
     await cleanupOldMessageFilesInBackground()
     process.stdout.write(`${JSON.stringify({ completed: true })}\n`)
   }
-} catch {
-  process.stderr.write('background cleanup fixture failed\n')
+} catch (error) {
+  process.stderr.write(
+    `background cleanup fixture failed: ${
+      error instanceof Error ? (error.stack ?? error.message) : String(error)
+    }\n`,
+  )
   process.exitCode = 1
 }

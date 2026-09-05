@@ -23,6 +23,8 @@ import { NodeFsOperations } from './fsOperations.js'
 
 const tempDirs: string[] = []
 const FIXTURE_OUTPUT_LIMIT_BYTES = 64 * 1024
+// The production minute-recovery contract caps each pass at 256 records.
+const BACKGROUND_RECOVERY_ENTRY_LIMIT = 256
 
 afterEach(async () => {
   _setBackgroundSessionsRootForTesting(undefined)
@@ -77,6 +79,7 @@ async function runCleanupFixture(
     | 'post-finalization-timeout'
     | 'explicit-kill' = 'once',
   fixtureEnv: NodeJS.ProcessEnv = {},
+  expectedError?: string,
 ): Promise<Record<string, unknown>> {
   const fixture = join(import.meta.dir, 'cleanupBackgroundSessions.fixture.ts')
   const { USER_TYPE: _userType, ...inheritedEnv } = process.env
@@ -110,6 +113,17 @@ async function runCleanupFixture(
         'cleanup fixture stderr',
       ),
     ])
+    if (expectedError !== undefined) {
+      expect(exitCode, stderr).toBe(1)
+      expect(stdout).toBe('')
+      expect(stderr).toContain(
+        `background cleanup fixture failed: Error: ${expectedError}`,
+      )
+      expect(stderr).toMatch(
+        /\bat .*cleanupBackgroundSessions\.fixture\.ts:\d+:\d+/,
+      )
+      return {}
+    }
     expect(exitCode, stderr).toBe(0)
     const result = JSON.parse(stdout) as Record<string, unknown>
     if (mode === 'once') expect(result).toEqual({ completed: true })
@@ -226,6 +240,55 @@ describe('cleanupOldSessionFiles', () => {
 })
 
 describe('cleanupOldMessageFilesInBackground', () => {
+  for (const limit of [
+    undefined,
+    '',
+    '0',
+    '-1',
+    '1.5',
+    'invalid',
+    '9007199254740992',
+  ]) {
+    test(`rejects invalid bounded recovery fixture limit ${JSON.stringify(limit)}`, async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-cleanup-invalid-limit-${Date.now()}-${Math.random()}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+      const id = 'bg-invalid-limit'
+      const metadata = await createCompletedBackgroundSession(
+        configDir,
+        id,
+        new Date(0),
+      )
+      const root = join(configDir, 'bg-sessions')
+      const journal = join(root, '.recovery-journal')
+      const before = await readFile(journal, 'utf8')
+
+      await runCleanupFixture(
+        configDir,
+        'periodic-recovery-bounded',
+        { OPENCLAUDE_CLEANUP_RECOVERY_LIMIT: limit },
+        'OPENCLAUDE_CLEANUP_RECOVERY_LIMIT must be a positive safe integer',
+      )
+
+      expect(await Bun.file(metadata).exists()).toBe(true)
+      expect(
+        await Bun.file(join(root, 'logs', `${id}.out.log`)).exists(),
+      ).toBe(true)
+      expect(await readFile(journal, 'utf8')).toBe(before)
+      expect(await Bun.file(join(root, '.recovery-pass')).exists()).toBe(false)
+      expect(
+        await Bun.file(join(root, '.recovery-cursor.json')).exists(),
+      ).toBe(false)
+    }, 30_000)
+  }
+
   test(
     'globally throttles and bounds concurrent prompt-recovery passes',
     async () => {
@@ -288,7 +351,7 @@ describe('cleanupOldMessageFilesInBackground', () => {
       ])
       expect(
         (await readdir(metadataDir)).filter(name => name.endsWith('.json')),
-      ).toHaveLength(44)
+      ).toHaveLength(ids.length - BACKGROUND_RECOVERY_ENTRY_LIMIT)
     },
     30_000,
   )
@@ -428,7 +491,11 @@ describe('cleanupOldMessageFilesInBackground', () => {
       'terminal-unlink',
       'marked-terminal-unlink',
     ] as const) {
-      test(`retries ${failure} after a partial ${trigger} pass in a new process`, async () => {
+      const terminalFailure = failure.endsWith('terminal-unlink')
+      test.skipIf(
+        terminalFailure &&
+          (process.platform === 'win32' || process.geteuid?.() === 0),
+      )(`retries ${failure} after a partial ${trigger} pass in a new process`, async () => {
         const configDir = join(
           tmpdir(),
           `openclaude-retry-outcome-${Date.now()}-${Math.random()}`,
@@ -441,7 +508,6 @@ describe('cleanupOldMessageFilesInBackground', () => {
         )
         const root = join(configDir, 'bg-sessions')
         const id = 'bg-retryable'
-        const terminalFailure = failure.endsWith('terminal-unlink')
         const metadata = await createCompletedBackgroundSession(
           configDir,
           id,

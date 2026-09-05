@@ -219,7 +219,10 @@ describe('background session retention cleanup', () => {
     ] as const) {
       if (consumer === 'reconciliation' && fault === 'replaced-before-read')
         continue
-      it(`reports ${fault} ${consumer} inventory as unacknowledged responsibility`, async () => {
+      it.skipIf(
+        fault === 'unreadable' &&
+          (process.platform === 'win32' || process.geteuid?.() === 0),
+      )(`reports ${fault} ${consumer} inventory as unacknowledged responsibility`, async () => {
         const session = await writeRawSession({
           id: 'bg-inventory-report',
           status: 'exited',
