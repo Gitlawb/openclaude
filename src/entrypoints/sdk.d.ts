@@ -186,6 +186,7 @@ export type SessionMessage = {
 
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
+import type { ToolAnnotations } from '@modelcontextprotocol/sdk/dist/esm/types.js'
 import type {
   AccountInfo,
   AgentInfo,
@@ -441,12 +442,12 @@ export interface SDKSession {
 // MCP tool types
 // ============================================================================
 
-export interface SdkMcpToolDefinition<Schema = any> {
+export interface SdkMcpToolDefinition<Schema = unknown> {
   name: string
   description: string
   inputSchema: Schema
-  handler: (args: any, extra: unknown) => Promise<any>
-  annotations?: any
+  handler: (args: Schema, extra: unknown) => Promise<any>
+  annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean
 }
@@ -525,13 +526,13 @@ export function unstable_v2_prompt(
 // MCP tool functions
 // ============================================================================
 
-export function tool<Schema = any>(
+export function tool<Schema = unknown>(
   name: string,
   description: string,
   inputSchema: Schema,
-  handler: (args: any, extra: unknown) => Promise<any>,
+  handler: (args: Schema, extra: unknown) => Promise<any>,
   extras?: {
-    annotations?: any
+    annotations?: ToolAnnotations
     searchHint?: string
     alwaysLoad?: boolean
   },

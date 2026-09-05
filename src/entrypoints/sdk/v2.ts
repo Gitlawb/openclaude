@@ -177,11 +177,11 @@ export type SDKResultMessage = GeneratedSDKResultMessage
  * These definitions can be passed to `createSdkMcpServer()` to register
  * custom MCP tools.
  */
-export interface SdkMcpToolDefinition<Schema = any> {
+export interface SdkMcpToolDefinition<Schema = unknown> {
   name: string
   description: string
   inputSchema: Schema
-  handler: (args: any, extra: unknown) => Promise<CallToolResult>
+  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>
   annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean
