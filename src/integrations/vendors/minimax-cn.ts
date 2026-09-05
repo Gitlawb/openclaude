@@ -2,7 +2,7 @@ import { defineVendor } from '../define.js'
 
 export default defineVendor({
   id: 'minimax-cn',
-  label: 'MiniMax (国内)',
+  label: 'MiniMax (China)',
   classification: 'native',
   defaultBaseUrl: 'https://api.minimaxi.com/anthropic',
   defaultModel: 'MiniMax-M3',
@@ -17,7 +17,9 @@ export default defineVendor({
   },
   preset: {
     id: 'minimax-cn',
-    description: 'MiniMax 国内 API(api.minimaxi.com)',
+    description: 'MiniMax (China) — api.minimaxi.com',
+    name: 'MiniMax (China)',
+    label: 'MiniMax (China)',
     apiKeyEnvVars: ['MINIMAX_API_KEY'],
   },
   validation: {
@@ -28,7 +30,7 @@ export default defineVendor({
     },
     credentialEnvVars: ['MINIMAX_API_KEY'],
     missingCredentialMessage:
-      'MiniMax 国内 auth is required. Set MINIMAX_API_KEY.',
+      'MiniMax (China) auth is required. Set MINIMAX_API_KEY.',
   },
   catalog: {
     source: 'static',

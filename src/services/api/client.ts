@@ -195,7 +195,13 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
     process.env.ANTHROPIC_API_KEY = apiKey
   }
 
-  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  // Only seed the overseas Anthropic-compatible endpoint as the default. If
+  // the active profile (e.g. minimax-cn for api.minimaxi.com) or an explicit
+  // shell export already populated ANTHROPIC_BASE_URL, preserve it so the
+  // user's chosen endpoint survives the env-only fallback path.
+  if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  }
   process.env.ANTHROPIC_MODEL =
     (isMiniMaxModelName(modelOverride)
       ? modelOverride

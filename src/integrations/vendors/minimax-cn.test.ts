@@ -52,7 +52,9 @@ describe('minimax-cn vendor (国内 MiniMax)', () => {
     expect(preset.baseUrl).toBe('https://api.minimaxi.com/anthropic')
     expect(preset.model).toBe('MiniMax-M3')
     expect(preset.requiresApiKey).toBe(true)
-    expect(preset.description).toBe('MiniMax 国内 API(api.minimaxi.com)')
+    expect(preset.description).toBe('MiniMax (China) — api.minimaxi.com')
+    expect(preset.name).toBe('MiniMax (China)')
+    expect(preset.label).toBe('MiniMax (China)')
 
     const validation = validateIntegrationRegistry()
     expect(validation.valid).toBe(true)
