@@ -326,6 +326,16 @@ export const PROVIDER_PRESET_MANIFEST = [
     ]
   },
   {
+    "preset": "minimax-cn",
+    "routeKind": "vendor",
+    "routeId": "minimax-cn",
+    "vendorId": "minimax-cn",
+    "description": "MiniMax 国内 API(api.minimaxi.com)",
+    "apiKeyEnvVars": [
+      "MINIMAX_API_KEY"
+    ]
+  },
+  {
     "preset": "mistral",
     "routeKind": "gateway",
     "routeId": "mistral",
@@ -593,6 +603,7 @@ export const ORDERED_PROVIDER_PRESETS = [
   "ollama",
   "longcat",
   "minimax",
+  "minimax-cn",
   "mistral",
   "moonshotai",
   "kimi-code",

@@ -541,6 +541,7 @@ export function applyProviderFlag(
       break
 
     case 'minimax':
+    case 'minimax-cn':
       delete process.env.OPENAI_BASE_URL
       delete process.env.OPENAI_API_BASE
       delete process.env.OPENAI_MODEL
@@ -549,13 +550,17 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
-      process.env.ANTHROPIC_BASE_URL = defaultBaseUrl ?? 'https://api.minimax.io/anthropic'
+      process.env.ANTHROPIC_BASE_URL =
+        defaultBaseUrl ??
+        (provider === 'minimax-cn'
+          ? 'https://api.minimaxi.com/anthropic'
+          : 'https://api.minimax.io/anthropic')
       process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M3'
       if (model) process.env.ANTHROPIC_MODEL = model
       if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
         process.env.ANTHROPIC_API_KEY = process.env.MINIMAX_API_KEY
       }
-      if (copiedOpenAIKeyProvider === 'minimax') {
+      if (copiedOpenAIKeyProvider === 'minimax' || copiedOpenAIKeyProvider === 'minimax-cn') {
         delete process.env.OPENAI_API_KEY
       }
       break

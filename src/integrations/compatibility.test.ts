@@ -40,6 +40,7 @@ const EXPECTED_PRESETS = [
   'custom-anthropic',
   'nvidia-nim',
   'minimax',
+  'minimax-cn',
   'xai',
   'venice',
   'xiaomi-mimo',

@@ -138,7 +138,7 @@ function resolveProfileCompatibility(provider: string): {
   if (route.vendorId === 'anthropic') {
     return { route, compatibilityMode: 'anthropic' }
   }
-  if (route.vendorId === 'minimax') {
+  if (route.vendorId === 'minimax' || route.vendorId === 'minimax-cn') {
     return { route, compatibilityMode: 'anthropic' }
   }
   if (route.vendorId === 'gemini') {
@@ -948,12 +948,13 @@ export function applyProviderProfileToProcessEnv(
   }
 
   if (compatibilityMode === 'anthropic') {
-    if (route.vendorId === 'minimax') {
+    if (route.vendorId === 'minimax' || route.vendorId === 'minimax-cn') {
       profileEnv =
         buildMiniMaxProfileEnv({
           model: primaryModel,
           baseUrl: profile.baseUrl,
           apiKey: profile.apiKey,
+          routeId: route.vendorId,
           processEnv: process.env,
         }) ?? {}
     } else {
@@ -1654,16 +1655,17 @@ function buildStartupProfileFromActiveProfile(
 
   switch (compatibilityMode) {
     case 'anthropic':
-      if (route.vendorId === 'minimax') {
+      if (route.vendorId === 'minimax' || route.vendorId === 'minimax-cn') {
         const env =
           buildMiniMaxProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
+            routeId: route.vendorId,
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: route.vendorId, env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
       }
       return {
@@ -1753,16 +1755,17 @@ function buildStartupProfileFromActiveProfile(
           : null
       }
 
-      if (route.vendorId === 'minimax') {
+      if (route.vendorId === 'minimax' || route.vendorId === 'minimax-cn') {
         const env =
           buildMiniMaxProfileEnv({
             model: getPrimaryModel(activeProfile.model),
             baseUrl: activeProfile.baseUrl,
             apiKey: activeProfile.apiKey,
+            routeId: route.vendorId,
             processEnv: process.env,
           }) ?? null
         return env
-          ? { profile: 'minimax', env: applySupportedProfileCustomHeaders(activeProfile, env) }
+          ? { profile: route.vendorId, env: applySupportedProfileCustomHeaders(activeProfile, env) }
           : null
       }
 

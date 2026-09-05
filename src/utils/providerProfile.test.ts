@@ -22,6 +22,7 @@ import {
   buildCodexProfileEnv,
   buildGeminiProfileEnv,
   buildLaunchEnv,
+  buildMiniMaxProfileEnv,
   buildOllamaProfileEnv,
   buildOpenAIProfileEnv,
   clearPersistedCodexOAuthProfile,
@@ -3297,4 +3298,69 @@ test('buildOpenAIProfileEnv does not stamp a generic key as Concentrate credenti
   assert.ok(env)
   assert.equal(env?.OPENAI_API_KEY, 'generic-proxy-key')
   assert.equal(env?.CONCENTRATE_API_KEY, undefined)
+})
+
+test('buildMiniMaxProfileEnv honors routeId=minimax-cn for mainland-China defaults', () => {
+  const env = buildMiniMaxProfileEnv({
+    apiKey: 'minimax-cn-key',
+    routeId: 'minimax-cn',
+    processEnv: {},
+  })
+
+  assert.ok(env)
+  assert.equal(env?.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/anthropic')
+  assert.equal(env?.MINIMAX_BASE_URL, 'https://api.minimaxi.com/anthropic')
+  assert.equal(env?.MINIMAX_API_KEY, 'minimax-cn-key')
+  assert.equal(env?.ANTHROPIC_API_KEY, 'minimax-cn-key')
+  assert.equal(env?.ANTHROPIC_MODEL, 'MiniMax-M3')
+})
+
+test('buildMiniMaxProfileEnv without routeId keeps overseas defaults (back-compat)', () => {
+  const env = buildMiniMaxProfileEnv({
+    apiKey: 'minimax-key',
+    processEnv: {},
+  })
+
+  assert.ok(env)
+  assert.equal(env?.ANTHROPIC_BASE_URL, 'https://api.minimax.io/anthropic')
+  assert.equal(env?.MINIMAX_BASE_URL, 'https://api.minimax.io/anthropic')
+})
+
+test('buildLaunchEnv assembles Anthropic env for selectedProfile === "minimax-cn"', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        MINIMAX_API_KEY: 'minimax-cn-key',
+        OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1')
+  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
+  assert.equal(env.MINIMAX_API_KEY, 'minimax-cn-key')
+  assert.equal(env.ANTHROPIC_MODEL, 'MiniMax-M3')
+})
+
+test('buildLaunchEnv falls back to OpenAI credential when MINIMAX_API_KEY is unset for the CN profile', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        OPENAI_API_KEY: 'shared-key',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_API_KEY, 'shared-key')
+  assert.equal(env.MINIMAX_API_KEY, 'shared-key')
 })
