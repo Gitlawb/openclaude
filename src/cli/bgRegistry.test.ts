@@ -1087,6 +1087,118 @@ describe('background session registry', () => {
     ).toEqual([])
   })
 
+  it('persists only owned retries behind new work before acknowledging a batch', async () => {
+    const root = join(configDir, 'bg-sessions')
+    await mkdir(root, { recursive: true })
+    const journal = join(root, '.recovery-journal')
+    await writeFile(journal, 'bg-retry\nbg-done\nbg-next\n')
+    const batch = await takeBackgroundSessionRecoveryBatch(2)
+    await batch.commit(['bg-retry', 'bg-foreign', 'bg-retry', '../outside'])
+    const contents = await readFile(journal, 'utf8')
+    expect(contents).toBe('bg-retry\nbg-done\nbg-next\nbg-retry\n')
+    const cursor = JSON.parse(
+      await readFile(join(root, '.recovery-cursor.json'), 'utf8'),
+    )
+    expect(cursor.offset).toBe(Buffer.byteLength('bg-retry\nbg-done\n'))
+    await batch.commit(['bg-retry'])
+    expect(await readFile(journal, 'utf8')).toBe(contents)
+
+    const next = await takeBackgroundSessionRecoveryBatch(2)
+    expect(next.sessionIds).toEqual(['bg-next', 'bg-retry'])
+    await next.commit(['bg-retry'])
+    // Repeated failures rotate the consumed prefix instead of growing forever.
+    expect(await readFile(journal, 'utf8')).toBe('bg-retry\n')
+    const retry = await takeBackgroundSessionRecoveryBatch(2)
+    expect(retry.sessionIds).toEqual(['bg-retry'])
+    await retry.commit()
+    expect(await readFile(journal, 'utf8')).toBe('')
+  })
+
+  it('retains validated generations for terminal retries after metadata removal', async () => {
+    const root = join(configDir, 'bg-sessions')
+    await mkdir(root, { recursive: true })
+    const journal = join(root, '.recovery-journal')
+    const generation = 'a'.repeat(64)
+    await writeFile(journal, 'bg-fact-retry\n')
+    const batch = await takeBackgroundSessionRecoveryBatch(1)
+    await batch.commit(
+      ['bg-fact-retry'],
+      [
+        { id: 'bg-fact-retry', generation },
+        { id: 'bg-foreign', generation },
+        { id: 'bg-fact-retry', generation: '../outside' },
+      ],
+    )
+    const retry = await takeBackgroundSessionRecoveryBatch(256)
+    expect(retry.sessionIds).toEqual(['bg-fact-retry'])
+    expect(retry.terminalFacts).toEqual([
+      { id: 'bg-fact-retry', generation: undefined },
+      { id: 'bg-fact-retry', generation },
+    ])
+    await retry.commit(['bg-fact-retry'])
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(256)).terminalFacts,
+    ).toEqual(retry.terminalFacts)
+    await writeFile(
+      journal,
+      `bg-bad~invalid\nbg-bad~${generation}~extra\nbg-good\n`,
+    )
+    expect(
+      (await takeBackgroundSessionRecoveryBatch(256)).sessionIds,
+    ).toEqual(['bg-good'])
+  })
+
+  for (const synchronous of [false, true]) {
+    it(`journals marked ownership before interrupted cleanup, sync ${synchronous}`, async () => {
+      const id = 'bg-marked-interruption'
+      const session = await createBackgroundSession({
+        id,
+        pid: 452,
+        cwd: '/repo',
+        command: ['openclaude', '--print', 'fixture'],
+        sessionId: 'marked-interruption',
+        processMarker: TEST_PROCESS_MARKER,
+      })
+      const options = {
+        ownerPid: session.pid,
+        expectedSession: session,
+        now: new Date(0),
+      }
+      if (synchronous)
+        recordBackgroundSessionNaturalTerminationSync(
+          id,
+          { exitCode: 0 },
+          options,
+        )
+      else
+        await recordBackgroundSessionNaturalTermination(
+          id,
+          { exitCode: 0 },
+          options,
+        )
+      const batch = await takeBackgroundSessionRecoveryBatch(256)
+      expect(batch.terminalFacts).toEqual([
+        { id, generation: TEST_PROCESS_MARKER },
+      ])
+      const root = join(configDir, 'bg-sessions')
+      // Simulate interruption after logs/metadata were removed, before the fact unlink.
+      await rm(join(root, 'sessions', `${id}.json`))
+      await rm(session.stdoutLogPath, { force: true })
+      await rm(session.stderrLogPath, { force: true })
+      expect(
+        await cleanupBackgroundSessionsBefore(new Date(), {
+          sessionIds: batch.sessionIds,
+          orphanedTerminalFacts: batch.terminalFacts,
+          maxDirectoryEntries: 0,
+        }),
+      ).toEqual({ sessionsRemoved: 0, artifactsRemoved: 1, errors: 0 })
+      await batch.commit()
+      expect(
+        (await takeBackgroundSessionRecoveryBatch(256)).sessionIds,
+      ).toEqual([])
+    })
+  }
+
   it('caps recovery batches at 256 journal records', async () => {
     const root = join(configDir, 'bg-sessions')
     await mkdir(root, { recursive: true })
@@ -1183,7 +1295,7 @@ describe('background session registry', () => {
       { exitCode: 0 },
       { ownerPid: second.pid },
     )
-    await staleBatch.commit()
+    await staleBatch.commit([first.id])
 
     expect(
       (await takeBackgroundSessionRecoveryBatch(1)).sessionIds,

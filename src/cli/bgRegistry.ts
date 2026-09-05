@@ -166,12 +166,22 @@ type BackgroundSessionRecoveryCursor = {
   offset: number
 } & BackgroundSessionRecoveryJournalIdentity
 
+export type BackgroundSessionRecoveryTarget = {
+  id: string
+  generation?: string
+}
+
 export type BackgroundSessionRecoveryBatch = {
   sessionIds: string[]
-  commit: () => Promise<void>
+  terminalFacts: BackgroundSessionRecoveryTarget[]
+  commit: (
+    retrySessionIds?: readonly string[],
+    retryTerminalFacts?: readonly BackgroundSessionRecoveryTarget[],
+  ) => Promise<void>
 }
 
 export type BackgroundSessionRecoverySnapshot = {
+  retry: (targets: readonly BackgroundSessionRecoveryTarget[]) => Promise<void>
   commit: () => Promise<boolean>
 }
 
@@ -322,22 +332,48 @@ function openVerifiedBackgroundRecoveryJournalSync(
   }
 }
 
-function backgroundRecoveryJournalRecord(id: string): string | undefined {
+function backgroundRecoveryJournalRecord(
+  id: string,
+  generation?: string,
+): string | undefined {
   if (!SAFE_ID_RE.test(id)) return undefined
-  const record = `${id}\n`
+  if (
+    generation !== undefined &&
+    !isValidBackgroundProcessMarker(generation)
+  ) {
+    return undefined
+  }
+  const record = `${id}${generation === undefined ? '' : `~${generation}`}\n`
   return Buffer.byteLength(record) <=
     BACKGROUND_RECOVERY_JOURNAL_RECORD_MAX_BYTES
     ? record
     : undefined
 }
 
-async function enqueueBackgroundSessionRecovery(id: string): Promise<void> {
-  const record = backgroundRecoveryJournalRecord(id)
-  if (!record) return
+async function enqueueBackgroundSessionRecovery(
+  id: string,
+  generation?: string,
+): Promise<void> {
+  await enqueueBackgroundSessionRecoveryTargets([{ id, generation }])
+}
+
+async function enqueueBackgroundSessionRecoveryTargets(
+  targets: readonly BackgroundSessionRecoveryTarget[],
+): Promise<void> {
+  const records = [
+    ...new Set(
+      targets
+        .map(target =>
+          backgroundRecoveryJournalRecord(target.id, target.generation),
+        )
+        .filter((record): record is string => record !== undefined),
+    ),
+  ].join('')
+  if (!records) return
   await withBackgroundRecoveryJournalLock(async () => {
     const handle = await openVerifiedBackgroundRecoveryJournal('a')
     try {
-      await handle.writeFile(record)
+      await handle.writeFile(records)
       await handle.sync()
     } finally {
       await handle.close().catch(() => {})
@@ -345,8 +381,11 @@ async function enqueueBackgroundSessionRecovery(id: string): Promise<void> {
   })
 }
 
-function enqueueBackgroundSessionRecoverySync(id: string): void {
-  const record = backgroundRecoveryJournalRecord(id)
+function enqueueBackgroundSessionRecoverySync(
+  id: string,
+  generation?: string,
+): void {
+  const record = backgroundRecoveryJournalRecord(id, generation)
   if (!record) return
   withBackgroundRecoveryJournalLockSync(() => {
     const fd = openVerifiedBackgroundRecoveryJournalSync('a')
@@ -488,6 +527,7 @@ export async function snapshotBackgroundSessionRecoveryJournal(): Promise<
     }
   })
   return {
+    retry: enqueueBackgroundSessionRecoveryTargets,
     commit: async () =>
       await withBackgroundRecoveryJournalLock(
         async () =>
@@ -503,7 +543,7 @@ export async function takeBackgroundSessionRecoveryBatch(
   maxEntries: number,
 ): Promise<BackgroundSessionRecoveryBatch> {
   if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
-    return { sessionIds: [], commit: async () => {} }
+    return { sessionIds: [], terminalFacts: [], commit: async () => {} }
   }
   const boundedMaxEntries = Math.min(
     maxEntries,
@@ -518,6 +558,7 @@ export async function takeBackgroundSessionRecoveryBatch(
     ino: 0,
   }
   let sessionIds: string[] = []
+  const terminalFacts: BackgroundSessionRecoveryTarget[] = []
   await withBackgroundRecoveryJournalLock(async () => {
     const handle = await openVerifiedBackgroundRecoveryJournal('r')
     try {
@@ -545,8 +586,18 @@ export async function takeBackgroundSessionRecoveryBatch(
       while (linesRead < boundedMaxEntries) {
         const newline = contents.indexOf(0x0a, lineStart)
         if (newline < 0) break
-        const id = contents.subarray(lineStart, newline).toString('utf8')
-        if (SAFE_ID_RE.test(id)) ids.add(id)
+        const record = contents
+          .subarray(lineStart, newline)
+          .toString('utf8')
+        const [id, generation, extra] = record.split('~')
+        if (
+          id &&
+          extra === undefined &&
+          backgroundRecoveryJournalRecord(id, generation) !== undefined
+        ) {
+          ids.add(id)
+          terminalFacts.push({ id, generation })
+        }
         nextOffset = startOffset + newline + 1
         lineStart = newline + 1
         linesRead++
@@ -562,7 +613,8 @@ export async function takeBackgroundSessionRecoveryBatch(
 
   return {
     sessionIds,
-    commit: async () => {
+    terminalFacts,
+    commit: async (retrySessionIds = [], retryTerminalFacts = []) => {
       if (nextOffset === startOffset) return
       await withBackgroundRecoveryJournalLock(async () => {
         const handle = await openVerifiedBackgroundRecoveryJournal('r')
@@ -585,10 +637,46 @@ export async function takeBackgroundSessionRecoveryBatch(
           currentIdentity,
         )
         if (currentOffset !== startOffset) return
-        const currentSize = identity.size
-        if (currentSize === snapshotSize && nextOffset >= currentSize) {
+        const retryIds = new Set(retrySessionIds)
+        const retryRecords = [
+          ...new Set(
+            [
+              ...terminalFacts.filter(target => retryIds.has(target.id)),
+              ...retryTerminalFacts,
+            ]
+              .filter(target => sessionIds.includes(target.id))
+              .map(target =>
+                backgroundRecoveryJournalRecord(
+                  target.id,
+                  target.generation,
+                ),
+              )
+              .filter((record): record is string => record !== undefined),
+          ),
+        ].join('')
+        if (retryRecords) {
+          const retryHandle =
+            await openVerifiedBackgroundRecoveryJournal('a')
+          try {
+            if (
+              !sameBackgroundRecoveryJournalIdentity(
+                await retryHandle.stat(),
+                currentIdentity,
+              )
+            ) {
+              throw new Error(
+                'Background recovery journal changed before retry',
+              )
+            }
+            await retryHandle.writeFile(retryRecords)
+            await retryHandle.sync()
+          } finally {
+            await retryHandle.close().catch(() => {})
+          }
+        }
+        if (identity.size === snapshotSize && nextOffset >= snapshotSize) {
           await rotateBackgroundSessionRecoveryJournal(
-            currentSize,
+            nextOffset,
             currentIdentity,
           )
           return
@@ -1395,7 +1483,7 @@ async function installTerminalFact(
     await handle?.close().catch(() => {})
     await unlink(tmp).catch(() => {})
   }
-  await enqueueBackgroundSessionRecovery(installed.id).catch(() => {})
+  await enqueueBackgroundSessionRecovery(installed.id, installed.generation).catch(() => {})
   return installed
 }
 
@@ -1441,7 +1529,7 @@ function installTerminalFactSync(
     } catch {}
   }
   try {
-    enqueueBackgroundSessionRecoverySync(installed.id)
+    enqueueBackgroundSessionRecoverySync(installed.id, installed.generation)
   } catch {
     // The terminal fact remains the durable fallback for the daily sweep.
   }
@@ -1521,6 +1609,7 @@ function hasSamePersistedTerminalState(
 export async function reconcileBackgroundSessionTerminalFacts(
   options: {
     sessionIds?: readonly string[]
+    onRetry?: (target?: BackgroundSessionRecoveryTarget) => void
     terminalScanLimit?: number
   } = {},
 ): Promise<{ sessionsUpdated: number; errors: number }> {
@@ -1547,6 +1636,7 @@ export async function reconcileBackgroundSessionTerminalFacts(
   if (metadataRead.state !== 'valid' || terminalRead.state !== 'valid') {
     result.errors += Number(metadataRead.state !== 'valid')
     result.errors += Number(terminalRead.state !== 'valid')
+    if (result.errors > 0) options.onRetry?.()
     return result
   }
   const metadataDirectory = metadataRead.value
@@ -1555,6 +1645,7 @@ export async function reconcileBackgroundSessionTerminalFacts(
     metadataDirectory.state === 'missing' ||
     terminalDirectory.state === 'missing'
   ) {
+    if (result.errors > 0) options.onRetry?.()
     return result
   }
 
@@ -1575,6 +1666,7 @@ export async function reconcileBackgroundSessionTerminalFacts(
       )
     } catch (error) {
       if (!isErrno(error, 'ENOENT')) result.errors++
+      if (result.errors > 0) options.onRetry?.()
       return result
     }
     const scannedDirectory =
@@ -1588,6 +1680,7 @@ export async function reconcileBackgroundSessionTerminalFacts(
       )) !== 'same'
     ) {
       result.errors++
+      if (result.errors > 0) options.onRetry?.()
       return result
     }
     candidateIds = [
@@ -1611,104 +1704,118 @@ export async function reconcileBackgroundSessionTerminalFacts(
   }
 
   for (const id of candidateIds) {
-    const metadataPath = metadataPathForId(id)
-    const candidate = await readCleanupJson(
-      metadataPath,
-      (value): value is BackgroundSession => isBackgroundSession(value, id),
-      metadataDirectory,
-      fileSystem,
-    )
-    if (candidate.state === 'error') {
-      result.errors++
-      continue
-    }
-    if (candidate.state !== 'valid' || !candidate.identity) continue
-
+    const errorsBefore = result.errors
+    let retryGeneration: string | undefined
     try {
-      await withBackgroundSessionIdLock(id, async () => {
-        const natural = await readReconciliationTerminalFact(
-          candidate.value,
-          'natural',
-          terminalDirectory,
-          fileSystem,
-        )
-        const killed = await readReconciliationTerminalFact(
-          candidate.value,
-          'killed',
-          terminalDirectory,
-          fileSystem,
-        )
-        if (natural.state === 'error' || killed.state === 'error') {
-          result.errors++
-          return
-        }
+      const metadataPath = metadataPathForId(id)
+      const candidate = await readCleanupJson(
+        metadataPath,
+        (value): value is BackgroundSession =>
+          isBackgroundSession(value, id),
+        metadataDirectory,
+        fileSystem,
+      )
+      if (candidate.state === 'error') {
+        result.errors++
+        continue
+      }
+      if (candidate.state !== 'valid' || !candidate.identity) continue
+      retryGeneration = candidate.value.terminalFactGeneration
 
-        const latest = await readCleanupJson(
-          metadataPath,
-          (value): value is BackgroundSession =>
-            isBackgroundSession(value, id),
-          metadataDirectory,
-          fileSystem,
-        )
-        if (latest.state === 'error') {
-          result.errors++
-          return
-        }
-        if (
-          latest.state !== 'valid' ||
-          !latest.identity ||
-          latest.identity.dev !== candidate.identity?.dev ||
-          latest.identity.ino !== candidate.identity?.ino ||
-          !isSameBackgroundSessionGeneration(latest.value, candidate.value)
-        ) {
-          return
-        }
-
-        const effective = applyTerminalFacts(
-          latest.value,
-          natural.state === 'valid' ? natural.value : null,
-          killed.state === 'valid' ? killed.value : null,
-        )
-        if (!COMPLETED_STATUSES.has(effective.status)) return
-
-        if (!hasSamePersistedTerminalState(latest.value, effective)) {
-          if (
-            (await inspectCleanupDirectory(
-              metadataDirectory,
-              fileSystem.lstatFile,
-            )) !== 'same'
-          ) {
+      try {
+        await withBackgroundSessionIdLock(id, async () => {
+          const natural = await readReconciliationTerminalFact(
+            candidate.value,
+            'natural',
+            terminalDirectory,
+            fileSystem,
+          )
+          const killed = await readReconciliationTerminalFact(
+            candidate.value,
+            'killed',
+            terminalDirectory,
+            fileSystem,
+          )
+          if (natural.state === 'error' || killed.state === 'error') {
             result.errors++
             return
           }
-          try {
-            const beforeWrite = await fileSystem.lstatFile(metadataPath)
-            if (
-              !beforeWrite.isFile() ||
-              beforeWrite.isSymbolicLink() ||
-              beforeWrite.dev !== latest.identity.dev ||
-              beforeWrite.ino !== latest.identity.ino
-            ) {
-              return
-            }
-          } catch (error) {
-            if (!isErrno(error, 'ENOENT')) result.errors++
+
+          const latest = await readCleanupJson(
+            metadataPath,
+            (value): value is BackgroundSession =>
+              isBackgroundSession(value, id),
+            metadataDirectory,
+            fileSystem,
+          )
+          if (latest.state === 'error') {
+            result.errors++
             return
           }
-          await replaceSessionFile(effective, metadataPath)
-          result.sessionsUpdated++
-        }
-        if (
-          effective.name &&
-          !(await tryReleaseNameReservation(effective.name, effective.id))
-        ) {
-          result.errors++
-        }
-      })
-    } catch {
-      result.errors++
+          if (
+            latest.state !== 'valid' ||
+            !latest.identity ||
+            latest.identity.dev !== candidate.identity?.dev ||
+            latest.identity.ino !== candidate.identity?.ino ||
+            !isSameBackgroundSessionGeneration(
+              latest.value,
+              candidate.value,
+            )
+          ) {
+            return
+          }
+
+          const effective = applyTerminalFacts(
+            latest.value,
+            natural.state === 'valid' ? natural.value : null,
+            killed.state === 'valid' ? killed.value : null,
+          )
+          if (!COMPLETED_STATUSES.has(effective.status)) return
+
+          if (!hasSamePersistedTerminalState(latest.value, effective)) {
+            if (
+              (await inspectCleanupDirectory(
+                metadataDirectory,
+                fileSystem.lstatFile,
+              )) !== 'same'
+            ) {
+              result.errors++
+              return
+            }
+            try {
+              const beforeWrite = await fileSystem.lstatFile(metadataPath)
+              if (
+                !beforeWrite.isFile() ||
+                beforeWrite.isSymbolicLink() ||
+                beforeWrite.dev !== latest.identity.dev ||
+                beforeWrite.ino !== latest.identity.ino
+              ) {
+                return
+              }
+            } catch (error) {
+              if (!isErrno(error, 'ENOENT')) result.errors++
+              return
+            }
+            await replaceSessionFile(effective, metadataPath)
+            result.sessionsUpdated++
+          }
+          if (
+            effective.name &&
+            !(await tryReleaseNameReservation(effective.name, effective.id))
+          ) {
+            result.errors++
+          }
+        })
+      } catch {
+        result.errors++
+      }
+    } finally {
+      if (result.errors > errorsBefore) {
+        options.onRetry?.({ id: id, generation: retryGeneration })
+      }
     }
   }
+
   return result
 }
 
@@ -1808,6 +1915,8 @@ async function cleanupOrphanedTerminalFacts(
   result: BackgroundCleanupResult,
   fileSystem: BackgroundCleanupFileSystem,
   maxDirectoryEntries?: number,
+  targets?: readonly BackgroundSessionRecoveryTarget[],
+  onRetry?: (target?: BackgroundSessionRecoveryTarget) => void,
 ): Promise<void> {
   const terminalDirectoryState = await inspectCleanupDirectory(
     terminalDirectory,
@@ -1816,94 +1925,124 @@ async function cleanupOrphanedTerminalFacts(
   if (terminalDirectoryState === 'missing') return
   if (terminalDirectoryState !== 'same') {
     result.errors++
+    onRetry?.()
     return
   }
 
-  let entries: Dirent<string>[]
-  try {
-    entries = await readDirectoryEntries(
-      getBackgroundSessionTerminalDir(),
-      maxDirectoryEntries,
-    )
-  } catch (error) {
-    if (!isErrno(error, 'ENOENT')) result.errors++
-    return
-  }
-  const terminalDirectoryAfterRead = await inspectCleanupDirectory(
-    terminalDirectory,
-    fileSystem.lstatFile,
-  )
-  if (terminalDirectoryAfterRead !== 'same') {
-    if (terminalDirectoryAfterRead !== 'missing') result.errors++
-    return
-  }
-
-  const candidates = entries
-    .map(terminalFactCandidateFromEntry)
-    .filter(
-      (candidate): candidate is NonNullable<typeof candidate> =>
-        candidate !== null && !metadataIds.has(candidate.id),
-    )
-    .sort((a, b) => {
-      const idOrder = a.id.localeCompare(b.id)
-      if (idOrder !== 0) return idOrder
-      const markerOrder = (a.generation ?? '').localeCompare(
-        b.generation ?? '',
+  let candidates: NonNullable<
+    ReturnType<typeof terminalFactCandidateFromEntry>
+  >[]
+  if (targets !== undefined) {
+    candidates = targets
+      .filter(
+        target =>
+          backgroundRecoveryJournalRecord(target.id, target.generation) !==
+          undefined,
       )
-      return markerOrder !== 0 ? markerOrder : a.kind.localeCompare(b.kind)
-    })
+      .flatMap(target => [
+        { ...target, kind: 'natural' as const },
+        { ...target, kind: 'killed' as const },
+      ])
+  } else {
+    let entries: Dirent<string>[]
+    try {
+      entries = await readDirectoryEntries(
+        getBackgroundSessionTerminalDir(),
+        maxDirectoryEntries,
+      )
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) {
+        result.errors++
+        onRetry?.()
+      }
+      return
+    }
+    const terminalDirectoryAfterRead = await inspectCleanupDirectory(
+      terminalDirectory,
+      fileSystem.lstatFile,
+    )
+    if (terminalDirectoryAfterRead !== 'same') {
+      if (terminalDirectoryAfterRead !== 'missing') {
+        result.errors++
+        onRetry?.()
+      }
+      return
+    }
+
+    candidates = entries
+      .map(terminalFactCandidateFromEntry)
+      .filter(
+        (candidate): candidate is NonNullable<typeof candidate> =>
+          candidate !== null && !metadataIds.has(candidate.id),
+      )
+      .sort((a, b) => {
+        const idOrder = a.id.localeCompare(b.id)
+        if (idOrder !== 0) return idOrder
+        const markerOrder = (a.generation ?? '').localeCompare(
+          b.generation ?? '',
+        )
+        return markerOrder !== 0
+          ? markerOrder
+          : a.kind.localeCompare(b.kind)
+      })
+  }
   if (candidates.length === 0) return
 
   for (const candidate of candidates) {
-    const factPath = terminalFactPathForId(
-      candidate.id,
-      candidate.kind,
-      candidate.generation,
-    )
-    const fact = await readCleanupJson(
-      factPath,
-      (value): value is BackgroundSessionTerminalFact =>
-        isBackgroundSessionTerminalFact(
-          value,
-          candidate.id,
-          candidate.kind,
-        ) &&
-        value.generation === candidate.generation &&
-        parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
-      terminalDirectory,
-      fileSystem,
-    )
-    if (fact.state === 'error') {
-      result.errors++
-      continue
-    }
-    if (
-      fact.state !== 'valid' ||
-      Date.parse(fact.value.finishedAt) >= cutoffMs
-    ) {
-      continue
-    }
+    const errorsBefore = result.errors
+    try {
+      const factPath = terminalFactPathForId(
+        candidate.id,
+        candidate.kind,
+        candidate.generation,
+      )
+      const fact = await readCleanupJson(
+        factPath,
+        (value): value is BackgroundSessionTerminalFact =>
+          isBackgroundSessionTerminalFact(
+            value,
+            candidate.id,
+            candidate.kind,
+          ) &&
+          value.generation === candidate.generation &&
+          parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
+        terminalDirectory,
+        fileSystem,
+      )
+      if (fact.state === 'error') {
+        result.errors++
+        continue
+      }
+      if (
+        fact.state !== 'valid' ||
+        Date.parse(fact.value.finishedAt) >= cutoffMs
+      ) {
+        continue
+      }
 
-    const metadata = await readCleanupJson(
-      metadataPathForId(candidate.id),
-      (value): value is BackgroundSession =>
-        isBackgroundSession(value, candidate.id),
-      metadataDirectory,
-      fileSystem,
-    )
-    if (metadata.state === 'error') {
-      result.errors++
-      continue
-    }
-    if (metadata.state !== 'missing') continue
+      const metadata = await readCleanupJson(
+        metadataPathForId(candidate.id),
+        (value): value is BackgroundSession =>
+          isBackgroundSession(value, candidate.id),
+        metadataDirectory,
+        fileSystem,
+      )
+      if (metadata.state === 'error') {
+        result.errors++
+        continue
+      }
+      if (metadata.state !== 'missing') continue
 
-    await removeCleanupArtifact(
-      factPath,
-      result,
-      terminalDirectory,
-      fileSystem,
-      fact.identity,
-    )
+      await removeCleanupArtifact(
+        factPath,
+        result,
+        terminalDirectory,
+        fileSystem,
+        fact.identity,
+      )
+    } finally {
+      if (result.errors > errorsBefore) onRetry?.(candidate)
+    }
   }
 }
 
@@ -1917,6 +2056,8 @@ export async function cleanupBackgroundSessionsBefore(
     _beforeArtifactRemovalForTesting?: (id: string) => Promise<void>
     _beforeReservationRemovalForTesting?: (path: string) => Promise<void>
     sessionIds?: readonly string[]
+    onRetry?: (target?: BackgroundSessionRecoveryTarget) => void
+    orphanedTerminalFacts?: readonly BackgroundSessionRecoveryTarget[]
     maxDirectoryEntries?: number
   } = {},
 ): Promise<BackgroundCleanupResult> {
@@ -1928,6 +2069,7 @@ export async function cleanupBackgroundSessionsBefore(
   const cutoffMs = cutoff.getTime()
   if (!Number.isFinite(cutoffMs)) {
     result.errors++
+    options.onRetry?.()
     return result
   }
 
@@ -1943,8 +2085,9 @@ export async function cleanupBackgroundSessionsBefore(
       getBackgroundSessionLogsDir(),
       getBackgroundSessionNamesDir(),
       getBackgroundSessionTerminalDir(),
-    ].map(async path =>
-      await snapshotCleanupDirectory(path, fileSystem.lstatFile),
+    ].map(
+      async path =>
+        await snapshotCleanupDirectory(path, fileSystem.lstatFile),
     ),
   )
   const [metadataRead, logsRead, namesRead, terminalRead] = directoryReads
@@ -1954,10 +2097,8 @@ export async function cleanupBackgroundSessionsBefore(
   ).length
   if (requiredDirectoryErrors > 0) {
     result.errors += requiredDirectoryErrors
+    options.onRetry?.()
     return result
-  }
-  if (namesRead.state === 'error' || namesRead.state === 'invalid') {
-    result.errors++
   }
   const metadataDirectory =
     metadataRead.state === 'valid' ? metadataRead.value : undefined
@@ -1967,15 +2108,13 @@ export async function cleanupBackgroundSessionsBefore(
     namesRead.state === 'valid' ? namesRead.value : undefined
   const terminalDirectory =
     terminalRead.state === 'valid' ? terminalRead.value : undefined
-  if (
-    !metadataDirectory ||
-    !logsDirectory ||
-    !terminalDirectory
-  ) {
+  if (!metadataDirectory || !logsDirectory || !terminalDirectory) {
+    if (result.errors > 0) options.onRetry?.()
     return result
   }
   if (metadataDirectory.state === 'missing') {
-    if (options.sessionIds !== undefined) return result
+    if (options.sessionIds !== undefined && !options.orphanedTerminalFacts)
+      return result
     await cleanupOrphanedTerminalFacts(
       cutoffMs,
       metadataDirectory,
@@ -1984,6 +2123,8 @@ export async function cleanupBackgroundSessionsBefore(
       result,
       fileSystem,
       options.maxDirectoryEntries,
+      options.orphanedTerminalFacts,
+      options.onRetry,
     )
     return result
   }
@@ -1993,6 +2134,7 @@ export async function cleanupBackgroundSessionsBefore(
   )
   if (metadataDirectoryState !== 'same') {
     if (metadataDirectoryState !== 'missing') result.errors++
+    if (result.errors > 0) options.onRetry?.()
     return result
   }
 
@@ -2011,6 +2153,7 @@ export async function cleanupBackgroundSessionsBefore(
       )
     } catch (error) {
       if (!isErrno(error, 'ENOENT')) result.errors++
+      if (result.errors > 0) options.onRetry?.()
       return result
     }
     const metadataDirectoryAfterRead = await inspectCleanupDirectory(
@@ -2019,6 +2162,7 @@ export async function cleanupBackgroundSessionsBefore(
     )
     if (metadataDirectoryAfterRead !== 'same') {
       if (metadataDirectoryAfterRead !== 'missing') result.errors++
+      if (result.errors > 0) options.onRetry?.()
       return result
     }
     candidateIds = entries
@@ -2030,233 +2174,268 @@ export async function cleanupBackgroundSessionsBefore(
   const metadataIds = new Set(candidateIds)
 
   for (const expectedId of candidateIds) {
-    const metadataPath = metadataPathForId(expectedId)
-    const metadata = await readCleanupJson(
-      metadataPath,
-      (value): value is BackgroundSession =>
-        isBackgroundSession(value, expectedId) &&
-        (value.finishedAt === undefined ||
-          parseCanonicalCompletionTimestamp(value.finishedAt) !== null),
-      metadataDirectory,
-      fileSystem,
-    )
-    if (metadata.state === 'error') {
-      result.errors++
-      continue
-    }
-    if (metadata.state !== 'valid') continue
-
-    const session = metadata.value
-    const naturalPath = terminalFactPathForId(
-      session.id,
-      'natural',
-      session.terminalFactGeneration,
-    )
-    const killedPath = terminalFactPathForId(
-      session.id,
-      'killed',
-      session.terminalFactGeneration,
-    )
-    const natural = await readCleanupJson(
-      naturalPath,
-      (value): value is BackgroundSessionTerminalFact =>
-        isBackgroundSessionTerminalFact(value, session.id, 'natural') &&
-        value.generation === session.terminalFactGeneration &&
-        parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
-      terminalDirectory,
-      fileSystem,
-    )
-    const killed = await readCleanupJson(
-      killedPath,
-      (value): value is BackgroundSessionTerminalFact =>
-        isBackgroundSessionTerminalFact(value, session.id, 'killed') &&
-        value.generation === session.terminalFactGeneration &&
-        parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
-      terminalDirectory,
-      fileSystem,
-    )
-    const naturalBlocksRemoval = cleanupReadBlocksRemoval(natural, result)
-    const killedBlocksRemoval = cleanupReadBlocksRemoval(killed, result)
-    if (
-      naturalBlocksRemoval ||
-      killedBlocksRemoval ||
-      (natural.state === 'valid' && natural.value.pid !== session.pid) ||
-      (killed.state === 'valid' && killed.value.pid !== session.pid)
-    ) {
-      continue
-    }
-
-    const effective = applyTerminalFacts(
-      session,
-      natural.state === 'valid' ? natural.value : null,
-      killed.state === 'valid' ? killed.value : null,
-    )
-    if (
-      effective.status !== 'exited' &&
-      effective.status !== 'failed' &&
-      effective.status !== 'killed'
-    ) {
-      continue
-    }
-    if (effective.finishedAt === undefined) continue
-    const finishedAtMs = Date.parse(effective.finishedAt)
-    if (!Number.isFinite(finishedAtMs) || finishedAtMs >= cutoffMs) continue
-
-    let reservation:
-      | CleanupJsonRead<BackgroundSessionNameReservation>
-      | undefined
-    if (session.name) {
-      if (!namesDirectory) continue
-      reservation = await readCleanupJson(
-        nameReservationPathForName(session.name),
-        isBackgroundSessionNameReservation,
-        namesDirectory,
+    const errorsBefore = result.errors
+    let retryGeneration: string | undefined
+    try {
+      const metadataPath = metadataPathForId(expectedId)
+      const metadata = await readCleanupJson(
+        metadataPath,
+        (value): value is BackgroundSession =>
+          isBackgroundSession(value, expectedId) &&
+          (value.finishedAt === undefined ||
+            parseCanonicalCompletionTimestamp(value.finishedAt) !== null),
+        metadataDirectory,
         fileSystem,
       )
-      if (reservation.state === 'error') {
+      if (metadata.state === 'error') {
         result.errors++
         continue
       }
-    }
+      if (metadata.state !== 'valid') continue
 
-    try {
-      await options._beforeArtifactRemovalForTesting?.(session.id)
-      await withBackgroundSessionIdLock(session.id, async () => {
-        const latestMetadata = await readCleanupJson(
-          metadataPath,
-          (value): value is BackgroundSession =>
-            isBackgroundSession(value, session.id) &&
-            (value.finishedAt === undefined ||
-              parseCanonicalCompletionTimestamp(value.finishedAt) !== null),
-          metadataDirectory,
-          fileSystem,
-        )
-        if (latestMetadata.state === 'error') {
+      const session = metadata.value
+      retryGeneration = session.terminalFactGeneration
+      const naturalPath = terminalFactPathForId(
+        session.id,
+        'natural',
+        session.terminalFactGeneration,
+      )
+      const killedPath = terminalFactPathForId(
+        session.id,
+        'killed',
+        session.terminalFactGeneration,
+      )
+      const natural = await readCleanupJson(
+        naturalPath,
+        (value): value is BackgroundSessionTerminalFact =>
+          isBackgroundSessionTerminalFact(value, session.id, 'natural') &&
+          value.generation === session.terminalFactGeneration &&
+          parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
+        terminalDirectory,
+        fileSystem,
+      )
+      const killed = await readCleanupJson(
+        killedPath,
+        (value): value is BackgroundSessionTerminalFact =>
+          isBackgroundSessionTerminalFact(value, session.id, 'killed') &&
+          value.generation === session.terminalFactGeneration &&
+          parseCanonicalCompletionTimestamp(value.finishedAt) !== null,
+        terminalDirectory,
+        fileSystem,
+      )
+      const naturalBlocksRemoval = cleanupReadBlocksRemoval(natural, result)
+      const killedBlocksRemoval = cleanupReadBlocksRemoval(killed, result)
+      if (
+        naturalBlocksRemoval ||
+        killedBlocksRemoval ||
+        (natural.state === 'valid' && natural.value.pid !== session.pid) ||
+        (killed.state === 'valid' && killed.value.pid !== session.pid)
+      ) {
+        continue
+      }
+
+      const effective = applyTerminalFacts(
+        session,
+        natural.state === 'valid' ? natural.value : null,
+        killed.state === 'valid' ? killed.value : null,
+      )
+      if (
+        effective.status !== 'exited' &&
+        effective.status !== 'failed' &&
+        effective.status !== 'killed'
+      ) {
+        continue
+      }
+      if (effective.finishedAt === undefined) continue
+      const finishedAtMs = Date.parse(effective.finishedAt)
+      if (!Number.isFinite(finishedAtMs) || finishedAtMs >= cutoffMs)
+        continue
+
+      let reservation:
+        | CleanupJsonRead<BackgroundSessionNameReservation>
+        | undefined
+      if (session.name) {
+        if (!namesDirectory) {
           result.errors++
-          return
+          continue
         }
-        if (
-          latestMetadata.state !== 'valid' ||
-          !latestMetadata.identity ||
-          !metadata.identity ||
-          latestMetadata.identity.dev !== metadata.identity.dev ||
-          latestMetadata.identity.ino !== metadata.identity.ino ||
-          !isSameBackgroundSessionGeneration(latestMetadata.value, session)
-        ) {
-          return
+        reservation = await readCleanupJson(
+          nameReservationPathForName(session.name),
+          isBackgroundSessionNameReservation,
+          namesDirectory,
+          fileSystem,
+        )
+        if (reservation.state === 'error') {
+          result.errors++
+          continue
         }
+      }
 
-        const logPaths = getBackgroundSessionLogPaths(session.id)
-        const stdoutRemoval = await removeCleanupArtifact(
-          logPaths.stdoutLogPath,
-          result,
-          logsDirectory,
-          fileSystem,
-        )
-        const stderrRemoval = await removeCleanupArtifact(
-          logPaths.stderrLogPath,
-          result,
-          logsDirectory,
-          fileSystem,
-        )
-        let reservationRemoval: CleanupArtifactRemoval = 'missing'
-        const sessionName = session.name
-        if (
-          sessionName &&
-          reservation?.state === 'valid' &&
-          namesDirectory
-        ) {
-          try {
-            reservationRemoval = await withNameReservationLock(
-              sessionName,
-              async () => {
-                const latestReservation = await readCleanupJson(
-                  nameReservationPathForName(sessionName),
-                  isBackgroundSessionNameReservation,
-                  namesDirectory,
-                  fileSystem,
-                )
-                if (latestReservation.state === 'error') {
-                  result.errors++
-                  return 'error'
-                }
-                if (
-                  latestReservation.state !== 'valid' ||
-                  latestReservation.value.name !== sessionName ||
-                  latestReservation.value.id !== session.id
-                ) {
-                  return 'missing'
-                }
-                const reservationPath =
-                  nameReservationPathForName(sessionName)
-                await options._beforeReservationRemovalForTesting?.(
-                  reservationPath,
-                )
-                return await removeCleanupArtifact(
-                  reservationPath,
-                  result,
-                  namesDirectory,
-                  fileSystem,
-                  latestReservation.identity,
-                )
-              },
-            )
-          } catch {
+      try {
+        await options._beforeArtifactRemovalForTesting?.(session.id)
+        await withBackgroundSessionIdLock(session.id, async () => {
+          const latestMetadata = await readCleanupJson(
+            metadataPath,
+            (value): value is BackgroundSession =>
+              isBackgroundSession(value, session.id) &&
+              (value.finishedAt === undefined ||
+                parseCanonicalCompletionTimestamp(value.finishedAt) !==
+                  null),
+            metadataDirectory,
+            fileSystem,
+          )
+          if (latestMetadata.state === 'error') {
             result.errors++
-            reservationRemoval = 'error'
+            return
           }
-        }
-        if (
-          stdoutRemoval === 'error' ||
-          stderrRemoval === 'error' ||
-          reservationRemoval === 'error'
-        ) {
-          return
-        }
+          if (
+            latestMetadata.state !== 'valid' ||
+            !latestMetadata.identity ||
+            !metadata.identity ||
+            latestMetadata.identity.dev !== metadata.identity.dev ||
+            latestMetadata.identity.ino !== metadata.identity.ino ||
+            !isSameBackgroundSessionGeneration(
+              latestMetadata.value,
+              session,
+            )
+          ) {
+            return
+          }
 
-        const metadataRemoval = await removeCleanupArtifact(
-          metadataPath,
-          result,
-          metadataDirectory,
-          fileSystem,
-          latestMetadata.identity,
-        )
-        if (metadataRemoval === 'error') return
-        if (metadataRemoval === 'removed') result.sessionsRemoved++
+          const logPaths = getBackgroundSessionLogPaths(session.id)
+          const stdoutRemoval = await removeCleanupArtifact(
+            logPaths.stdoutLogPath,
+            result,
+            logsDirectory,
+            fileSystem,
+          )
+          const stderrRemoval = await removeCleanupArtifact(
+            logPaths.stderrLogPath,
+            result,
+            logsDirectory,
+            fileSystem,
+          )
+          let reservationRemoval: CleanupArtifactRemoval = 'missing'
+          const sessionName = session.name
+          if (
+            sessionName &&
+            reservation?.state === 'valid' &&
+            namesDirectory
+          ) {
+            try {
+              reservationRemoval = await withNameReservationLock(
+                sessionName,
+                async () => {
+                  const latestReservation = await readCleanupJson(
+                    nameReservationPathForName(sessionName),
+                    isBackgroundSessionNameReservation,
+                    namesDirectory,
+                    fileSystem,
+                  )
+                  if (latestReservation.state === 'error') {
+                    result.errors++
+                    return 'error'
+                  }
+                  if (
+                    latestReservation.state !== 'valid' ||
+                    latestReservation.value.name !== sessionName ||
+                    latestReservation.value.id !== session.id
+                  ) {
+                    return 'missing'
+                  }
+                  const reservationPath =
+                    nameReservationPathForName(sessionName)
+                  await options._beforeReservationRemovalForTesting?.(
+                    reservationPath,
+                  )
+                  return await removeCleanupArtifact(
+                    reservationPath,
+                    result,
+                    namesDirectory,
+                    fileSystem,
+                    latestReservation.identity,
+                  )
+                },
+              )
+            } catch {
+              result.errors++
+              reservationRemoval = 'error'
+            }
+          }
+          if (
+            stdoutRemoval === 'error' ||
+            stderrRemoval === 'error' ||
+            reservationRemoval === 'error'
+          ) {
+            return
+          }
 
-        if (natural.state === 'valid') {
-          await removeCleanupArtifact(
-            naturalPath,
+          const metadataRemoval = await removeCleanupArtifact(
+            metadataPath,
             result,
-            terminalDirectory,
+            metadataDirectory,
             fileSystem,
-            natural.identity,
+            latestMetadata.identity,
           )
-        }
-        if (killed.state === 'valid') {
-          await removeCleanupArtifact(
-            killedPath,
-            result,
-            terminalDirectory,
-            fileSystem,
-            killed.identity,
-          )
-        }
-      })
-    } catch {
-      result.errors++
+          if (metadataRemoval === 'error') return
+          if (metadataRemoval === 'removed') result.sessionsRemoved++
+
+          const errorsBeforeFacts = result.errors
+          if (natural.state === 'valid') {
+            await removeCleanupArtifact(
+              naturalPath,
+              result,
+              terminalDirectory,
+              fileSystem,
+              natural.identity,
+            )
+          }
+          if (killed.state === 'valid') {
+            await removeCleanupArtifact(
+              killedPath,
+              result,
+              terminalDirectory,
+              fileSystem,
+              killed.identity,
+            )
+          }
+          if (result.errors > errorsBeforeFacts) {
+            const target = {
+              id: session.id,
+              generation: session.terminalFactGeneration,
+            }
+            if (!options.onRetry) {
+              await enqueueBackgroundSessionRecovery(
+                target.id,
+                target.generation,
+              )
+            }
+          }
+        })
+      } catch {
+        result.errors++
+      }
+    } finally {
+      if (result.errors > errorsBefore) {
+        options.onRetry?.({ id: expectedId, generation: retryGeneration })
+      }
     }
   }
 
-  if (options.sessionIds === undefined) {
+  if (
+    options.sessionIds === undefined ||
+    options.orphanedTerminalFacts !== undefined
+  ) {
     await cleanupOrphanedTerminalFacts(
       cutoffMs,
       metadataDirectory,
       terminalDirectory,
-      metadataIds,
+      options.sessionIds === undefined ? metadataIds : new Set(),
       result,
       fileSystem,
       options.maxDirectoryEntries,
+      options.orphanedTerminalFacts,
+      options.onRetry,
     )
   }
 

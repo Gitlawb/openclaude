@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
+import * as fsPromises from 'node:fs/promises'
 import {
   lstat,
+  chmod,
+  rename,
   mkdir,
   mkdtemp,
   readdir,
@@ -204,6 +207,146 @@ describe('background session retention cleanup', () => {
       for (const path of Object.values(paths(scenario.id))) {
         expect(await exists(path)).toBe(false)
       }
+    })
+  }
+
+  for (const consumer of ['reconciliation', 'cleanup'] as const) {
+    for (const fault of [
+      'invalid',
+      'unreadable',
+      'replaced',
+      'replaced-before-read',
+    ] as const) {
+      if (consumer === 'reconciliation' && fault === 'replaced-before-read')
+        continue
+      it(`reports ${fault} ${consumer} inventory as unacknowledged responsibility`, async () => {
+        const session = await writeRawSession({
+          id: 'bg-inventory-report',
+          status: 'exited',
+          finishedAt: OLD_FINISH.toISOString(),
+        })
+        const directory = join(root, 'sessions')
+        const saved = join(root, 'saved-sessions')
+        const retries: unknown[] = []
+        const onRetry = (target?: unknown) => {
+          retries.push(target)
+        }
+        let readSpy: ReturnType<typeof spyOn> | undefined
+        let replaced = false
+        let metadataSnapshotRead = false
+        const lstatForTesting = async (path: string) => {
+          if (path === directory) {
+            if (metadataSnapshotRead && !replaced) {
+              replaced = true
+              await rename(directory, saved)
+              await mkdir(directory)
+            }
+            metadataSnapshotRead = true
+          }
+          return await lstat(path)
+        }
+        try {
+          if (fault === 'invalid') {
+            await rename(directory, saved)
+            await writeFile(directory, 'not a directory')
+          } else if (fault === 'unreadable') {
+            await chmod(directory, 0o000)
+          } else if (fault === 'replaced') {
+            const original = fsPromises.readdir
+            const replacement = async (
+              ...args: Parameters<typeof fsPromises.readdir>
+            ) => {
+              const entries = await original(...args)
+              if (String(args[0]) === directory && !replaced) {
+                replaced = true
+                await rename(directory, saved)
+                await mkdir(directory)
+              }
+              return entries
+            }
+            readSpy = spyOn(fsPromises, 'readdir').mockImplementation(
+              replacement as typeof fsPromises.readdir,
+            )
+          }
+          const result =
+            consumer === 'reconciliation'
+              ? await reconcileBackgroundSessionTerminalFacts({ onRetry })
+              : await cleanupBackgroundSessionsBefore(CUTOFF, {
+                  onRetry,
+                  lstatFile:
+                    fault === 'replaced-before-read'
+                      ? lstatForTesting
+                      : undefined,
+                })
+          expect(result.errors).toBeGreaterThan(0)
+          expect(retries).toHaveLength(1)
+          expect(retries[0]).toBeUndefined()
+          if (fault.startsWith('replaced')) expect(replaced).toBe(true)
+          expect(
+            await exists(
+              fault === 'unreadable'
+                ? paths(session.id).metadata
+                : join(saved, `${session.id}.json`),
+            ),
+          ).toBe(fault !== 'unreadable')
+        } finally {
+          readSpy?.mockRestore()
+          if (fault === 'unreadable') await chmod(directory, 0o755)
+        }
+        if (fault === 'unreadable')
+          expect(await exists(paths(session.id).metadata)).toBe(true)
+      })
+    }
+  }
+
+  for (const missingDirectory of [false, true]) {
+    it(`reclaims exact generation orphans without scanning directories, missing metadata directory ${missingDirectory}`, async () => {
+      const id = 'bg-targeted-orphan'
+      await writeRawSession({
+        id,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+      })
+      const factPath = markedTerminalFactPath(
+        id,
+        'natural',
+        OLD_PROCESS_MARKER,
+      )
+      const fact = {
+        version: 1,
+        id,
+        pid: nextPid++,
+        generation: OLD_PROCESS_MARKER,
+        status: 'exited',
+        finishedAt: OLD_FINISH.toISOString(),
+        terminalReason: 'exit_code',
+        exitCode: 0,
+      }
+      await writeFile(factPath, JSON.stringify(fact))
+      const unrelated = markedTerminalFactPath(
+        'bg-unrelated-orphan',
+        'natural',
+        OLD_PROCESS_MARKER,
+      )
+      await writeFile(
+        unrelated,
+        JSON.stringify({ ...fact, id: 'bg-unrelated-orphan' }),
+      )
+      if (missingDirectory)
+        await rm(join(root, 'sessions'), { recursive: true })
+      else await unlink(paths(id).metadata)
+      expect(
+        await cleanupBackgroundSessionsBefore(CUTOFF, {
+          sessionIds: [id],
+          orphanedTerminalFacts: [
+            { id, generation: OLD_PROCESS_MARKER },
+            { id, generation: '../outside' },
+          ],
+          maxDirectoryEntries: 0,
+        }),
+      ).toEqual({ sessionsRemoved: 0, artifactsRemoved: 1, errors: 0 })
+      expect(await exists(factPath)).toBe(false)
+      expect(await exists(unrelated)).toBe(true)
     })
   }
 
@@ -1345,13 +1488,7 @@ describe('background session retention cleanup', () => {
         exitCode: 0,
       }),
     )
-    const deterministicCutoff = new Date(
-      CUTOFF.getTime() - (CUTOFF.getTime() % 257),
-    )
-
-    expect(
-      await cleanupBackgroundSessionsBefore(deterministicCutoff),
-    ).toEqual({
+    expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
       sessionsRemoved: 0,
       artifactsRemoved: 1,
       errors: 0,
@@ -1715,7 +1852,7 @@ describe('background session retention cleanup', () => {
     expect(await cleanupBackgroundSessionsBefore(CUTOFF)).toEqual({
       sessionsRemoved: 1,
       artifactsRemoved: 3,
-      errors: 1,
+      errors: 0,
     })
     expect(await exists(paths(session.id).metadata)).toBe(false)
   })

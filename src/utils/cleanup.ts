@@ -6,6 +6,7 @@ import {
   reconcileBackgroundSessionTerminalFacts,
   snapshotBackgroundSessionRecoveryJournal,
   takeBackgroundSessionRecoveryBatch,
+  type BackgroundSessionRecoveryTarget,
 } from '../cli/bgRegistry.js'
 import { logEvent } from '../services/analytics/index.js'
 import { CACHE_PATHS } from './cachePaths.js'
@@ -41,6 +42,8 @@ export type BackgroundSessionRetentionTrigger =
 
 export type BackgroundSessionRetentionResult =
   | 'ran'
+  | 'partial'
+  | 'failed'
   | 'skipped'
   | 'invalid-policy'
 
@@ -60,6 +63,7 @@ type BackgroundSessionRetentionRequest =
   | {
       trigger: 'periodic-retention'
       _afterThrottleLockForTesting?: () => Promise<void>
+      _afterJournalSnapshotForTesting?: () => Promise<void>
     }
 
 function getCutoffDate(): Date {
@@ -706,9 +710,11 @@ function logBackgroundCleanup(
 async function runWithBackgroundRetentionThrottle(
   markerName: string,
   intervalMs: number,
-  operation: () => Promise<void>,
+  operation: () => Promise<
+    Exclude<BackgroundSessionRetentionResult, 'skipped'>
+  >,
   afterLock?: () => Promise<void>,
-): Promise<boolean> {
+): Promise<BackgroundSessionRetentionResult> {
   const markerPath = join(
     getClaudeConfigHomeDir(),
     'bg-sessions',
@@ -723,26 +729,27 @@ async function runWithBackgroundRetentionThrottle(
   }
   let locked = false
   try {
-    if (await markerIsFresh()) return false
+    if (await markerIsFresh()) return 'skipped'
     await fs.mkdir(dirname(markerPath), { recursive: true })
     await lockfile.lock(markerPath, { retries: 0, realpath: false })
     locked = true
   } catch {
-    return false
+    return 'skipped'
   }
   try {
-    if (await markerIsFresh()) return false
+    if (await markerIsFresh()) return 'skipped'
     await afterLock?.()
-    await operation()
+    const outcome = await operation()
+    if (outcome !== 'ran' && outcome !== 'partial') return outcome
     try {
       await fs.writeFile(markerPath, new Date().toISOString())
     } catch (error) {
       logError(error instanceof Error ? error : new Error(String(error)))
     }
-    return true
+    return outcome
   } catch (error) {
     logError(error instanceof Error ? error : new Error(String(error)))
-    return false
+    return 'failed'
   } finally {
     if (locked) {
       await lockfile.unlock(markerPath, { realpath: false }).catch(() => {})
@@ -786,69 +793,90 @@ export async function runBackgroundSessionRetention(
   }
 
   if (request.trigger === 'periodic-recovery') {
-    let passResult: BackgroundSessionRetentionResult = 'ran'
-    const ran = await runWithBackgroundRetentionThrottle(
+    return await runWithBackgroundRetentionThrottle(
       '.recovery-pass',
       BACKGROUND_RECOVERY_INTERVAL_MS,
       async () => {
         const currentPolicy = readBackgroundRetentionPeriod({ fresh: true })
-        if (currentPolicy.state === 'invalid') {
-          passResult = 'invalid-policy'
-          return
-        }
-        if (currentPolicy.days !== 0) return
+        if (currentPolicy.state === 'invalid') return 'invalid-policy'
+        if (currentPolicy.days !== 0) return 'ran'
         const batch = await takeBackgroundSessionRecoveryBatch(
           request._recoveryBatchLimitForTesting ??
             BACKGROUND_RECOVERY_ENTRY_LIMIT,
         )
-        const reconciliation =
-          await reconcileBackgroundSessionTerminalFacts({
-            sessionIds: batch.sessionIds,
-          })
-        logBackgroundReconciliation(reconciliation)
-        const cleanup = await cleanupBackgroundSessionsBefore(
-          new Date(Date.now() + 1),
-          { sessionIds: batch.sessionIds },
-        )
-        logBackgroundCleanup(cleanup)
-        await batch.commit()
+        const retrySessionIds: string[] = []
+        const retryTerminalFacts: typeof batch.terminalFacts = []
+        for (const id of batch.sessionIds) {
+          // Attribute retryable errors to their ID, so retained entries cannot
+          // hold unrelated work at the front of the bounded journal.
+          const reconciliation =
+            await reconcileBackgroundSessionTerminalFacts({
+              sessionIds: [id],
+            })
+          logBackgroundReconciliation(reconciliation)
+          const cleanup = await cleanupBackgroundSessionsBefore(
+            new Date(Date.now() + 1),
+            {
+              sessionIds: [id],
+              orphanedTerminalFacts: batch.terminalFacts.filter(
+                target => target.id === id,
+              ),
+              onRetry: target => {
+                if (target) retryTerminalFacts.push(target)
+              },
+            },
+          )
+          logBackgroundCleanup(cleanup)
+          if (reconciliation.errors > 0 || cleanup.errors > 0) {
+            retrySessionIds.push(id)
+          }
+        }
+        // Save retries before publishing the cursor that acknowledges this batch.
+        await batch.commit(retrySessionIds, retryTerminalFacts)
+        return retrySessionIds.length > 0 ? 'partial' : 'ran'
       },
       request._afterThrottleLockForTesting,
     )
-    return ran ? passResult : 'skipped'
   }
 
-  let passResult: BackgroundSessionRetentionResult = 'ran'
-  const ran = await runWithBackgroundRetentionThrottle(
+  return await runWithBackgroundRetentionThrottle(
     '.retention-pass',
     BACKGROUND_RETENTION_SWEEP_INTERVAL_MS,
     async () => {
       resetSettingsCache()
-      if (cleanupPeriodSettingIsInvalid()) {
-        passResult = 'invalid-policy'
-        return
-      }
+      if (cleanupPeriodSettingIsInvalid()) return 'invalid-policy'
       const currentPolicy = readBackgroundRetentionPeriod({ fresh: true })
-      if (currentPolicy.state === 'invalid') {
-        passResult = 'invalid-policy'
-        return
-      }
+      if (currentPolicy.state === 'invalid') return 'invalid-policy'
       const cutoff = new Date(
         Date.now() - currentPolicy.days * 24 * 60 * 60 * 1000,
       )
-      const journal =
-        await snapshotBackgroundSessionRecoveryJournal()
-      logBackgroundReconciliation(
-        await reconcileBackgroundSessionTerminalFacts(),
-      )
-      logBackgroundCleanup(
-        await cleanupBackgroundSessionsBefore(cutoff),
-      )
+      const journal = await snapshotBackgroundSessionRecoveryJournal()
+      await request._afterJournalSnapshotForTesting?.()
+      const retryTargets: BackgroundSessionRecoveryTarget[] = []
+      let retryInventoryComplete = true
+      const onRetry = (target?: BackgroundSessionRecoveryTarget) => {
+        if (target) retryTargets.push(target)
+        else retryInventoryComplete = false
+      }
+      const reconciliation = await reconcileBackgroundSessionTerminalFacts({
+        onRetry,
+      })
+      logBackgroundReconciliation(reconciliation)
+      const cleanup = await cleanupBackgroundSessionsBefore(cutoff, {
+        onRetry,
+      })
+      logBackgroundCleanup(cleanup)
+      // A full sweep owns the snapshot only when all its work succeeded.
+      // On partial failure leave it discoverable by a later process.
+      if (reconciliation.errors > 0 || cleanup.errors > 0) {
+        await journal.retry(retryTargets)
+        return retryInventoryComplete ? 'partial' : 'failed'
+      }
       await journal.commit()
+      return 'ran'
     },
     request._afterThrottleLockForTesting,
   )
-  return ran ? passResult : 'skipped'
 }
 
 function cleanupPeriodSettingIsInvalid(): boolean {

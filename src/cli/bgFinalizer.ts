@@ -98,7 +98,7 @@ function defaultDebug(message: string): void {
 function normalizeProcessExitCode(
   value: string | number | null | undefined,
 ): number {
-  if (value === undefined) return 0
+  if (value === undefined || value === null) return 0
   const parsed =
     typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
   return typeof parsed === 'number' &&
@@ -539,9 +539,11 @@ export async function prepareBackgroundSessionFinalizer(
     options.onExit(onExit)
   } else {
     const originalExit = process.exit
-    process.exit = ((code?: string | number | null) => {
-      onExit(normalizeProcessExitCode(code ?? process.exitCode))
-      return originalExit(code)
+    process.exit = ((...args: Parameters<typeof process.exit>) => {
+      onExit(
+        normalizeProcessExitCode(args.length === 0 ? process.exitCode : args[0]),
+      )
+      return originalExit(...args)
     }) as typeof process.exit
     process.once('exit', onExit)
   }

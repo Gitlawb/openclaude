@@ -1098,6 +1098,93 @@ describe('background session finalizer', () => {
     return stdout
   }
 
+  for (const scenario of [
+    { label: 'null input', input: 'process.exit(null)', expected: 0 },
+    {
+      label: 'cleared exitCode',
+      input: 'process.exitCode = null; process.exit()',
+      expected: 0,
+    },
+    { label: 'omitted input', input: 'process.exit()', expected: 23 },
+    {
+      label: 'undefined input',
+      input: 'process.exit(undefined)',
+      expected: 0,
+    },
+  ]) {
+    it(`records Node's actual explicit exit with ${scenario.label}`, async () => {
+      const id = 'bg-node-explicit-exit'
+      const preload = join(configDir, 'explicit-exit.cjs')
+      // Run the input as soon as the built CLI installs its exit wrapper.
+      // Node owns conversion of the input and the observed child status.
+      await writeFile(
+        preload,
+        `
+        let exit = process.exit
+        Object.defineProperty(process, 'exit', {
+          configurable: true,
+          get: () => exit,
+          set: value => {
+            exit = value
+            queueMicrotask(() => {
+              require('node:fs').writeFileSync(${JSON.stringify(join(configDir, 'exit-input-ran'))}, 'ran')
+              process.exitCode = 23
+              ${scenario.input}
+            })
+          },
+        })
+      `,
+      )
+      const child = spawn(
+        'node',
+        ['--require', preload, installedLauncherPath, '--print', 'fixture'],
+        {
+          cwd: configDir,
+          env: {
+            ...process.env,
+            NODE_ENV: '',
+            OPENCLAUDE_DISABLE_HEAP_RELAUNCH: '1',
+            OPENCLAUDE_DISABLE_CLI_ENTRYPOINT_AUTO_RUN: '0',
+            OPENCLAUDE_CONFIG_DIR: configDir,
+            [BACKGROUND_SESSION_ID_ENV]: id,
+            [BACKGROUND_SESSION_LAUNCHER_PID_ENV]: String(process.pid),
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      )
+      const closed = waitForChildClose(child, 'Node explicit exit')
+      const stderr = captureBoundedOutput(
+        child,
+        child.stderr,
+        'Node explicit exit stderr',
+      )
+      try {
+        if (!child.pid)
+          throw new Error('Node explicit-exit fixture did not start')
+        await mkdir(join(sessionsRoot, 'sessions'), { recursive: true })
+        await writeFile(
+          join(sessionsRoot, 'sessions', `${id}.json`),
+          JSON.stringify(ownedSession(id, child.pid)),
+        )
+        const code = await closed
+        expect(
+          await Bun.file(join(configDir, 'exit-input-ran')).exists(),
+        ).toBe(true)
+        expect(code, stderr.read()).toBe(scenario.expected)
+        stderr.assertWithinLimit()
+        expect((await listBackgroundSessions())[0]).toMatchObject({
+          id,
+          status: scenario.expected === 0 ? 'exited' : 'failed',
+          exitCode: scenario.expected,
+        })
+      } finally {
+        if (child.exitCode === null && child.signalCode === null)
+          child.kill('SIGKILL')
+        await closed.catch(() => {})
+      }
+    }, 30_000)
+  }
+
   for (const expectation of [
     { mode: 'success' as const, status: 'exited', exitCode: 0 },
     { mode: 'fail' as const, status: 'failed', exitCode: 23 },

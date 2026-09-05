@@ -17,7 +17,65 @@ import {
 
 try {
   const mode = process.env.OPENCLAUDE_CLEANUP_FIXTURE_MODE
-  if (
+  if (mode === 'pass-outcome') {
+    enableConfigs()
+    const settingsPath = join(
+      process.env.OPENCLAUDE_CONFIG_DIR!,
+      'settings.json',
+    )
+    const settingsResult = eagerLoadSettingsFromArgs([
+      '--settings',
+      settingsPath,
+    ])
+    if (!settingsResult.ok) throw new Error(settingsResult.message)
+    const trigger =
+      process.env.OPENCLAUDE_CLEANUP_TRIGGER === 'periodic-retention'
+        ? 'periodic-retention'
+        : 'periodic-recovery'
+    const afterLock = async () => {
+      if (process.env.OPENCLAUDE_CLEANUP_REJECT_AFTER_LOCK === '1') {
+        await Bun.write(
+          settingsPath,
+          JSON.stringify({ cleanupPeriodDays: 'invalid' }),
+        )
+      }
+    }
+    const result = await runBackgroundSessionRetention(
+      trigger === 'periodic-recovery'
+        ? { trigger, _afterThrottleLockForTesting: afterLock }
+        : {
+            trigger,
+            _afterThrottleLockForTesting: afterLock,
+            _afterJournalSnapshotForTesting: async () => {
+              if (
+                process.env.OPENCLAUDE_CLEANUP_APPEND_AFTER_SNAPSHOT !== '1'
+              )
+                return
+              const session = await createBackgroundSession({
+                id: 'bg-snapshot-appended',
+                pid: process.pid,
+                cwd: process.cwd(),
+                command: ['openclaude', '--print', 'fixture'],
+                sessionId: 'snapshot-appended-conversation',
+              })
+              recordBackgroundSessionNaturalTerminationSync(
+                session.id,
+                { exitCode: 0 },
+                {
+                  ownerPid: process.pid,
+                  expectedSession: session,
+                },
+              )
+              if (
+                process.env.OPENCLAUDE_CLEANUP_THROW_AFTER_SNAPSHOT === '1'
+              ) {
+                throw new Error('intentional full-sweep interruption')
+              }
+            },
+          },
+    )
+    process.stdout.write(`${JSON.stringify({ result })}\n`)
+  } else if (
     mode === 'periodic-retention' ||
     mode === 'periodic-retention-policy-recheck'
   ) {

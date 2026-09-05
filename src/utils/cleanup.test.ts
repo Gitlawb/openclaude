@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
   mkdir,
+  chmod,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   utimes,
@@ -25,7 +27,10 @@ const FIXTURE_OUTPUT_LIMIT_BYTES = 64 * 1024
 afterEach(async () => {
   _setBackgroundSessionsRootForTesting(undefined)
   await Promise.all(
-    tempDirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })),
+    tempDirs.splice(0).map(async dir => {
+      await chmod(join(dir, 'bg-sessions', 'terminal'), 0o755).catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }),
   )
 })
 
@@ -59,6 +64,7 @@ async function runCleanupFixture(
   configDir: string,
   mode:
     | 'once'
+    | 'pass-outcome'
     | 'marker-failure'
     | 'periodic-policy-recheck'
     | 'periodic-recovery'
@@ -118,11 +124,15 @@ async function createCompletedBackgroundSession(
   configDir: string,
   id: string,
   finishedAt: Date,
+  name?: string,
+  processMarker?: string,
 ): Promise<string> {
   const root = join(configDir, 'bg-sessions')
   _setBackgroundSessionsRootForTesting(root)
   await createBackgroundSession({
     id,
+    name,
+    processMarker,
     pid: process.pid,
     cwd: configDir,
     command: ['openclaude', '--print', 'fixture'],
@@ -284,7 +294,7 @@ describe('cleanupOldMessageFilesInBackground', () => {
   )
 
   test(
-    'advances bounded recovery past erroring retained entries across process restarts',
+    'advances bounded recovery past malformed entries across process restarts',
     async () => {
       const configDir = join(
         tmpdir(),
@@ -317,9 +327,6 @@ describe('cleanupOldMessageFilesInBackground', () => {
         join(root, '.recovery-journal'),
         `bg-retained-a\nbg-retained-b\n${targetId}\n`,
       )
-      await rm(join(root, 'names'), { recursive: true, force: true })
-      await writeFile(join(root, 'names'), 'not a directory')
-
       expect(
         await runCleanupFixture(
           configDir,
@@ -341,6 +348,387 @@ describe('cleanupOldMessageFilesInBackground', () => {
     },
     30_000,
   )
+
+  for (const trigger of [
+    'periodic-recovery',
+    'periodic-retention',
+  ] as const) {
+    for (const timing of ['before', 'after'] as const) {
+      test(`does not acknowledge policy rejected ${timing} the ${trigger} lock`, async () => {
+        const configDir = join(
+          tmpdir(),
+          `openclaude-policy-outcome-${Date.now()}-${Math.random()}`,
+        )
+        tempDirs.push(configDir)
+        await mkdir(configDir, { recursive: true })
+        const settingsPath = join(configDir, 'settings.json')
+        const validPolicy = JSON.stringify({ cleanupPeriodDays: 0 })
+        await writeFile(
+          settingsPath,
+          timing === 'before'
+            ? JSON.stringify({ cleanupPeriodDays: 'invalid' })
+            : validPolicy,
+        )
+        const id = 'bg-rejected-policy'
+        const metadataPath = await createCompletedBackgroundSession(
+          configDir,
+          id,
+          new Date(0),
+        )
+        const root = join(configDir, 'bg-sessions')
+        const marker = join(
+          root,
+          trigger === 'periodic-recovery'
+            ? '.recovery-pass'
+            : '.retention-pass',
+        )
+        const journal = join(root, '.recovery-journal')
+        const before = await readFile(journal, 'utf8')
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+            OPENCLAUDE_CLEANUP_REJECT_AFTER_LOCK:
+              timing === 'after' ? '1' : '0',
+          }),
+        ).toEqual({ result: 'invalid-policy' })
+        expect(await Bun.file(metadataPath).exists()).toBe(true)
+        expect(await Bun.file(marker).exists()).toBe(false)
+        expect(
+          await Bun.file(join(root, '.recovery-cursor.json')).exists(),
+        ).toBe(false)
+        expect(await readFile(journal, 'utf8')).toBe(before)
+
+        await writeFile(settingsPath, validPolicy)
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+          }),
+        ).toEqual({ result: 'ran' })
+        expect(await Bun.file(metadataPath).exists()).toBe(false)
+        expect(await readFile(journal, 'utf8')).toBe('')
+        expect(await Bun.file(marker).exists()).toBe(true)
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+          }),
+        ).toEqual({ result: 'skipped' })
+        await rm(marker)
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+          }),
+        ).toEqual({ result: 'ran' })
+        expect(await Bun.file(marker).exists()).toBe(true)
+      }, 30_000)
+    }
+
+    for (const failure of [
+      'names-directory',
+      'log-unlink',
+      'terminal-unlink',
+      'marked-terminal-unlink',
+    ] as const) {
+      test(`retries ${failure} after a partial ${trigger} pass in a new process`, async () => {
+        const configDir = join(
+          tmpdir(),
+          `openclaude-retry-outcome-${Date.now()}-${Math.random()}`,
+        )
+        tempDirs.push(configDir)
+        await mkdir(configDir, { recursive: true })
+        await writeFile(
+          join(configDir, 'settings.json'),
+          JSON.stringify({ cleanupPeriodDays: 0 }),
+        )
+        const root = join(configDir, 'bg-sessions')
+        const id = 'bg-retryable'
+        const terminalFailure = failure.endsWith('terminal-unlink')
+        const metadata = await createCompletedBackgroundSession(
+          configDir,
+          id,
+          new Date(0),
+          'retryable',
+          failure === 'marked-terminal-unlink' ? 'a'.repeat(64) : undefined,
+        )
+        const eligible = await createCompletedBackgroundSession(
+          configDir,
+          'bg-independent',
+          new Date(0),
+        )
+        const malformed = join(root, 'sessions', 'bg-malformed.json')
+        await writeFile(malformed, '{invalid')
+        const journal = join(root, '.recovery-journal')
+        // A full sweep must also recover work whose original journal append failed.
+        await writeFile(
+          journal,
+          trigger === 'periodic-retention'
+            ? ''
+            : `bg-malformed\n${id}\nbg-independent\n`,
+        )
+        const brokenPath = terminalFailure
+          ? join(root, 'terminal')
+          : failure === 'names-directory'
+            ? join(root, 'names')
+            : join(root, 'logs', `${id}.out.log`)
+        if (terminalFailure) {
+          await chmod(brokenPath, 0o555)
+        } else {
+          await rm(brokenPath, { recursive: true, force: true })
+          if (failure === 'names-directory')
+            await writeFile(brokenPath, 'not a directory')
+          else await mkdir(brokenPath)
+        }
+        const marker = join(
+          root,
+          trigger === 'periodic-recovery'
+            ? '.recovery-pass'
+            : '.retention-pass',
+        )
+
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+          }),
+        ).toEqual({ result: 'partial' })
+        expect(await Bun.file(metadata).exists()).toBe(!terminalFailure)
+        expect(await Bun.file(eligible).exists()).toBe(false)
+        expect(await readFile(malformed, 'utf8')).toBe('{invalid')
+        expect(await readFile(journal, 'utf8')).toContain(id)
+        if (
+          failure === 'names-directory' &&
+          trigger === 'periodic-recovery'
+        ) {
+          expect(await readFile(journal, 'utf8')).toBe(`${id}\n`)
+        }
+        expect(await Bun.file(marker).exists()).toBe(true)
+
+        if (terminalFailure) await chmod(brokenPath, 0o755)
+        else {
+          await rm(brokenPath, { recursive: true, force: true })
+          if (failure === 'names-directory') await mkdir(brokenPath)
+        }
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+          }),
+        ).toEqual({ result: 'skipped' })
+        await rm(marker)
+        expect(
+          await runCleanupFixture(configDir, 'pass-outcome', {
+            OPENCLAUDE_CLEANUP_TRIGGER: terminalFailure
+              ? 'periodic-recovery'
+              : trigger,
+          }),
+        ).toEqual({ result: 'ran' })
+        expect(await Bun.file(metadata).exists()).toBe(false)
+        expect(await readdir(join(root, 'terminal'))).toEqual([])
+        expect(await readFile(journal, 'utf8')).toBe('')
+        expect(
+          await Bun.file(join(root, '.recovery-cursor.json')).exists(),
+        ).toBe(false)
+        expect(
+          await Bun.file(
+            terminalFailure ? join(root, '.recovery-pass') : marker,
+          ).exists(),
+        ).toBe(true)
+      }, 30_000)
+    }
+  }
+
+  for (const trigger of [
+    'periodic-recovery',
+    'periodic-retention',
+  ] as const) {
+    test(`acknowledges unnamed work despite a broken names directory during ${trigger}`, async () => {
+      const configDir = join(
+        tmpdir(),
+        `openclaude-unnamed-retry-${Date.now()}-${Math.random()}`,
+      )
+      tempDirs.push(configDir)
+      await mkdir(configDir, { recursive: true })
+      await writeFile(
+        join(configDir, 'settings.json'),
+        JSON.stringify({ cleanupPeriodDays: 0 }),
+      )
+      const metadata = await createCompletedBackgroundSession(
+        configDir,
+        'bg-unnamed',
+        new Date(0),
+      )
+      const root = join(configDir, 'bg-sessions')
+      await rm(join(root, 'names'), { recursive: true, force: true })
+      await writeFile(join(root, 'names'), 'not a directory')
+      expect(
+        await runCleanupFixture(configDir, 'pass-outcome', {
+          OPENCLAUDE_CLEANUP_TRIGGER: trigger,
+        }),
+      ).toEqual({ result: 'ran' })
+      expect(await Bun.file(metadata).exists()).toBe(false)
+      expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe('')
+    }, 30_000)
+  }
+
+  test('queues recent reconciliation failures that were absent from the journal', async () => {
+    const configDir = join(
+      tmpdir(),
+      `openclaude-reconcile-retry-${Date.now()}-${Math.random()}`,
+    )
+    tempDirs.push(configDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 30 }),
+    )
+    const id = 'bg-recent-reconcile'
+    const generation = 'b'.repeat(64)
+    const metadata = await createCompletedBackgroundSession(
+      configDir,
+      id,
+      new Date(),
+      'recent-reconcile',
+      generation,
+    )
+    const root = join(configDir, 'bg-sessions')
+    await writeFile(join(root, '.recovery-journal'), '')
+    await rm(join(root, 'names'), { recursive: true, force: true })
+    await writeFile(join(root, 'names'), 'not a directory')
+    expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({
+      result: 'partial',
+    })
+    expect(await Bun.file(metadata).exists()).toBe(true)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe(
+      `${id}~${generation}\n`,
+    )
+    await rm(join(root, 'names'))
+    await mkdir(join(root, 'names'))
+    await rm(join(root, '.retention-pass'))
+    expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({
+      result: 'ran',
+    })
+    expect(await Bun.file(metadata).exists()).toBe(true)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe('')
+  }, 30_000)
+
+  test('reports an interrupted full sweep without acknowledging its snapshot', async () => {
+    const configDir = join(
+      tmpdir(),
+      `openclaude-failed-outcome-${Date.now()}-${Math.random()}`,
+    )
+    tempDirs.push(configDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 0 }),
+    )
+    const metadata = await createCompletedBackgroundSession(
+      configDir,
+      'bg-before-interruption',
+      new Date(0),
+    )
+    const root = join(configDir, 'bg-sessions')
+    expect(
+      await runCleanupFixture(configDir, 'pass-outcome', {
+        OPENCLAUDE_CLEANUP_TRIGGER: 'periodic-retention',
+        OPENCLAUDE_CLEANUP_APPEND_AFTER_SNAPSHOT: '1',
+        OPENCLAUDE_CLEANUP_THROW_AFTER_SNAPSHOT: '1',
+      }),
+    ).toEqual({ result: 'failed' })
+    expect(await Bun.file(metadata).exists()).toBe(true)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe(
+      'bg-before-interruption\nbg-snapshot-appended\n',
+    )
+    expect(await Bun.file(join(root, '.retention-pass')).exists()).toBe(false)
+    expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({
+      result: 'ran',
+    })
+    expect(await Bun.file(metadata).exists()).toBe(false)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe('')
+    expect(await readdir(join(root, 'terminal'))).toEqual([])
+  }, 30_000)
+
+  test('does not throttle a full sweep when its retry inventory is unreadable', async () => {
+    const configDir = join(
+      tmpdir(),
+      `openclaude-failed-inventory-${Date.now()}-${Math.random()}`,
+    )
+    tempDirs.push(configDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 0 }),
+    )
+    const metadata = await createCompletedBackgroundSession(
+      configDir,
+      'bg-unreadable-inventory',
+      new Date(0),
+    )
+    const root = join(configDir, 'bg-sessions')
+    const directory = join(root, 'sessions')
+    const saved = join(root, 'saved-sessions')
+    await rename(directory, saved)
+    await writeFile(directory, 'not a directory')
+    expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({
+      result: 'failed',
+    })
+    expect(await Bun.file(join(root, '.retention-pass')).exists()).toBe(false)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe(
+      'bg-unreadable-inventory\n',
+    )
+    await rm(directory)
+    await rename(saved, directory)
+    expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({
+      result: 'ran',
+    })
+    expect(await Bun.file(metadata).exists()).toBe(false)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe('')
+  }, 30_000)
+
+  test('acknowledges only the full-sweep snapshot while preserving a concurrent append', async () => {
+    const configDir = join(
+      tmpdir(),
+      `openclaude-snapshot-outcome-${Date.now()}-${Math.random()}`,
+    )
+    tempDirs.push(configDir)
+    await mkdir(configDir, { recursive: true })
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 30 }),
+    )
+    const metadata = await createCompletedBackgroundSession(
+      configDir,
+      'bg-snapshot-old',
+      new Date(0),
+    )
+    expect(
+      await runCleanupFixture(configDir, 'pass-outcome', {
+        OPENCLAUDE_CLEANUP_TRIGGER: 'periodic-retention',
+        OPENCLAUDE_CLEANUP_APPEND_AFTER_SNAPSHOT: '1',
+      }),
+    ).toEqual({ result: 'ran' })
+    const root = join(configDir, 'bg-sessions')
+    expect(await Bun.file(metadata).exists()).toBe(false)
+    expect(
+      await Bun.file(
+        join(root, 'sessions', 'bg-snapshot-appended.json'),
+      ).exists(),
+    ).toBe(true)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe(
+      'bg-snapshot-appended\n',
+    )
+    expect(await Bun.file(join(root, '.retention-pass')).exists()).toBe(true)
+    await writeFile(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ cleanupPeriodDays: 0 }),
+    )
+    expect(await runCleanupFixture(configDir, 'periodic-recovery')).toEqual({
+      result: 'ran',
+    })
+    expect(
+      await Bun.file(
+        join(root, 'sessions', 'bg-snapshot-appended.json'),
+      ).exists(),
+    ).toBe(false)
+    expect(await readFile(join(root, '.recovery-journal'), 'utf8')).toBe('')
+  }, 30_000)
 
   for (const scenario of [
     { label: 'positive', setting: 30, result: 'ran' },
@@ -472,6 +860,10 @@ describe('cleanupOldMessageFilesInBackground', () => {
         ),
       ).toEqual({ result: 'invalid-policy' })
       expect(await Bun.file(metadataPath).exists()).toBe(true)
+      expect(await Bun.file(join(configDir, 'bg-sessions', '.retention-pass')).exists()).toBe(false)
+      await rm(join(configDir, '.mcp.json'))
+      expect(await runCleanupFixture(configDir, 'periodic-retention')).toEqual({ result: 'ran' })
+      expect(await Bun.file(metadataPath).exists()).toBe(false)
     },
     30_000,
   )
