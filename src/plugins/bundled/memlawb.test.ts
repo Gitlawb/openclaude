@@ -69,6 +69,18 @@ function resolvedEnv(
   return (resolved as { env?: Record<string, string> }).env ?? {}
 }
 
+// The plugin references a memlawb input that older builds do not read, so the
+// description has to name the version. Without it, the failure a user meets is
+// "no passphrase set", which points at their configuration rather than at their
+// binary being too old.
+test('the description names the memlawb version the passphrase file needs', () => {
+  const plugin = getBuiltinPluginDefinition('memlawb')
+  expect(plugin?.description).toContain('0.1.0')
+  // Control: it still names the variable that needs that version, so this is a
+  // version stated for a reason rather than a number sitting in a sentence.
+  expect(plugin?.description).toContain('MEMLAWB_PASSPHRASE_FILE')
+})
+
 test('memlawb registers disabled, with one stdio server and no prompting', () => {
   const plugin = getBuiltinPluginDefinition('memlawb')
 

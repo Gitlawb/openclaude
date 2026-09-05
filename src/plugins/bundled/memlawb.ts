@@ -41,6 +41,10 @@
  * Setup is two steps: write the passphrase into a file only you can read
  * (`umask 077`), then export MEMLAWB_PASSPHRASE_FILE pointing at it, alongside
  * MEMLAWB_URL, MEMLAWB_API_KEY and MEMLAWB_NAMESPACE.
+ *
+ * MEMLAWB_PASSPHRASE_FILE needs memlawb 0.1.0 or newer; earlier builds read
+ * only MEMLAWB_PASSPHRASE and would refuse to start with no passphrase at all,
+ * which reads as a configuration mistake rather than an out-of-date binary.
  */
 
 import { registerBuiltinPlugin } from '../builtinPlugins.js'
@@ -49,7 +53,7 @@ export function registerMemlawbPlugin(): void {
   registerBuiltinPlugin({
     name: 'memlawb',
     description:
-      'End-to-end-encrypted agent memory via the memlawb MCP server. Requires the memlawb CLI and MEMLAWB_URL, MEMLAWB_API_KEY, MEMLAWB_NAMESPACE and MEMLAWB_PASSPHRASE_FILE (a path to a file holding the passphrase) in the environment.',
+      'End-to-end-encrypted agent memory via the memlawb MCP server. Needs memlawb 0.1.0 or newer on PATH, and MEMLAWB_URL, MEMLAWB_API_KEY, MEMLAWB_NAMESPACE and MEMLAWB_PASSPHRASE_FILE (a path to a file holding the passphrase) in the environment.',
     version: '1.0.0',
     defaultEnabled: false,
     mcpServers: {
