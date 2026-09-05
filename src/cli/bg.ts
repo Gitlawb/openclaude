@@ -1043,6 +1043,7 @@ export async function attachHandler(
 
 export async function killHandler(
   args: string[] | string | undefined,
+  options: { retentionSettingsReady?: boolean } = {},
 ): Promise<void> {
   const target = normalizeArgs(args)[0]
   if (!target) fail('Usage: openclaude kill <id-or-name>')
@@ -1054,6 +1055,19 @@ export async function killHandler(
       `Failed to kill background session ${session.id}: ${errorMessage(error)}`,
     )
   })
+  if (options.retentionSettingsReady !== false) {
+    try {
+      const { runBackgroundSessionRetention } = await import(
+        '../utils/cleanup.js'
+      )
+      await runBackgroundSessionRetention({
+        trigger: 'explicit-kill',
+        sessionId: killed.id,
+      })
+    } catch {
+      // A retention failure must not replace the successful kill outcome.
+    }
+  }
   console.log(`Killed background session ${killed.id}.`)
 }
 
