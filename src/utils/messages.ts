@@ -1758,8 +1758,8 @@ export function normalizeMessagesForAPI(
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                    const blockExtra = (block as unknown as { extra_content?: unknown }).extra_content
-                    return {
+                  const blockExtra = (block as unknown as { extra_content?: unknown }).extra_content
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,

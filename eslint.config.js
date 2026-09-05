@@ -1,6 +1,5 @@
 // Minimal flat config — only the rule we need to track `any` usage.
-// Step 1 of a multi-phase plan to reduce `any` types safely.
-// See plan: docs/plans/imperative-hugging-sphinx.md
+// Part of the phased `any`-reduction work landing on fix/reduce-any-types.
 //
 // Note: the repo has many existing `// eslint-disable custom-rules/<name>`
 // comments referencing rules from a previous (now-removed) custom plugin.

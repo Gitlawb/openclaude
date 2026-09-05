@@ -2,8 +2,7 @@
 // Produces reports/any-usage.{json,md} and a budget gate against
 // reports/any-usage.baseline.json.
 //
-// Step 2 of a multi-phase plan to reduce `any` types safely.
-// See plan: docs/plans/imperative-hugging-sphinx.md
+// Part of the phased `any`-reduction work landing on fix/reduce-any-types.
 
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { resolve } from 'path'
@@ -61,7 +60,7 @@ function emptyCategory(): CategoryCounts {
 }
 
 async function walk(dir: string, out: string[]): Promise<void> {
-  const { readdir, stat } = await import('fs/promises')
+  const { readdir, lstat } = await import('fs/promises')
   let entries: string[]
   try {
     entries = await readdir(dir)
@@ -71,7 +70,10 @@ async function walk(dir: string, out: string[]): Promise<void> {
   for (const name of entries) {
     if (EXCLUDE_DIR_NAMES.has(name)) continue
     const full = resolve(dir, name)
-    const st = await stat(full)
+    // Use lstat so we don't follow symlinks — a self-referencing link would
+    // recurse forever and stall the budget check.
+    const st = await lstat(full)
+    if (st.isSymbolicLink()) continue
     if (st.isDirectory()) {
       await walk(full, out)
     } else if (/\.tsx?$/.test(name)) {
@@ -202,13 +204,17 @@ async function main(): Promise<void> {
   }
 
   if (checkMode) {
-    if (baselineTotal !== null && report.total > baselineTotal) {
+    if (baselineTotal === null) {
+      console.error(`any-usage baseline is missing or invalid: ${BASELINE_PATH}`)
+      process.exit(1)
+    }
+    if (report.total > baselineTotal) {
       console.error(
         `any-usage budget exceeded: current=${report.total} > baseline=${baselineTotal} (delta=+${report.total - baselineTotal})`,
       )
       process.exit(1)
     }
-    console.log(`any-usage budget ok: current=${report.total} baseline=${baselineTotal ?? 'unset'}`)
+    console.log(`any-usage budget ok: current=${report.total} baseline=${baselineTotal}`)
     return
   }
 
