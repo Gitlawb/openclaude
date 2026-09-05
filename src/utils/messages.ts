@@ -1745,7 +1745,7 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
-                    const { extra_content, ...restBlock } = block as any
+                    const { extra_content, ...restBlock } = block as { extra_content?: unknown; [k: string]: unknown }
                     return {
                       ...restBlock,
                       name: canonicalName,
@@ -1762,7 +1762,7 @@ export function normalizeMessagesForAPI(
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
+                    ...((block as { extra_content?: unknown }).extra_content ? { extra_content: (block as { extra_content?: unknown }).extra_content } : {})
                   }
                 }
                 return block
