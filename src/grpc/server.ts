@@ -20,7 +20,15 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   oneofs: true,
 })
 
-const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any
+// proto-loader returns a deeply-nested untyped shape; we only need the AgentService
+// definition from the OpenClaude v1 package, so narrow to that.
+const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as unknown as {
+  openclaude: {
+    v1: {
+      AgentService: { service: grpc.ServiceDefinition<grpc.ServerDuplexStream<unknown, unknown>> }
+    }
+  }
+}
 const openclaudeProto = protoDescriptor.openclaude.v1
 
 const MAX_SESSIONS = 1000
@@ -108,7 +116,7 @@ export class GrpcServer {
     )
   }
 
-  private handleChat(call: grpc.ServerDuplexStream<any, any>) {
+  private handleChat(call: grpc.ServerDuplexStream<unknown, unknown>) {
     let engine: QueryEngine | null = null
     let appState: AppState = getDefaultAppState()
     const fileCache: FileStateCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
@@ -117,7 +125,7 @@ export class GrpcServer {
     const pendingRequests = new Map<string, (reply: string) => void>()
 
     // Accumulated messages from previous turns for multi-turn context
-    let previousMessages: any[] = []
+    let previousMessages: Message[] = []
     let sessionId = ''
     let interrupted = false
 
@@ -293,11 +301,11 @@ export class GrpcServer {
           }
           call.end()
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error processing stream')
         call.write({
           error: {
-            message: err.message || "Internal server error",
+            message: err instanceof Error ? err.message : "Internal server error",
             code: "INTERNAL"
           }
         })
