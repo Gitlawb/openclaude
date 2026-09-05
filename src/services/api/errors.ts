@@ -158,6 +158,12 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
         error: 'invalid_request',
       })
 
+    case 'stream_options_unsupported':
+      return createAssistantAPIErrorMessage({
+        content: 'The selected provider rejected the `stream_options` parameter and could not complete the compatibility fallback without usage reporting. Verify that the endpoint accepts ordinary streaming chat-completions requests.',
+        error: 'invalid_request',
+      })
+
     case 'malformed_provider_response':
       return createAssistantAPIErrorMessage({
         content: `${API_ERROR_MESSAGE_PREFIX}: Provider returned a malformed response. Confirm endpoint compatibility and check local proxy/network middleware.`,

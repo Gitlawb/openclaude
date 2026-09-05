@@ -126,3 +126,134 @@ test('prepares tools and streaming options for a remote chat route', async () =>
     function: { name: 'Read' },
   })
 })
+
+test('requests streaming usage from a custom loopback chat route', async () => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: 'http://127.0.0.1:8000/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+  const request = resolveProviderRequest({
+    model: 'local-openai-model',
+    processEnv,
+  })
+  const prepared = prepareOpenAIRequest({
+    request,
+    requestProcessEnv: processEnv,
+    params: {
+      model: 'local-openai-model',
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    dependencies,
+  })
+
+  expect(prepared.body.stream_options).toEqual({ include_usage: true })
+})
+
+test.each([
+  ['LM Studio', 'http://localhost:1234/v1', 'local-model'],
+  ['non-native Ollama', 'http://192.168.1.10:11434/v1', 'llama3.1:8b'],
+  ['remote Ollama', 'https://ollama.com/v1', 'qwen3-coder-next:cloud'],
+])('requests streaming usage from a compatible %s route', async (
+  _label,
+  baseUrl,
+  model,
+) => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: baseUrl,
+    OPENAI_API_KEY: 'test-key',
+  }
+  const request = resolveProviderRequest({ model, processEnv })
+  const prepared = prepareOpenAIRequest({
+    request,
+    requestProcessEnv: processEnv,
+    params: {
+      model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    dependencies,
+  })
+
+  expect(prepared.useNativeOllamaChat).toBe(false)
+  expect(JSON.parse(prepared.serializeBody()).stream_options).toEqual({
+    include_usage: true,
+  })
+})
+
+test('keeps native Ollama streaming options off the wire', async () => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: 'http://localhost:11434/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+  const model = 'llama3.1:8b'
+  const request = resolveProviderRequest({ model, processEnv })
+  const prepared = prepareOpenAIRequest({
+    request,
+    requestProcessEnv: processEnv,
+    params: {
+      model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    dependencies,
+  })
+
+  expect(prepared.useNativeOllamaChat).toBe(true)
+  expect(JSON.parse(prepared.serializeBody())).not.toHaveProperty(
+    'stream_options',
+  )
+})
+
+test('lets explicit stream_options removal override streaming usage', async () => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: 'https://api.xiaomimimo.com/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+  const model = 'mimo-v2.5-pro'
+  const request = resolveProviderRequest({ model, processEnv })
+  const prepared = prepareOpenAIRequest({
+    request,
+    requestProcessEnv: processEnv,
+    params: {
+      model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: true,
+    },
+    dependencies,
+  })
+
+  expect(prepared.shimConfig.removeBodyFields).toContain('stream_options')
+  expect(prepared.body).not.toHaveProperty('stream_options')
+})
+
+test('omits streaming options from a non-streaming loopback request', async () => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: 'http://127.0.0.1:8000/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+  const model = 'local-openai-model'
+  const request = resolveProviderRequest({ model, processEnv })
+  const prepared = prepareOpenAIRequest({
+    request,
+    requestProcessEnv: processEnv,
+    params: {
+      model,
+      messages: [{ role: 'user', content: 'hello' }],
+      max_tokens: 64,
+      stream: false,
+    },
+    dependencies,
+  })
+
+  expect(prepared.body).not.toHaveProperty('stream_options')
+})

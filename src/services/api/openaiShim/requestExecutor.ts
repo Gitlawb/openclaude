@@ -560,6 +560,7 @@ export async function executeOpenAIRequest(
   const attemptedLocalRequestUrls = new Set<string>([requestUrl])
   let didRetryWithoutTools = false
   let didRetryWithoutToolStream = false
+  let didRetryWithoutStreamOptions = false
   let retryCredentialLease: CredentialLease | null = null
   let didRefreshCopilotToken = false
   let refreshedCopilotToken: string | undefined
@@ -598,6 +599,15 @@ export async function executeOpenAIRequest(
   const bodyContainsImages = (serializedBody = serializeBody()): boolean => {
     try {
       return requestBodyContainsImages(JSON.parse(serializedBody) as Record<string, unknown>)
+    } catch {
+      return false
+    }
+  }
+
+  const serializedBodyHasTopLevelField = (field: string): boolean => {
+    try {
+      const payload = JSON.parse(serializedBody) as Record<string, unknown>
+      return Object.prototype.hasOwnProperty.call(payload, field)
     } catch {
       return false
     }
@@ -934,7 +944,21 @@ export async function executeOpenAIRequest(
     }
     // Read body exactly once here — Response body is a stream that can only
     // be consumed a single time.
-    const errorBody = await response.text().catch(() => 'unknown error')
+    let errorBody: string
+    try {
+      errorBody = await response.text()
+    } catch (error) {
+      if (options?.signal?.aborted) {
+        throw options.signal.reason ?? error
+      }
+      errorBody = 'unknown error'
+    }
+    if (options?.signal?.aborted) {
+      throw (
+        options.signal.reason ??
+        new DOMException('The operation was aborted.', 'AbortError')
+      )
+    }
     const rateHint =
       isGithub && response.status === 429 ? formatRetryAfterHint(response) : ''
 
@@ -1092,6 +1116,30 @@ export async function executeOpenAIRequest(
 
       logForDebugging(
         `[OpenAIShim] self-heal retry reason=tool_call_incompatible mode=toolless method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
+        { level: 'warn' },
+      )
+      continue
+    }
+
+    // Some strict OpenAI-compatible servers reject the optional usage extension
+    // instead of ignoring it. Retry only an exact top-level field rejection,
+    // and only when the serialized request actually contained the field. This
+    // keeps usage enabled for capable custom routes without replaying unrelated
+    // client errors or a request the user has already cancelled.
+    if (
+      !didRetryWithoutStreamOptions &&
+      failure.category === 'stream_options_unsupported' &&
+      options?.signal?.aborted !== true &&
+      serializedBodyHasTopLevelField('stream_options')
+    ) {
+      didRetryWithoutStreamOptions = true
+      maxAttempts += 1
+      delete body.stream_options
+      refreshSerializedBody()
+      retryCredentialLease = credentialLease
+
+      logForDebugging(
+        `[OpenAIShim] self-heal retry reason=stream_options_unsupported method=POST url=${redactUrlForDiagnostics(requestUrl)} model=${request.resolvedModel}`,
         { level: 'warn' },
       )
       continue
