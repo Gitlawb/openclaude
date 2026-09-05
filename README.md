@@ -349,6 +349,15 @@ Add this entry to .mcp.json in the project where you run OpenClaude (merge it wi
 Start OpenClaude from that project and approve parallel-search when the project-scoped MCP server prompt appears. To check the configuration and make a live connection check, run:
 
 ```bash
+openclaude mcp doctor parallel-search --scope project
+ ```
+## Quick Example
+
+```bash
+npm install -g @gitlawb/openclaude@latest
+openclaude
+```
+
 
 ## What Works
 
