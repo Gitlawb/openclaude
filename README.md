@@ -350,7 +350,7 @@ Start OpenClaude from that project and approve parallel-search when the project-
 
 ```bash
 openclaude mcp doctor parallel-search --scope project
- ```
+```
 ## Quick Example
 
 ```bash
