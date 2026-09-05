@@ -2610,7 +2610,7 @@ describe('applyActiveProviderProfileFromConfig', () => {
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o')
   })
 
-  test('uses saved valid Hicap /model choice when rehydrating active profile', async () => {
+  test('preserves context limits for configured and saved models across profile rehydration', async () => {
     const {
       _setSavedModelOverrideForTesting,
       applyActiveProviderProfileFromConfig,
@@ -2624,35 +2624,54 @@ describe('applyActiveProviderProfileFromConfig', () => {
       id: 'saved_hicap',
       provider: 'hicap',
       baseUrl: 'https://api.hicap.ai/v1',
-      model: 'glm-5.2',
+      model: 'glm-5.2; gpt-5.2',
       maxContextLength: 200_000,
     })
-
-    const applied = applyActiveProviderProfileFromConfig({
+    const config = {
       providerProfiles: [activeProfile],
       activeProviderProfileId: activeProfile.id,
-    } as any)
+    } as any
+    const expectedContextWindows = JSON.stringify({
+      'glm-5.2': 200_000,
+      'gpt-5.2': 200_000,
+      'gpt-5.4': 200_000,
+    })
+
+    const applied = applyActiveProviderProfileFromConfig(config)
 
     expect(applied?.id).toBe(activeProfile.id)
     expect(process.env.OPENAI_BASE_URL).toBe('https://api.hicap.ai/v1')
     expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
     expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
-      JSON.stringify({
-        'glm-5.2': 200_000,
-        'gpt-5.4': 200_000,
-      }),
+      expectedContextWindows,
     )
-    expect(
-      resolveModelRuntimeLimits({
-        model: 'gpt-5.4',
-        processEnv: process.env,
-      }).contextWindow,
-    ).toBe(200_000)
-    const saved = getProviderProfiles({
-      providerProfiles: [activeProfile],
-      activeProviderProfileId: activeProfile.id,
-    } as any).find((profile: ProviderProfile) => profile.id === activeProfile.id)
-    expect(saved?.model).toBe('glm-5.2')
+    for (const model of ['glm-5.2', 'gpt-5.2', 'gpt-5.4']) {
+      expect(
+        resolveModelRuntimeLimits({ model, processEnv: process.env }).contextWindow,
+      ).toBe(200_000)
+    }
+
+    expect(applyActiveProviderProfileFromConfig(config)?.id).toBe(activeProfile.id)
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+      expectedContextWindows,
+    )
+
+    // Alignment must repair the old configured-only map, even though the
+    // effective model and all other profile-managed environment values match.
+    process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = JSON.stringify({
+      'glm-5.2': 200_000,
+      'gpt-5.2': 200_000,
+    })
+    applyActiveProviderProfileFromConfig(config)
+    expect(process.env.OPENAI_MODEL).toBe('gpt-5.4')
+    expect(process.env.CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS).toBe(
+      expectedContextWindows,
+    )
+    const saved = getProviderProfiles(config).find(
+      (profile: ProviderProfile) => profile.id === activeProfile.id,
+    )
+    expect(saved?.model).toBe('glm-5.2; gpt-5.2')
   })
 
   test('uses saved Codex /model choice when rehydrating the Codex OAuth profile', async () => {
