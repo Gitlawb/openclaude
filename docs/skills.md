@@ -84,7 +84,7 @@ Check them again at any time, or in CI:
 eyebrow verify --path . --lockfile eyebrowlock.json --ci
 ```
 
-`verify` exit codes: `0` nothing changed; `1` a skill differs from the lockfile, or a finding is at or above the policy threshold; `2` usage error, such as a missing lockfile or a bad flag; `3` internal error. In CI, treat `1` as a review task and `2` or `3` as a broken job. On the edited skill above:
+`verify` exit codes: `0` clean under the active policy, which includes content changes the policy permits; `1` rejected drift or a policy violation; `2` usage error, such as a bad flag; `3` internal or I/O error, such as a missing lockfile. In CI, treat `1` as a review task and `2` or `3` as a broken job. On the edited skill above, with no policy file:
 
 ```text
 verify: DRIFT — 1 change(s) detected:
