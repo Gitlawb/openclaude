@@ -299,6 +299,7 @@ Advanced and source-build guides:
 - [Agent Routing and Step Limits](docs/agent-routing.md)
 - [Headless gRPC Server](docs/grpc-server.md)
 - [Repo Map (codebase intelligence)](docs/repo-map.md)
+- [Skills](docs/skills.md)
 - [Android Install](ANDROID_INSTALL.md)
 
 ## Supported Providers
