@@ -21,15 +21,30 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 })
 
 // proto-loader returns a deeply-nested untyped shape; we only need the AgentService
-// definition from the OpenClaude v1 package, so narrow to that.
+// definition from the OpenClaude v1 package, so narrow to that. The implementation
+// map declares the method names; ServiceDefinition<T> requires T to be a record
+// keyed by method name.
 const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as unknown as {
   openclaude: {
     v1: {
-      AgentService: { service: grpc.ServiceDefinition<grpc.ServerDuplexStream<unknown, unknown>> }
+      AgentService: { service: grpc.ServiceDefinition<{ Chat: never }> }
     }
   }
 }
 const openclaudeProto = protoDescriptor.openclaude.v1
+
+// Shape of a single client message on the duplex Chat stream. Matches the
+// `oneof` payload in openclaude.proto (ChatRequest | ToolInput | CancelRequest).
+type ClientMessage = {
+  request?: {
+    session_id?: unknown
+    message?: unknown
+    working_directory?: unknown
+    model?: unknown
+  } | null
+  input?: { prompt_id?: unknown; reply?: unknown } | null
+  cancel?: unknown
+}
 
 const MAX_SESSIONS = 1000
 
@@ -116,7 +131,7 @@ export class GrpcServer {
     )
   }
 
-  private handleChat(call: grpc.ServerDuplexStream<unknown, unknown>) {
+  private handleChat(call: grpc.ServerDuplexStream<ClientMessage, unknown>) {
     let engine: QueryEngine | null = null
     let appState: AppState = getDefaultAppState()
     const fileCache: FileStateCache = new FileStateCache(READ_FILE_STATE_CACHE_SIZE, 25 * 1024 * 1024)
