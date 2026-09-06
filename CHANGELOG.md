@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.31.0](https://github.com/Gitlawb/openclaude/compare/v0.30.0...v0.31.0) (2026-09-06)
+
+
+### Features
+
+* **providers:** add Command Code hybrid gateway ([#2196](https://github.com/Gitlawb/openclaude/issues/2196)) ([5b9daef](https://github.com/Gitlawb/openclaude/commit/5b9daef6052128c6236e02f9ba45e382491e78f7))
+* **skills:** enforce registry revocations.json on install ([#2187](https://github.com/Gitlawb/openclaude/issues/2187)) ([0ea8eef](https://github.com/Gitlawb/openclaude/commit/0ea8eefbd0d48735ddb9e6b8c9e7ee6957dc9b98))
+* **zai:** add GLM-5.3-Flash Coding Plan support ([#2185](https://github.com/Gitlawb/openclaude/issues/2185)) ([aceacf0](https://github.com/Gitlawb/openclaude/commit/aceacf0e590a7d84447a8c44f3aa61eba781a542))
+
+
+### Bug Fixes
+
+* **ctx:** let explicit overrides beat discovered context windows ([#2082](https://github.com/Gitlawb/openclaude/issues/2082)) ([3451187](https://github.com/Gitlawb/openclaude/commit/3451187aedda550a9dd8f0a7660edb0848de7cff)), closes [#2081](https://github.com/Gitlawb/openclaude/issues/2081)
+* identify OpenCode Go requests ([#2203](https://github.com/Gitlawb/openclaude/issues/2203)) ([3609d75](https://github.com/Gitlawb/openclaude/commit/3609d751c06531873485ae5197737ae85c99b3a7))
+* **sdk:** preserve async generator session context ([#2204](https://github.com/Gitlawb/openclaude/issues/2204)) ([0abfca3](https://github.com/Gitlawb/openclaude/commit/0abfca30e5a2945678415f5328691584387720fb))
+
 ## [0.30.0](https://github.com/Gitlawb/openclaude/compare/v0.29.1...v0.30.0) (2026-08-31)
 
 
