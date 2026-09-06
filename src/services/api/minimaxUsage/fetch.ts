@@ -3,6 +3,7 @@ import { logForDebugging } from '../../../utils/debug.js'
 import { getClaudeCodeUserAgent } from '../../../utils/userAgent.js'
 import {
   DEFAULT_MINIMAX_BASE_URL,
+  DEFAULT_MINIMAX_CN_BASE_URL,
   DEFAULT_MINIMAX_UNAVAILABLE_MESSAGE,
   type MiniMaxUsageData,
 } from './types.js'
@@ -12,10 +13,28 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }
 
+// Region-routed default: pick the China usage endpoint when the configured
+// base URL is api.minimaxi.com (and we have to fall back to a default).
+// Avoids forwarding a China MiniMax bearer key to api.minimax.io's quota
+// endpoint (#2207 P2).
+function defaultBaseUrlForConfigured(configuredBaseUrl?: string): string {
+  if (!configuredBaseUrl?.trim()) return DEFAULT_MINIMAX_BASE_URL
+  try {
+    const hostname = new URL(configuredBaseUrl.trim()).hostname.toLowerCase()
+    return hostname === 'api.minimaxi.com'
+      ? DEFAULT_MINIMAX_CN_BASE_URL
+      : DEFAULT_MINIMAX_BASE_URL
+  } catch {
+    return DEFAULT_MINIMAX_BASE_URL
+  }
+}
+
 export function resolveMiniMaxUsageBaseUrl(
   baseUrl = process.env.OPENAI_BASE_URL ??
     process.env.OPENAI_API_BASE ??
-    DEFAULT_MINIMAX_BASE_URL,
+    defaultBaseUrlForConfigured(
+      process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE,
+    ),
 ): string {
   const trimmed = baseUrl.trim()
   return trimmed ? trimTrailingSlash(trimmed) : DEFAULT_MINIMAX_BASE_URL
@@ -29,7 +48,7 @@ function resolveConfiguredMiniMaxUsageBaseUrl(
 
   if (!configuredBaseUrl?.trim()) {
     return {
-      baseUrl: DEFAULT_MINIMAX_BASE_URL,
+      baseUrl: defaultBaseUrlForConfigured(configuredBaseUrl),
       usedDefault: true,
     }
   }
@@ -60,7 +79,9 @@ export function getMiniMaxUsageUrls(baseUrl?: string): string[] {
     ]
   } catch {
     if (usedDefault) {
-      const fallbackBase = new URL(`${DEFAULT_MINIMAX_BASE_URL}/`)
+      // Same region-routed default selection used in the happy path above,
+      // so a CN configured base still falls back to the CN endpoint.
+      const fallbackBase = new URL(`${defaultBaseUrlForConfigured(baseUrl)}/`)
       return [
         new URL('token_plan/remains', fallbackBase).toString(),
         new URL('api/openplatform/coding_plan/remains', fallbackBase).toString(),

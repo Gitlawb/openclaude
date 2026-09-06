@@ -3333,6 +3333,31 @@ test('buildLaunchEnv assembles Anthropic env for selectedProfile === "minimax-cn
       profile: 'minimax-cn',
       env: {
         MINIMAX_API_KEY: 'minimax-cn-key',
+        OPENAI_BASE_URL: 'https://api.minimaxi.com/anthropic',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/anthropic')
+  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
+  assert.equal(env.MINIMAX_API_KEY, 'minimax-cn-key')
+  assert.equal(env.ANTHROPIC_MODEL, 'MiniMax-M3')
+})
+
+test('buildLaunchEnv translates legacy /v1 MiniMax-CN URL to /anthropic (#2207 P2)', async () => {
+  // Legacy OpenAI-style persisted URL .../v1 must be translated to
+  // .../anthropic so the Anthropic SDK's appended /v1/messages lands on
+  // the correct subpath. The same translation applies to ANTHROPIC_BASE_URL
+  // coming from processEnv (shell export).
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        MINIMAX_API_KEY: 'minimax-cn-key',
         OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
       },
       createdAt: '2026-09-04T00:00:00.000Z',
@@ -3341,13 +3366,14 @@ test('buildLaunchEnv assembles Anthropic env for selectedProfile === "minimax-cn
     processEnv: {},
   })
 
-  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1')
-  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
-  assert.equal(env.MINIMAX_API_KEY, 'minimax-cn-key')
-  assert.equal(env.ANTHROPIC_MODEL, 'MiniMax-M3')
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1/anthropic')
 })
 
-test('buildLaunchEnv falls back to OpenAI credential when MINIMAX_API_KEY is unset for the CN profile', async () => {
+test('buildLaunchEnv does NOT fall back to OPENAI_API_KEY for the CN profile (#2207 P1)', async () => {
+  // P1 finding: mirroring OPENAI_API_KEY to MINIMAX_API_KEY would forward a
+  // key belonging to another provider (e.g. OpenAI proper) to a MiniMax
+  // endpoint. The user must set MINIMAX_API_KEY (or reuse ANTHROPIC_API_KEY)
+  // explicitly; OPENAI_API_KEY is intentionally not a fallback.
   const env = await buildLaunchEnv({
     profile: 'minimax-cn',
     persisted: {
@@ -3358,9 +3384,38 @@ test('buildLaunchEnv falls back to OpenAI credential when MINIMAX_API_KEY is uns
       createdAt: '2026-09-04T00:00:00.000Z',
     },
     goal: 'coding',
-    processEnv: {},
+    processEnv: {
+      OPENAI_API_KEY: 'shared-key',
+    },
   })
 
-  assert.equal(env.ANTHROPIC_API_KEY, 'shared-key')
-  assert.equal(env.MINIMAX_API_KEY, 'shared-key')
+  // No minimax-specific key was sourced, so ANTHROPIC_API_KEY must not be
+  // populated from the generic OpenAI key.
+  assert.equal(env.ANTHROPIC_API_KEY, undefined)
+  assert.equal(env.MINIMAX_API_KEY, undefined)
+})
+
+test('buildLaunchEnv strips inherited ANTHROPIC_AUTH_TOKEN for minimax-cn (#2207 P1)', async () => {
+  // P1 finding: a stale ANTHROPIC_AUTH_TOKEN from a previous
+  // custom-bearer Anthropic-compatible profile would override MiniMax's
+  // native x-api-key. MiniMax uses x-api-key; the bearer must be dropped.
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        MINIMAX_API_KEY: 'minimax-cn-key',
+        ANTHROPIC_AUTH_TOKEN: 'stale-bearer',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {
+      ANTHROPIC_AUTH_TOKEN: 'stale-bearer',
+    },
+  })
+
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined)
+  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
+  assert.equal(env.MINIMAX_API_KEY, 'minimax-cn-key')
 })

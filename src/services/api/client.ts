@@ -49,6 +49,7 @@ import {
   getRouteDefaultModel,
   getXaiBaseUrlOverride,
   getXiaomiMimoBaseUrlOverride,
+  hasNonEmptyEnvValue,
   resolveEnvOnlyProviderRouteId,
 } from '../../integrations/routeMetadata.js'
 import { resolveOpenAIShimRuntimeContext } from '../../integrations/runtimeMetadata.js'
@@ -195,12 +196,29 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
     process.env.ANTHROPIC_API_KEY = apiKey
   }
 
-  // Only seed the overseas Anthropic-compatible endpoint as the default. If
-  // the active profile (e.g. minimax-cn for api.minimaxi.com) or an explicit
-  // shell export already populated ANTHROPIC_BASE_URL, preserve it so the
-  // user's chosen endpoint survives the env-only fallback path.
-  if (!process.env.ANTHROPIC_BASE_URL?.trim()) {
-    process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  // Seed the Anthropic-compatible endpoint as the default. Use
+  // hasNonEmptyEnvValue so literal 'null'/'undefined' strings (common in
+  // dotenv templates) are treated as unset, not as ERR_INVALID_URL inputs.
+  // If the user only supplied an OpenAI-style base URL hint, route the
+  // default to the matching region: api.minimaxi.com → China endpoint,
+  // otherwise overseas. This avoids forwarding a MiniMax-China key to
+  // api.minimax.io when the only hint is the China OpenAI base URL
+  // (#2207 P1).
+  if (!hasNonEmptyEnvValue(process.env.ANTHROPIC_BASE_URL)) {
+    const openaiHint = process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE
+    let isCnHint = false
+    if (hasNonEmptyEnvValue(openaiHint)) {
+      try {
+        isCnHint =
+          new URL(openaiHint as string).hostname.toLowerCase() ===
+          'api.minimaxi.com'
+      } catch {
+        isCnHint = false
+      }
+    }
+    process.env.ANTHROPIC_BASE_URL = isCnHint
+      ? 'https://api.minimaxi.com/anthropic'
+      : 'https://api.minimax.io/anthropic'
   }
   process.env.ANTHROPIC_MODEL =
     (isMiniMaxModelName(modelOverride)

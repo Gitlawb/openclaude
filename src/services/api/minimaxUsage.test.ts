@@ -331,4 +331,34 @@ describe('MiniMax usage helpers', () => {
       }
     }
   })
+
+  test('routes default MiniMax usage URL to China when CN host is configured (#2207 P2)', () => {
+    // P2 finding: when a China MiniMax key user has only OPENAI_BASE_URL
+    // set to api.minimaxi.com/v1 (no ANTHROPIC_BASE_URL), the usage path
+    // must default to api.minimaxi.com — not the overseas api.minimax.io,
+    // which would forward the China bearer to the wrong quota endpoint.
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalApiBase = process.env.OPENAI_API_BASE
+    process.env.OPENAI_BASE_URL = 'https://api.minimaxi.com/v1'
+    delete process.env.OPENAI_API_BASE
+
+    try {
+      expect(getMiniMaxUsageUrls()).toEqual([
+        'https://api.minimaxi.com/v1/token_plan/remains',
+        'https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains',
+      ])
+    } finally {
+      if (originalBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalBaseUrl
+      }
+
+      if (originalApiBase === undefined) {
+        delete process.env.OPENAI_API_BASE
+      } else {
+        process.env.OPENAI_API_BASE = originalApiBase
+      }
+    }
+  })
 })

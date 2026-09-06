@@ -257,7 +257,7 @@ function hasAnyUsableOpenAICredential(processEnv: NodeJS.ProcessEnv): boolean {
   )
 }
 
-function hasNonEmptyEnvValue(value: string | undefined): boolean {
+export function hasNonEmptyEnvValue(value: string | undefined): boolean {
   const trimmed = value?.trim().toLowerCase()
   return Boolean(trimmed && trimmed !== 'undefined' && trimmed !== 'null')
 }

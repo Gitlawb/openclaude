@@ -39,5 +39,6 @@ export type MiniMaxUsageData =
     }
 
 export const DEFAULT_MINIMAX_BASE_URL = 'https://api.minimax.io/v1'
+export const DEFAULT_MINIMAX_CN_BASE_URL = 'https://api.minimaxi.com/v1'
 export const DEFAULT_MINIMAX_UNAVAILABLE_MESSAGE =
   'Usage details are not available for this MiniMax account. This plan or MiniMax endpoint may not expose quota status.'

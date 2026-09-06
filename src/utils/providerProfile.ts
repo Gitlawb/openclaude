@@ -510,10 +510,14 @@ export function buildMiniMaxProfileEnv(options: {
     OPENAI_API_KEY: key,
   }
 
+  const anthropicBaseUrl =
+    sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
+    sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource)
+
   return {
     ANTHROPIC_BASE_URL:
-      sanitizeProviderConfigValue(options.baseUrl, secretSource) ||
-      sanitizeProviderConfigValue(processEnv.ANTHROPIC_BASE_URL, secretSource) ||
+      (anthropicBaseUrl &&
+        normalizeMiniMaxAnthropicBaseUrl(anthropicBaseUrl)) ||
       defaultBaseUrl,
     ANTHROPIC_MODEL:
       normalizeProfileModel(
@@ -531,6 +535,27 @@ export function buildMiniMaxProfileEnv(options: {
     MINIMAX_BASE_URL: defaultBaseUrl,
     MINIMAX_MODEL: defaultModel,
   }
+}
+
+/**
+ * Normalize a MiniMax Anthropic-compatible base URL.
+ *
+ * The Anthropic SDK appends `/v1/messages` to the base URL. MiniMax serves
+ * its Anthropic-compatible endpoint under a `/anthropic` subpath, so:
+ *   - `https://api.minimaxi.com/anthropic` is the canonical form
+ *   - `https://api.minimaxi.com/v1` (legacy OpenAI-style config) must be
+ *     translated to `https://api.minimaxi.com/anthropic` so requests land
+ *     on `…/anthropic/v1/messages` instead of `…/v1/messages` (#2207 P2).
+ *
+ * Returns the input unchanged when it cannot be normalized (the caller will
+ * fall back to the route default rather than failing the whole launch).
+ */
+export function normalizeMiniMaxAnthropicBaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, '')
+  if (!trimmed) return raw
+  if (trimmed.endsWith('/anthropic')) return trimmed
+  if (/\/v1$/.test(trimmed)) return `${trimmed}/anthropic`
+  return trimmed
 }
 
 export function buildVeniceProfileEnv(options: {
@@ -2028,34 +2053,43 @@ export async function buildLaunchEnv(options: {
   }
 
   if (selectedProfile === 'minimax' || selectedProfile === 'minimax-cn') {
-    // Source the credential from any environment variable the user may have
-    // populated (or previously persisted). MINIMAX_API_KEY is the canonical
-    // alias; ANTHROPIC_API_KEY / OPENAI_API_KEY cover the legacy cases where
-    // a generic env var was reused for this vendor.
+    // Source the credential from environment variables the user has populated
+    // (or previously persisted). MINIMAX_API_KEY is the canonical alias;
+    // ANTHROPIC_API_KEY is a backward-compat fallback for users who reused
+    // their Anthropic key. OPENAI_API_KEY is intentionally NOT a fallback:
+    // mirroring it would forward a key belonging to another provider (e.g.
+    // OpenAI proper) to a MiniMax endpoint, leaking that credential to a
+    // third party (#2207 P1 finding).
     const minimaxKey =
       sanitizeApiKey(processEnv.MINIMAX_API_KEY) ||
       sanitizeApiKey(persistedEnv.MINIMAX_API_KEY) ||
       sanitizeApiKey(processEnv.ANTHROPIC_API_KEY) ||
-      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY) ||
-      sanitizeApiKey(processEnv.OPENAI_API_KEY) ||
-      sanitizeApiKey(persistedEnv.OPENAI_API_KEY)
+      sanitizeApiKey(persistedEnv.ANTHROPIC_API_KEY)
     const minimaxProfileEnv = buildMiniMaxProfileEnv({
+      // Shell exports win over persisted values so an explicit user override
+      // (`export ANTHROPIC_BASE_URL=...` in the launching shell) survives a
+      // saved profile from a previous run (#2207 P2).
       baseUrl:
-        persistedEnv.ANTHROPIC_BASE_URL ||
-        persistedEnv.OPENAI_BASE_URL ||
         processEnv.ANTHROPIC_BASE_URL ||
-        processEnv.OPENAI_BASE_URL,
+        processEnv.OPENAI_BASE_URL ||
+        persistedEnv.ANTHROPIC_BASE_URL ||
+        persistedEnv.OPENAI_BASE_URL,
       model:
-        persistedEnv.ANTHROPIC_MODEL ||
-        persistedEnv.OPENAI_MODEL ||
         processEnv.ANTHROPIC_MODEL ||
-        processEnv.OPENAI_MODEL,
+        processEnv.OPENAI_MODEL ||
+        persistedEnv.ANTHROPIC_MODEL ||
+        persistedEnv.OPENAI_MODEL,
       apiKey: minimaxKey,
       routeId: selectedProfile,
       processEnv,
     })
     if (minimaxProfileEnv) {
-      return { ...processEnv, ...minimaxProfileEnv }
+      // MiniMax uses x-api-key (set via ANTHROPIC_API_KEY above); a leftover
+      // ANTHROPIC_AUTH_TOKEN from a previous custom-bearer profile would
+      // override x-api-key and break auth (#2207 P1). Explicitly drop it.
+      const { ANTHROPIC_AUTH_TOKEN: _dropAuthToken, ...processEnvForMiniMax } =
+        processEnv
+      return { ...processEnvForMiniMax, ...minimaxProfileEnv }
     }
   }
 
