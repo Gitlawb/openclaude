@@ -310,6 +310,11 @@ describe('resolveModelRuntimeLimits', () => {
     const context = resolveOpenAIShimRuntimeContext({
       model: 'glm-5.3[1M]',
       activeProfileProvider: 'zai',
+      processEnv: {
+        CLAUDE_CODE_USE_OPENAI: '1',
+        OPENAI_BASE_URL: 'https://api.z.ai/api/coding/paas/v4',
+      },
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
     })
     expect(context?.catalogEntry?.id).toBe('glm-5.3')
   })
