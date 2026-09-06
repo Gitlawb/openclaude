@@ -43,7 +43,7 @@ A direct HTTPS URL to a `SKILL.md` needs the digest you expect, so the same chec
 openclaude skills install https://example.com/skills/deploy/SKILL.md --sha256 <64 hex>
 ```
 
-A local path copies the skill directory as it is. No digest or revocation check runs, and the skill is recorded with trust `local` and no registry backing. Review a local skill yourself before you install it:
+A local path copies the skill directory as it is. No digest or revocation check runs, and the installer treats the skill as `local` for that install. Existing `skill.json` metadata in the source directory is copied unchanged, so a trust label shown later by `list` or `show` may carry the source directory's value and does not prove a registry-backed install. Review a local skill yourself before you install it:
 
 ```bash
 openclaude skills install ./my-skills/deploy
@@ -55,7 +55,7 @@ openclaude skills install ./my-skills/deploy
 
 ## What the install check covers
 
-The digest check runs once, at install time, on the `SKILL.md` text. After that, OpenClaude reads `skill.json` for metadata only and loads whatever is in the skill folder. `validate` checks structure, not content. So a skill edited on disk after install, by hand, by a script, or by another tool, loads on the next run with no warning:
+The digest check runs once, at install time, on the `SKILL.md` text. After that, OpenClaude reads `skill.json` for metadata only and loads whatever is in the skill folder. `validate` checks structure and rejects a few content patterns, such as a `curl` piped to a shell or a credential collection instruction, but it does not compare the installed files with the registry digest. So a skill edited on disk after install, by hand, by a script, or by another tool, loads on the next run with no warning:
 
 ```text
 $ openclaude skills install gitlawb/ci-fix
@@ -69,7 +69,7 @@ ci-fix  enabled   Diagnoses and fixes CI pipeline failures.
 
 ## Check installed skills after install
 
-[eyebrow](https://github.com/alexverify/eyebrow) is a separate, MIT-licensed single binary that records a hash of every skill, MCP server, hook, and rule it finds across coding tools in a lockfile you commit, and reports what changed since. OpenClaude skill discovery in `.openclaude/skills` (project and user) shipped in eyebrow 0.4.4, and 0.4.5 added the egress fingerprint used below; see the [changelog](https://github.com/alexverify/eyebrow/blob/main/CHANGELOG.md). Use 0.4.5 or newer.
+[eyebrow](https://github.com/alexverify/eyebrow) is a separate, MIT-licensed single binary that records a hash of every skill, MCP server, hook, and rule it finds across coding tools in a lockfile you commit, and reports what changed since. OpenClaude skill discovery in `.openclaude/skills` (project and user) shipped in eyebrow 0.4.4, and 0.4.5 added the egress fingerprint used below; see the [changelog](https://github.com/alexverify/eyebrow/blob/main/CHANGELOG.md). Use 0.4.6 or newer: in 0.4.5 a skill folder that is a symlink appeared in the inventory with no hashed files, so a clean `verify` said nothing about the contents behind the link. 0.4.6 hashes the linked contents.
 
 Record the skills you reviewed:
 
@@ -93,7 +93,7 @@ verify: DRIFT — 1 change(s) detected:
     new: sha256-ee58852a3578eba8eec3d1a3b985e578c382e00172d85a19a5025be3ae3f1701
 ```
 
-The lockfile also records the hosts each skill calls, so a policy file can allow wording edits and still fail when a skill gains a new destination. For example, after a line `Run: curl -s https://example.com/status` is added to the same skill:
+The lockfile also records an egress fingerprint per skill. In 0.4.6 it covers literal HTTP(S) URLs on `SKILL.md` lines that contain `curl`, `wget`, `secretcurl`, or `WebFetch`. A policy file can allow wording edits and still fail when the fingerprint gains a host. Other calling syntax, such as a `fetch` call inside a code snippet, and destinations inside helper scripts are outside the fingerprint, so the gate covers recognized destinations only. For example, after a line `Run: curl -s https://example.com/status` is added to the same skill:
 
 ```json
 { "failOnCapabilityExpansion": true, "allowContentDrift": true, "failOnSeverity": "critical" }
