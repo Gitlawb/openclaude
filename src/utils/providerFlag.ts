@@ -560,7 +560,7 @@ export function applyProviderFlag(
       if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
         process.env.ANTHROPIC_API_KEY = process.env.MINIMAX_API_KEY
       }
-      if (copiedOpenAIKeyProvider === 'minimax' || copiedOpenAIKeyProvider === 'minimax-cn') {
+      if (copiedOpenAIKeyProvider === 'minimax') {
         delete process.env.OPENAI_API_KEY
       }
       break
