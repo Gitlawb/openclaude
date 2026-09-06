@@ -99,6 +99,7 @@ const envKeys = [
   'OPENCLAUDE_INTERRUPT_TRACE',
   'OPENCLAUDE_MAX_RETRIES',
   'VCR_RECORD',
+  'USER_TYPE',
 ] as const
 const originalEnv = { ...process.env }
 const originalFetch = globalThis.fetch
@@ -400,11 +401,13 @@ async function capturePrimaryRequest({
   systemPrompt = asSystemPrompt(['stable system prompt']),
   thinkingConfig = { type: 'disabled' },
   effortValue,
+  temperatureOverride,
 }: {
   model?: string
   systemPrompt?: ReturnType<typeof asSystemPrompt>
   thinkingConfig?: Parameters<ClaudeModule['queryModelWithStreaming']>[0]['thinkingConfig']
   effortValue?: Options['effortValue']
+  temperatureOverride?: Options['temperatureOverride']
 } = {}) {
   const queryLifecycle = new QueryLifecycleOperationTracker()
   let requestBody: Record<string, unknown> | undefined
@@ -432,6 +435,7 @@ async function capturePrimaryRequest({
       ...makeOptions(queryLifecycle),
       model,
       effortValue,
+      temperatureOverride,
       fetchOverride,
     },
   })
@@ -633,6 +637,7 @@ describeLifecycle('Claude API lifecycle tracking', () => {
               : { type: 'adaptive' },
         })
         expect(body.thinking).toEqual({ type: 'disabled' })
+        expect(body).not.toHaveProperty('context_management')
         expect(body).toHaveProperty('output_config.effort', 'high')
       })
     }
@@ -645,6 +650,9 @@ describeLifecycle('Claude API lifecycle tracking', () => {
         thinkingConfig: { type: 'adaptive' },
       })
       expect(body.thinking).toEqual({ type: 'adaptive' })
+      expect(body.context_management).toEqual({
+        edits: [{ type: 'clear_thinking_20251015', keep: 'all' }],
+      })
       expect(body).toHaveProperty('output_config.effort', effortValue)
     })
   }
@@ -664,6 +672,33 @@ describeLifecycle('Claude API lifecycle tracking', () => {
       const { body } = await capturePrimaryRequest({ model, effortValue: 'max' })
       expect(body).toHaveProperty('output_config.effort', 'max')
       expect(body.thinking).toEqual(model === 'claude-sonnet-5' ? { type: 'disabled' } : undefined)
+    })
+  }
+
+  for (const disableMode of ['adaptive', 'explicit', 'global', 'budget'] as const) {
+    test(`Sonnet 5 request fields follow effective thinking (${disableMode})`, async () => {
+      setClientTestEnv()
+      if (disableMode === 'global') {
+        process.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING = '1'
+      }
+      const { body } = await capturePrimaryRequest({
+        model: 'claude-sonnet-5',
+        temperatureOverride: 0.5,
+        thinkingConfig: disableMode === 'explicit'
+          ? { type: 'disabled' }
+          : disableMode === 'budget'
+            ? { type: 'enabled', budgetTokens: 1024 }
+            : { type: 'adaptive' },
+      })
+      expect(body.thinking).toEqual({ type: disableMode === 'adaptive' ? 'adaptive' : 'disabled' })
+      expect(body).not.toHaveProperty('temperature')
+      if (disableMode === 'adaptive') {
+        expect(body.context_management).toEqual({
+          edits: [{ type: 'clear_thinking_20251015', keep: 'all' }],
+        })
+        return
+      }
+      expect(body).not.toHaveProperty('context_management')
     })
   }
 
