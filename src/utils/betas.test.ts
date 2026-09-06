@@ -1,4 +1,6 @@
-import { afterEach, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, expect, mock, spyOn, test } from 'bun:test'
+import * as searchProviders from '../tools/WebSearchTool/providers/index.js'
+import { getMainLoopModelOverride, setMainLoopModelOverride } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -203,6 +205,35 @@ test('getMergedBetas returns a non-empty list for the vertex provider', async ()
   const { getMergedBetas } = await importFreshBetas()
   expect(getMergedBetas(MODEL).length).toBeGreaterThan(0)
 })
+
+for (const [provider, model, supported] of [
+  ['vertex', 'claude-sonnet-5', true],
+  ['vertex', 'claude-sonnet-5@20260501', true],
+  ['vertex', 'claude-sonnet-50', false],
+  ['vertex', 'claude-sonnet-5x', false],
+  ['vertex', 'claude-opus-5', false],
+  ['vertex', 'claude-sonnet-4-6', true],
+  ['bedrock', 'claude-sonnet-5', false],
+] as const) {
+  test(`native web search gates for ${provider} ${model}`, async () => {
+    process.env[provider === 'vertex' ? 'CLAUDE_CODE_USE_VERTEX' : 'CLAUDE_CODE_USE_BEDROCK'] = '1'
+    const { getMergedBetas } = await importFreshBetas()
+    expect(getMergedBetas(model).includes('web-search-2025-03-05')).toBe(supported)
+
+    const { WebSearchTool } = await import('../tools/WebSearchTool/WebSearchTool.js')
+    const previousModel = getMainLoopModelOverride()
+    const availableProviders = spyOn(searchProviders, 'getAvailableProviders').mockReturnValue([])
+    const providerMode = spyOn(searchProviders, 'getProviderMode').mockReturnValue('native')
+    try {
+      setMainLoopModelOverride(model)
+      expect(WebSearchTool.isEnabled()).toBe(supported)
+    } finally {
+      setMainLoopModelOverride(previousModel)
+      availableProviders.mockRestore()
+      providerMode.mockRestore()
+    }
+  })
+}
 
 test('getMergedBetas returns a non-empty list for the foundry provider', async () => {
   process.env.CLAUDE_CODE_USE_FOUNDRY = '1'

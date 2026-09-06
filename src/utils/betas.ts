@@ -26,7 +26,7 @@ import { isClaudeAISubscriber } from './auth.js'
 import { modelResolvesTo1MContext } from './context.js'
 import { isEnvDefinedFalsy, isEnvTruthy } from './envUtils.js'
 import { getCanonicalName } from './model/model.js'
-import { isClaude5ModelId } from './model/modelIdMatch.js'
+import { isClaude5ModelId, isSonnet5ModelId } from './model/modelIdMatch.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
   getAPIProvider,
@@ -118,8 +118,8 @@ export function modelSupportsISP(model: string): boolean {
 
 function vertexModelSupportsWebSearch(model: string): boolean {
   const canonical = getCanonicalName(model)
-  // Web search only supported on Claude 4.0+ models on Vertex
   return (
+    isSonnet5ModelId(model) ||
     canonical.includes('claude-opus-4') ||
     canonical.includes('claude-sonnet-4') ||
     canonical.includes('claude-haiku-4')

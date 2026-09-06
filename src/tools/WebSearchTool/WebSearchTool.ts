@@ -20,6 +20,7 @@ import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { createUserMessage } from '../../utils/messages.js'
 import { getMainLoopModel, getSmallFastModel } from '../../utils/model/model.js'
+import { isSonnet5ModelId } from '../../utils/model/modelIdMatch.js'
 import { jsonParse, jsonStringify } from '../../utils/slowOperations.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getWebSearchPrompt, WEB_SEARCH_TOOL_NAME } from './prompt.js'
@@ -609,9 +610,10 @@ export const WebSearchTool = buildTool({
       return true
     }
 
-    // Enable for Vertex AI with supported models (Claude 4.0+)
+    // Enable for Vertex AI with supported models
     if (provider === 'vertex') {
       const supportsWebSearch =
+        isSonnet5ModelId(model) ||
         model.includes('claude-opus-4') ||
         model.includes('claude-sonnet-4') ||
         model.includes('claude-haiku-4')
