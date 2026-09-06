@@ -4,8 +4,15 @@ import { closeSync, openSync } from 'node:fs'
 import { open, unlink } from 'node:fs/promises'
 import { basename } from 'node:path'
 import treeKill from 'tree-kill'
-import { argsBeforeDelimiter } from '../utils/cliArgs.js'
-import { hasPrintFlag } from '../utils/printFlag.js'
+import {
+  argsBeforeDelimiter,
+  parseModelFlagValue,
+} from '../utils/cliArgs.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  hasPrintFlag,
+  parseRootOptionValue,
+} from '../utils/printFlag.js'
 import { isProcessRunning } from '../utils/genericProcessUtils.js'
 import {
   assertBackgroundSessionNameAvailable,
@@ -339,6 +346,24 @@ function findFlagValue(args: string[], flag: string): string | undefined {
 
 function findSessionName(args: string[]): string | undefined {
   return findFlagValue(args, '--name') ?? findFlagValue(args, '-n')
+}
+
+/**
+ * Background session metadata must record the same root `--model` that CLI
+ * startup applies. Nested `aimlapi topup` / `auto-mode critique` flags are not
+ * the session model.
+ */
+export function resolveBackgroundSessionModel(
+  childArgs: readonly string[],
+): string | undefined {
+  return parseModelFlagValue(argsBeforeModelOwningSubcommand(childArgs))
+}
+
+/** Keep registry metadata aligned with the provider selected by CLI startup. */
+export function resolveBackgroundSessionProvider(
+  childArgs: readonly string[],
+): string | undefined {
+  return parseRootOptionValue(childArgs, '--provider')
 }
 
 function hasPrintMode(args: string[]): boolean {
@@ -1145,8 +1170,8 @@ export async function handleBgFlag(args: string[]): Promise<void> {
     pid: child.pid,
     cwd: process.cwd(),
     command,
-    provider: findFlagValue(childArgs, '--provider'),
-    model: findFlagValue(childArgs, '--model'),
+    provider: resolveBackgroundSessionProvider(childArgs),
+    model: resolveBackgroundSessionModel(childArgs),
     sessionId,
     processMarker,
     stdoutLogPath: logPaths.stdoutLogPath,

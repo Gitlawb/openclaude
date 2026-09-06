@@ -30,7 +30,8 @@ import { readJSONLFile } from '../../utils/json.js'
 import { stat } from 'fs/promises'
 import {
   switchSession,
-  runWithSdkContext,
+  bindSdkContextToAsyncGenerator,
+  runOutsideSdkContext,
 } from '../../bootstrap/state.js'
 import type { SessionId } from '../../types/ids.js'
 import {
@@ -267,13 +268,14 @@ class SDKSessionImpl implements SDKSession {
     }
 
     const self = this
-    const inner = runWithSdkContext(sdkContext, () => {
-      return (async function* (): AsyncGenerator<SDKMessage> {
+    const inner = bindSdkContextToAsyncGenerator(
+      sdkContext,
+      (async function* (): AsyncGenerator<SDKMessage> {
         // Fast exit: if the caller's AbortController was already aborted
         // before iteration starts, do not initialize or submit a turn.
         if (self._abortController?.signal.aborted) return
 
-        await init()
+        await runOutsideSdkContext(init)
 
         // Load agent definitions once (not on every sendMessage call)
         if (!self.agentsLoaded) {
@@ -377,8 +379,8 @@ class SDKSessionImpl implements SDKSession {
           self.timeoutQueue.length = 0
           self.agentFailureQueue.length = 0
         }
-      })()
-    })
+      })(),
+    )
 
     yield* inner
   }

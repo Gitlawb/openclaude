@@ -260,7 +260,10 @@ export function getRouteDiscoveryHeaders(
     ...(transportConfig?.headers ?? {}),
     ...(transportConfig?.openaiShim?.headers ?? {}),
   }
-  const callerHeaders = options?.headers ?? {}
+  // Command Code uses a fixed dedicated-auth contract. Inference suppresses
+  // caller headers for this route; discovery must enforce the same boundary so
+  // stale proxy/tenant secrets are not sent to its public model catalog.
+  const callerHeaders = routeId === 'commandcode' ? {} : options?.headers ?? {}
   // Caller headers first, then managed AIMLAPI attribution, so ANTHROPIC_CUSTOM_HEADERS
   // cannot replace partner/source/integration identity. resolveAimlapiAttributionHeaders
   // also strips those names on a non-canonical proxy, including caller-supplied copies.

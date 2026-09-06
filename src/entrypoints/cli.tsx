@@ -3,6 +3,10 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  parseRootOptionValue,
+} from '../utils/printFlag.js'
 
 // Defensive compatibility guard for environments where globalThis.File is
 // unexpectedly absent. OpenClaude's supported runtime is Node >=22; this is
@@ -402,7 +406,9 @@ export async function main(
 
   // --provider: set provider env vars early so saved-profile resolution,
   // validation, and the startup banner all see the intended provider/model.
-  if (args.includes('--provider')) {
+  let appliedExplicitAnthropic = false
+  const requestedProvider = parseRootOptionValue(args, '--provider')
+  if (requestedProvider) {
     const {
       applyProviderFlagFromArgs,
       reapplyRememberedProviderFlag,
@@ -415,6 +421,8 @@ export async function main(
       // biome-ignore lint/suspicious/noConsole:: intentional error output
       console.error(`Error: ${result.error}`);
       process.exit(1);
+    } else if (result && requestedProvider === 'anthropic') {
+      appliedExplicitAnthropic = true
     }
   }
 
@@ -446,18 +454,45 @@ export async function main(
     return
   }
 
+  // Pass the full argv into the arity-aware scanners. Required-value options
+  // such as --system-prompt consume a following `--` token, so a later root
+  // --model must remain visible. parseRootOptionValue still stops at a real
+  // end-of-options marker that was not consumed as an option value.
+  const modelOptionArgs = argsBeforeModelOwningSubcommand(args)
+  const parsedRootModel =
+    (await importers.providerFlag()).parseModelFlag(modelOptionArgs) ?? undefined
+  const hasRootModelOption = parsedRootModel !== undefined
+
   const { applyStartupEnvFromProfile } = await importers.providerProfile()
-  await applyStartupEnvFromProfile({
-    processEnv: process.env,
-    onValidationError: message => {
-      console.error(message)
-    },
-  })
+  let startupProfileWarning: string | undefined
+  // Built-in Anthropic has no positive CLAUDE_CODE_USE_* flag, so process-env
+  // inference cannot preserve an explicit `--provider anthropic` selection.
+  // Other providers retain their existing profile/credential recovery path.
+  const startupProfileError = appliedExplicitAnthropic
+    ? null
+    : await applyStartupEnvFromProfile({
+        processEnv: process.env,
+        modelOverride: parsedRootModel,
+        onValidationError: message => {
+          startupProfileWarning = message
+        },
+      })
+  let startupProfileIsCommandcodeModelError = false
+  if (parsedRootModel && startupProfileError) {
+    const { getCommandcodeChatCompletionsModelError } = await import(
+      '../integrations/gateways/commandcode.js'
+    )
+    startupProfileIsCommandcodeModelError =
+      startupProfileError ===
+      getCommandcodeChatCompletionsModelError(parsedRootModel)
+  }
   reapplyExplicitProviderInputs()
 
   // Pane/window teammates are launched as fresh CLI processes. If the parent
   // selected a configured agentModels key, apply that route before provider
   // validation and --model env routing run in this child process.
+  let appliedTeammateModel: string | undefined
+  let appliedTeammateProviderOverride = false
   {
     const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
     const settingsLoadResult = eagerLoadSettingsFromArgs(args)
@@ -482,7 +517,24 @@ export async function main(
     )
     if (providerOverride) {
       applyAgentProviderOverrideToEnv(providerOverride)
+      appliedTeammateModel = providerOverride.model
+      appliedTeammateProviderOverride = true
     }
+  }
+
+  if (
+    startupProfileIsCommandcodeModelError &&
+    !appliedTeammateProviderOverride
+  ) {
+    console.error(`Error: ${startupProfileError}`)
+    process.exit(1)
+    return
+  }
+  if (
+    startupProfileWarning &&
+    !(startupProfileIsCommandcodeModelError && appliedTeammateProviderOverride)
+  ) {
+    console.error(startupProfileWarning)
   }
 
   // Fast-path for `--bg`/`--background` after profile routing has been applied
@@ -511,20 +563,27 @@ export async function main(
     hydrateGithubModelsTokenFromSecureStorage()
   }
 
+  // #808: --model alone (no --provider) — route to the env var matching the
+  // active provider before validation and the banner so the highest-precedence
+  // CLI override can replace stale persisted model state.
+  let earlyModelFlag: string | undefined
+  if (hasRootModelOption) {
+    const { applyModelFlagFromArgs } = await importers.providerFlag()
+    earlyModelFlag =
+      appliedTeammateModel ?? parsedRootModel ?? undefined
+    if (!appliedTeammateModel) {
+      const result = applyModelFlagFromArgs(modelOptionArgs)
+      if (result?.error) {
+        console.error(`Error: ${result.error}`)
+        process.exit(1)
+        return
+      }
+    }
+  }
+
   const { validateProviderEnvForStartupOrExit } =
     await importers.providerValidation()
   await validateProviderEnvForStartupOrExit()
-
-  // #808: --model alone (no --provider) — route to the env var matching the
-  // active provider before the banner prints so the override is visible.
-  if (args.includes('--model')) {
-    const { applyModelFlagFromArgs } = await importers.providerFlag()
-    applyModelFlagFromArgs(args)
-  }
-
-  // Parse --model early so the startup screen can display the override
-  const { eagerParseCliFlag } = await importers.cliArgs()
-  const earlyModelFlag = eagerParseCliFlag('--model')
 
   // Print the gradient startup screen before the Ink UI loads. Plain CLI
   // management subcommands should stay script-friendly and avoid the banner.
@@ -551,8 +610,7 @@ export async function main(
     const {
       getMainLoopModel
     } = await import('../utils/model/model.js');
-    const modelIdx = args.indexOf('--model');
-    const model = modelIdx !== -1 && args[modelIdx + 1] || getMainLoopModel();
+    const model = earlyModelFlag ?? getMainLoopModel();
     const {
       getSystemPrompt
     } = await import('../constants/prompts.js');

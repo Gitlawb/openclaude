@@ -33,6 +33,9 @@ const ENV_KEYS = [
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'GEMINI_MODEL',
   'NVIDIA_API_KEY',
   'NVIDIA_NIM',
@@ -143,6 +146,19 @@ describe('parseProviderFlag', () => {
     expect(parseProviderFlag(['--provider', 'openai'])).toBe('openai')
   })
 
+  test('returns provider name when --provider uses inline syntax', () => {
+    expect(parseProviderFlag(['--provider=anthropic'])).toBe('anthropic')
+  })
+
+  test('uses the final provider occurrence across spaced and inline syntax', () => {
+    expect(
+      parseProviderFlag(['--provider', 'anthropic', '--provider=openai']),
+    ).toBe('openai')
+    expect(
+      parseProviderFlag(['--provider=commandcode', '--provider', 'anthropic']),
+    ).toBe('anthropic')
+  })
+
   test('returns provider name with --model alongside', () => {
     expect(parseProviderFlag(['--provider', 'gemini', '--model', 'gemini-2.0-flash'])).toBe('gemini')
   })
@@ -157,6 +173,20 @@ describe('parseProviderFlag', () => {
 
   test('returns null when --provider has no value', () => {
     expect(parseProviderFlag(['--provider'])).toBeNull()
+  })
+
+  test('returns null when inline --provider has no value', () => {
+    expect(parseProviderFlag(['--provider='])).toBeNull()
+  })
+
+  test('ignores provider-looking values consumed by another root option', () => {
+    expect(
+      parseProviderFlag(['--system-prompt', '--provider=commandcode']),
+    ).toBeNull()
+  })
+
+  test('ignores provider-looking prompt text after the option delimiter', () => {
+    expect(parseProviderFlag(['--', '--provider=commandcode'])).toBeNull()
   })
 
   test('returns null when --provider value starts with --', () => {
@@ -317,6 +347,7 @@ describe('VALID_PROVIDERS', () => {
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo')
     expect(VALID_PROVIDERS).toContain('xiaomi-mimo-token')
     expect(VALID_PROVIDERS).toContain('longcat')
+    expect(VALID_PROVIDERS).toContain('commandcode')
     expect(VALID_PROVIDERS).toContain('custom-anthropic')
   })
 })
@@ -638,6 +669,167 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
     expect(result.error).toBeUndefined()
     expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
     expect(process.env.OPENAI_API_KEY).toBe('generic-openai-secret')
+  })
+
+  test('Command Code clears stale custom auth only on its canonical endpoint', () => {
+    process.env.CMD_API_KEY = 'cmd-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'X-Proxy-Key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'proxy-secret'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Tenant-Secret: tenant-secret'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://api.commandcode.ai/provider/v1',
+    )
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('clears a Command Code key copied into OPENAI_API_KEY when switching routes', () => {
+    process.env.CMD_API_KEY = 'cmd-secret'
+    process.env.OPENAI_API_KEY = 'cmd-secret'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+
+    const result = applyProviderFlag('openrouter', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    expect(process.env.CMD_API_KEY).toBe('cmd-secret')
+  })
+
+  test('Command Code dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.CMD_API_KEY = 'cmd-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-key')
+  })
+
+  test('Command Code clears a distinct generic OPENAI_API_KEY when no dedicated key is set', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('Command Code keeps a copied dedicated key in OPENAI_API_KEY when selecting commandcode', () => {
+    process.env.CMD_API_KEY = 'cmd-key'
+    process.env.OPENAI_API_KEY = 'cmd-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('cmd-key')
+  })
+
+  test('Command Code uses COMMANDCODE_API_KEY when CMD_API_KEY is absent', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.COMMANDCODE_API_KEY = 'commandcode-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('commandcode-key')
+  })
+
+  test('Command Code uses the official client key when other aliases are absent', () => {
+    process.env.OPENAI_API_KEY = 'generic-openai-secret'
+    process.env.COMMAND_CODE_API_KEY = 'official-command-code-key'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_API_KEY).toBe('official-command-code-key')
+  })
+
+  test('Command Code rejects an incompatible stale model before changing provider state', () => {
+    process.env.OPENAI_BASE_URL = 'https://openrouter.ai/api/v1'
+    process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4.6'
+
+    const result = applyProviderFlag('commandcode', [])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://openrouter.ai/api/v1')
+    expect(process.env.OPENAI_MODEL).toBe('anthropic/claude-sonnet-4.6')
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBeUndefined()
+  })
+
+  test('Command Code rejects an explicit incompatible model', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--model',
+      'claude-sonnet-5',
+    ])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
+  })
+
+  test('Command Code resolves the reserved default model before applying it', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--model',
+      'default',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('Command Code ignores nested model-owning subcommand --model', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+      'aimlapi',
+      'topup',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('Command Code ignores nested-only --model when selecting the provider', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      'auto-mode',
+      'critique',
+      '--model=anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('Command Code still rejects a root incompatible --model before a nested command', () => {
+    const result = applyProviderFlag('commandcode', [
+      '--provider',
+      'commandcode',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ])
+
+    expect(result.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_BASE_URL).toBeUndefined()
   })
 
   test('descriptor-backed provider selection preserves custom OPENAI_API_BASE alias', () => {
@@ -1337,6 +1529,31 @@ describe('applyProviderFlagFromArgs', () => {
     )
     expect(process.env.OPENAI_MODEL).toBe('custom-ogw-model')
   })
+
+  test('remembered Command Code --model ignores nested subcommand --model', () => {
+    const result = applyProviderFlagFromArgs(
+      [
+        '--provider',
+        'commandcode',
+        '--model',
+        'deepseek/deepseek-v4-pro',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ],
+      { rememberForSettingsEnv: true },
+    )
+
+    expect(result?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-pro')
+
+    process.env.OPENAI_MODEL = 'stale-openai-model'
+    const lateResult = reapplyRememberedProviderFlag()
+
+    expect(lateResult?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-pro')
+  })
 })
 
 // --- parseModelFlag ---
@@ -1344,6 +1561,48 @@ describe('applyProviderFlagFromArgs', () => {
 describe('parseModelFlag', () => {
   test('returns model value when --model is present', () => {
     expect(parseModelFlag(['--model', 'gpt-4o-mini'])).toBe('gpt-4o-mini')
+  })
+
+  test('returns model value from equals-separated syntax', () => {
+    expect(parseModelFlag(['--model=deepseek/deepseek-v4-flash'])).toBe(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  test('ignores model-looking text consumed by another root option', () => {
+    expect(
+      parseModelFlag([
+        '--system-prompt',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toBeNull()
+  })
+
+  test('returns null for an empty equals-separated value', () => {
+    expect(parseModelFlag(['--model='])).toBeNull()
+  })
+
+  test('ignores model-looking positional text after the option delimiter', () => {
+    expect(
+      parseModelFlag(['--', '--model=anthropic/claude-sonnet-4-6']),
+    ).toBeNull()
+  })
+
+  test('uses the final model occurrence like Commander', () => {
+    expect(
+      parseModelFlag([
+        '--model=anthropic/claude-sonnet-4-6',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+      ]),
+    ).toBe('deepseek/deepseek-v4-flash')
+    expect(
+      parseModelFlag([
+        '--model',
+        'deepseek/deepseek-v4-flash',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toBe('anthropic/claude-sonnet-4-6')
   })
 
   test('returns null when --model is absent', () => {
@@ -1375,10 +1634,57 @@ describe('applyModelFlagFromArgs', () => {
     expect(process.env.OPENAI_MODEL).toBeUndefined()
   })
 
+  test('is a no-op when inline --provider is present', () => {
+    const result = applyModelFlagFromArgs([
+      '--provider=anthropic',
+      '--model=sonnet',
+    ])
+    expect(result).toBeUndefined()
+    expect(process.env.ANTHROPIC_MODEL).toBeUndefined()
+  })
+
   test('sets OPENAI_MODEL when CLAUDE_CODE_USE_OPENAI is active', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     applyModelFlagFromArgs(['--model', 'gpt-4o-mini'])
     expect(process.env.OPENAI_MODEL).toBe('gpt-4o-mini')
+  })
+
+  test('resolves default for an active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+
+    const result = applyModelFlagFromArgs(['--model', 'default'])
+
+    expect(result?.error).toBeUndefined()
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('rejects an incompatible model override on the active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+
+    const result = applyModelFlagFromArgs([
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result?.error).toContain('requires the Anthropic Messages protocol')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('rejects an incompatible equals-separated model on the active Command Code route', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+
+    const result = applyModelFlagFromArgs([
+      '--model=anthropic/claude-sonnet-4-6',
+    ])
+
+    expect(result?.error).toContain('Anthropic Messages protocol')
+    expect(process.env.OPENAI_MODEL).toBe('deepseek/deepseek-v4-flash')
   })
 
   test('sets GEMINI_MODEL when CLAUDE_CODE_USE_GEMINI is active', () => {

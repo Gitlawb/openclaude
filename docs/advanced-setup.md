@@ -273,6 +273,8 @@ openclaude
 
 OpenCode Go is a $10/mo subscription for 13 open models (GLM, Kimi, DeepSeek,
 MiMo, MiniMax, Qwen). Uses the same `OPENCODE_API_KEY` as OpenCode Zen.
+OpenClaude automatically sends the session and product identity headers that
+OpenCode Go requires for prompt caching and traffic attribution.
 
 ### Gitlawb Opengateway
 

@@ -28,9 +28,11 @@ import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
   isLongcatBaseUrl,
   normalizeXiaomiMimoBaseUrl,
   resolveRouteCredentialValue,
+  resolveActiveRouteIdFromEnv,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import {
@@ -120,6 +122,9 @@ const PROFILE_ENV_KEYS = [
   'FIREWORKS_API_KEY',
   'LONGCAT_API_KEY',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -129,6 +134,14 @@ const PROFILE_ENV_KEYS = [
   'CLOUDFLARE_API_TOKEN',
   DEFAULT_STARTUP_PROVIDER_ENV_VAR,
 ] as const
+
+function isCommandcodeCredentialEnvVar(envVar: string): boolean {
+  return (
+    envVar === 'CMD_API_KEY' ||
+    envVar === 'COMMANDCODE_API_KEY' ||
+    envVar === 'COMMAND_CODE_API_KEY'
+  )
+}
 
 export type CompatibilityProfileMode =
   | 'anthropic'
@@ -212,6 +225,9 @@ export type ProfileEnv = {
   FIREWORKS_API_KEY?: string
   LONGCAT_API_KEY?: string
   LLMTR_API_KEY?: string
+  CMD_API_KEY?: string
+  COMMANDCODE_API_KEY?: string
+  COMMAND_CODE_API_KEY?: string
   CONCENTRATE_API_KEY?: string
   CONCENTRATE_BASE_URL?: string
   CONCENTRATE_MODEL?: string
@@ -1628,10 +1644,15 @@ export async function buildLaunchEnv(options: {
       processEnv as SecretValueSource,
     ),
   )
-  const shellOpenAIBaseUrl = sanitizeProviderConfigValue(
-    processEnv.OPENAI_BASE_URL,
-    processEnv as SecretValueSource,
-  )
+  const shellOpenAIBaseUrl =
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_BASE_URL,
+      processEnv as SecretValueSource,
+    ) ??
+    sanitizeProviderConfigValue(
+      processEnv.OPENAI_API_BASE,
+      processEnv as SecretValueSource,
+    )
   const persistedGeminiModel = normalizeProfileModel(
     sanitizeProviderConfigValue(
       persistedEnv.GEMINI_MODEL,
@@ -2231,11 +2252,16 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'llmtr' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalLlmtrInferenceBaseUrl(env.OPENAI_BASE_URL)
+  const isNoncanonicalCommandcodeLaunch =
+    effectiveOpenAIRouteId === 'commandcode' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalCommandcodeInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
     isNoncanonicalAimlapiLaunch ||
     isNoncanonicalApismartLaunch ||
     isNoncanonicalConcentrateLaunch ||
-    isNoncanonicalLlmtrLaunch
+    isNoncanonicalLlmtrLaunch ||
+    isNoncanonicalCommandcodeLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
@@ -2244,7 +2270,11 @@ export async function buildLaunchEnv(options: {
     // dedicated credential is never valid off the canonical endpoint, and
     // older profiles could have stored that same secret under either generic
     // alias. Do not resurrect it for a noncanonical Concentrate launch.
-    if (!isNoncanonicalConcentrateLaunch && !isNoncanonicalLlmtrLaunch) {
+    if (
+      !isNoncanonicalConcentrateLaunch &&
+      !isNoncanonicalLlmtrLaunch &&
+      !isNoncanonicalCommandcodeLaunch
+    ) {
       const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
       if (persistedCredential) {
         env[persistedCredential.envVar] = persistedCredential.value
@@ -2278,6 +2308,9 @@ export async function buildLaunchEnv(options: {
     'APISMART_API_KEY',
     'CONCENTRATE_API_KEY',
     'LLMTR_API_KEY',
+    'CMD_API_KEY',
+    'COMMANDCODE_API_KEY',
+    'COMMAND_CODE_API_KEY',
     'NEARAI_API_KEY',
     'FIREWORKS_API_KEY',
     'LONGCAT_API_KEY',
@@ -2300,6 +2333,12 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'LLMTR_API_KEY' && effectiveOpenAIRouteId !== 'llmtr') {
+      continue
+    }
+    if (
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
+      effectiveOpenAIRouteId !== 'commandcode'
+    ) {
       continue
     }
     if (dedicatedKey === 'NVIDIA_API_KEY' && effectiveOpenAIRouteId !== 'nvidia-nim') {
@@ -2333,17 +2372,26 @@ export async function buildLaunchEnv(options: {
       dedicatedKey === 'LLMTR_API_KEY' &&
       !!dedicatedBaseUrl &&
       !isCanonicalLlmtrInferenceBaseUrl(dedicatedBaseUrl)
+    const withholdAmbientCommandcodeKey =
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
+      !!dedicatedBaseUrl &&
+      !isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
     const withholdAmbientDedicatedKey =
       withholdAmbientAimlapiKey ||
       withholdAmbientApismartKey ||
       withholdAmbientConcentrateKey ||
-      withholdAmbientLlmtrKey
+      withholdAmbientLlmtrKey ||
+      withholdAmbientCommandcodeKey
     // Unlike the generic proxy-compatible routes above, Concentrate's
     // dedicated key is never valid outside its canonical inference endpoint.
     // Do not preserve a legacy persisted key for a retargeted Concentrate
     // profile: older versions could have serialized one before this boundary
     // was enforced.
-    if (withholdAmbientConcentrateKey || withholdAmbientLlmtrKey) {
+    if (
+      withholdAmbientConcentrateKey ||
+      withholdAmbientLlmtrKey ||
+      withholdAmbientCommandcodeKey
+    ) {
       continue
     }
     // AIMLAPI accepts generic OpenAI credentials, but ApiSmart is
@@ -2389,10 +2437,35 @@ export async function buildLaunchEnv(options: {
             ? sanitizeApiKey(persistedOpenAICredential.value)
             : undefined)
         : undefined
+    // A selected canonical Command Code profile owns its saved credential.
+    // Prefer persisted dedicated keys, then migrate startup files that only
+    // mirrored the secret into OPENAI_API_KEY (LLMTR parity). Do not treat a
+    // live generic OpenAI key as a Command Code credential.
+    const persistedCommandcodeProfileIdentity =
+      persistedOpenAIRouteId === 'commandcode' ||
+      (!persistedOpenAIRouteId &&
+        isCanonicalCommandcodeInferenceBaseUrl(persistedOpenAIBaseUrl))
+    const persistedCommandcodeProfileKey =
+      isCommandcodeCredentialEnvVar(dedicatedKey) &&
+      effectiveOpenAIRouteId === 'commandcode' &&
+      persistedCommandcodeProfileIdentity &&
+      !!dedicatedBaseUrl &&
+      isCanonicalCommandcodeInferenceBaseUrl(dedicatedBaseUrl)
+        ? sanitizeApiKey(persistedEnv[dedicatedKey]) ||
+          (dedicatedKey === 'CMD_API_KEY'
+            ? sanitizeApiKey(persistedEnv.COMMANDCODE_API_KEY) ||
+              sanitizeApiKey(persistedEnv.COMMAND_CODE_API_KEY)
+            : undefined) ||
+          (dedicatedKey === 'CMD_API_KEY' &&
+          persistedOpenAICredential?.kind === 'usable'
+            ? sanitizeApiKey(persistedOpenAICredential.value)
+            : undefined)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
         persistedLlmtrProfileKey ||
+        persistedCommandcodeProfileKey ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
         backfillLegacyApismartProfileKey ||
@@ -2507,11 +2580,17 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'llmtr' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalLlmtrInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  const persistedCommandcodeProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'commandcode' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalCommandcodeInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
   if (
     hasConcreteProviderSelection(processEnv) &&
     !persistedApismartProxy &&
     !persistedConcentrateProxy &&
-    !persistedLlmtrProxy
+    !persistedLlmtrProxy &&
+    !persistedCommandcodeProxy
   ) {
     return processEnv
   }
@@ -2571,10 +2650,11 @@ export function applyProfileEnvToProcessEnv(
 type StartupEnvOptions = NonNullable<Parameters<typeof buildStartupEnvFromProfile>[0]>
 
 export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
+  modelOverride?: string
   onValidationError?: (message: string) => void
 }): Promise<string | null> {
   const processEnv = options?.processEnv ?? process.env
-  const { onValidationError, ...startupOptions } = options ?? {}
+  const { modelOverride, onValidationError, ...startupOptions } = options ?? {}
   // Resolve the persisted profile HERE (once) so the warning gate below has
   // explicit provenance. Sniffing the DEFAULT_STARTUP_PROVIDER_ENV_VAR marker
   // alone is not enough: a persisted profile's launch env spreads processEnv,
@@ -2591,6 +2671,16 @@ export async function applyStartupEnvFromProfile(options?: StartupEnvOptions & {
   })
   if (startupEnv === processEnv) {
     return null
+  }
+
+  // A root CLI --model is higher precedence than saved profile state. Apply
+  // it to the candidate before Command Code's model contract is validated so
+  // a compatible override can recover a stale saved model.
+  if (modelOverride && resolveActiveRouteIdFromEnv(startupEnv) === 'commandcode') {
+    startupEnv.OPENAI_MODEL =
+      modelOverride === 'default'
+        ? getRouteDefaultModel('commandcode') ?? modelOverride
+        : modelOverride
   }
 
   const validationError = await getProviderValidationError(startupEnv)

@@ -18,6 +18,7 @@ import {
   getRouteDefaultModel,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
   isCloudflareBaseUrl,
   isLongcatBaseUrl,
   matchHostnameAgainstRouteHosts,
@@ -39,6 +40,7 @@ import {
   type GeminiResolvedCredential,
   resolveGeminiCredential,
 } from './geminiAuth.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import { readXaiCredentialsAsync } from './xaiCredentials.js'
 
 async function defaultHasStoredXaiOAuthCredentials(): Promise<boolean> {
@@ -143,7 +145,10 @@ function hasUsableCredentialEnvValue(
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
     envVar === 'CONCENTRATE_API_KEY' ||
-    envVar === 'LLMTR_API_KEY'
+    envVar === 'LLMTR_API_KEY' ||
+    envVar === 'CMD_API_KEY' ||
+    envVar === 'COMMANDCODE_API_KEY' ||
+    envVar === 'COMMAND_CODE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -279,7 +284,7 @@ function getRuntimeValidationTarget(
 
   const request = resolveProviderRequest({
     model: env.OPENAI_MODEL,
-    baseUrl: env.OPENAI_BASE_URL,
+    baseUrl: env.OPENAI_BASE_URL?.trim() || env.OPENAI_API_BASE?.trim(),
     fallbackModel: getRouteDefaultModel('openai'),
   })
 
@@ -300,7 +305,9 @@ function getRuntimeValidationTarget(
         (target.descriptor.id === 'apismart' &&
           !isCanonicalApismartInferenceBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'concentrate' &&
-          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)))
+          !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'commandcode' &&
+          !isCanonicalCommandcodeInferenceBaseUrl(request.baseUrl)))
     ) {
       return false
     }
@@ -614,6 +621,12 @@ export async function getProviderValidationError(
   }
 
   const activeRouteId = resolveActiveRouteIdFromEnv(env)
+  if (activeRouteId === 'commandcode') {
+    const modelError = getCommandcodeChatCompletionsModelError(
+      request.resolvedModel,
+    )
+    if (modelError) return modelError
+  }
   const shouldPreferGenericRouteValidation =
     validationTarget?.kind === 'vendor' &&
     validationTarget.descriptor.id === 'openai' &&

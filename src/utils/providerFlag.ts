@@ -29,13 +29,21 @@ import {
   resolveRouteIdFromBaseUrl,
 } from '../integrations/index.js'
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
+  resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
+import { parseModelFlagValue } from './cliArgs.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  parseRootOptionValue,
+} from './printFlag.js'
 
 const PREFERRED_PROVIDER_ORDER = [
   'anthropic',
@@ -95,11 +103,7 @@ let rememberedProviderFlag:
  * Returns null if the flag is absent or has no value.
  */
 export function parseProviderFlag(args: string[]): string | null {
-  const idx = args.indexOf('--provider')
-  if (idx === -1) return null
-  const value = args[idx + 1]
-  if (!value || value.startsWith('--')) return null
-  return value
+  return parseRootOptionValue(args, '--provider') ?? null
 }
 
 /**
@@ -116,7 +120,7 @@ export function applyProviderFlagFromArgs(
   if (!provider) return undefined
   const result = applyProviderFlag(provider, args)
   if (!result.error && options?.rememberForSettingsEnv) {
-    const model = parseModelFlag(args)
+    const model = parseProviderModelFlag(args)
     rememberedProviderFlag = model ? { provider, model } : { provider }
   }
   return result
@@ -144,11 +148,11 @@ export function clearRememberedProviderFlagForTests(): void {
  * Returns null if absent.
  */
 export function parseModelFlag(args: string[]): string | null {
-  const idx = args.indexOf('--model')
-  if (idx === -1) return null
-  const value = args[idx + 1]
-  if (!value || value.startsWith('--')) return null
-  return value
+  return parseModelFlagValue(args) ?? null
+}
+
+function parseProviderModelFlag(args: string[]): string | null {
+  return parseModelFlag(argsBeforeModelOwningSubcommand(args))
 }
 
 function getRouteDefaults(provider: string): {
@@ -286,10 +290,23 @@ function usableProviderModelEnvValue(
  * undefined when --model is absent or --provider is present (that path is
  * handled by applyProviderFlagFromArgs).
  */
-export function applyModelFlagFromArgs(args: string[]): void {
-  if (args.includes('--provider')) return
+export function applyModelFlagFromArgs(
+  args: string[],
+): { error?: string } | undefined {
+  if (parseProviderFlag(args)) return
   const model = parseModelFlag(args)
   if (!model) return
+
+  const activeRouteId = resolveActiveRouteIdFromEnv(process.env)
+  const effectiveModel =
+    activeRouteId === 'commandcode' && model === 'default'
+      ? getRouteDefaults('commandcode').defaultModel ?? model
+      : model
+
+  if (activeRouteId === 'commandcode') {
+    const error = getCommandcodeChatCompletionsModelError(effectiveModel)
+    if (error) return { error }
+  }
 
   const useGemini =
     process.env.CLAUDE_CODE_USE_GEMINI === '1' ||
@@ -305,14 +322,16 @@ export function applyModelFlagFromArgs(args: string[]): void {
     process.env.CLAUDE_CODE_USE_GITHUB === 'true'
 
   if (useGemini) {
-    process.env.GEMINI_MODEL = model
+    process.env.GEMINI_MODEL = effectiveModel
   } else if (useMistral) {
-    process.env.MISTRAL_MODEL = model
+    process.env.MISTRAL_MODEL = effectiveModel
   } else if (useOpenAI || useGithub) {
-    process.env.OPENAI_MODEL = model
+    process.env.OPENAI_MODEL = effectiveModel
   } else {
-    process.env.ANTHROPIC_MODEL = model
+    process.env.ANTHROPIC_MODEL = effectiveModel
   }
+
+  return {}
 }
 
 /**
@@ -333,6 +352,26 @@ export function applyProviderFlag(
     return {
       error: `Unknown provider "${provider}". Valid providers: ${VALID_PROVIDERS.join(', ')}`,
     }
+  }
+
+  const model = parseProviderModelFlag(args)
+  const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
+  const effectiveModel =
+    provider === 'commandcode' && model === 'default'
+      ? defaultModel ?? model
+      : model
+  if (provider === 'commandcode') {
+    const currentBaseUrl = getConfiguredOpenAIBaseUrl()
+    const willUseCommandcodeEndpoint =
+      !currentBaseUrl ||
+      shouldReplaceStaleKnownBaseUrl(provider) ||
+      isCanonicalCommandcodeInferenceBaseUrl(currentBaseUrl)
+    const error = willUseCommandcodeEndpoint
+      ? getCommandcodeChatCompletionsModelError(
+          effectiveModel ?? process.env.OPENAI_MODEL ?? defaultModel,
+        )
+      : null
+    if (error) return { error }
   }
 
   const opengatewayApiKey = process.env.OPENGATEWAY_API_KEY?.trim()
@@ -369,6 +408,13 @@ export function applyProviderFlag(
                           process.env.OPENAI_API_KEY === process.env.LLMTR_API_KEY
                         ? 'llmtr'
                         : process.env.OPENAI_API_KEY !== undefined &&
+                          (process.env.OPENAI_API_KEY === process.env.CMD_API_KEY ||
+                            process.env.OPENAI_API_KEY ===
+                              process.env.COMMANDCODE_API_KEY ||
+                            process.env.OPENAI_API_KEY ===
+                              process.env.COMMAND_CODE_API_KEY)
+                        ? 'commandcode'
+                        : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.NEARAI_API_KEY
                         ? 'nearai'
                         : process.env.OPENAI_API_KEY !== undefined &&
@@ -398,9 +444,6 @@ export function applyProviderFlag(
   if (copiedOpenAIKeyProvider && provider !== copiedOpenAIKeyProvider) {
     delete process.env.OPENAI_API_KEY
   }
-
-  const model = parseModelFlag(args)
-  const { defaultBaseUrl, defaultModel } = getRouteDefaults(provider)
 
   // Azure-style routing changes both request paths and authentication. It is
   // only meaningful for an explicit OpenAI/Azure configuration, so never let
@@ -475,7 +518,7 @@ export function applyProviderFlag(
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
-      if (model) process.env.OPENAI_MODEL = model
+      if (effectiveModel) process.env.OPENAI_MODEL = effectiveModel
       break
 
     case 'gemini':
@@ -847,16 +890,43 @@ export function applyProviderFlag(
       process.env.CLAUDE_CODE_USE_OPENAI = '1'
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
       if (
-        provider === 'llmtr' &&
-        isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+        (provider === 'llmtr' &&
+          isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) ||
+        (provider === 'commandcode' &&
+          isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl()))
       ) {
-        clearUnsupportedOpenAIShimSettings('llmtr')
+        clearUnsupportedOpenAIShimSettings(provider)
         delete process.env.ANTHROPIC_CUSTOM_HEADERS
+      }
+      // DedicatedCredentialsOnly: only Command Code-owned credential aliases
+      // authenticate this route. Mirror the resolved dedicated key into
+      // OPENAI_API_KEY for the shared shim, and clear any unrelated generic
+      // key so another provider's credential is never left in-process
+      // (spawn forwarding, copied-key switch-away, other OPENAI_API_KEY
+      // readers). LLMTR stays on the default generic-fallback path.
+      if (
+        provider === 'commandcode' &&
+        isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        const dedicatedCommandcodeKey = hasUsableOpenAICredential(
+          process.env.CMD_API_KEY,
+        )
+          ? process.env.CMD_API_KEY
+          : hasUsableOpenAICredential(process.env.COMMANDCODE_API_KEY)
+            ? process.env.COMMANDCODE_API_KEY
+            : hasUsableOpenAICredential(process.env.COMMAND_CODE_API_KEY)
+              ? process.env.COMMAND_CODE_API_KEY
+              : undefined
+        if (dedicatedCommandcodeKey) {
+          process.env.OPENAI_API_KEY = dedicatedCommandcodeKey
+        } else {
+          delete process.env.OPENAI_API_KEY
+        }
       }
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }
-      if (model) process.env.OPENAI_MODEL = model
+      if (effectiveModel) process.env.OPENAI_MODEL = effectiveModel
       break
   }
 

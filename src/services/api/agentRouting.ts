@@ -2,6 +2,9 @@ import type { SettingsJson } from '../../utils/settings/types.js'
 import type { PermissionMode } from '../../utils/permissions/PermissionMode.js'
 import { getAgentModel } from '../../utils/model/agent.js'
 import { isModelAlias } from '../../utils/model/aliases.js'
+import { parseModelFlagValue } from '../../utils/cliArgs.js'
+import { argsBeforeModelOwningSubcommand } from '../../utils/printFlag.js'
+import { resolveRouteIdFromBaseUrl } from '../../integrations/routeMetadata.js'
 
 /**
  * Provider override resolved from agent routing config.
@@ -57,6 +60,9 @@ const PROVIDER_ENV_VARS_TO_CLEAR_FOR_OVERRIDE = [
   'OPENAI_AUTH_HEADER',
   'OPENAI_AUTH_SCHEME',
   'OPENAI_AUTH_HEADER_VALUE',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
 ] as const
 
 /**
@@ -318,7 +324,7 @@ export function resolveOutOfProcessTeammateProviderFromCliArgs(
   if (!agentName || !teamName) return null
 
   return resolveOutOfProcessTeammateProvider({
-    cliModel: parseCliFlag(args, '--model'),
+    cliModel: parseModelFlagValue(argsBeforeModelOwningSubcommand(args)),
     agentName,
     agentType: parseCliFlag(args, '--agent-type'),
     settings,
@@ -362,4 +368,7 @@ export function applyAgentProviderOverrideToEnv(
   env.OPENAI_MODEL = providerOverride.model
   env.OPENAI_BASE_URL = providerOverride.baseURL
   env.OPENAI_API_KEY = providerOverride.apiKey
+  if (resolveRouteIdFromBaseUrl(providerOverride.baseURL) === 'commandcode') {
+    env.CMD_API_KEY = providerOverride.apiKey
+  }
 }

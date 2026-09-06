@@ -58,13 +58,16 @@ import {
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
+  isCanonicalCommandcodeInferenceBaseUrl,
   isFireworksBaseUrl,
   isLongcatBaseUrl,
   isNearaiBaseUrl,
   isXaiBaseUrl,
   isXiaomiMimoBaseUrl,
   resolveEnvOnlyProviderRouteId,
+  resolveRouteCredentialValue,
 } from '../integrations/routeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import { logForDebugging } from './debug.js'
 import {
   sanitizeProfileCustomHeaders,
@@ -88,6 +91,11 @@ export type ProviderProfileInput = {
   authHeaderValue?: ProviderProfile['authHeaderValue']
   customHeaders?: ProviderProfile['customHeaders']
   maxContextLength?: ProviderProfile['maxContextLength']
+}
+
+export type ProviderProfileWriteOptions = {
+  /** Marks credentials adopted from process env rather than entered by a user. */
+  credentialSource?: 'environment'
 }
 
 export type ProviderPresetDefaults = Omit<ProviderProfileInput, 'provider'> & {
@@ -185,6 +193,21 @@ function isLlmtrProfile(profile: ProviderProfile): boolean {
   return !baseUrl || isCanonicalLlmtrInferenceBaseUrl(baseUrl)
 }
 
+function isCommandcodeProfile(profile: ProviderProfile): boolean {
+  const { route, compatibilityMode } = resolveProfileCompatibility(
+    profile.provider,
+  )
+  if (compatibilityMode !== 'openai') return false
+  const baseUrl = profile.baseUrl?.trim()
+  if (route.routeId === 'commandcode') {
+    return !baseUrl || isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+  }
+  // Legacy generic OpenAI profiles are runtime-classified by their endpoint.
+  // Treat only the exact canonical inference URL as Command Code ownership;
+  // generic or retargeted URLs must never receive the dedicated credential.
+  return Boolean(baseUrl && isCanonicalCommandcodeInferenceBaseUrl(baseUrl))
+}
+
 function deriveGithubEnterpriseUrl(baseUrl: string | undefined): string | undefined {
   if (!baseUrl?.trim()) return undefined
   try {
@@ -274,7 +297,8 @@ export function resolveProfileCapabilityRouteId(
     (providerRouteId === 'cloudflare' ||
       providerRouteId === 'longcat' ||
       providerRouteId === 'concentrate' ||
-      providerRouteId === 'llmtr') &&
+      providerRouteId === 'llmtr' ||
+      providerRouteId === 'commandcode') &&
     baseUrl &&
     !(providerRouteId === 'cloudflare'
       ? isCloudflareBaseUrl(baseUrl)
@@ -282,7 +306,9 @@ export function resolveProfileCapabilityRouteId(
         ? isLongcatBaseUrl(baseUrl)
         : providerRouteId === 'concentrate'
           ? isCanonicalConcentrateInferenceBaseUrl(baseUrl)
-          : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
+          : providerRouteId === 'commandcode'
+            ? isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+            : isCanonicalLlmtrInferenceBaseUrl(baseUrl))
   ) {
     return 'custom'
   }
@@ -445,11 +471,46 @@ function nextProfileId(): string {
   return `provider_${randomBytes(6).toString('hex')}`
 }
 
+function applyCommandcodeProfileWriteContract(
+  profile: ProviderProfile,
+  options?: ProviderProfileWriteOptions,
+): ProviderProfile | null {
+  if (!isCommandcodeProfile(profile)) {
+    return profile
+  }
+
+  // Command Code is Chat Completions only. Reject the write so Console OAuth
+  // env adoption, /provider, and any future caller share one gate instead of
+  // persisting Claude/alias models that later startup and /model paths inherit.
+  if (getCommandcodeChatCompletionsModelError(profile.model)) {
+    return null
+  }
+
+  // Dedicated env keys are the Command Code credential. Generic OPENAI_API_KEY
+  // is never route auth, so environment-sourced writes must persist the
+  // dedicated secret or fail without mutating a profile. Explicit setup keeps
+  // accepting the credential the user entered.
+  const dedicatedKey = sanitizeApiKey(
+    resolveRouteCredentialValue({
+      routeId: 'commandcode',
+      baseUrl: profile.baseUrl,
+    }),
+  )
+  if (options?.credentialSource === 'environment') {
+    return dedicatedKey ? { ...profile, apiKey: dedicatedKey } : null
+  }
+  if (dedicatedKey && !profile.apiKey) {
+    return { ...profile, apiKey: dedicatedKey }
+  }
+  return profile
+}
+
 function toProfile(
   input: ProviderProfileInput,
   id: string = nextProfileId(),
+  options?: ProviderProfileWriteOptions,
 ): ProviderProfile | null {
-  return sanitizeProfile({
+  const profile = sanitizeProfile({
     id,
     provider: input.provider ?? 'openai',
     name: input.name,
@@ -464,6 +525,7 @@ function toProfile(
     customHeaders: input.customHeaders,
     maxContextLength: input.maxContextLength,
   })
+  return profile ? applyCommandcodeProfileWriteContract(profile, options) : null
 }
 
 function getSupportedProfileCustomHeadersEnv(
@@ -849,6 +911,15 @@ function isProcessEnvAlignedWithProfile(
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.APISMART_API_KEY, profile.apiKey)
       : true) &&
+    (isCommandcodeProfile(profile)
+      ? !includeApiKey ||
+        sameOptionalEnvValue(
+          processEnv.CMD_API_KEY ??
+            processEnv.COMMANDCODE_API_KEY ??
+            processEnv.COMMAND_CODE_API_KEY,
+          profile.apiKey,
+        )
+      : true) &&
     (isClinePassProfile(profile)
       ? !includeApiKey ||
         sameOptionalEnvValue(processEnv.CLINE_API_KEY, profile.apiKey)
@@ -1010,6 +1081,8 @@ export function applyProviderProfileToProcessEnv(
           ? getRouteDefaultBaseUrl('apismart') ?? profile.baseUrl
           : route.routeId === 'concentrate' && !profile.baseUrl?.trim()
             ? getRouteDefaultBaseUrl('concentrate') ?? profile.baseUrl
+            : route.routeId === 'commandcode' && !profile.baseUrl?.trim()
+              ? getRouteDefaultBaseUrl('commandcode') ?? profile.baseUrl
             : profile.baseUrl
     const openAIProfileEnv: ProfileEnv = {
       OPENAI_BASE_URL: normalizedProfileBaseUrl,
@@ -1043,11 +1116,14 @@ export function applyProviderProfileToProcessEnv(
       route.routeId === 'concentrate' && !isConcentrateProfile(profile)
     const withholdRetargetedLlmtrCredential =
       route.routeId === 'llmtr' && !isLlmtrProfile(profile)
+    const withholdRetargetedCommandcodeCredential =
+      route.routeId === 'commandcode' && !isCommandcodeProfile(profile)
     if (
       profile.apiKey &&
       !withholdRetargetedApismartCredential &&
       !withholdRetargetedConcentrateCredential &&
-      !withholdRetargetedLlmtrCredential
+      !withholdRetargetedLlmtrCredential &&
+      !withholdRetargetedCommandcodeCredential
     ) {
       openAIProfileEnv.OPENAI_API_KEY = profile.apiKey
       if (route.vendorId === 'minimax' || normalizedProfileBaseUrl.toLowerCase().includes('minimax')) {
@@ -1087,6 +1163,9 @@ export function applyProviderProfileToProcessEnv(
       }
       if (isConcentrateProfile(profile)) {
         openAIProfileEnv.CONCENTRATE_API_KEY = profile.apiKey
+      }
+      if (isCommandcodeProfile(profile)) {
+        openAIProfileEnv.CMD_API_KEY = profile.apiKey
       }
       if (isClinePassProfile(profile)) {
         openAIProfileEnv.CLINE_API_KEY = profile.apiKey
@@ -1182,6 +1261,20 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.OPENAI_API_KEY =
             openAIProfileEnv.OPENAI_API_KEY ?? ambientLlmtrKey
           openAIProfileEnv.LLMTR_API_KEY = ambientLlmtrKey
+        }
+      }
+    }
+    if (isCommandcodeProfile(profile)) {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+      if (!profile.apiKey) {
+        const ambientCommandcodeKey =
+          sanitizeApiKey(process.env.CMD_API_KEY) ||
+          sanitizeApiKey(process.env.COMMANDCODE_API_KEY) ||
+          sanitizeApiKey(process.env.COMMAND_CODE_API_KEY)
+        if (ambientCommandcodeKey) {
+          openAIProfileEnv.OPENAI_API_KEY =
+            openAIProfileEnv.OPENAI_API_KEY ?? ambientCommandcodeKey
+          openAIProfileEnv.CMD_API_KEY = ambientCommandcodeKey
         }
       }
     }
@@ -1286,9 +1379,9 @@ export function applyActiveProviderProfileFromConfig(
 
 export function addProviderProfile(
   input: ProviderProfileInput,
-  options?: { makeActive?: boolean },
+  options?: { makeActive?: boolean } & ProviderProfileWriteOptions,
 ): ProviderProfile | null {
-  const profile = toProfile(input)
+  const profile = toProfile(input, undefined, options)
   if (!profile) {
     return null
   }
@@ -1341,8 +1434,9 @@ export function addProviderProfile(
 export function updateProviderProfile(
   profileId: string,
   input: ProviderProfileInput,
+  options?: ProviderProfileWriteOptions,
 ): ProviderProfile | null {
-  const updatedProfile = toProfile(input, profileId)
+  const updatedProfile = toProfile(input, profileId, options)
   if (!updatedProfile) {
     return null
   }
@@ -1475,17 +1569,22 @@ function buildOpenAICompatibleStartupEnv(
     !isConcentrateProfile(activeProfile)
   const withholdRetargetedLlmtrCredential =
     activeProfileRouteId === 'llmtr' && !isLlmtrProfile(activeProfile)
+  const withholdRetargetedCommandcodeCredential =
+    activeProfileRouteId === 'commandcode' &&
+    !isCommandcodeProfile(activeProfile)
   const isAimlapiProfile =
     activeProfile.provider === 'aimlapi' ||
     resolveRouteIdFromBaseUrl(activeProfile.baseUrl) === 'aimlapi'
   const isConcentrateProfileFlag = isConcentrateProfile(activeProfile)
   const isLlmtrProfileFlag = isLlmtrProfile(activeProfile)
+  const isCommandcodeProfileFlag = isCommandcodeProfile(activeProfile)
 
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
     !withholdRetargetedConcentrateCredential &&
-    !withholdRetargetedLlmtrCredential
+    !withholdRetargetedLlmtrCredential &&
+    !withholdRetargetedCommandcodeCredential
   ) {
     const strictEnv = buildOpenAIProfileEnv({
       goal: 'balanced',
@@ -1519,6 +1618,9 @@ function buildOpenAICompatibleStartupEnv(
       }
       if (isLlmtrProfileFlag) {
         strictEnv.LLMTR_API_KEY = activeProfile.apiKey
+      }
+      if (isCommandcodeProfileFlag) {
+        strictEnv.CMD_API_KEY = activeProfile.apiKey
       }
       if (isClinePassProfile(activeProfile)) {
         strictEnv.CLINE_API_KEY = activeProfile.apiKey
@@ -1580,11 +1682,15 @@ function buildOpenAICompatibleStartupEnv(
   if (activeProfileRouteId === 'llmtr') {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'llmtr'
   }
+  if (activeProfileRouteId === 'commandcode') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'commandcode'
+  }
   if (
     activeProfile.apiKey &&
     !withholdRetargetedApismartCredential &&
     !withholdRetargetedConcentrateCredential &&
-    !withholdRetargetedLlmtrCredential
+    !withholdRetargetedLlmtrCredential &&
+    !withholdRetargetedCommandcodeCredential
   ) {
     env.OPENAI_API_KEY = activeProfile.apiKey
     if (activeProfile.baseUrl?.toLowerCase().includes('bankr')) {
@@ -1616,6 +1722,9 @@ function buildOpenAICompatibleStartupEnv(
     }
     if (isLlmtrProfileFlag) {
       env.LLMTR_API_KEY = activeProfile.apiKey
+    }
+    if (isCommandcodeProfileFlag) {
+      env.CMD_API_KEY = activeProfile.apiKey
     }
     if (isClinePassProfile(activeProfile)) {
       env.CLINE_API_KEY = activeProfile.apiKey
@@ -1874,6 +1983,9 @@ function triggerStartupDiscoveryRefreshForProfile(
     return
   }
   if (route.routeId === 'llmtr' && !isLlmtrProfile(profile)) {
+    return
+  }
+  if (route.routeId === 'commandcode' && !isCommandcodeProfile(profile)) {
     return
   }
 

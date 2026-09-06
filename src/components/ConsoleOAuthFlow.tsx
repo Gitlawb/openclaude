@@ -401,7 +401,8 @@ function OAuthStatusMessage({
       // an account they may never have wanted. Env vars alone do NOT activate
       // the route (resolveActiveRouteIdFromEnv requires CLAUDE_CODE_USE_OPENAI
       // or a saved profile), so selecting this saves + activates a profile.
-      // Both fields gate the option because a profile requires baseUrl+model.
+      // Endpoint + model gate the option; dedicated-only routes additionally
+      // require their route-owned credential so an incomplete env is not saved.
       // getEnvProviderOption owns the secret-disclosure boundary: only
       // `displayBaseUrl` (redacted) may be rendered — the raw `baseUrl`
       // exists solely for profile creation/activation. See its tests for
@@ -410,6 +411,7 @@ function OAuthStatusMessage({
         available: envConfigAvailable,
         varName: envBaseUrlVarName,
         baseUrl: envBaseUrl,
+        apiKey: envApiKey,
         displayBaseUrl: envBaseUrlForDisplay,
         model: envModel,
       } = getEnvProviderOption()
@@ -486,8 +488,8 @@ function OAuthStatusMessage({
                   if (existing) {
                     // Refresh the stored credential from the environment
                     // before activating: the env is the source of truth the
-                    // user just chose, so a rotated OPENAI_API_KEY must not
-                    // leave the profile running on a stale key. Keep the
+                    // user just chose, so a rotated route-owned credential must
+                    // not leave the profile running on a stale key. Keep the
                     // existing key when the env no longer carries one rather
                     // than blanking a working credential.
                     //
@@ -496,10 +498,14 @@ function OAuthStatusMessage({
                     // the existing profile first — otherwise a configured
                     // apiFormat / auth header / customHeaders / context
                     // length would be silently dropped on refresh.
-                    const refreshed = updateProviderProfile(existing.id, {
-                      ...existing,
-                      apiKey: process.env.OPENAI_API_KEY ?? existing.apiKey,
-                    })
+                    const refreshed = updateProviderProfile(
+                      existing.id,
+                      {
+                        ...existing,
+                        apiKey: envApiKey ?? existing.apiKey,
+                      },
+                      { credentialSource: 'environment' },
+                    )
                     if (!refreshed) {
                       // The env values failed profile validation. Activating
                       // now would claim a refresh that did not happen, so send
@@ -515,9 +521,12 @@ function OAuthStatusMessage({
                         name: getLocalOpenAICompatibleProviderLabel(envBaseUrl),
                         baseUrl: envBaseUrl as string,
                         model: envModel as string,
-                        apiKey: process.env.OPENAI_API_KEY,
+                        apiKey: envApiKey,
                       },
-                      { makeActive: true },
+                      {
+                        makeActive: true,
+                        credentialSource: 'environment',
+                      },
                     )
                   }
                   if (!saved) {

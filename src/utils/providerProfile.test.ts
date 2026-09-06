@@ -1093,6 +1093,52 @@ test('applyStartupEnvFromProfile applies valid startup env (issue #1651)', async
   assert.equal(processEnv.OPENGATEWAY_API_KEY, 'test-key')
 })
 
+test('applyStartupEnvFromProfile overlays a root model before validating a saved Command Code profile', async () => {
+  const processEnv: NodeJS.ProcessEnv = {}
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: {
+      profile: 'openai',
+      env: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+        OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+        OPENAI_MODEL: 'anthropic/claude-sonnet-4-6',
+        CMD_API_KEY: 'cmd-key',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    processEnv,
+    modelOverride: 'deepseek/deepseek-v4-flash',
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'commandcode')
+  assert.equal(processEnv.OPENAI_MODEL, 'deepseek/deepseek-v4-flash')
+  assert.equal(processEnv.CMD_API_KEY, 'cmd-key')
+})
+
+test('applyStartupEnvFromProfile resolves the reserved default model for Command Code', async () => {
+  const processEnv: NodeJS.ProcessEnv = {}
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: {
+      profile: 'openai',
+      env: {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+        OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+        OPENAI_MODEL: 'anthropic/claude-sonnet-4-6',
+        CMD_API_KEY: 'cmd-key',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    processEnv,
+    modelOverride: 'default',
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.OPENAI_MODEL, 'deepseek/deepseek-v4-flash')
+})
+
 test('buildStartupEnvFromProfile preserves explicit OpenAI-compatible env without a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: null,
@@ -3185,6 +3231,135 @@ test('openai launch withholds ambient LLMTR credentials from a keyless proxy pro
 
   assert.equal(canonical.OPENAI_API_KEY, undefined)
   assert.equal(canonical.LLMTR_API_KEY, 'ambient-llmtr-key')
+})
+
+test('openai launch withholds ambient Command Code credentials from a keyless proxy profile on restart', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'proxy-model',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_API_KEY: 'ambient-cmd-key',
+      CMD_API_KEY: 'ambient-cmd-key',
+    },
+  })
+
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'commandcode')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.CMD_API_KEY, undefined)
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      CMD_API_KEY: 'ambient-cmd-key',
+    },
+  })
+
+  assert.equal(canonical.OPENAI_API_KEY, undefined)
+  assert.equal(canonical.CMD_API_KEY, 'ambient-cmd-key')
+})
+
+test('openai launch preserves a canonical Command Code route supplied through OPENAI_API_BASE', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: null,
+    goal: 'coding',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_API_BASE: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      CMD_API_KEY: 'live-commandcode-key',
+    },
+  })
+
+  assert.equal(
+    env.OPENAI_BASE_URL,
+    'https://api.commandcode.ai/provider/v1',
+  )
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'commandcode')
+  assert.equal(env.CMD_API_KEY, 'live-commandcode-key')
+})
+
+test('openai launch preserves distinct persisted Command Code credentials', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'commandcode',
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      CMD_API_KEY: 'primary-commandcode-key',
+      COMMANDCODE_API_KEY: 'fallback-commandcode-key',
+    }),
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.CMD_API_KEY, 'primary-commandcode-key')
+  assert.equal(env.COMMANDCODE_API_KEY, 'fallback-commandcode-key')
+})
+
+test('openai launch accepts the official Command Code credential variable', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: null,
+    goal: 'coding',
+    processEnv: {
+      CLAUDE_CODE_USE_OPENAI: '1',
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      COMMAND_CODE_API_KEY: 'official-command-code-key',
+    },
+  })
+
+  assert.equal(env.COMMAND_CODE_API_KEY, 'official-command-code-key')
+})
+
+test('openai launch does not migrate an unrelated persisted OpenAI key into Command Code', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'persisted-openai-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      CMD_API_KEY: 'live-commandcode-key',
+    },
+  })
+
+  assert.equal(env.CMD_API_KEY, 'live-commandcode-key')
+})
+
+test('openai launch still migrates a legacy canonical Command Code profile key', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+      OPENAI_MODEL: 'deepseek/deepseek-v4-flash',
+      OPENAI_API_KEY: 'legacy-commandcode-key',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.commandcode.ai/provider/v1',
+    },
+  })
+
+  assert.equal(env.CMD_API_KEY, 'legacy-commandcode-key')
 })
 
 test('openai launch removes a legacy persisted Concentrate key from a noncanonical URL', async () => {

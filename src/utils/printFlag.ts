@@ -91,11 +91,143 @@ function optionName(arg: string): string {
   return eq === -1 ? arg : arg.slice(0, eq)
 }
 
+function optionalValueOptionWidth(
+  arg: string,
+  next: string | undefined,
+): 1 | 2 {
+  if (arg.includes('=')) return 1
+  return next !== undefined && next !== '--' && !next.startsWith('-') ? 2 : 1
+}
+
 function isPrintFlag(arg: string): boolean {
   // The root command registers `-p, --print` as a boolean. Only the exact
   // spellings are valid; `--print=prompt` and `-pprompt` are rejected by the
   // root command parser.
   return arg === '-p' || arg === '--print'
+}
+
+/**
+ * Find an exact root command path without mistaking option values for
+ * positional command tokens. The shared option tables keep early entrypoint
+ * routing aligned with Commander's value-consumption rules.
+ */
+export function findRootCommandPathIndex(
+  argv: readonly string[],
+  commandPath: readonly string[],
+): number {
+  let i = 0
+  while (i < argv.length) {
+    const arg = argv[i]!
+    if (arg === '--') return -1
+
+    const name = optionName(arg)
+    if (REQUIRED_VALUE_OPTIONS.has(name)) {
+      i += arg.includes('=') ? 1 : 2
+      continue
+    }
+    if (VARIADIC_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        i++
+      } else {
+        i += 2
+        while (
+          i < argv.length &&
+          !argv[i]!.startsWith('-') &&
+          argv[i] !== '--'
+        ) {
+          i++
+        }
+      }
+      continue
+    }
+    if (OPTIONAL_VALUE_OPTIONS.has(name)) {
+      i += optionalValueOptionWidth(arg, argv[i + 1])
+      continue
+    }
+    if (arg.startsWith('-')) {
+      i++
+      continue
+    }
+
+    return commandPath.every((token, offset) => argv[i + offset] === token)
+      ? i
+      : -1
+  }
+  return -1
+}
+
+const MODEL_OWNING_SUBCOMMANDS = [
+  ['aimlapi', 'topup'],
+  ['auto-mode', 'critique'],
+] as const
+
+/**
+ * Slice argv before the first nested command that owns its own `--model`.
+ * Root `--model` / `--provider` model preflight must not steal that nested flag.
+ */
+export function argsBeforeModelOwningSubcommand(
+  args: readonly string[],
+): string[] {
+  let cutoff = args.length
+  for (const [command, subcommand] of MODEL_OWNING_SUBCOMMANDS) {
+    const index = findRootCommandPathIndex(
+      args.slice(0, cutoff),
+      [command, subcommand],
+    )
+    if (index !== -1) cutoff = index
+  }
+  return args.slice(0, cutoff)
+}
+
+/** Resolve the final real occurrence of a root option through the same arity scan. */
+export function parseRootOptionValue(
+  argv: readonly string[],
+  option: string,
+): string | undefined {
+  let value: string | undefined
+  let i = 0
+  while (i < argv.length) {
+    const arg = argv[i]!
+    if (arg === '--') break
+
+    const name = optionName(arg)
+    if (name === option) {
+      if (arg.includes('=')) {
+        value = arg.slice(arg.indexOf('=') + 1) || undefined
+        i++
+      } else {
+        const next = argv[i + 1]
+        value = !next || next.startsWith('--') ? undefined : next
+        i += 2
+      }
+      continue
+    }
+    if (REQUIRED_VALUE_OPTIONS.has(name)) {
+      i += arg.includes('=') ? 1 : 2
+      continue
+    }
+    if (VARIADIC_OPTIONS.has(name)) {
+      if (arg.includes('=')) {
+        i++
+      } else {
+        i += 2
+        while (
+          i < argv.length &&
+          !argv[i]!.startsWith('-') &&
+          argv[i] !== '--'
+        ) {
+          i++
+        }
+      }
+      continue
+    }
+    if (OPTIONAL_VALUE_OPTIONS.has(name)) {
+      i += optionalValueOptionWidth(arg, argv[i + 1])
+      continue
+    }
+    i++
+  }
+  return value
 }
 
 export function hasPrintFlag(argv: readonly string[]): boolean {
@@ -132,12 +264,7 @@ export function hasPrintFlag(argv: readonly string[]): boolean {
     }
 
     if (OPTIONAL_VALUE_OPTIONS.has(name)) {
-      const next = argv[i + 1]
-      if (next !== undefined && next !== '--' && !next.startsWith('-')) {
-        i += 2
-      } else {
-        i++
-      }
+      i += optionalValueOptionWidth(arg, argv[i + 1])
       continue
     }
 

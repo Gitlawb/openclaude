@@ -243,7 +243,10 @@ function hasUsableEnvCredentialValue(
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
     envVar === 'CONCENTRATE_API_KEY' ||
-    envVar === 'LLMTR_API_KEY'
+    envVar === 'LLMTR_API_KEY' ||
+    envVar === 'CMD_API_KEY' ||
+    envVar === 'COMMANDCODE_API_KEY' ||
+    envVar === 'COMMAND_CODE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -495,6 +498,35 @@ export function isCanonicalLlmtrInferenceBaseUrl(
 
   try {
     const canonical = new URL(LLMTR_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+const COMMANDCODE_CANONICAL_INFERENCE_BASE_URL =
+  'https://api.commandcode.ai/provider/v1'
+
+export function isCanonicalCommandcodeInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(COMMANDCODE_CANONICAL_INFERENCE_BASE_URL)
     const candidate = new URL(trimmed)
     const normalizePath = (pathname: string): string =>
       pathname.replace(/\/+$/, '') || '/'
@@ -1168,6 +1200,13 @@ export function resolveRouteCredentialValue(
   ) {
     return undefined
   }
+  if (
+    routeId === 'commandcode' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalCommandcodeInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
 
   return getRouteCredentialValue(routeId, processEnv)
 }
@@ -1286,6 +1325,12 @@ export function resolveRouteIdFromBaseUrl(
       ) {
         continue
       }
+      if (
+        route.id === 'commandcode' &&
+        !isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+      ) {
+        continue
+      }
       return route.id
     }
   }
@@ -1304,7 +1349,9 @@ export function resolveRouteIdFromBaseUrl(
           (route.id === 'concentrate' &&
             !isCanonicalConcentrateInferenceBaseUrl(baseUrl)) ||
           (route.id === 'llmtr' &&
-            !isCanonicalLlmtrInferenceBaseUrl(baseUrl))
+            !isCanonicalLlmtrInferenceBaseUrl(baseUrl)) ||
+          (route.id === 'commandcode' &&
+            !isCanonicalCommandcodeInferenceBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1346,6 +1393,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'llmtr') {
     return isCanonicalLlmtrInferenceBaseUrl(baseUrl)
+  }
+  if (routeId === 'commandcode') {
+    return isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
   }
   if (routeId === 'zai') {
     return !baseUrl || isCanonicalZaiCodingPlanBaseUrl(baseUrl)

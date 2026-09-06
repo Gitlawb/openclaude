@@ -1,11 +1,13 @@
 import type { CredentialLease, CredentialPool } from '../credentialPool.js'
 import type { OpenAICompatibilityFailure } from '../openaiErrorClassification.js'
 import type { OpenAIShimRuntimeContext } from '../../../integrations/runtimeMetadata.js'
+import { getCommandcodeChatCompletionsModelError } from '../../../integrations/gateways/commandcode.js'
 import {
   redactEncodedSecretSubstringsForDisplay,
   redactSecretSubstringsForDisplay,
 } from '../../../utils/providerSecrets.js'
 import { parseCustomHeadersEnv } from '../../../utils/providerCustomHeaders.js'
+import { getOpenClaudeUserAgent } from '../../../utils/userAgent.js'
 
 export function formatRetryAfterHint(response: Response): string {
   const retryAfter = response.headers.get('retry-after')
@@ -241,12 +243,21 @@ export async function executeOpenAIRequest(
     isGithubCopilot,
     isGithubModels,
   } = context
+  if (runtimeShimContext.routeId === 'commandcode') {
+    const modelError = getCommandcodeChatCompletionsModelError(
+      request.resolvedModel,
+    )
+    if (modelError) {
+      throw APIError.generate(400, undefined, modelError, new Headers())
+    }
+  }
   // Existing routes historically accept process-level custom auth even when
   // their profile UI hides those controls. LLMTR is the new fixed-contract
   // route: enforce its explicit capability without changing that compatibility
   // behavior for unrelated providers or generic custom endpoints.
   const supportsConfiguredAuthHeaders =
-    runtimeShimContext.routeId !== 'llmtr' ||
+    (runtimeShimContext.routeId !== 'llmtr' &&
+      runtimeShimContext.routeId !== 'commandcode') ||
     runtimeShimContext.openaiShimConfig.supportsAuthHeaders === true
   const unsupportedCustomHeaderNames = supportsConfiguredAuthHeaders
     ? null
@@ -283,6 +294,8 @@ export async function executeOpenAIRequest(
   // sent as a Bearer to api.x.ai/v1 — same surface as an API key.
   const isXaiRoute =
     runtimeShimContext.routeId === 'xai' || isXaiBaseUrl(request.baseUrl)
+  const openCodeGoSessionId =
+    runtimeShimContext.routeId === 'opencode-go' ? getSessionId() : null
   const openAIApiKeysPoolRaw =
     routeAcceptsGenericOpenAICredentials &&
     parseCredentialList(requestProcessEnv.OPENAI_API_KEYS).length > 0
@@ -318,6 +331,9 @@ export async function executeOpenAIRequest(
       requestProcessEnv.FIREWORKS_API_KEY,
       requestProcessEnv.LONGCAT_API_KEY,
       requestProcessEnv.LLMTR_API_KEY,
+      requestProcessEnv.CMD_API_KEY,
+      requestProcessEnv.COMMANDCODE_API_KEY,
+      requestProcessEnv.COMMAND_CODE_API_KEY,
     ].some((value) => value?.trim() === openAIApiKeyRawUsable),
   )
   const routeCredentialIsCopiedProviderKey = Boolean(
@@ -473,6 +489,24 @@ export async function executeOpenAIRequest(
     // implementation (RELEASE_v0.8.0 PR #5604).
     if (isXaiRoute) {
       headers['x-grok-conv-id'] ??= getSessionId()
+    }
+
+    // OpenCode Go requires a stable session header for prompt-cache affinity
+    // and a product-specific user agent for traffic attribution. Enforce the
+    // route contract after caller headers are merged so stale custom values
+    // cannot make otherwise valid Go traffic non-compliant.
+    if (openCodeGoSessionId !== null) {
+      for (const name of Object.keys(headers)) {
+        const normalizedName = name.toLowerCase()
+        if (
+          normalizedName === 'x-opencode-session' ||
+          normalizedName === 'user-agent'
+        ) {
+          delete headers[name]
+        }
+      }
+      headers['x-opencode-session'] = openCodeGoSessionId
+      headers['User-Agent'] = getOpenClaudeUserAgent()
     }
 
     return headers

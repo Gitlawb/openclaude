@@ -21,13 +21,17 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
+import type { ProviderOverride } from '../services/api/agentRouting.js'
 import {
   applyLoadedEnvFileValues,
   loadEnvFile,
 } from '../utils/envFile.js'
 import {
+  applyModelFlagFromArgs,
   applyProviderFlagFromArgs,
   clearRememberedProviderFlagForTests,
+  parseModelFlag,
+  parseProviderFlag,
   reapplyRememberedProviderFlag,
 } from '../utils/providerFlag.js'
 import { applyProfileEnvToProcessEnv } from '../utils/providerProfile.js'
@@ -54,21 +58,26 @@ const mockApplySafeConfigEnvironmentVariables = mock(() => {})
 const mockApplyStartupEnvFromProfile = mock(
   async (_input: {
     processEnv: NodeJS.ProcessEnv
+    modelOverride?: string
     onValidationError: (message: string) => void
-  }) => {},
+  }): Promise<string | null> => null,
 )
 const mockGetProviderValidationError = mock(
   async (_env: NodeJS.ProcessEnv) => undefined,
 )
 const mockEagerLoadSettingsFromArgs = mock((_args: string[]) => ({ ok: true }))
 const mockResolveOutOfProcessTeammateProviderFromCliArgs = mock(
-  (_args: string[], _settings: unknown) => undefined,
+  (_args: string[], _settings: unknown): ProviderOverride | undefined =>
+    undefined,
 )
 const mockApplyAgentProviderOverrideToEnv = mock((_override: unknown) => {})
 const mockGetInitialSettings = mock(() => ({}))
 const mockRefreshGithubModelsTokenIfNeeded = mock(async () => {})
 const mockHydrateGithubModelsTokenFromSecureStorage = mock(() => {})
 const mockValidateProviderEnvForStartupOrExit = mock(async () => {})
+const mockApplyModelFlagFromArgs = mock(
+  (_args: string[]): ReturnType<typeof applyModelFlagFromArgs> => undefined,
+)
 const mockPrintStartupScreen = mock((_model: string | undefined) => {})
 const mockStartCapturingEarlyInput = mock(() => {})
 const mockCliMain = mock(async () => {})
@@ -96,6 +105,7 @@ const runtimeMocks = [
   mockRefreshGithubModelsTokenIfNeeded,
   mockHydrateGithubModelsTokenFromSecureStorage,
   mockValidateProviderEnvForStartupOrExit,
+  mockApplyModelFlagFromArgs,
   mockPrintStartupScreen,
   mockStartCapturingEarlyInput,
   mockCliMain,
@@ -226,6 +236,18 @@ describe('cli.tsx — --provider startup ordering', () => {
     expect(safeReapplyIndex).toBeGreaterThan(safeApplyIndex)
     expect(safeReapplyIndex).toBeLessThan(configApplyIndex)
     expect(configReapplyIndex).toBeGreaterThan(configApplyIndex)
+  })
+
+  it('uses the effective early model for system-prompt dumps', async () => {
+    const src = await Bun.file(`${import.meta.dir}/cli.tsx`).text()
+    const dumpPathIndex = src.indexOf("feature('DUMP_SYSTEM_PROMPT')")
+    const promptCallIndex = src.indexOf('getSystemPrompt([], model)', dumpPathIndex)
+    const dumpPath = src.slice(dumpPathIndex, promptCallIndex)
+
+    expect(dumpPathIndex).toBeGreaterThanOrEqual(0)
+    expect(promptCallIndex).toBeGreaterThan(dumpPathIndex)
+    expect(dumpPath).toContain('earlyModelFlag ?? getMainLoopModel()')
+    expect(dumpPath).not.toContain("args.indexOf('--model')")
   })
 
   it('remembers provider env-file values so later managed settings env merges can restore them', async () => {
@@ -361,6 +383,13 @@ const mockImporters = {
     getProviderValidationError: mockGetProviderValidationError,
     validateProviderEnvForStartupOrExit:
       mockValidateProviderEnvForStartupOrExit,
+  }),
+  providerFlag: async () => ({
+    applyModelFlagFromArgs: mockApplyModelFlagFromArgs,
+    applyProviderFlagFromArgs,
+    parseModelFlag,
+    parseProviderFlag,
+    reapplyRememberedProviderFlag,
   }),
   flagSettings: async () => ({
     eagerLoadSettingsFromArgs: mockEagerLoadSettingsFromArgs,
@@ -526,6 +555,450 @@ describe('cli.tsx — background routing behavior', () => {
     expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
     expect(mockPrintStartupScreen).toHaveBeenCalledTimes(1)
     expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies a standalone model override before provider validation', async () => {
+    const order: string[] = []
+    mockApplyModelFlagFromArgs.mockImplementationOnce(args => {
+      order.push('model')
+      expect(args).toEqual(['--model', 'deepseek/deepseek-v4-flash'])
+      return undefined
+    })
+    mockValidateProviderEnvForStartupOrExit.mockImplementationOnce(async () => {
+      order.push('validation')
+    })
+
+    await runCliEntrypoint(
+      ['--model', 'deepseek/deepseek-v4-flash'],
+      bgOptions,
+    )
+
+    expect(order).toEqual(['model', 'validation'])
+  })
+
+  it('applies an equals-separated model override before provider validation', async () => {
+    const order: string[] = []
+    mockApplyModelFlagFromArgs.mockImplementationOnce(args => {
+      order.push('model')
+      expect(args).toEqual(['--model=deepseek/deepseek-v4-flash'])
+      return undefined
+    })
+    mockValidateProviderEnvForStartupOrExit.mockImplementationOnce(async () => {
+      order.push('validation')
+    })
+
+    await runCliEntrypoint(
+      ['--model=deepseek/deepseek-v4-flash'],
+      bgOptions,
+    )
+
+    expect(order).toEqual(['model', 'validation'])
+  })
+
+  it.each([
+    {
+      args: ['aimlapi', 'topup', '--model', 'anthropic/claude-sonnet-4-6'],
+    },
+    {
+      args: ['auto-mode', 'critique', '--model=anthropic/claude-sonnet-4-6'],
+    },
+    {
+      args: [
+        '--debug=api',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ],
+    },
+  ])('leaves nested command model options to their owning command', async ({ args }) => {
+    await runCliEntrypoint([...args], bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(undefined)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restore or validate a saved profile after an explicit Anthropic selection', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalEnv = { ...process.env }
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    try {
+      await runCliEntrypoint(
+        ['--provider', 'anthropic', '--model', 'sonnet'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      for (const key of Object.keys(process.env)) {
+        if (!(key in originalEnv)) delete process.env[key]
+      }
+      Object.assign(process.env, originalEnv)
+    }
+
+    expect(mockApplyStartupEnvFromProfile).not.toHaveBeenCalled()
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--provider',
+      'anthropic',
+      '--model',
+      'sonnet',
+    ])
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors an inline explicit Anthropic selection before saved-profile restoration', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalEnv = { ...process.env }
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    try {
+      await runCliEntrypoint(
+        ['--provider=anthropic', '--model=sonnet'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      for (const key of Object.keys(process.env)) {
+        if (!(key in originalEnv)) delete process.env[key]
+      }
+      Object.assign(process.env, originalEnv)
+    }
+
+    expect(mockApplyStartupEnvFromProfile).not.toHaveBeenCalled()
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--provider=anthropic',
+      '--model=sonnet',
+    ])
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['--', '--provider=anthropic'],
+    ['--system-prompt', '--provider=anthropic'],
+  ])(
+    'does not treat provider-looking prompt data as an explicit selection: %j',
+    async (firstArg, secondArg) => {
+      await runCliEntrypoint([firstArg, secondArg], bgOptions)
+
+      expect(mockApplyStartupEnvFromProfile).toHaveBeenCalledTimes(1)
+      expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+      expect(mockCliMain).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('does not treat a nested command --model as the Command Code session model', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const originalModel = process.env.OPENAI_MODEL
+    const originalBaseUrl = process.env.OPENAI_BASE_URL
+    const originalUseOpenAI = process.env.CLAUDE_CODE_USE_OPENAI
+    const originalApiKey = process.env.OPENAI_API_KEY
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+
+    try {
+      await runCliEntrypoint(
+        [
+          '--provider',
+          'commandcode',
+          '--model',
+          'deepseek/deepseek-v4-flash',
+          'aimlapi',
+          'topup',
+          '--model',
+          'anthropic/claude-sonnet-4-6',
+        ],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+      if (originalModel === undefined) {
+        delete process.env.OPENAI_MODEL
+      } else {
+        process.env.OPENAI_MODEL = originalModel
+      }
+      if (originalBaseUrl === undefined) {
+        delete process.env.OPENAI_BASE_URL
+      } else {
+        process.env.OPENAI_BASE_URL = originalBaseUrl
+      }
+      if (originalUseOpenAI === undefined) {
+        delete process.env.CLAUDE_CODE_USE_OPENAI
+      } else {
+        process.env.CLAUDE_CODE_USE_OPENAI = originalUseOpenAI
+      }
+      if (originalApiKey === undefined) {
+        delete process.env.OPENAI_API_KEY
+      } else {
+        process.env.OPENAI_API_KEY = originalApiKey
+      }
+    }
+
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(exitMock).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('still applies a root model option before a nested model command', async () => {
+    const args = [
+      '--model=deepseek/deepseek-v4-flash',
+      'aimlapi',
+      'topup',
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith([
+      '--model=deepseek/deepseek-v4-flash',
+    ])
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  it('does not treat a spaced root model value as a nested command path', async () => {
+    const args = ['--model', 'aimlapi', 'topup']
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith('aimlapi')
+  })
+
+  it('does not treat a required root option value as a nested command path', async () => {
+    const args = [
+      '--name',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  it('still applies a root model after a required option consumes the -- delimiter', async () => {
+    const args = [
+      '--system-prompt',
+      '--',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyStartupEnvFromProfile.mock.calls[0]?.[0]).toMatchObject({
+      modelOverride: 'deepseek/deepseek-v4-flash',
+    })
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
+  })
+
+  it('does not treat --model after a real end-of-options marker as a root model', async () => {
+    const args = [
+      '--system-prompt',
+      'hello',
+      '--',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(
+      mockApplyStartupEnvFromProfile.mock.calls[0]?.[0].modelOverride,
+    ).toBeUndefined()
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+  })
+
+  it('preserves a teammate provider override resolved from an inline model alias', async () => {
+    const providerOverride = {
+      model: 'actual-provider-model',
+      baseURL: 'https://provider.example/v1',
+      apiKey: 'provider-key',
+    }
+    mockResolveOutOfProcessTeammateProviderFromCliArgs.mockReturnValueOnce(
+      providerOverride,
+    )
+
+    await runCliEntrypoint(
+      ['--agent-name=worker-a', '--team-name=review', '--model=route-alias'],
+      bgOptions,
+    )
+
+    expect(mockApplyAgentProviderOverrideToEnv).toHaveBeenCalledWith(
+      providerOverride,
+    )
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'actual-provider-model',
+    )
+  })
+
+  it('stops before provider validation when a model override is rejected', async () => {
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    mockApplyModelFlagFromArgs.mockReturnValueOnce({
+      error: 'model is incompatible with the selected provider',
+    })
+
+    try {
+      await runCliEntrypoint(
+        ['--model=anthropic/claude-sonnet-4-6'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      'Error: model is incompatible with the selected provider',
+    )
+    expect(exitMock).toHaveBeenCalledWith(1)
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+    expect(mockPrintStartupScreen).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back after a saved Command Code profile rejects the root model', async () => {
+    const modelError =
+      'OpenAI Chat Completions does not support the selected Command Code model; it requires the Anthropic Messages protocol. Choose an OpenAI-compatible model.'
+    const originalExit = process.exit
+    const originalConsoleError = console.error
+    const exitMock = mock((_code?: number | string | null) => undefined as never)
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    process.exit = exitMock as typeof process.exit
+    console.error = consoleErrorMock
+    mockApplyStartupEnvFromProfile.mockImplementationOnce(async input => {
+      input.onValidationError(`Warning: ignoring saved provider profile. ${modelError}`)
+      return modelError
+    })
+
+    try {
+      await runCliEntrypoint(
+        ['--model', 'anthropic/claude-sonnet-4-6'],
+        bgOptions,
+      )
+    } finally {
+      process.exit = originalExit
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).toHaveBeenCalledTimes(1)
+    expect(consoleErrorMock).toHaveBeenCalledWith(`Error: ${modelError}`)
+    expect(exitMock).toHaveBeenCalledWith(1)
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).not.toHaveBeenCalled()
+    expect(mockCliMain).not.toHaveBeenCalled()
+  })
+
+  it('lets a configured teammate override replace a rejected saved Command Code model', async () => {
+    const modelError =
+      'OpenAI Chat Completions does not support the selected Command Code model; it requires the Anthropic Messages protocol. Choose an OpenAI-compatible model.'
+    const providerOverride = {
+      model: 'actual-provider-model',
+      baseURL: 'https://provider.example/v1',
+      apiKey: 'provider-key',
+    }
+    const originalConsoleError = console.error
+    const consoleErrorMock = mock((_message?: unknown) => {})
+    console.error = consoleErrorMock
+    mockApplyStartupEnvFromProfile.mockImplementationOnce(async input => {
+      input.onValidationError(`Warning: ignoring saved provider profile. ${modelError}`)
+      return modelError
+    })
+    mockResolveOutOfProcessTeammateProviderFromCliArgs.mockReturnValueOnce(
+      providerOverride,
+    )
+
+    try {
+      await runCliEntrypoint(
+        [
+          '--agent-name=worker-a',
+          '--team-name=review',
+          '--model=anthropic/claude-sonnet-4-6',
+        ],
+        bgOptions,
+      )
+    } finally {
+      console.error = originalConsoleError
+    }
+
+    expect(consoleErrorMock).not.toHaveBeenCalled()
+    expect(mockApplyAgentProviderOverrideToEnv).toHaveBeenCalledWith(
+      providerOverride,
+    )
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'actual-provider-model',
+    )
+    expect(mockCliMain).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps model-looking text after -- out of early model routing', async () => {
+    await runCliEntrypoint(
+      ['--', '--model', 'anthropic/claude-sonnet-4-6'],
+      bgOptions,
+    )
+
+    expect(mockApplyModelFlagFromArgs).not.toHaveBeenCalled()
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(undefined)
+  })
+
+  it('passes repeated model options through for final-occurrence parsing', async () => {
+    const args = [
+      '--model',
+      'anthropic/claude-sonnet-4-6',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+
+    await runCliEntrypoint(args, bgOptions)
+
+    expect(mockApplyModelFlagFromArgs).toHaveBeenCalledWith(args)
+    expect(mockValidateProviderEnvForStartupOrExit).toHaveBeenCalledTimes(1)
+    expect(mockPrintStartupScreen).toHaveBeenCalledWith(
+      'deepseek/deepseek-v4-flash',
+    )
   })
 })
 

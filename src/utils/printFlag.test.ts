@@ -1,5 +1,129 @@
 import { describe, expect, test } from 'bun:test'
-import { hasPrintFlag } from './printFlag.js'
+import {
+  argsBeforeModelOwningSubcommand,
+  findRootCommandPathIndex,
+  hasPrintFlag,
+  parseRootOptionValue,
+} from './printFlag.js'
+
+describe('findRootCommandPathIndex', () => {
+  test('finds a real command path after boolean root options', () => {
+    expect(findRootCommandPathIndex(
+      ['--bare', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(1)
+  })
+
+  test('does not mistake required or optional option values for commands', () => {
+    expect(findRootCommandPathIndex(
+      ['--name', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(-1)
+    expect(findRootCommandPathIndex(
+      ['--debug', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(-1)
+  })
+
+  test('finds a command after an inline optional option value', () => {
+    expect(findRootCommandPathIndex(
+      ['--debug=api', 'aimlapi', 'topup', '--model', 'gpt-4o'],
+      ['aimlapi', 'topup'],
+    )).toBe(1)
+  })
+})
+
+describe('argsBeforeModelOwningSubcommand', () => {
+  test('drops argv from nested aimlapi topup onward', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--provider',
+        'commandcode',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual([
+      '--provider',
+      'commandcode',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ])
+  })
+
+  test('drops argv from nested auto-mode critique onward', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--model=deepseek/deepseek-v4-flash',
+        'auto-mode',
+        'critique',
+        '--model=anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual(['--model=deepseek/deepseek-v4-flash'])
+  })
+
+  test('does not treat a required option value as a nested command path', () => {
+    const args = [
+      '--name',
+      'aimlapi',
+      'topup',
+      '--model',
+      'deepseek/deepseek-v4-flash',
+    ]
+    expect(argsBeforeModelOwningSubcommand(args)).toEqual(args)
+  })
+
+  test('keeps inline optional values before a nested command boundary', () => {
+    expect(
+      argsBeforeModelOwningSubcommand([
+        '--debug=api',
+        'aimlapi',
+        'topup',
+        '--model',
+        'anthropic/claude-sonnet-4-6',
+      ]),
+    ).toEqual(['--debug=api'])
+  })
+})
+
+describe('parseRootOptionValue', () => {
+  test('ignores option-looking text consumed by another root option', () => {
+    expect(parseRootOptionValue(
+      ['--system-prompt', '--model=not-a-real-option'],
+      '--model',
+    )).toBeUndefined()
+  })
+
+  test('returns the final real option occurrence', () => {
+    expect(parseRootOptionValue(
+      ['--name', 'worker', '--model=first', '--model', 'second'],
+      '--model',
+    )).toBe('second')
+  })
+
+  test('finds --model after a required option consumes the -- delimiter', () => {
+    expect(parseRootOptionValue(
+      ['--system-prompt', '--', '--model', 'deepseek/deepseek-v4-flash'],
+      '--model',
+    )).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  test('stops at a real end-of-options marker', () => {
+    expect(parseRootOptionValue(
+      [
+        '--system-prompt',
+        'hello',
+        '--',
+        '--model',
+        'deepseek/deepseek-v4-flash',
+      ],
+      '--model',
+    )).toBeUndefined()
+  })
+})
 
 describe('hasPrintFlag', () => {
   test('detects the standalone -p and --print boolean flags', () => {

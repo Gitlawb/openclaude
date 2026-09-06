@@ -14,6 +14,7 @@ const ENV_KEYS = [
   'CLAUDE_CODE_USE_OPENAI',
   'OPENAI_API_KEYS',
   'OPENAI_API_KEY',
+  'OPENAI_API_BASE',
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'CODEX_API_KEY',
@@ -33,6 +34,9 @@ const ENV_KEYS = [
   'MINIMAX_API_KEY',
   'LONGCAT_API_KEY',
   'LLMTR_API_KEY',
+  'CMD_API_KEY',
+  'COMMANDCODE_API_KEY',
+  'COMMAND_CODE_API_KEY',
   'APISMART_API_KEY',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
@@ -182,6 +186,109 @@ test('LLMTR validation accepts a dedicated credential despite an invalid generic
   process.env.OPENAI_API_KEY = 'SUA_CHAVE'
 
   await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation accepts its dedicated credential on the selected route', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation accepts the official client credential variable', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.COMMAND_CODE_API_KEY = 'official-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation accepts its canonical endpoint through OPENAI_API_BASE', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_API_BASE = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('Command Code validation does not claim a case-changed endpoint path', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/PROVIDER/V1'
+  process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  const error = await getProviderValidationError(process.env)
+  expect(error).not.toBeNull()
+  expect(error).not.toContain('Command Code')
+})
+
+test('Command Code validation rejects a model that requires Anthropic Messages', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'anthropic/claude-sonnet-4-6'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
+test('Command Code validation rejects a Claude model alias', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'sonnet'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
+test('Command Code validation rejects a decorated Claude model alias', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL = 'sonnet?reasoning=high'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
+test('Command Code validation rejects a Claude member in a compound OPENAI_MODEL list', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_MODEL =
+    'deepseek/deepseek-v4-flash, anthropic/claude-sonnet-4-6'
+  process.env.CMD_API_KEY = 'cmd-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toContain(
+    'requires the Anthropic Messages protocol',
+  )
+})
+
+test('Command Code validation rejects placeholder dedicated credentials', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.CMD_API_KEY = 'SUA_CHAVE'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Command Code auth is required. Set CMD_API_KEY, COMMANDCODE_API_KEY, or COMMAND_CODE_API_KEY.',
+  )
+})
+
+test('Command Code validation ignores a generic OPENAI_API_KEY', async () => {
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://api.commandcode.ai/provider/v1'
+  process.env.OPENAI_API_KEY = 'sk-openai-generic'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'Command Code auth is required. Set CMD_API_KEY, COMMANDCODE_API_KEY, or COMMAND_CODE_API_KEY.',
+  )
 })
 
 test('LLMTR validation falls back from a placeholder dedicated key to OPENAI_API_KEY', async () => {
