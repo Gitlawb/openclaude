@@ -1,6 +1,6 @@
 # Skills
 
-A skill is a folder with a `SKILL.md` file. OpenClaude loads every skill it finds in the project's `.openclaude/skills` directory and in your user skills directory at start, and the model can invoke them by name. This guide covers the `openclaude skills` commands, what the install check verifies, and how to keep checking installed skills after that.
+A skill is a folder with a `SKILL.md` file. OpenClaude loads every skill it finds in the project's `.openclaude/skills` directory and in your user skills directory at start, and the model can invoke them by name. This guide covers the `openclaude skills` commands, what each install path checks, and how to keep checking installed skills after that.
 
 ## Commands
 
@@ -26,8 +26,10 @@ This writes two files to `.openclaude/skills/ci-fix/`: the `SKILL.md` and a `ski
 Before the files are written, the installer:
 
 1. Reads the registry entry and refuses to install if it has no `sha256`.
-2. Reads `revocations.json` next to the registry and refuses to install a skill whose id, version, or digest is listed there.
+2. Reads `revocations.json` next to the registry and refuses to install a skill that matches an entry there. An entry matches when every field it names matches: an id alone covers all versions, an id with a version covers one release, a digest covers exact content.
 3. Fetches the `SKILL.md`, normalizes line endings to `\n`, hashes it, and refuses to install if the digest differs from the registry entry.
+
+These three checks belong to the registry code path. If the install spec names an existing file or directory in the working tree, the installer takes the local path instead and runs none of them, even when the spec looks like a registry id such as `gitlawb/ci-fix`.
 
 Options:
 
@@ -37,13 +39,13 @@ Options:
 
 ## Install from a URL or a local path
 
-A direct HTTPS URL to a `SKILL.md` needs the digest you expect, so the same check runs without a registry:
+A direct HTTPS URL to a `SKILL.md` needs the digest you expect, so the same digest check runs without a registry. No revocation list is consulted on this path:
 
 ```bash
 openclaude skills install https://example.com/skills/deploy/SKILL.md --sha256 <64 hex>
 ```
 
-A local path copies the skill directory as it is. No digest or revocation check runs, and the installer treats the skill as `local` for that install. Existing `skill.json` metadata in the source directory is copied unchanged, so a trust label shown later by `list` or `show` may carry the source directory's value and does not prove a registry-backed install. Review a local skill yourself before you install it:
+A local path copies the skill directory after the same checks `validate` runs. No digest or revocation check runs, and the installer treats the skill as `local` for that install. Existing `skill.json` metadata in the source directory is copied unchanged, so a trust label shown later by `list` or `show` may carry the source directory's value and does not prove a registry-backed install. Review a local skill yourself before you install it:
 
 ```bash
 openclaude skills install ./my-skills/deploy
@@ -51,11 +53,11 @@ openclaude skills install ./my-skills/deploy
 
 ## List, show, validate, remove
 
-`list` prints every installed skill with its status and description; add `--json` for machine output. `show <name>` prints the source, trust tier, and the full skill text. `validate <path>` checks a skill directory before you publish it: the frontmatter fields, the skill name, and the file size limits. `remove <name>` deletes a project skill; add `--global` for a user skill.
+`list` prints every installed skill with its status and description; add `--json` for machine output. `show <name>` prints the source, trust tier, and the full skill text. `validate <path>` checks a skill directory before you publish it: the frontmatter fields, the skill name, the file size limits, and a few content patterns such as a `curl` piped to a shell. It does not compare the files with a registry digest. `remove <name>` deletes a project skill; add `--global` for a user skill.
 
-## What the install check covers
+## What the install checks cover
 
-The digest check runs once, at install time, on the `SKILL.md` text. After that, OpenClaude reads `skill.json` for metadata only and loads whatever is in the skill folder. `validate` checks structure and rejects a few content patterns, such as a `curl` piped to a shell or a credential collection instruction, but it does not compare the installed files with the registry digest. So a skill edited on disk after install, by hand, by a script, or by another tool, loads on the next run with no warning:
+The digest check runs once, at install time, on the `SKILL.md` text, and only on the registry and URL paths. After that, OpenClaude reads `skill.json` for metadata only and loads whatever is in the skill folder. `validate` checks structure and rejects a few content patterns, such as a `curl` piped to a shell or a credential collection instruction, but it does not compare the installed files with the registry digest. So a skill edited on disk after install, by hand, by a script, or by another tool, loads on the next run with no warning:
 
 ```text
 $ openclaude skills install gitlawb/ci-fix
@@ -69,7 +71,7 @@ ci-fix  enabled   Diagnoses and fixes CI pipeline failures.
 
 ## Check installed skills after install
 
-[eyebrow](https://github.com/alexverify/eyebrow) is a separate, MIT-licensed single binary that records a hash of every skill, MCP server, hook, and rule it finds across coding tools in a lockfile you commit, and reports what changed since. OpenClaude skill discovery in `.openclaude/skills` (project and user) shipped in eyebrow 0.4.4, and 0.4.5 added the egress fingerprint used below; see the [changelog](https://github.com/alexverify/eyebrow/blob/main/CHANGELOG.md). Use 0.4.6 or newer: in 0.4.5 a skill folder that is a symlink appeared in the inventory with no hashed files, so a clean `verify` said nothing about the contents behind the link. 0.4.6 hashes the linked contents.
+[eyebrow](https://github.com/alexverify/eyebrow) is a separate, MIT-licensed single binary that records a hash of every skill, MCP server, hook, and rule it finds across coding tools in a lockfile you commit, and reports what changed since. Discovery of OpenClaude skills in the project's `.openclaude/skills` and in `~/.openclaude/skills` shipped in eyebrow 0.4.4, and 0.4.5 added the egress fingerprint used below; see the [changelog](https://github.com/alexverify/eyebrow/blob/main/CHANGELOG.md). Use 0.4.6 or newer: in 0.4.5 a skill folder that is a symlink appeared in the inventory with no hashed files, so a clean `verify` said nothing about the contents behind the link. 0.4.6 hashes the linked contents.
 
 Record the skills you reviewed:
 
