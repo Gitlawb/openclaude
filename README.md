@@ -2,9 +2,8 @@
 
 Verboo Code is the coding-agent CLI for the [Verboo platform](https://code.verboo.ai). It connects exclusively to Verboo's infrastructure — no API keys from external providers needed.
 
-[![PR Checks](https://github.com/verbeux/verboo/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/verbeux/verboo/actions/workflows/pr-checks.yml)
-[![Release](https://img.shields.io/github/v/tag/verbeux/verboo?label=release&color=0ea5e9)](https://github.com/verbeux/verboo/tags)
-[![Discussions](https://img.shields.io/badge/discussions-open-7c3aed)](https://github.com/verbeux/verboo/discussions)
+[![PR Checks](https://github.com/verbeux-ai/code/actions/workflows/pr-checks.yml/badge.svg?branch=main)](https://github.com/verbeux-ai/code/actions/workflows/pr-checks.yml)
+[![Release](https://img.shields.io/github/v/tag/verbeux-ai/code?label=release&color=0ea5e9)](https://github.com/verbeux-ai/code/tags)
 [![Security Policy](https://img.shields.io/badge/security-policy-0f766e)](SECURITY.md)
 [![License](https://img.shields.io/badge/license-MIT-2563eb)](LICENSE)
 
@@ -247,8 +246,7 @@ If you believe you found a security issue, see [SECURITY.md](SECURITY.md).
 
 ## Community
 
-- Use [GitHub Discussions](https://github.com/verbeux/verboo/discussions) for Q&A, ideas, and community conversation
-- Use [GitHub Issues](https://github.com/verbeux/verboo/issues) for confirmed bugs and actionable feature work
+- Use [GitHub Issues](https://github.com/verbeux-ai/code/issues) for questions, confirmed bugs, and actionable feature work
 
 ## Contributing
 

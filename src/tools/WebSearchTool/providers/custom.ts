@@ -357,7 +357,7 @@ function auditLogCustomSearch(url: string): void {
     `[web-search] ⚠️  Custom search provider is active. ` +
     `Outbound requests go to: ${safeHostname(url) ?? url}. ` +
     `Ensure this endpoint is trusted. ` +
-    `See: https://github.com/verbeux/verboo-code/blob/main/docs/web-search-security.md`,
+    `See: https://github.com/verbeux-ai/code/blob/main/src/tools/WebSearchTool/README_SEARCH_PROVIDERS.md#custom-provider-security-guardrails`,
   )
 }
 

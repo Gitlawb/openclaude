@@ -16,8 +16,8 @@ const { ChatController, VerbooChatViewProvider, VerbooChatPanelManager } = requi
 const { SessionManager } = require('./chat/sessionManager');
 const { DiffContentProvider, SCHEME: DIFF_SCHEME } = require('./chat/diffController');
 
-const VERBOO_REPO_URL = 'https://github.com/verbeux/verboo-code';
-const VERBOO_SETUP_URL = 'https://github.com/verbeux/verboo-code/blob/main/README.md#quick-start';
+const VERBOO_REPO_URL = 'https://github.com/verbeux-ai/code';
+const VERBOO_SETUP_URL = 'https://github.com/verbeux-ai/code/blob/main/README.md#quick-start';
 const PROFILE_FILE_NAME = '.verboo-profile.json';
 
 function escapeHtml(value) {

@@ -6,9 +6,8 @@ Verboo Code is a fast-moving open-source coding-agent CLI with support for multi
 
 ## Before You Start
 
-- Search existing [issues](https://github.com/verbeux-ai/code/issues) and [discussions](https://github.com/verbeux-ai/code/discussions) before opening a new thread.
+- Search existing [issues](https://github.com/verbeux-ai/code/issues) before opening a new thread.
 - Use issues for confirmed bugs and actionable feature work.
-- Use discussions for setup help, ideas, and general community conversation.
 - For larger changes, open an issue first so the scope is clear before implementation.
 - For security reports, follow [SECURITY.md](SECURITY.md).
 
