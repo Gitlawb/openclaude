@@ -3594,3 +3594,29 @@ test('buildLaunchEnv strips inherited ANTHROPIC_AUTH_TOKEN for minimax-cn (#2207
   assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
   assert.equal(env.MINIMAX_API_KEY, 'minimax-cn-key')
 })
+
+test('buildLaunchEnv strips inherited OPENAI_BASE_URL for minimax-cn (#2207 P2)', async () => {
+  // The Anthropic-compatible path emits ANTHROPIC_BASE_URL; an inherited
+  // OPENAI_BASE_URL would survive the spread and be re-picked up by
+  // downstream consumers (e.g. /usage fetcher), forwarding the China key
+  // to an unintended endpoint.
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        MINIMAX_API_KEY: 'minimax-cn-key',
+        OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
+    },
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, undefined)
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1/anthropic')
+  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
+})

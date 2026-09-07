@@ -1045,11 +1045,9 @@ describe('applyProviderFlag - descriptor-backed openai-compatible routes', () =>
 })
 
 describe('applyProviderFlag - minimax', () => {
-  test('preserves MiniMax default base URL and model semantics', () => {
+  test('seeds MiniMax default base URL and model when ANTHROPIC_BASE_URL is unset', () => {
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
     process.env.OPENAI_MODEL = 'gpt-4o'
-    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
-    process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5'
 
     const result = applyProviderFlag('minimax', [])
 
@@ -1059,6 +1057,90 @@ describe('applyProviderFlag - minimax', () => {
     expect(process.env.ANTHROPIC_MODEL).toBe('MiniMax-M3')
     expect(process.env.OPENAI_BASE_URL).toBeUndefined()
     expect(process.env.OPENAI_MODEL).toBeUndefined()
+  })
+
+  test('drops inherited ANTHROPIC_AUTH_TOKEN so MiniMax x-api-key wins (#2207 P1)', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'stale-bearer'
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+    process.env.ANTHROPIC_API_KEY = 'minimax-live-key'
+
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-live-key')
+  })
+
+  test('drops inherited ANTHROPIC_AUTH_TOKEN for minimax-cn (#2207 P1)', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'stale-bearer'
+    process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+
+    const result = applyProviderFlag('minimax-cn', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimaxi.com/anthropic')
+    expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-cn-key')
+  })
+
+  test('preserves a user-supplied custom ANTHROPIC_BASE_URL (#2207 P1)', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://my-custom-proxy.example/v1'
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://my-custom-proxy.example/v1')
+  })
+
+  test('preserves a user-supplied custom ANTHROPIC_BASE_URL for minimax-cn (#2207 P1)', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://cn-proxy.example/anthropic'
+    process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+
+    const result = applyProviderFlag('minimax-cn', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://cn-proxy.example/anthropic')
+  })
+
+  test('still seeds default base URL when existing value is a sentinel string (#2207 P1)', () => {
+    process.env.ANTHROPIC_BASE_URL = 'null'
+    process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+
+    const result = applyProviderFlag('minimax-cn', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimaxi.com/anthropic')
+  })
+
+  test('still seeds default base URL when existing value is whitespace-only (#2207 P1)', () => {
+    process.env.ANTHROPIC_BASE_URL = '   '
+    process.env.MINIMAX_API_KEY = 'minimax-live-key'
+
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimax.io/anthropic')
+  })
+
+  test('does not seed ANTHROPIC_API_KEY when MINIMAX_API_KEY is whitespace-only (#2207 P1)', () => {
+    process.env.MINIMAX_API_KEY = '   '
+    process.env.ANTHROPIC_API_KEY = 'pre-existing-anthropic-key'
+
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('pre-existing-anthropic-key')
+  })
+
+  test('does not seed ANTHROPIC_API_KEY when MINIMAX_API_KEY is a sentinel string (#2207 P1)', () => {
+    process.env.MINIMAX_API_KEY = 'null'
+    process.env.ANTHROPIC_API_KEY = 'pre-existing-anthropic-key'
+
+    const result = applyProviderFlag('minimax', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.ANTHROPIC_API_KEY).toBe('pre-existing-anthropic-key')
   })
 })
 

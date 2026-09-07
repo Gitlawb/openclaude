@@ -28,9 +28,13 @@ export default defineVendor({
       matchDefaultBaseUrl: true,
       matchBaseUrlHosts: ['api.minimaxi.com'],
     },
-    credentialEnvVars: ['MINIMAX_API_KEY'],
+    // Accept MINIMAX_API_KEY as the canonical credential, with OPENAI_API_KEY
+    // permitted only as an OpenAI-shim wrapper fallback for startup validation.
+    // /usage quota requests still require MINIMAX_API_KEY exclusively to avoid
+    // leaking an unrelated provider key to the China quota endpoint (#2207 P2).
+    credentialEnvVars: ['MINIMAX_API_KEY', 'OPENAI_API_KEY'],
     missingCredentialMessage:
-      'MiniMax (China) auth is required. Set MINIMAX_API_KEY.',
+      'MiniMax (China) auth is required. Set MINIMAX_API_KEY (or OPENAI_API_KEY for the legacy OpenAI-shim wrapper).',
   },
   catalog: {
     source: 'static',

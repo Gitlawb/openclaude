@@ -40,6 +40,7 @@ import {
   redactSecretValueForDisplay,
   sanitizeApiKey,
   sanitizeProviderConfigValue,
+  clearInheritedAnthropicAuthToken,
   type SecretValueSource,
 } from './providerSecrets.js'
 
@@ -2107,10 +2108,15 @@ export async function buildLaunchEnv(options: {
     if (minimaxProfileEnv) {
       // MiniMax uses x-api-key (set via ANTHROPIC_API_KEY above); a leftover
       // ANTHROPIC_AUTH_TOKEN from a previous custom-bearer profile would
-      // override x-api-key and break auth (#2207 P1). Explicitly drop it.
-      const { ANTHROPIC_AUTH_TOKEN: _dropAuthToken, ...processEnvForMiniMax } =
-        processEnv
-      return { ...processEnvForMiniMax, ...minimaxProfileEnv }
+      // override x-api-key and break auth (#2207 P1). Explicitly drop it
+      // before merging.
+      clearInheritedAnthropicAuthToken(processEnv)
+      // An inherited OPENAI_BASE_URL would survive the spread below and
+      // could be re-picked up by the OpenAI shim helper or downstream
+      // clients (e.g. /usage), forwarding the China key to an unintended
+      // endpoint after the Anthropic profile was applied (#2207 P2).
+      delete processEnv.OPENAI_BASE_URL
+      return { ...processEnv, ...minimaxProfileEnv }
     }
   }
 

@@ -1,5 +1,6 @@
 import { createCombinedAbortSignal } from '../../../utils/combinedAbortSignal.js'
 import { logForDebugging } from '../../../utils/debug.js'
+import { sanitizeApiKey } from '../../../utils/providerSecrets.js'
 import { getClaudeCodeUserAgent } from '../../../utils/userAgent.js'
 import {
   DEFAULT_MINIMAX_BASE_URL,
@@ -43,18 +44,28 @@ export function resolveMiniMaxUsageBaseUrl(
 function resolveConfiguredMiniMaxUsageBaseUrl(
   baseUrl?: string,
 ): { baseUrl: string; usedDefault: boolean } {
-  const configuredBaseUrl =
-    baseUrl ?? process.env.OPENAI_BASE_URL ?? process.env.OPENAI_API_BASE
+  if (baseUrl !== undefined) {
+    const trimmed = baseUrl.trim()
+    if (trimmed) {
+      return { baseUrl: trimTrailingSlash(trimmed), usedDefault: false }
+    }
+  }
 
-  if (!configuredBaseUrl?.trim()) {
+  const fromEnv =
+    process.env.ANTHROPIC_BASE_URL ??
+    process.env.MINIMAX_BASE_URL ??
+    process.env.OPENAI_BASE_URL ??
+    process.env.OPENAI_API_BASE
+
+  if (!fromEnv?.trim()) {
     return {
-      baseUrl: defaultBaseUrlForConfigured(configuredBaseUrl),
+      baseUrl: defaultBaseUrlForConfigured(fromEnv),
       usedDefault: true,
     }
   }
 
   return {
-    baseUrl: resolveMiniMaxUsageBaseUrl(configuredBaseUrl),
+    baseUrl: trimTrailingSlash(fromEnv.trim()),
     usedDefault: false,
   }
 }
@@ -95,10 +106,13 @@ export function getMiniMaxUsageUrls(baseUrl?: string): string[] {
 }
 
 export async function fetchMiniMaxUsage(): Promise<MiniMaxUsageData> {
-  const apiKey = process.env.MINIMAX_API_KEY || process.env.OPENAI_API_KEY
+  // Require an explicit MINIMAX_API_KEY. Falling back to OPENAI_API_KEY
+  // would forward an unrelated provider's credential to the MiniMax quota
+  // endpoint — a credential leak (#2207 P1).
+  const apiKey = sanitizeApiKey(process.env.MINIMAX_API_KEY)
   if (!apiKey) {
     throw new Error(
-      'MiniMax auth is required. Set MINIMAX_API_KEY or OPENAI_API_KEY.',
+      'MiniMax auth is required. Set MINIMAX_API_KEY.',
     )
   }
 

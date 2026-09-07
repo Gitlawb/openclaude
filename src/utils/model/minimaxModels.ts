@@ -27,7 +27,9 @@ function getMiniMaxModels(): ModelOption[] {
     // Latest Generation Models - use correct MiniMax naming with M prefix
     { value: 'MiniMax-M2', label: 'MiniMax M2', description: 'MoE model - 131K context - Chat/Code/Reasoning' },
     { value: 'MiniMax-M2.1', label: 'MiniMax M2.1', description: 'Enhanced - 200K context - Vision' },
+    { value: 'MiniMax-M2.1-highspeed', label: 'MiniMax M2.1 Highspeed', description: 'Fast variant - 200K context - Chat/Code' },
     { value: 'MiniMax-M2.5', label: 'MiniMax M2.5', description: 'Flagship - 256K context - Vision/Function-calling' },
+    { value: 'MiniMax-M2.5-highspeed', label: 'MiniMax M2.5 Highspeed', description: 'Fast flagship - 256K context - Vision/Function-calling' },
     { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: 'Flagship - 256K context - Chat/Code/Reasoning' },
     { value: 'MiniMax-M2.7-highspeed', label: 'MiniMax M2.7 Highspeed', description: 'Fast flagship - 256K context - Chat/Code/Reasoning' },
     { value: 'MiniMax-M3', label: 'MiniMax M3', description: 'Next-gen - 1M context - Coding/Agentic/Reasoning' },

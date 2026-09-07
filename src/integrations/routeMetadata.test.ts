@@ -11,7 +11,11 @@ import {
   isCloudflareBaseUrl,
   isConcentrateBaseUrl,
   isLongcatBaseUrl,
+  isMiniMaxBaseUrl,
+  isMiniMaxChinaBaseUrl,
   resolveActiveRouteIdFromEnv,
+  resolveEnvOnlyProviderRouteId,
+  resolveMiniMaxRegionRouteId,
   resolveRouteCredentialValue,
   resolveRouteIdFromBaseUrl,
 } from './routeMetadata.js'
@@ -1260,4 +1264,65 @@ test('resolveActiveRouteIdFromEnv does not let a stale Concentrate model overrid
       CONCENTRATE_MODEL: 'deepseek-v4-flash-0731',
     }),
   ).toBe('openai')
+})
+
+test('isMiniMaxBaseUrl rejects plaintext HTTP to avoid credential leaks (#2207 P1)', () => {
+  expect(isMiniMaxBaseUrl('http://api.minimaxi.com/v1')).toBe(false)
+  expect(isMiniMaxBaseUrl('http://api.minimax.io/anthropic')).toBe(false)
+  expect(isMiniMaxBaseUrl('https://api.minimaxi.com/anthropic')).toBe(true)
+  expect(isMiniMaxBaseUrl('https://api.minimax.io/anthropic')).toBe(true)
+})
+
+test('resolveMiniMaxRegionRouteId returns minimax-cn for api.minimaxi.com (#2207 P1)', () => {
+  expect(
+    resolveMiniMaxRegionRouteId({
+      ANTHROPIC_BASE_URL: 'https://api.minimaxi.com/anthropic',
+    }),
+  ).toBe('minimax-cn')
+  expect(
+    resolveMiniMaxRegionRouteId({
+      OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
+    }),
+  ).toBe('minimax-cn')
+  expect(
+    resolveMiniMaxRegionRouteId({
+      ANTHROPIC_BASE_URL: 'https://api.minimax.io/anthropic',
+    }),
+  ).toBe('minimax')
+  // No MiniMax URL configured → fallback to overseas, since the resolver
+  // cannot prove mainland-China intent.
+  expect(resolveMiniMaxRegionRouteId({ MINIMAX_API_KEY: 'cn-key' })).toBe(
+    'minimax',
+  )
+})
+
+test('resolveEnvOnlyProviderRouteId returns minimax-cn for env-only China config (#2207 P1)', () => {
+  expect(
+    resolveEnvOnlyProviderRouteId({
+      OPENAI_BASE_URL: 'https://api.minimaxi.com/v1',
+      MINIMAX_API_KEY: 'cn-key',
+    }),
+  ).toBe('minimax-cn')
+  expect(
+    resolveEnvOnlyProviderRouteId({
+      OPENAI_API_BASE: 'https://api.minimaxi.com/v1',
+      MINIMAX_API_KEY: 'cn-key',
+    }),
+  ).toBe('minimax-cn')
+})
+
+test('resolveEnvOnlyProviderRouteId returns minimax for overseas config (#2207 P1)', () => {
+  expect(
+    resolveEnvOnlyProviderRouteId({
+      OPENAI_BASE_URL: 'https://api.minimax.io/v1',
+      MINIMAX_API_KEY: 'overseas-key',
+    }),
+  ).toBe('minimax')
+})
+
+test('isMiniMaxChinaBaseUrl accepts only api.minimaxi.com with https (#2207 P1)', () => {
+  expect(isMiniMaxChinaBaseUrl('https://api.minimaxi.com/anthropic')).toBe(true)
+  expect(isMiniMaxChinaBaseUrl('https://api.minimaxi.com/v1')).toBe(true)
+  expect(isMiniMaxChinaBaseUrl('http://api.minimaxi.com/v1')).toBe(false)
+  expect(isMiniMaxChinaBaseUrl('https://api.minimax.io/anthropic')).toBe(false)
 })

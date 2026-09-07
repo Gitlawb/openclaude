@@ -9,6 +9,7 @@ import { isLocalProviderUrl, resolveProviderRequest } from '../services/api/prov
 import {
   getRouteLabel,
   isMiniMaxBaseUrl,
+  isMiniMaxChinaBaseUrl,
   resolveRouteIdFromBaseUrl,
 } from '../integrations/routeMetadata.js'
 import { getLocalOpenAICompatibleProviderLabel } from '../utils/providerDiscovery.js'
@@ -77,6 +78,12 @@ const LOGO_CLAUDE = [
 
 // ─── Provider detection ───────────────────────────────────────────────────────
 
+// Label the startup box for the MiniMax vendor, distinguishing the mainland-
+// China endpoint (api.minimaxi.com) from overseas (#2207 P3).
+function miniMaxLabelForUrl(value: string | undefined): 'MiniMax' | 'MiniMax (China)' {
+  return isMiniMaxChinaBaseUrl(value) ? 'MiniMax (China)' : 'MiniMax'
+}
+
 export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
   const useGemini = process.env.CLAUDE_CODE_USE_GEMINI === '1' || process.env.CLAUDE_CODE_USE_GEMINI === 'true'
   const useGithub = process.env.CLAUDE_CODE_USE_GITHUB === '1' || process.env.CLAUDE_CODE_USE_GITHUB === 'true'
@@ -114,7 +121,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     let name = 'OpenAI'
     // Explicit dedicated-provider env flags win.
     if (process.env.NVIDIA_NIM) name = 'NVIDIA NIM'
-    else if (process.env.MINIMAX_API_KEY) name = 'MiniMax'
+    else if (process.env.MINIMAX_API_KEY) name = miniMaxLabelForUrl(baseUrl)
     else if (
       resolvedRequest.transport === 'codex_responses' ||
       baseUrl.includes('chatgpt.com/backend-api/codex')
@@ -128,7 +135,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/groq/i.test(baseUrl)) name = 'Groq'
     else if (/azure/i.test(baseUrl)) name = 'Azure OpenAI'
     else if (/nvidia/i.test(baseUrl)) name = 'NVIDIA NIM'
-    else if (/minimax/i.test(baseUrl)) name = 'MiniMax'
+    else if (/minimax/i.test(baseUrl)) name = miniMaxLabelForUrl(baseUrl)
     else if (/api\.kimi\.com/i.test(baseUrl)) name = 'Moonshot AI - Kimi Code'
     else if (routeId && routeId !== 'openai' && routeId !== 'custom')
       name = getRouteLabel(routeId) ?? name
@@ -138,7 +145,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
     else if (/atlascloud/i.test(baseUrl)) name = 'Atlas Cloud'
     // rawModel fallback — fires only when base URL is generic/custom.
     else if (/nvidia/i.test(rawModel)) name = 'NVIDIA NIM'
-    else if (/minimax/i.test(rawModel)) name = 'MiniMax'
+    else if (/minimax/i.test(rawModel)) name = miniMaxLabelForUrl(baseUrl)
     else if (/\bkimi-for-coding\b/i.test(rawModel))
       name = 'Moonshot AI - Kimi Code'
     else if (/\bkimi-k/i.test(rawModel) || /moonshot/i.test(rawModel))
@@ -166,14 +173,7 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
-  let name = isMiniMaxBaseUrl(baseUrl) ? 'MiniMax' : 'Anthropic'
-  try {
-    if (new URL(baseUrl).hostname.toLowerCase() === 'api.minimaxi.com') {
-      name = 'MiniMax (China)'
-    }
-  } catch {
-    // baseUrl is already guarded by isLocalProviderUrl; URL parse failure is benign.
-  }
+  const name = isMiniMaxBaseUrl(baseUrl) ? miniMaxLabelForUrl(baseUrl) : 'Anthropic'
   return { name, model: resolvedModel, baseUrl, isLocal }
 }
 

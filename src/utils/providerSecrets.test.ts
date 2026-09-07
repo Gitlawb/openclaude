@@ -9,6 +9,7 @@ import {
 import type { AnthropicProxyDescriptor, ProviderPresetManifestEntry } from '../integrations/descriptors.js'
 
 import {
+  clearInheritedAnthropicAuthToken,
   getKnownProviderSecretEnvKeys,
   maskSecretForDisplay,
   redactSecretValueForDisplay,
@@ -332,5 +333,20 @@ describe('sanitizeProviderConfigValue', () => {
     expect(sanitizeProviderConfigValue('gpt-4o', { OPENAI_API_KEY: FAKE_OPENAI_KEY })).toBe('gpt-4o')
     expect(sanitizeProviderConfigValue('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
     expect(sanitizeProviderConfigValue('Qwen3-Coder-480B-A35B-Instruct')).toBe('Qwen3-Coder-480B-A35B-Instruct')
+  })
+})
+
+describe('clearInheritedAnthropicAuthToken', () => {
+  test('deletes ANTHROPIC_AUTH_TOKEN from the supplied env', () => {
+    const env: NodeJS.ProcessEnv = { ANTHROPIC_AUTH_TOKEN: 'stale-bearer', MINIMAX_API_KEY: 'cn-key' }
+    clearInheritedAnthropicAuthToken(env)
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(env.MINIMAX_API_KEY).toBe('cn-key')
+  })
+
+  test('is a no-op when ANTHROPIC_AUTH_TOKEN is already unset', () => {
+    const env: NodeJS.ProcessEnv = { MINIMAX_API_KEY: 'cn-key' }
+    clearInheritedAnthropicAuthToken(env)
+    expect(env.MINIMAX_API_KEY).toBe('cn-key')
   })
 })

@@ -103,6 +103,22 @@ export function sanitizeApiKey(
   return key
 }
 
+/**
+ * Drop an inherited ANTHROPIC_AUTH_TOKEN from the supplied env. MiniMax uses
+ * x-api-key (seeded via ANTHROPIC_API_KEY); a custom-bearer value left over
+ * from a previous provider would override x-api-key and silently leak the
+ * stale bearer to the MiniMax endpoint (#2207 P1).
+ *
+ * Callers must invoke this before applying MiniMax credentials so the cleanup
+ * happens once, regardless of which entry point (saved profile, `--provider`
+ * flag, env-only SDK seed) led to the request.
+ */
+export function clearInheritedAnthropicAuthToken(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  delete env.ANTHROPIC_AUTH_TOKEN
+}
+
 // Heuristic masks for secret-shaped values whose env var name is not known.
 // These catch values that slipped into display fields through unexpected paths
 // (profile files, custom base URLs with embedded tokens, hand-edited configs).

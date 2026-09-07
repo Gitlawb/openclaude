@@ -4,6 +4,7 @@ import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test
 
 import {
   buildMiniMaxUsageRows,
+  fetchMiniMaxUsage,
   getMiniMaxUsageUrls,
   normalizeMiniMaxUsagePayload,
 } from './minimaxUsage.js'
@@ -13,6 +14,12 @@ const fixture = (name: string) =>
 
 beforeEach(async () => {
   await acquireSharedMutationLock('minimaxUsage.test.ts')
+  // Clear every base-URL alias that resolveConfiguredMiniMaxUsageBaseUrl
+  // consults, so tests start from a known state regardless of shell env.
+  delete process.env.ANTHROPIC_BASE_URL
+  delete process.env.MINIMAX_BASE_URL
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
 })
 
 afterEach(() => {
@@ -360,5 +367,85 @@ describe('MiniMax usage helpers', () => {
         process.env.OPENAI_API_BASE = originalApiBase
       }
     }
+  })
+})
+
+describe('fetchMiniMaxUsage credential guard (#2207 P1)', () => {
+  test('throws a clear error when only OPENAI_API_KEY is set', async () => {
+    const originalMiniMax = process.env.MINIMAX_API_KEY
+    const originalOpenAI = process.env.OPENAI_API_KEY
+    delete process.env.MINIMAX_API_KEY
+    process.env.OPENAI_API_KEY = 'openai-test-key'
+
+    try {
+      await expect(fetchMiniMaxUsage()).rejects.toThrow(/MINIMAX_API_KEY/)
+    } finally {
+      if (originalMiniMax === undefined) {
+        delete process.env.MINIMAX_API_KEY
+      } else {
+        process.env.MINIMAX_API_KEY = originalMiniMax
+      }
+      if (originalOpenAI === undefined) {
+        delete process.env.OPENAI_API_KEY
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAI
+      }
+    }
+  })
+
+  test('throws a clear error when MINIMAX_API_KEY is whitespace-only', async () => {
+    const originalMiniMax = process.env.MINIMAX_API_KEY
+    const originalOpenAI = process.env.OPENAI_API_KEY
+    process.env.MINIMAX_API_KEY = '   '
+    process.env.OPENAI_API_KEY = 'openai-test-key'
+
+    try {
+      await expect(fetchMiniMaxUsage()).rejects.toThrow(/MINIMAX_API_KEY/)
+    } finally {
+      if (originalMiniMax === undefined) {
+        delete process.env.MINIMAX_API_KEY
+      } else {
+        process.env.MINIMAX_API_KEY = originalMiniMax
+      }
+      if (originalOpenAI === undefined) {
+        delete process.env.OPENAI_API_KEY
+      } else {
+        process.env.OPENAI_API_KEY = originalOpenAI
+      }
+    }
+  })
+})
+
+describe('getMiniMaxUsageUrls with active profile aliases (#2207 P2)', () => {
+  test('honors ANTHROPIC_BASE_URL after profile application clears OpenAI aliases', () => {
+    // Profile application clears OPENAI_BASE_URL but emits ANTHROPIC_BASE_URL
+    // (and MINIMAX_BASE_URL). The usage path must honor those, not default
+    // overseas (#2207 P2).
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimaxi.com/anthropic'
+
+    expect(getMiniMaxUsageUrls()).toEqual([
+      'https://api.minimaxi.com/anthropic/token_plan/remains',
+      'https://api.minimaxi.com/anthropic/api/openplatform/coding_plan/remains',
+    ])
+  })
+
+  test('honors MINIMAX_BASE_URL when set without ANTHROPIC_BASE_URL', () => {
+    process.env.MINIMAX_BASE_URL = 'https://api.minimax.io/anthropic'
+
+    expect(getMiniMaxUsageUrls()).toEqual([
+      'https://api.minimax.io/anthropic/token_plan/remains',
+      'https://api.minimax.io/anthropic/api/openplatform/coding_plan/remains',
+    ])
+  })
+
+  test('ANTHROPIC_BASE_URL wins over MINIMAX_BASE_URL and OpenAI aliases', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://api.minimaxi.com/anthropic'
+    process.env.MINIMAX_BASE_URL = 'https://api.minimax.io/anthropic'
+    process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+
+    expect(getMiniMaxUsageUrls()).toEqual([
+      'https://api.minimaxi.com/anthropic/token_plan/remains',
+      'https://api.minimaxi.com/anthropic/api/openplatform/coding_plan/remains',
+    ])
   })
 })

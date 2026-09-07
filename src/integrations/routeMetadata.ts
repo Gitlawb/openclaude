@@ -272,12 +272,31 @@ export function isMiniMaxBaseUrl(value: string | undefined): boolean {
   }
 
   try {
-    const hostname = new URL(trimmed).hostname.toLowerCase()
+    const parsed = new URL(trimmed)
+    // Provider credentials must never traverse plaintext HTTP. Require
+    // https to match the canonical-XAI-style guard (#2207 P1).
+    if (parsed.protocol !== 'https:') {
+      return false
+    }
+    const hostname = parsed.hostname.toLowerCase()
     return (
       hostname === 'api.minimax.io' ||
       hostname === 'api.minimax.chat' ||
       hostname === 'api.minimaxi.com'
     )
+  } catch {
+    return false
+  }
+}
+
+// True when the configured MiniMax URL points at the mainland-China endpoint
+// (api.minimaxi.com). Mirrors the same protocol guard as isMiniMaxBaseUrl.
+export function isMiniMaxChinaBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) return false
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === 'https:' && parsed.hostname.toLowerCase() === 'api.minimaxi.com'
   } catch {
     return false
   }
@@ -761,6 +780,20 @@ export function getMiniMaxBaseUrlOverride(
   return undefined
 }
 
+// Decide between the mainland-China ('minimax-cn') and overseas ('minimax')
+// route id based on the configured MiniMax base URL. Falls back to overseas
+// when no MiniMax URL is configured, since the route metadata cannot prove
+// region intent (#2207 P1).
+export function resolveMiniMaxRegionRouteId(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): 'minimax' | 'minimax-cn' {
+  const override = getMiniMaxBaseUrlOverride(processEnv)
+  if (override && isMiniMaxChinaBaseUrl(override)) {
+    return 'minimax-cn'
+  }
+  return 'minimax'
+}
+
 function isMiniMaxModelName(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -1048,6 +1081,7 @@ export function resolveEnvOnlyProviderRouteId(
 ):
   | 'xai'
   | 'minimax'
+  | 'minimax-cn'
   | 'aimlapi'
   | 'venice'
   | 'xiaomi-mimo'
@@ -1062,7 +1096,7 @@ export function resolveEnvOnlyProviderRouteId(
     hasMiniMaxRouteIntent(processEnv) &&
     hasMiniMaxEnvOnlyProviderIntent(processEnv)
   ) {
-    return 'minimax'
+    return resolveMiniMaxRegionRouteId(processEnv)
   }
 
   if (hasAimlapiEnvOnlyProviderIntent(processEnv)) {
@@ -1074,7 +1108,7 @@ export function resolveEnvOnlyProviderRouteId(
   }
 
   if (hasMiniMaxEnvOnlyProviderIntent(processEnv)) {
-    return 'minimax'
+    return resolveMiniMaxRegionRouteId(processEnv)
   }
 
   if (hasVeniceEnvOnlyProviderIntent(processEnv)) {

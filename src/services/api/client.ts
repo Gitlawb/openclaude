@@ -61,6 +61,10 @@ import {
 import { hasUsableOpenAICredential } from './credentialPool.js'
 import { AnthropicVertex } from './vertexClient.js'
 import { importOptionalRuntimeModule } from '../../utils/optionalRuntimeModule.js'
+import {
+  clearInheritedAnthropicAuthToken,
+  sanitizeApiKey,
+} from '../../utils/providerSecrets.js'
 
 type OptionalRuntimeImporter = typeof importOptionalRuntimeModule
 
@@ -205,13 +209,17 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
   // api.minimax.io when the only hint is the China OpenAI base URL
   // (#2207 P1).
   if (!hasNonEmptyEnvValue(process.env.ANTHROPIC_BASE_URL)) {
-    const openaiHint = process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE
+    // Use the sentinel-aware helper so literal 'null'/'undefined' strings
+    // (common in dotenv templates) fall through to OPENAI_API_BASE instead
+    // of being treated as truthy hints (#2207 P1).
+    const openaiHint =
+      usableProviderConfigEnvValue(process.env.OPENAI_BASE_URL) ??
+      usableProviderConfigEnvValue(process.env.OPENAI_API_BASE)
     let isCnHint = false
-    if (hasNonEmptyEnvValue(openaiHint)) {
+    if (openaiHint) {
       try {
         isCnHint =
-          new URL(openaiHint as string).hostname.toLowerCase() ===
-          'api.minimaxi.com'
+          new URL(openaiHint).hostname.toLowerCase() === 'api.minimaxi.com'
       } catch {
         isCnHint = false
       }
@@ -231,6 +239,11 @@ function applyMiniMaxEnvOnlyDefaults(model: string | undefined): void {
   delete process.env.OPENAI_AUTH_HEADER
   delete process.env.OPENAI_AUTH_SCHEME
   delete process.env.OPENAI_AUTH_HEADER_VALUE
+  // MiniMax uses x-api-key (seeded via ANTHROPIC_API_KEY above); a stale
+  // ANTHROPIC_AUTH_TOKEN from a previous custom-bearer profile would
+  // override x-api-key and leak the bearer to the MiniMax endpoint
+  // (#2207 P1).
+  clearInheritedAnthropicAuthToken()
 }
 
 function isXiaomiMimoModelName(value: string | undefined): boolean {
@@ -935,7 +948,8 @@ export async function getAnthropicClient({
     apiKey: isClaudeAiSubscriber || usesCustomAnthropicAuthToken
       ? null
       : useMiniMaxNativeProvider
-        ? process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
+        ? sanitizeApiKey(process.env.MINIMAX_API_KEY) ??
+          sanitizeApiKey(process.env.ANTHROPIC_API_KEY)
         : apiKey ||
           (!isFirstPartyBaseUrl
             ? process.env.ANTHROPIC_API_KEY?.trim()

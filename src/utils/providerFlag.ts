@@ -35,11 +35,17 @@ import {
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
   isCanonicalCommandcodeInferenceBaseUrl,
+  isMiniMaxBaseUrl,
+  hasNonEmptyEnvValue,
   resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
 import { hasUsableOpenAICredential } from '../services/api/credentialPool.js'
 import { isFirstPartyAnthropicBaseUrlForEnv } from './anthropicBaseUrl.js'
 import { parseModelFlagValue } from './cliArgs.js'
+import {
+  clearInheritedAnthropicAuthToken,
+  sanitizeApiKey,
+} from './providerSecrets.js'
 import {
   argsBeforeModelOwningSubcommand,
   parseRootOptionValue,
@@ -593,15 +599,31 @@ export function applyProviderFlag(
       delete process.env.OPENAI_AUTH_HEADER
       delete process.env.OPENAI_AUTH_SCHEME
       delete process.env.OPENAI_AUTH_HEADER_VALUE
-      process.env.ANTHROPIC_BASE_URL =
-        defaultBaseUrl ??
-        (provider === 'minimax-cn'
-          ? 'https://api.minimaxi.com/anthropic'
-          : 'https://api.minimax.io/anthropic')
+      // MiniMax uses x-api-key (set via ANTHROPIC_API_KEY below); a stale
+      // ANTHROPIC_AUTH_TOKEN from a previous custom-bearer profile would
+      // override x-api-key and leak the bearer to the MiniMax endpoint
+      // (#2207 P1).
+      clearInheritedAnthropicAuthToken()
+      // Preserve a user-supplied custom proxy URL; only seed the preset's
+      // default when the shell value is missing, a sentinel (literal
+      // 'null'/'undefined'), or already a known MiniMax URL (#2207 P1).
+      const existingBaseUrl = process.env.ANTHROPIC_BASE_URL
+      const shouldSeedDefaultBaseUrl =
+        !hasNonEmptyEnvValue(existingBaseUrl) ||
+        isMiniMaxBaseUrl(existingBaseUrl)
+      if (shouldSeedDefaultBaseUrl) {
+        process.env.ANTHROPIC_BASE_URL =
+          defaultBaseUrl ??
+          (provider === 'minimax-cn'
+            ? 'https://api.minimaxi.com/anthropic'
+            : 'https://api.minimax.io/anthropic')
+      }
       process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M3'
       if (model) process.env.ANTHROPIC_MODEL = model
-      if (process.env.MINIMAX_API_KEY && !process.env.ANTHROPIC_API_KEY) {
-        process.env.ANTHROPIC_API_KEY = process.env.MINIMAX_API_KEY
+      const sanitizedMiniMaxKey = sanitizeApiKey(process.env.MINIMAX_API_KEY)
+      const sanitizedAnthropicKey = sanitizeApiKey(process.env.ANTHROPIC_API_KEY)
+      if (sanitizedMiniMaxKey && !sanitizedAnthropicKey) {
+        process.env.ANTHROPIC_API_KEY = sanitizedMiniMaxKey
       }
       if (copiedOpenAIKeyProvider === 'minimax') {
         delete process.env.OPENAI_API_KEY

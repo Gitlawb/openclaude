@@ -387,6 +387,22 @@ describe('detectProvider — explicit dedicated-provider env flags', () => {
     expect(detectProvider().name).toBe('MiniMax (China)')
     expect(detectProvider().baseUrl).toBe('https://api.minimaxi.com/anthropic')
   })
+
+  test('OpenAI-shim path with MINIMAX_API_KEY + api.minimaxi.com is labeled MiniMax (China) (#2207 P3)', () => {
+    setupOpenAIMode('https://api.minimaxi.com/v1', 'MiniMax-M3')
+    process.env.MINIMAX_API_KEY = 'test-key'
+
+    expect(detectProvider().name).toBe('MiniMax (China)')
+    expect(detectProvider().baseUrl).toBe('https://api.minimaxi.com/v1')
+  })
+
+  test('OpenAI-shim path with MINIMAX_API_KEY + api.minimax.io is labeled MiniMax (#2207 P3)', () => {
+    setupOpenAIMode('https://api.minimax.io/v1', 'MiniMax-M3')
+    process.env.MINIMAX_API_KEY = 'test-key'
+
+    expect(detectProvider().name).toBe('MiniMax')
+    expect(detectProvider().baseUrl).toBe('https://api.minimax.io/v1')
+  })
 })
 
 // --- modelOverride from --model flag ---

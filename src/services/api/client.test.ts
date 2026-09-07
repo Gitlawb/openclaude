@@ -771,6 +771,152 @@ test('env-only MiniMax fallback drops stale OpenAI shim options', async () => {
   expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
 })
 
+test('env-only MiniMax fallback strips inherited ANTHROPIC_AUTH_TOKEN (#2207 P1)', async () => {
+  let capturedUrl: string | undefined
+  let capturedHeaders: Headers | undefined
+
+  clearEnvForMiniMaxOnlyTest()
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.MINIMAX_API_KEY = 'minimax-test-key'
+  // Pretend a previous custom-bearer Anthropic profile leaked a bearer into
+  // the process env. MiniMax uses x-api-key (set via ANTHROPIC_API_KEY), so
+  // any stale Authorization: Bearer header would override x-api-key and
+  // forward the wrong credential to api.minimax.io (#2207 P1).
+  process.env.ANTHROPIC_AUTH_TOKEN = 'stale-bearer-must-not-leak'
+
+  globalThis.fetch = (async (input, init) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg-minimax-auth',
+        type: 'message',
+        role: 'assistant',
+        model: 'MiniMax-M3',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        stop_reason: 'end_turn',
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'MiniMax-M3',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'MiniMax-M3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.minimax.io/anthropic/v1/messages?beta=true')
+  expect(capturedHeaders?.get('x-api-key')).toBe('minimax-test-key')
+  expect(capturedHeaders?.get('Authorization')).toBeNull()
+  expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+  expect(process.env.ANTHROPIC_API_KEY).toBe('minimax-test-key')
+})
+
+test('env-only MiniMax fallback ignores sentinel OPENAI_BASE_URL and falls through to OPENAI_API_BASE (#2207 P1)', async () => {
+  let capturedUrl: string | undefined
+
+  clearEnvForMiniMaxOnlyTest()
+  // Literal 'null' (a common dotenv template placeholder) must not block
+  // OPENAI_API_BASE from being consulted.
+  process.env.OPENAI_BASE_URL = 'null'
+  process.env.OPENAI_API_BASE = 'https://api.minimaxi.com/v1'
+  process.env.MINIMAX_API_KEY = 'cn-test-key'
+
+  globalThis.fetch = (async (input) => {
+    capturedUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    return new Response(
+      JSON.stringify({
+        id: 'msg-minimax-cn',
+        type: 'message',
+        role: 'assistant',
+        model: 'MiniMax-M3',
+        content: [{ type: 'text', text: 'cn ok' }],
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        stop_reason: 'end_turn',
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'MiniMax-M3',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'MiniMax-M3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  expect(capturedUrl).toBe('https://api.minimaxi.com/anthropic/v1/messages?beta=true')
+  expect(process.env.ANTHROPIC_BASE_URL).toBe('https://api.minimaxi.com/anthropic')
+})
+
+test('env-only MiniMax fallback ignores whitespace-only MINIMAX_API_KEY (#2207 P1)', async () => {
+  let capturedHeaders: Headers | undefined
+
+  clearEnvForMiniMaxOnlyTest()
+  // Force the env-only MiniMax path by setting ANTHROPIC_BASE_URL to a
+  // MiniMax host. MINIMAX_API_KEY is whitespace-only; the path should fall
+  // through to ANTHROPIC_API_KEY rather than forwarding whitespace.
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimax.io/anthropic'
+  process.env.MINIMAX_API_KEY = '   '
+  process.env.ANTHROPIC_API_KEY = 'anthropic-fallback-key'
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedHeaders = new Headers(init?.headers)
+    return new Response(
+      JSON.stringify({
+        id: 'msg-minimax-ws',
+        type: 'message',
+        role: 'assistant',
+        model: 'MiniMax-M3',
+        content: [{ type: 'text', text: 'ws ok' }],
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        stop_reason: 'end_turn',
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    )
+  }) as FetchType
+
+  const client = (await getAnthropicClient({
+    maxRetries: 0,
+    model: 'MiniMax-M3',
+  })) as unknown as ShimClient
+
+  await client.beta.messages.create({
+    model: 'MiniMax-M3',
+    messages: [{ role: 'user', content: 'hello' }],
+    max_tokens: 16,
+    stream: false,
+  })
+
+  // Whitespace is not a real key; should fall back to ANTHROPIC_API_KEY rather
+  // than being forwarded as x-api-key.
+  expect(capturedHeaders?.get('x-api-key')).toBe('anthropic-fallback-key')
+  expect(capturedHeaders?.get('x-api-key')).not.toBe('   ')
+})
+
 test('env-only MiniMax fallback replaces stale non-MiniMax model env', async () => {
   delete process.env.CLAUDE_CODE_USE_GEMINI
   delete process.env.GEMINI_API_KEY
