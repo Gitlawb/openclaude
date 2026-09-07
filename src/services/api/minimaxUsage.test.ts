@@ -12,17 +12,40 @@ import {
 const fixture = (name: string) =>
   Bun.file(resolve(import.meta.dir, '__fixtures__', name))
 
+// Snapshot every base-URL alias that resolveConfiguredMiniMaxUsageBaseUrl
+// consults, so tests start from a known state and afterEach can restore the
+// caller's environment without leaking aliases the test deleted.
+const MINIMAX_USAGE_BASE_URL_KEYS = [
+  'ANTHROPIC_BASE_URL',
+  'MINIMAX_BASE_URL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+] as const
+
+let originalBaseUrlEnv: Record<(typeof MINIMAX_USAGE_BASE_URL_KEYS)[number], string | undefined>
+
 beforeEach(async () => {
   await acquireSharedMutationLock('minimaxUsage.test.ts')
-  // Clear every base-URL alias that resolveConfiguredMiniMaxUsageBaseUrl
-  // consults, so tests start from a known state regardless of shell env.
-  delete process.env.ANTHROPIC_BASE_URL
-  delete process.env.MINIMAX_BASE_URL
-  delete process.env.OPENAI_BASE_URL
-  delete process.env.OPENAI_API_BASE
+  originalBaseUrlEnv = {
+    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    MINIMAX_BASE_URL: process.env.MINIMAX_BASE_URL,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  }
+  for (const key of MINIMAX_USAGE_BASE_URL_KEYS) {
+    delete process.env[key]
+  }
 })
 
 afterEach(() => {
+  for (const key of MINIMAX_USAGE_BASE_URL_KEYS) {
+    const original = originalBaseUrlEnv[key]
+    if (original === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = original
+    }
+  }
   releaseSharedMutationLock()
 })
 

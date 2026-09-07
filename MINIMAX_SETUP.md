@@ -11,7 +11,7 @@
 ## 1. 选 preset
 
 | 区域 | preset | 默认 endpoint | 启动框标签 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 海外 | `minimax` | `https://api.minimax.io/anthropic` | `MiniMax` |
 | 国内 | `minimax-cn` | `https://api.minimaxi.com/anthropic` | `MiniMax (China)` |
 
@@ -62,9 +62,11 @@ openclaude --provider minimax-cn --model MiniMax-M3 --print "用一句话介绍�
 期望输出含 `MiniMax-M3` 字样。
 
 > 安装版用户直接执行 `openclaude`；源码版从仓库根目录用 `<repo-root>` 占位执行：
+>
 > ```bash
 > node <repo-root>/dist/cli.mjs --provider minimax-cn --model MiniMax-M3 --print "hi"
 > ```
+>
 > `<repo-root>` 替换为你 clone 的 openclaude 仓库目录，不要把当前维护者的本地路径抄进命令。
 
 ---
@@ -114,6 +116,7 @@ openclaude --print "hi"
 - [ ] 401/403 → key 错误或区域错配
 - [ ] `…/v1/messages` 404 → 通常是 legacy OpenAI 风格 URL 没被翻译；显式 export `ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic` 或显式 `--provider minimax-cn` 即可
 - [ ] 直连 curl 验证端点（**CN**）：
+
   ```bash
   curl -sS https://api.minimaxi.com/anthropic/v1/messages \
     -H "x-api-key: $MINIMAX_API_KEY" \
@@ -121,7 +124,9 @@ openclaude --print "hi"
     -H "Content-Type: application/json" \
     -d '{"model":"MiniMax-M3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
   ```
+
 - [ ] 直连 curl 验证端点（**海外**）：
+
   ```bash
   curl -sS https://api.minimax.io/anthropic/v1/messages \
     -H "x-api-key: $MINIMAX_API_KEY" \
@@ -129,6 +134,7 @@ openclaude --print "hi"
     -H "Content-Type: application/json" \
     -d '{"model":"MiniMax-M3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
   ```
+
   期望返回 `200 OK` 与 `model: MiniMax-M3`。
 
 > shell export 检查要用 `[ -n "${VAR:-}" ]` 这种参数展开形式，不要断言固定字符数（key 长度会变）。
@@ -148,7 +154,7 @@ openclaude --print "hi"
 ## 8. 相关路径速查
 
 | 用途 | 路径 |
-|---|---|
+| --- | --- |
 | 项目根 | `<repo-root>`（当前 clone 的 openclaude 仓库目录） |
 | CLI 入口 | `<repo-root>/dist/cli.mjs`（构建产物） |
 | SDK 入口 | `<repo-root>/dist/sdk.mjs` |
