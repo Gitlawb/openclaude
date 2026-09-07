@@ -40,6 +40,7 @@ type TrackedTool = {
   results?: Message[]
   // Progress messages are stored separately and yielded immediately
   pendingProgress: Message[]
+  cancelled?: boolean
   contextModifiers?: Array<(context: ToolUseContext) => ToolUseContext>
 }
 
@@ -305,6 +306,22 @@ export class StreamingToolExecutor {
     )
   }
 
+  private cancelUnfinishedTools(): void {
+    for (const tool of this.tools) {
+      if (tool.status !== 'executing' && tool.status !== 'queued') continue
+      const reason = this.getAbortReason(tool)
+      if (!reason) continue
+      tool.cancelled = true
+      tool.pendingProgress = []
+      tool.contextModifiers = []
+      tool.results = [this.createSyntheticErrorMessage(tool.id, reason, tool.assistantMessage)]
+      tool.status = 'completed'
+    }
+    this.updateInterruptibleState()
+    this.progressAvailableResolve?.()
+    this.progressAvailableResolve = undefined
+  }
+
   /**
    * Execute a tool and collect its results
    */
@@ -376,6 +393,7 @@ export class StreamingToolExecutor {
       let thisToolErrored = false
 
       for await (const update of generator) {
+        if (tool.cancelled) return
         // Check if we were aborted by a sibling tool error or user interruption.
         // Only add the synthetic error if THIS tool didn't produce the error.
         const abortReason = this.getAbortReason(tool)
@@ -426,6 +444,7 @@ export class StreamingToolExecutor {
           contextModifiers.push(update.contextModifier.modifyContext)
         }
       }
+      if (tool.cancelled) return
       tool.results = messages
       tool.contextModifiers = contextModifiers
       tool.status = 'completed'
@@ -445,7 +464,7 @@ export class StreamingToolExecutor {
       // If collectResults throws (e.g. MCP transport error not caught by
       // runToolUse's internal try/catch), mark the tool as completed with an
       // error result so getRemainingResults() doesn't wait forever.
-      if (tool.status !== 'completed') {
+      if (!tool.cancelled && tool.status !== 'completed' && tool.status !== 'yielded') {
         const errorText =
           error instanceof Error ? error.message : String(error)
         tool.results = [
@@ -532,93 +551,102 @@ export class StreamingToolExecutor {
       return
     }
 
-    const debug = isDebugMode()
-    let lastProgressAt = Date.now()
-    let iterations = 0
+    const signal = this.toolUseContext.abortController.signal
+    const onAbort = () => this.cancelUnfinishedTools()
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      if (signal.aborted) onAbort()
+      const debug = isDebugMode()
+      let lastProgressAt = Date.now()
+      let iterations = 0
 
-    const snapshot = (event: string) => {
-      if (!debug) return
-      const statuses: Record<string, number> = {}
-      for (const t of this.tools) {
-        statuses[t.status] = (statuses[t.status] ?? 0) + 1
+      const snapshot = (event: string) => {
+        if (!debug) return
+        const statuses: Record<string, number> = {}
+        for (const t of this.tools) {
+          statuses[t.status] = (statuses[t.status] ?? 0) + 1
+        }
+        logForDebugging(
+          JSON.stringify({
+            type: event,
+            iterations,
+            totalTools: this.tools.length,
+            statuses,
+            hasExecuting: this.hasExecutingTools(),
+            hasCompleted: this.hasCompletedResults(),
+            hasPendingProgress: this.hasPendingProgress(),
+            msSinceProgress: Date.now() - lastProgressAt,
+          }),
+          { level: 'debug' },
+        )
       }
-      logForDebugging(
-        JSON.stringify({
-          type: event,
-          iterations,
-          totalTools: this.tools.length,
-          statuses,
-          hasExecuting: this.hasExecutingTools(),
-          hasCompleted: this.hasCompletedResults(),
-          hasPendingProgress: this.hasPendingProgress(),
-          msSinceProgress: Date.now() - lastProgressAt,
-        }),
-        { level: 'debug' },
-      )
-    }
 
-    while (this.hasUnfinishedTools()) {
-      iterations++
-      snapshot('streaming_tool_iter_start')
-      await this.processQueue()
+      while (this.hasUnfinishedTools()) {
+        iterations++
+        snapshot('streaming_tool_iter_start')
+        await this.processQueue()
 
-      let yieldedThisIter = false
+        let yieldedThisIter = false
+        for (const result of this.getCompletedResults()) {
+          yieldedThisIter = true
+          lastProgressAt = Date.now()
+          yield result
+        }
+
+        // If we still have executing tools but nothing completed, wait for any to complete
+        // OR for progress to become available
+        if (
+          this.hasExecutingTools() &&
+          !this.hasCompletedResults() &&
+          !this.hasPendingProgress()
+        ) {
+          const executingPromises = this.tools
+            .filter(t => t.status === 'executing' && t.promise)
+            .map(t => t.promise!)
+
+          // Also wait for progress to become available
+          const progressPromise = new Promise<void>(resolve => {
+            this.progressAvailableResolve = resolve
+          })
+
+          if (executingPromises.length > 0) {
+            // Watchdog: in --debug, never wait more than TOOL_EXECUTOR_WATCHDOG_MS
+            // for a single race. If it fires, the loop will go around again and
+            // emit a fresh snapshot, exposing what's stuck without us having to
+            // guess. Outside debug, behavior is unchanged.
+            if (debug) {
+              const watchdog = new Promise<'watchdog'>(resolve =>
+                setTimeout(() => resolve('watchdog'), TOOL_EXECUTOR_WATCHDOG_MS),
+              )
+              const winner = await Promise.race<unknown>([
+                ...executingPromises,
+                progressPromise,
+                watchdog,
+              ])
+              if (winner === 'watchdog') {
+                snapshot('streaming_tool_watchdog_fired')
+              }
+            } else {
+              await Promise.race([...executingPromises, progressPromise])
+            }
+          } else if (debug) {
+            // hasExecutingTools=true but executingPromises empty means we have a
+            // tool stuck in 'executing' with no promise — would be a busy loop.
+            snapshot('streaming_tool_executing_without_promise')
+          }
+        } else if (!yieldedThisIter && debug) {
+          snapshot('streaming_tool_iter_no_progress')
+        }
+      }
+
       for (const result of this.getCompletedResults()) {
-        yieldedThisIter = true
-        lastProgressAt = Date.now()
         yield result
       }
-
-      // If we still have executing tools but nothing completed, wait for any to complete
-      // OR for progress to become available
-      if (
-        this.hasExecutingTools() &&
-        !this.hasCompletedResults() &&
-        !this.hasPendingProgress()
-      ) {
-        const executingPromises = this.tools
-          .filter(t => t.status === 'executing' && t.promise)
-          .map(t => t.promise!)
-
-        // Also wait for progress to become available
-        const progressPromise = new Promise<void>(resolve => {
-          this.progressAvailableResolve = resolve
-        })
-
-        if (executingPromises.length > 0) {
-          // Watchdog: in --debug, never wait more than TOOL_EXECUTOR_WATCHDOG_MS
-          // for a single race. If it fires, the loop will go around again and
-          // emit a fresh snapshot, exposing what's stuck without us having to
-          // guess. Outside debug, behavior is unchanged.
-          if (debug) {
-            const watchdog = new Promise<'watchdog'>(resolve =>
-              setTimeout(() => resolve('watchdog'), TOOL_EXECUTOR_WATCHDOG_MS),
-            )
-            const winner = await Promise.race<unknown>([
-              ...executingPromises,
-              progressPromise,
-              watchdog,
-            ])
-            if (winner === 'watchdog') {
-              snapshot('streaming_tool_watchdog_fired')
-            }
-          } else {
-            await Promise.race([...executingPromises, progressPromise])
-          }
-        } else if (debug) {
-          // hasExecutingTools=true but executingPromises empty means we have a
-          // tool stuck in 'executing' with no promise — would be a busy loop.
-          snapshot('streaming_tool_executing_without_promise')
-        }
-      } else if (!yieldedThisIter && debug) {
-        snapshot('streaming_tool_iter_no_progress')
-      }
+      if (debug) snapshot('streaming_tool_loop_exit')
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+      this.progressAvailableResolve = undefined
     }
-
-    for (const result of this.getCompletedResults()) {
-      yield result
-    }
-    if (debug) snapshot('streaming_tool_loop_exit')
   }
 
   /**

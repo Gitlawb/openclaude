@@ -17,7 +17,7 @@ import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
 import { runWithAgentContext } from '../../utils/agentContext.js';
 import { isAgentSwarmsEnabled } from '../../utils/agentSwarmsEnabled.js';
-import { createChildAbortController } from '../../utils/abortController.js';
+import { createChildAbortController, linkAbortController } from '../../utils/abortController.js';
 import { getCwd, runWithCwdOverride } from '../../utils/cwd.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';
@@ -720,6 +720,7 @@ export const AgentTool = buildTool({
         worktreeBranch
       };
     };
+    if (toolUseContext.abortController.signal.aborted) throw new AbortError();
     if (shouldRunAsync) {
       const asyncAgentId = earlyAgentId;
       const agentBackgroundTask = registerAsyncAgent({
@@ -846,6 +847,7 @@ export const AgentTool = buildTool({
         // Register as foreground task immediately so it can be backgrounded at any time
         // Skip registration if background tasks are disabled
         let foregroundTaskId: string | undefined;
+        let foregroundExecutionId: string | undefined;
         // Create the background race promise once outside the loop — otherwise
         // each iteration adds a new .then() reaction to the same pending
         // promise, accumulating callbacks for the lifetime of the agent.
@@ -854,6 +856,7 @@ export const AgentTool = buildTool({
         }> | undefined;
         let cancelAutoBackground: (() => void) | undefined;
         let foregroundAbortController: AbortController | undefined;
+        let unlinkForegroundAbort: (() => void) | undefined;
         if (!isBackgroundTasksDisabled) {
           const registration = registerAgentForeground({
             agentId: syncAgentId,
@@ -866,11 +869,13 @@ export const AgentTool = buildTool({
             autoBackgroundMs: getAutoBackgroundMs() || undefined
           });
           foregroundTaskId = registration.taskId;
+          foregroundExecutionId = registration.executionId;
           backgroundPromise = registration.backgroundSignal.then(() => ({
             type: 'background' as const
           }));
           cancelAutoBackground = registration.cancelAutoBackground;
           foregroundAbortController = createChildAbortController(registration.abortController);
+          unlinkForegroundAbort = linkAbortController(toolUseContext.abortController.signal, foregroundAbortController);
         }
 
         // Track if we've shown the background hint UI
@@ -910,6 +915,7 @@ export const AgentTool = buildTool({
         } = {};
         try {
           while (true) {
+            if (toolUseContext.abortController.signal.aborted) throw new AbortError();
             const elapsed = Date.now() - agentStartTime;
 
             // Show background hint after threshold (but task is already registered)
@@ -934,6 +940,7 @@ export const AgentTool = buildTool({
               type: 'message' as const,
               result: await nextMessagePromise
             };
+            if (toolUseContext.abortController.signal.aborted) throw new AbortError();
 
             // Check if we were backgrounded via backgroundAll()
             // foregroundTaskId is guaranteed to be defined if raceResult.type is 'background'
@@ -941,7 +948,7 @@ export const AgentTool = buildTool({
             if (raceResult.type === 'background' && foregroundTaskId) {
               const appState = toolUseContext.getAppState();
               const task = appState.tasks[foregroundTaskId];
-              if (isLocalAgentTask(task) && task.isBackgrounded) {
+              if (isLocalAgentTask(task) && task.status === 'running' && task.isBackgrounded && task.abortController && !task.abortController.signal.aborted) {
                 // Capture the taskId for use in the async callback
                 const backgroundedTaskId = foregroundTaskId;
                 wasBackgrounded = true;
@@ -954,6 +961,11 @@ export const AgentTool = buildTool({
                 // same as the async-from-start path above.
                 // Continue agent in background and return async result
                 void runWithAgentContext(syncAgentContext, async () => {
+                  const backgroundController = task.abortController!;
+                  const isCurrentBackground = () => {
+                    const current = toolUseContext.getAppState().tasks[backgroundedTaskId];
+                    return isLocalAgentTask(current) && current.executionId === task.executionId;
+                  };
                   let stopBackgroundedSummarization: (() => void) | undefined;
                   try {
                     // Clean up the foreground iterator so its finally block runs
@@ -961,6 +973,8 @@ export const AgentTool = buildTool({
                     // Timeout prevents blocking if MCP server cleanup hangs.
                     // .catch() prevents unhandled rejection if timeout wins the race.
                     await Promise.race([agentIterator.return(undefined).catch(() => {}), sleep(1000)]);
+                    if (!isCurrentBackground()) return;
+                    if (backgroundController.signal.aborted) throw new AbortError();
                     // Initialize progress tracking from existing messages
                     const tracker = createProgressTracker();
                     const resolveActivity2 = createActivityDescriptionResolver(toolUseContext.options.tools);
@@ -983,6 +997,8 @@ export const AgentTool = buildTool({
                         stopBackgroundedSummarization = stop;
                       } : undefined
                     })) {
+                      if (!isCurrentBackground()) return;
+                      if (backgroundController.signal.aborted) throw new AbortError();
                       agentMessages.push(msg);
 
                       // Track progress for backgrounded agents
@@ -993,6 +1009,8 @@ export const AgentTool = buildTool({
                         emitTaskProgress(tracker, backgroundedTaskId, toolUseContext.toolUseId, description, startTime, lastToolName);
                       }
                     }
+                    if (!isCurrentBackground()) return;
+                    if (backgroundController.signal.aborted) throw new AbortError();
                     const agentResult = finalizeAgentTool(agentMessages, backgroundedTaskId, metadata);
 
                     // Mark task completed FIRST so TaskOutput(block=true)
@@ -1020,6 +1038,7 @@ export const AgentTool = buildTool({
 
                     // Clean up worktree before notification so we can include it
                     const worktreeResult = await cleanupWorktreeIfNeeded();
+                    if (!isCurrentBackground()) return;
                     enqueueAgentNotification({
                       taskId: backgroundedTaskId,
                       description,
@@ -1035,6 +1054,7 @@ export const AgentTool = buildTool({
                       ...worktreeResult
                     });
                   } catch (error) {
+                    if (!isCurrentBackground()) return;
                     if (error instanceof AbortError) {
                       // Transition status BEFORE worktree cleanup so
                       // TaskOutput unblocks even if git hangs (gh-20236).
@@ -1048,6 +1068,7 @@ export const AgentTool = buildTool({
                         reason: 'user_cancel_background' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
                       });
                       const worktreeResult = await cleanupWorktreeIfNeeded();
+                    if (!isCurrentBackground()) return;
                       const partialResult = extractPartialResult(agentMessages);
                       enqueueAgentNotification({
                         taskId: backgroundedTaskId,
@@ -1063,6 +1084,7 @@ export const AgentTool = buildTool({
                     const errMsg = errorMessage(error);
                     failAsyncAgent(backgroundedTaskId, errMsg, rootSetAppState);
                     const worktreeResult = await cleanupWorktreeIfNeeded();
+                    if (!isCurrentBackground()) return;
                     enqueueAgentNotification({
                       taskId: backgroundedTaskId,
                       description,
@@ -1074,12 +1096,13 @@ export const AgentTool = buildTool({
                     });
                   } finally {
                     stopBackgroundedSummarization?.();
+                    const canCleanUp = !toolUseContext.getAppState().tasks[backgroundedTaskId] || isCurrentBackground();
                     // Defensive cleanup: wrap each call so one failure doesn't
                     // prevent the other from running. Without this, if
                     // clearInvokedSkillsForAgent throws, clearDumpState is
                     // skipped and dump state leaks.
-                    try { clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
-                    try { clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
+                    try { if (canCleanUp) clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
+                    try { if (canCleanUp) clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
                   }
                 });
 
@@ -1195,6 +1218,8 @@ export const AgentTool = buildTool({
           // Store the error to handle after cleanup
           syncAgentError = toError(error);
         } finally {
+          const foregroundTask = foregroundTaskId ? toolUseContext.getAppState().tasks[foregroundTaskId] : undefined;
+          const wasReplaced = isLocalAgentTask(foregroundTask) && foregroundTask.executionId !== foregroundExecutionId;
           // Clear the background hint UI
           if (toolUseContext.setToolJSX) {
             toolUseContext.setToolJSX(null);
@@ -1206,12 +1231,12 @@ export const AgentTool = buildTool({
           stopForegroundSummarization?.();
 
           // Unregister foreground task if agent completed without being backgrounded
-          if (foregroundTaskId) {
-            unregisterAgentForeground(foregroundTaskId, rootSetAppState);
+          if (foregroundTaskId && !wasReplaced) {
+            unregisterAgentForeground(foregroundTaskId, rootSetAppState, foregroundExecutionId);
             // Notify SDK consumers (e.g. VS Code subagent panel) that this
             // foreground agent is done. Goes through drainSdkEvents() — does
             // NOT trigger the print.ts XML task_notification parser or the LLM loop.
-            if (!wasBackgrounded) {
+            if (!wasBackgrounded && !foregroundTask?.notified) {
               const progress = getProgressUpdate(syncTracker);
               enqueueSdkEvent({
                 type: 'system',
@@ -1231,20 +1256,21 @@ export const AgentTool = buildTool({
           }
 
           // Clean up scoped skills so they don't accumulate in the global map
-          clearInvokedSkillsForAgent(syncAgentId);
+          if (!wasReplaced && !wasBackgrounded) clearInvokedSkillsForAgent(syncAgentId);
 
           // Clean up dumpState entry for this agent to prevent unbounded growth
           // Skip if backgrounded — the backgrounded agent's finally handles cleanup
-          if (!wasBackgrounded) {
+          if (!wasBackgrounded && !wasReplaced) {
             clearDumpState(syncAgentId);
           }
 
           // Cancel auto-background timer if agent completed before it fired
           cancelAutoBackground?.();
+          unlinkForegroundAbort?.();
 
           // Clean up worktree if applicable (in finally to handle abort/error paths)
           // Skip if backgrounded — the background continuation is still running in it
-          if (!wasBackgrounded) {
+          if (!wasBackgrounded && !wasReplaced) {
             worktreeResult = await cleanupWorktreeIfNeeded();
           }
         }

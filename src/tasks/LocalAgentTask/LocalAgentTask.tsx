@@ -121,6 +121,8 @@ export type LocalAgentTaskState = TaskStateBase & {
   agentType: string;
   model?: string;
   abortController?: AbortController;
+  /** Distinguishes resumed executions of the same agent for late callbacks. */
+  executionId?: string;
   unregisterCleanup?: () => void;
   error?: string;
   result?: AgentToolResult;
@@ -488,6 +490,7 @@ export function registerAsyncAgent({
   const abortController = parentAbortController ? createChildAbortController(parentAbortController) : createAbortController();
   const taskState: LocalAgentTaskState = {
     ...createTaskStateBase(agentId, 'local_agent', description, toolUseId),
+    executionId: crypto.randomUUID(),
     type: 'local_agent',
     status: 'running',
     agentId,
@@ -548,6 +551,7 @@ export function registerAgentForeground({
   taskId: string;
   abortController: AbortController;
   backgroundSignal: Promise<void>;
+  executionId: string;
   cancelAutoBackground?: () => void;
 } {
   void initTaskOutputAsSymlink(agentId, getAgentTranscriptPath(asAgentId(agentId)));
@@ -557,6 +561,7 @@ export function registerAgentForeground({
   });
   const taskState: LocalAgentTaskState = {
     ...createTaskStateBase(agentId, 'local_agent', description, toolUseId),
+    executionId: crypto.randomUUID(),
     type: 'local_agent',
     status: 'running',
     agentId,
@@ -591,7 +596,7 @@ export function registerAgentForeground({
       // Mark task as backgrounded and resolve the signal
       setAppState(prev => {
         const prevTask = prev.tasks[agentId];
-        if (!isLocalAgentTask(prevTask) || prevTask.isBackgrounded) {
+        if (!isLocalAgentTask(prevTask) || prevTask.executionId !== taskState.executionId || prevTask.status !== 'running' || prevTask.isBackgrounded) {
           return prev;
         }
         return {
@@ -606,7 +611,7 @@ export function registerAgentForeground({
         };
       });
       const resolver = backgroundSignalResolvers.get(agentId);
-      if (resolver) {
+      if (resolver === resolveBackgroundSignal) {
         resolver();
         backgroundSignalResolvers.delete(agentId);
       }
@@ -617,6 +622,7 @@ export function registerAgentForeground({
     taskId: agentId,
     abortController,
     backgroundSignal,
+    executionId: taskState.executionId!,
     cancelAutoBackground
   };
 }
@@ -662,12 +668,13 @@ export function backgroundAgentTask(taskId: string, getAppState: () => AppState,
 /**
  * Unregister a foreground agent task when the agent completes without being backgrounded.
  */
-export function unregisterAgentForeground(taskId: string, setAppState: SetAppState): void {
-  // Clean up the background signal resolver
-  backgroundSignalResolvers.delete(taskId);
+export function unregisterAgentForeground(taskId: string, setAppState: SetAppState, executionId?: string): void {
+  let canCleanUp = false;
   let cleanupFn: (() => void) | undefined;
   setAppState(prev => {
     const task = prev.tasks[taskId];
+    if (isLocalAgentTask(task) && executionId !== undefined && task.executionId !== executionId) return prev;
+    canCleanUp = true;
     // Only remove if it's a foreground task (not backgrounded)
     if (!isLocalAgentTask(task) || task.isBackgrounded) {
       return prev;
@@ -685,6 +692,7 @@ export function unregisterAgentForeground(taskId: string, setAppState: SetAppSta
     };
   });
 
+  if (canCleanUp) backgroundSignalResolvers.delete(taskId);
   // Call cleanup outside of the state updater (avoid side effects in updater)
   cleanupFn?.();
 }

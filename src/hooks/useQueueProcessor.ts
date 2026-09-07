@@ -22,6 +22,7 @@ type UseQueueProcessorParams = {
  *
  * Processing triggers when:
  * - No query active (queryGuard — reactive via useSyncExternalStore)
+ * - Queue isn't paused by a user interruption
  * - Queue has items
  * - No active local JSX UI blocking input
  */
@@ -36,6 +37,10 @@ export function useQueueProcessor({
     queryGuard.subscribe,
     queryGuard.getSnapshot,
   )
+  const isPaused = useSyncExternalStore(
+    queryGuard.subscribe,
+    queryGuard.getPausedSnapshot,
+  )
 
   // Subscribe to the unified command queue via useSyncExternalStore.
   // This guarantees re-render when the store changes, bypassing
@@ -46,12 +51,14 @@ export function useQueueProcessor({
   )
 
   useEffect(() => {
+    // Read synchronously too: an effect captured before Esc must not dequeue.
+    if (queryGuard.isPaused || queryGuard.isActive) return
     if (isQueryActive) return
     if (hasActiveLocalJsxUI) return
     if (queueSnapshot.length === 0) return
 
-    // Reservation is now owned by handlePromptSubmit (inside executeUserInput's
-    // try block). The sync chain executeQueuedInput → handlePromptSubmit →
+    // Reservation is owned by handlePromptSubmit. The sync chain
+    // executeQueuedInput → handlePromptSubmit →
     // executeUserInput → queryGuard.reserve() runs before the first real await,
     // so by the time React re-runs this effect (due to the dequeue-triggered
     // snapshot change), isQueryActive is already true (dispatching) and the
@@ -61,6 +68,7 @@ export function useQueueProcessor({
   }, [
     queueSnapshot,
     isQueryActive,
+    isPaused,
     executeQueuedInput,
     hasActiveLocalJsxUI,
     queryGuard,

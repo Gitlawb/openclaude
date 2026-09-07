@@ -47,6 +47,17 @@ verboo /login
 - **Tool calling**: Multi-step tool loops with model calls, tool execution, and follow-up responses
 - **Images**: URL and base64 image inputs for providers that support vision
 
+### Interrupting work
+
+Press **Esc** once to stop work across the current CLI session, including
+subagents and commands running in the background from earlier messages.
+This also works while a menu, permission prompt, history search, or agent
+transcript is open. Queued messages and attachments are kept; the queue resumes
+when you submit a new message. Your draft input is preserved.
+
+**Ctrl+C** also stops active work. With text selected, it keeps its copy behavior;
+when the session is idle, the usual exit shortcut remains available.
+
 ## Verboo in Chrome
 
 The Verboo desktop app installs and maintains the local `verboo-in-chrome` MCP

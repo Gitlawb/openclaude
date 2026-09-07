@@ -3,12 +3,15 @@ import type { InputEvent } from '../ink/events/input-event.js'
 import { type Key, useInput } from '../ink.js'
 import { useOptionalKeybindingContext } from './KeybindingContext.js'
 import type { KeybindingContextName } from './types.js'
+import { resolveKeyWithChordState } from './resolver.js'
 
 type Options = {
   /** Which context this binding belongs to (default: 'Global') */
   context?: KeybindingContextName
   /** Only handle when active (like useInput's isActive) */
   isActive?: boolean
+  /** Resolve this context before modal contexts and the chord interceptor. */
+  priority?: boolean
 }
 
 /**
@@ -35,7 +38,7 @@ export function useKeybinding(
   handler: () => void | false | Promise<void>,
   options: Options = {},
 ): void {
-  const { context = 'Global', isActive = true } = options
+  const { context = 'Global', isActive = true, priority = false } = options
   const keybindingContext = useOptionalKeybindingContext()
 
   // Register handler with the context for ChordInterceptor to invoke
@@ -48,6 +51,19 @@ export function useKeybinding(
     (input: string, key: Key, event: InputEvent) => {
       // If no keybinding context available, skip resolution
       if (!keybindingContext) return
+
+      if (priority) {
+        // A pending chord must not swallow the user's stop gesture. Resolve
+        // the configured binding without modal contexts or chord state.
+        const result = resolveKeyWithChordState(
+          input, key, [context, 'Global'], keybindingContext.bindings, null,
+        )
+        if (result.type === 'match' && result.action === action && handler() !== false) {
+          keybindingContext.setPendingChord(null)
+          event.stopImmediatePropagation()
+        }
+        return
+      }
 
       // Build context list: registered active contexts + this context + Global
       // More specific contexts (registered ones) take precedence over Global
@@ -90,10 +106,10 @@ export function useKeybinding(
           break
       }
     },
-    [action, context, handler, keybindingContext],
+    [action, context, handler, keybindingContext, priority],
   )
 
-  useInput(handleInput, { isActive })
+  useInput(handleInput, { isActive, priority })
 }
 
 /**

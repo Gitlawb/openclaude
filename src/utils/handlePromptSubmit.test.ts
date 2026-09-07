@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { QueryGuard } from './QueryGuard.js'
 import { getCommandQueue, resetCommandQueue } from './messageQueueManager.js'
 
 describe('handlePromptSubmit', () => {
@@ -24,6 +25,8 @@ describe('handlePromptSubmit', () => {
     let pastedContentsCleared = false
     let historyReset = false
 
+    const queryGuard = new QueryGuard()
+    queryGuard.tryStart()
     await handlePromptSubmit({
       input: '  use another library  ',
       mode: 'prompt',
@@ -55,9 +58,7 @@ describe('handlePromptSubmit', () => {
         },
       } as never,
       hasInterruptibleToolInProgress: true,
-      queryGuard: {
-        isActive: true,
-      } as never,
+      queryGuard,
       isExternalLoading: false,
       commands: [],
       messages: [],

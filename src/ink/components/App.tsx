@@ -501,6 +501,9 @@ function processKeysInBatch(app: App, items: ParsedInput[], _unused1: undefined,
       continue;
     }
     const sequence = item.sequence;
+    // Key-up reports are not another command. In particular releasing Esc
+    // must not close a dialog after the press already cancelled the turn.
+    if (item.eventType === 'release') continue;
 
     // Handle terminal focus events (DECSET 1004)
     if (sequence === FOCUS_IN) {
@@ -541,7 +544,9 @@ function processKeysInBatch(app: App, items: ParsedInput[], _unused1: undefined,
     app.internal_eventEmitter.emit('input', event);
 
     // Also dispatch through the DOM tree so onKeyDown handlers fire.
-    app.props.dispatchKeyboardEvent(item);
+    if (!event.didStopImmediatePropagation()) {
+      app.props.dispatchKeyboardEvent(item);
+    }
   }
 }
 

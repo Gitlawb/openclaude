@@ -578,6 +578,12 @@ export async function runAsyncAgentLifecycle({
 }): Promise<void> {
   let stopSummarization: (() => void) | undefined
   const agentMessages: MessageType[] = []
+  const initialTask = toolUseContext.getAppState().tasks[taskId]
+  const executionId = isLocalAgentTask(initialTask) ? initialTask.executionId : undefined
+  const isCurrentExecution = () => {
+    const task = toolUseContext.getAppState().tasks[taskId]
+    return isLocalAgentTask(task) && task.executionId === executionId
+  }
   try {
     const tracker = createProgressTracker()
     const resolveActivity = createActivityDescriptionResolver(
@@ -595,6 +601,8 @@ export async function runAsyncAgentLifecycle({
         }
       : undefined
     for await (const message of makeStream(onCacheSafeParams)) {
+      if (!isCurrentExecution()) return
+      if (abortController.signal.aborted) throw new AbortError()
       agentMessages.push(message)
       // Append immediately when UI holds the task (retain). Bootstrap reads
       // disk in parallel and UUID-merges the prefix — disk-write-before-yield
@@ -637,6 +645,9 @@ export async function runAsyncAgentLifecycle({
 
     stopSummarization?.()
 
+    if (!isCurrentExecution()) return
+    if (abortController.signal.aborted) throw new AbortError()
+
     const agentResult = finalizeAgentTool(agentMessages, taskId, metadata)
 
     // Mark task completed FIRST so TaskOutput(block=true) unblocks
@@ -664,6 +675,8 @@ export async function runAsyncAgentLifecycle({
 
     const worktreeResult = await getWorktreeResult()
 
+    if (!isCurrentExecution()) return
+
     enqueueAgentNotification({
       taskId,
       description,
@@ -680,6 +693,7 @@ export async function runAsyncAgentLifecycle({
     })
   } catch (error) {
     stopSummarization?.()
+    if (!isCurrentExecution()) return
     if (error instanceof AbortError) {
       // killAsyncAgent is a no-op if TaskStop already set status='killed' —
       // but only this catch handler has agentMessages, so the notification
@@ -698,6 +712,7 @@ export async function runAsyncAgentLifecycle({
           'user_kill_async' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
       })
       const worktreeResult = await getWorktreeResult()
+      if (!isCurrentExecution()) return
       const partialResult = extractPartialResult(agentMessages)
       enqueueAgentNotification({
         taskId,
@@ -713,6 +728,7 @@ export async function runAsyncAgentLifecycle({
     const msg = errorMessage(error)
     failAsyncAgent(taskId, msg, rootSetAppState)
     const worktreeResult = await getWorktreeResult()
+    if (!isCurrentExecution()) return
     enqueueAgentNotification({
       taskId,
       description,
@@ -723,7 +739,11 @@ export async function runAsyncAgentLifecycle({
       ...worktreeResult,
     })
   } finally {
-    clearInvokedSkillsForAgent(agentIdForCleanup)
-    clearDumpState(agentIdForCleanup)
+    stopSummarization?.()
+    // Evicted tasks still need cleanup; a replacement owns its own state.
+    if (!toolUseContext.getAppState().tasks[taskId] || isCurrentExecution()) {
+      clearInvokedSkillsForAgent(agentIdForCleanup)
+      clearDumpState(agentIdForCleanup)
+    }
   }
 }

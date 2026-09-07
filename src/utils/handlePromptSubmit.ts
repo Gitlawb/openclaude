@@ -24,7 +24,7 @@ import type { EffortValue } from './effort.js'
 import type { FileHistoryState } from './fileHistory.js'
 import { fileHistoryEnabled, fileHistoryMakeSnapshot } from './fileHistory.js'
 import { gracefulShutdownSync } from './gracefulShutdown.js'
-import { enqueue } from './messageQueueManager.js'
+import { enqueue, hasCommandsInQueue, restoreQueuedCommands } from './messageQueueManager.js'
 import { resolveSkillModelOverride } from './model/model.js'
 import type { ProcessUserInputContext } from './processUserInput/processUserInput.js'
 import { processUserInput } from './processUserInput/processUserInput.js'
@@ -44,6 +44,7 @@ type BaseExecutionParams = {
   querySource: QuerySource
   commands: Command[]
   queryGuard: QueryGuard
+  beforeProcessInput?: () => Promise<void>
   /**
    * True when external loading (remote session, foregrounded background task)
    * is active. These don't route through queryGuard, so the queue check must
@@ -150,6 +151,7 @@ export async function handlePromptSubmit(
   if (queuedCommands?.length) {
     startQueryProfile()
     await executeUserInput({
+      beforeProcessInput: params.beforeProcessInput,
       queuedCommands,
       messages,
       mainLoopModel,
@@ -310,7 +312,9 @@ export async function handlePromptSubmit(
     }
   }
 
-  if (queryGuard.isActive || isExternalLoading) {
+  const resumingQueue = queryGuard.isPaused && hasCommandsInQueue()
+  queryGuard.resume()
+  if (queryGuard.isActive || isExternalLoading || resumingQueue) {
     // Only allow prompt and bash mode commands to be queued
     if (mode !== 'prompt' && mode !== 'bash') {
       return
@@ -367,6 +371,7 @@ export async function handlePromptSubmit(
   }
 
   await executeUserInput({
+    beforeProcessInput: params.beforeProcessInput,
     queuedCommands: [cmd],
     messages,
     mainLoopModel,
@@ -394,7 +399,10 @@ export async function handlePromptSubmit(
  * (attachments, ideSelection, pastedContents with image resizing). Commands 2-N
  * get `skipAttachments` to avoid duplicating turn-level context.
  */
-async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
+export async function executeUserInput(
+  params: ExecuteUserInputParams,
+  processInput: typeof processUserInput = processUserInput,
+): Promise<void> {
   const {
     messages,
     mainLoopModel,
@@ -413,12 +421,31 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     queuedCommands,
   } = params
 
+  // Reserve before publishing a controller. A dispatch captured before Esc
+  // must put its input back without overwriting the next execution's state.
+  if (!queryGuard.reserve()) {
+    restoreQueuedCommands(queuedCommands ?? [])
+    return
+  }
+  const generation = queryGuard.generation
+  let startedCommands = queuedCommands?.length ? 1 : 0
   // Note: paste references are already processed before calling this function
   // (either in handlePromptSubmit before queuing, or before initial execution).
   // Always create a fresh abort controller — queryGuard guarantees no concurrent
   // executeUserInput call, so there's no prior controller to inherit.
   const abortController = createAbortController()
   setAbortController(abortController)
+  const isCurrent = () => !abortController.signal.aborted && queryGuard.isCurrent(generation)
+  let restoredUnstarted = false
+  const restoreUnstarted = () => {
+    if (restoredUnstarted) return
+    restoredUnstarted = true
+    restoreQueuedCommands((queuedCommands ?? []).slice(startedCommands))
+  }
+  abortController.signal.addEventListener('abort', restoreUnstarted, { once: true })
+  const setCurrentToolJSX: SetToolJSXFn = value => {
+    if (isCurrent()) setToolJSX(value)
+  }
 
   function makeContext(): ProcessUserInputContext {
     return getToolUseContext(messages, [], abortController, mainLoopModel)
@@ -429,13 +456,10 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
   // which transitions running→idle; cancelReservation() below is a no-op in
   // that case (only acts on dispatching state).
   try {
-    // Reserve the guard BEFORE processUserInput — processBashCommand awaits
-    // BashTool.call() and processSlashCommand awaits getMessagesForSlashCommand,
-    // so the guard must be active during those awaits to ensure concurrent
-    // handlePromptSubmit calls queue (via the isActive check above) instead
-    // of starting a second executeUserInput. This call is a no-op if the
-    // guard is already in dispatching (legacy queue-processor path).
-    queryGuard.reserve()
+    // Startup hooks and input preparation share the reservation and controller,
+    // so Esc also reaches work that hasn't started its model request yet.
+    if (params.beforeProcessInput) await params.beforeProcessInput()
+    if (!isCurrent()) return
     queryCheckpoint('query_process_user_input_start')
 
     const newMessages: Message[] = []
@@ -472,18 +496,20 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
     // await by this function's synchronous return path. See state.ts.
     await runWithWorkload(turnWorkload, async () => {
       for (let i = 0; i < commands.length; i++) {
+        if (!isCurrent()) return
         const cmd = commands[i]!
+        startedCommands = i + 1
         const isFirst = i === 0
-        const result = await processUserInput({
+        const result = await processInput({
           input: cmd.value,
           preExpansionInput: cmd.preExpansionValue,
           mode: cmd.mode,
-          setToolJSX,
+          setToolJSX: setCurrentToolJSX,
           context: makeContext(),
           pastedContents: isFirst ? cmd.pastedContents : undefined,
           messages,
           setUserInputOnProcessing: isFirst
-            ? setUserInputOnProcessing
+            ? value => { if (isCurrent()) setUserInputOnProcessing(value) }
             : undefined,
           isAlreadyProcessing: !isFirst,
           querySource,
@@ -495,6 +521,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
           isMeta: cmd.isMeta,
           skipAttachments: !isFirst,
         })
+        if (!isCurrent()) return
         // Stamp origin here rather than threading another arg through
         // processUserInput → processUserInputBase → processTextPrompt → createUserMessage.
         // Derive origin from mode for task-notifications — mirrors the origin
@@ -576,7 +603,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
         // the spinner formula checks: (!toolJSX || showSpinner) && isLoading.
         // If we clear toolJSX while the guard is still reserved, spinner briefly
         // shows. The finally below also calls cancelReservation (no-op if idle).
-        queryGuard.cancelReservation()
+        queryGuard.cancelReservation(generation)
         setToolJSX({
           jsx: null,
           shouldHidePromptInput: false,
@@ -587,7 +614,7 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
 
       // Handle nextInput from commands that want to chain (e.g., /discover activation)
-      if (nextInput) {
+      if (isCurrent() && nextInput) {
         if (submitNextInput) {
           enqueue({ value: nextInput, mode: 'prompt' })
         } else {
@@ -596,16 +623,21 @@ async function executeUserInput(params: ExecuteUserInputParams): Promise<void> {
       }
     }) // end runWithWorkload — ALS context naturally scoped, no finally needed
   } finally {
+    if (!isCurrent()) restoreUnstarted()
+    abortController.signal.removeEventListener('abort', restoreUnstarted)
     // Safety net: release the guard reservation if processUserInput threw
     // or onQuery was skipped. No-op if onQuery already ran (guard is idle
     // via end(), or running — cancelReservation only acts on dispatching).
     // This is the single source of truth for releasing the reservation;
     // useQueueProcessor no longer needs its own .finally().
-    queryGuard.cancelReservation()
+    queryGuard.cancelReservation(generation)
     // Safety net: clear the placeholder if processUserInput produced no
     // messages or threw — otherwise it would stay visible until the next
     // turn's resetLoadingState. Harmless when onQuery ran: setMessages grew
     // displayedMessages past the baseline, so REPL.tsx already hid it.
-    setUserInputOnProcessing(undefined)
+    if (queryGuard.isCurrent(generation)) {
+      setUserInputOnProcessing(undefined)
+      setAbortController(null)
+    }
   }
 }

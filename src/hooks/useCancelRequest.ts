@@ -13,13 +13,13 @@ import {
   useSetAppState,
 } from 'src/state/AppState.js'
 import { isVimModeEnabled } from '../components/PromptInput/utils.js'
-import type { ToolUseConfirm } from '../components/permissions/PermissionRequest.js'
 import type { SpinnerMode } from '../components/Spinner/types.js'
 import { useNotifications } from '../context/notifications.js'
 import { useIsOverlayActive } from '../context/overlayContext.js'
 import { useCommandQueue } from '../hooks/useCommandQueue.js'
 import { getShortcutDisplay } from '../keybindings/shortcutFormat.js'
 import { useKeybinding } from '../keybindings/useKeybinding.js'
+import { useSelection } from '../ink/hooks/use-selection.js'
 import type { Screen } from '../screens/REPL.js'
 import { exitTeammateView } from '../state/teammateViewHelpers.js'
 import {
@@ -38,14 +38,12 @@ import { emitTaskTerminatedSdk } from '../utils/sdkEventQueue.js'
 const KILL_AGENTS_CONFIRM_WINDOW_MS = 3000
 
 type CancelRequestHandlerProps = {
-  setToolUseConfirmQueue: (
-    f: (toolUseConfirmQueue: ToolUseConfirm[]) => ToolUseConfirm[],
-  ) => void
   onCancel: () => void
+  canCancelWork: () => boolean
+  isQueuePaused: () => boolean
   onAgentsKilled: () => void
   isMessageSelectorVisible: boolean
   screen: Screen
-  abortSignal?: AbortSignal
   popCommandFromQueue?: () => void
   vimMode?: VimMode
   isLocalJSXCommand?: boolean
@@ -62,12 +60,12 @@ type CancelRequestHandlerProps = {
  */
 export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const {
-    setToolUseConfirmQueue,
     onCancel,
+    canCancelWork,
+    isQueuePaused,
     onAgentsKilled,
     isMessageSelectorVisible,
     screen,
-    abortSignal,
     popCommandFromQueue,
     vimMode,
     isLocalJSXCommand,
@@ -83,6 +81,27 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const { addNotification, removeNotification } = useNotifications()
   const lastKillAgentsPressRef = useRef<number>(0)
   const viewSelectionMode = useAppState(s => s.viewSelectionMode)
+  const selection = useSelection()
+
+  // Always registered, and reads live state at the keypress boundary. React
+  // may not have rendered a newly-started or just-cancelled turn yet.
+  const cancelActiveWork = useCallback(() => {
+    if (!canCancelWork()) return false
+    logEvent('tengu_cancel', {
+      source: 'escape' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      streamMode: streamMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+    })
+    onCancel()
+  }, [canCancelWork, onCancel, streamMode])
+
+  useKeybinding('chat:cancel', cancelActiveWork, {
+    context: 'Chat',
+    priority: true,
+  })
+  useKeybinding('app:interrupt', () => {
+    if (selection.hasSelection()) return false
+    return cancelActiveWork()
+  }, { context: 'Global', priority: true })
 
   const handleCancel = useCallback(() => {
     const cancelProps = {
@@ -92,17 +111,15 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
         streamMode as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     }
 
-    // Priority 1: If there's an active task running, cancel it first
-    // This takes precedence over queue management so users can always interrupt Claude
-    if (abortSignal !== undefined && !abortSignal.aborted) {
+    // Read live state even when several keys arrive before React renders.
+    if (canCancelWork()) {
       logEvent('tengu_cancel', cancelProps)
-      setToolUseConfirmQueue(() => [])
       onCancel()
       return
     }
 
-    // Priority 2: Pop queue when Claude is idle (no running task to cancel)
-    if (hasCommandsInQueue()) {
+    // Only edit a queue that wasn't paused by a preceding stop gesture.
+    if (!isQueuePaused() && hasCommandsInQueue()) {
       if (popCommandFromQueue) {
         popCommandFromQueue()
         return
@@ -111,12 +128,11 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
 
     // Fallback: nothing to cancel or pop (shouldn't reach here if isActive is correct)
     logEvent('tengu_cancel', cancelProps)
-    setToolUseConfirmQueue(() => [])
-    onCancel()
+    return false
   }, [
-    abortSignal,
+    canCancelWork,
+    isQueuePaused,
     popCommandFromQueue,
-    setToolUseConfirmQueue,
     onCancel,
     streamMode,
   ])
@@ -126,11 +142,8 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   // Overlays (ModelPicker, ThinkingToggle, etc.) register themselves via useRegisterOverlay
   // Local JSX commands (like /model, /btw) handle their own input
   const isOverlayActive = useIsOverlayActive()
-  const canCancelRunningTask = abortSignal !== undefined && !abortSignal.aborted
-  const hasQueuedCommands = queuedCommandsLength > 0
-  // When in bash/background mode with empty input, escape should exit the mode
-  // rather than cancel the request. Let PromptInput handle mode exit.
-  // This only applies to Escape, not Ctrl+C which should always cancel.
+  const hasQueuedCommands = !isQueuePaused() && queuedCommandsLength > 0
+  // Idle Escape can leave bash/background mode when the input is empty.
   const isInSpecialModeWithEmptyInput =
     inputMode !== undefined && inputMode !== 'prompt' && !inputValue
   // When viewing a teammate's transcript, let useBackgroundTaskNavigation handle Escape
@@ -149,17 +162,15 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   // input, and to useBackgroundTaskNavigation when viewing a teammate
   const isEscapeActive =
     isContextActive &&
-    (canCancelRunningTask || hasQueuedCommands) &&
+    hasQueuedCommands &&
     !isInSpecialModeWithEmptyInput &&
     !isViewingTeammate
 
-  // Ctrl+C (app:interrupt): when viewing a teammate, stops everything and
-  // returns to main thread. Otherwise just handleCancel. Must NOT claim
-  // ctrl+c when main is idle at the prompt — that blocks the copy-selection
-  // handler and double-press-to-exit from ever seeing the keypress.
+  // Idle Ctrl+C can return from a teammate view or edit the queue. Leave
+  // copy-selection and double-press-to-exit available at an idle prompt.
   const isCtrlCActive =
     isContextActive &&
-    (canCancelRunningTask || hasQueuedCommands || isViewingTeammate)
+    (hasQueuedCommands || isViewingTeammate)
 
   useKeybinding('chat:cancel', handleCancel, {
     context: 'Chat',
@@ -194,22 +205,17 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     return true
   }, [store, setAppState, onAgentsKilled])
 
-  // Ctrl+C (app:interrupt). Scoped to teammate-view: killing agents from the
-  // main prompt stays a deliberate gesture (chat:killAgents), not a
-  // side-effect of cancelling a turn.
+  // Idle-only navigation and queue editing. Active work is stopped above.
   const handleInterrupt = useCallback(() => {
     if (isViewingTeammate) {
-      killAllAgentsAndNotify()
       exitTeammateView(setAppState)
     }
-    if (canCancelRunningTask || hasQueuedCommands) {
+    if (hasQueuedCommands) {
       handleCancel()
     }
   }, [
     isViewingTeammate,
-    killAllAgentsAndNotify,
     setAppState,
-    canCancelRunningTask,
     hasQueuedCommands,
     handleCancel,
   ])

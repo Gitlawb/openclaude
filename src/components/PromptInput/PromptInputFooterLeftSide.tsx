@@ -16,6 +16,7 @@ import { useShortcutDisplay } from '../../keybindings/useShortcutDisplay.js';
 import { isDefaultMode, permissionModeSymbol, permissionModeTitle, getModeColor } from '../../utils/permissions/PermissionMode.js';
 import { BackgroundTaskStatus } from '../tasks/BackgroundTaskStatus.js';
 import { isBackgroundTask } from '../../tasks/types.js';
+import { hasActiveSessionTasks } from '../../tasks/cancelSessionTasks.js';
 import { isPanelAgentTask } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { getVisibleAgentTasks } from '../CoordinatorAgentStatus.js';
 import { count } from '../../utils/array.js';
@@ -279,7 +280,6 @@ function ModeIndicator({
   const hasTaskItems = tasksV2 !== undefined && tasksV2.length > 0;
   const escShortcut = useShortcutDisplay('chat:cancel', 'Chat', 'esc').toLowerCase();
   const todosShortcut = useShortcutDisplay('app:toggleTodos', 'Global', 'ctrl+t');
-  const killAgentsShortcut = useShortcutDisplay('chat:killAgents', 'Chat', 'ctrl+x ctrl+k');
   const voiceKeyShortcut = feature('VOICE_MODE') ?
   // biome-ignore lint/correctness/useHookAtTopLevel: feature() is a compile-time constant
   useShortcutDisplay('voice:pushToTalk', 'Chat', 'Space') : '';
@@ -308,7 +308,6 @@ function ModeIndicator({
       });
     }
   }, [voiceEnabled, voiceHintUnderCap]);
-  const isKillAgentsConfirmShowing = useAppState(s_7 => s_7.notifications.current?.key === 'kill-agents-confirm');
 
   // Derive team info from teamContext (no filesystem I/O needed)
   // Match the same logic as TeamStatus to avoid trailing separator
@@ -321,7 +320,8 @@ function ModeIndicator({
   const hasActiveMode = !isDefaultMode(currentMode);
   const viewedTask = viewingAgentTaskId ? tasks[viewingAgentTaskId] : undefined;
   const isViewingTeammate = viewSelectionMode === 'viewing-agent' && viewedTask?.type === 'in_process_teammate';
-  const isViewingCompletedTeammate = isViewingTeammate && viewedTask != null && viewedTask.status !== 'running';
+  const hasActiveWork = isLoading || hasActiveSessionTasks(tasks);
+  const canReturnToLead = isViewingTeammate && !hasActiveWork;
   const hasBackgroundTasks = runningTaskCount > 0 || isViewingTeammate;
 
   // Count primary items (permission mode or coordinator mode, background tasks, and teams)
@@ -369,11 +369,10 @@ function ModeIndicator({
 
   // Check if any in-process teammates exist (for hint text cycling)
   const hasAnyInProcessTeammates = Object.values(tasks).some(t_2 => t_2.type === 'in_process_teammate' && t_2.status === 'running');
-  const hasRunningAgentTasks = Object.values(tasks).some(t_3 => t_3.type === 'local_agent' && t_3.status === 'running');
 
   // Get hint parts separately for potential second-line rendering
-  const hintParts = showHint ? getSpinnerHintParts(isLoading, escShortcut, todosShortcut, killAgentsShortcut, hasTaskItems, expandedView, hasAnyInProcessTeammates, hasRunningAgentTasks, isKillAgentsConfirmShowing) : [];
-  if (isViewingCompletedTeammate) {
+  const hintParts = showHint ? getSpinnerHintParts(hasActiveWork, escShortcut, todosShortcut, hasTaskItems, expandedView, hasAnyInProcessTeammates) : [];
+  if (canReturnToLead) {
     parts.push(<Text dimColor key="esc-return">
         <KeyboardShortcutHint shortcut={escShortcut} action="return to team lead" />
       </Text>);
@@ -385,9 +384,8 @@ function ModeIndicator({
 
   // When we have teammate pills, always render them on their own line above other parts
   if (hasTeammatePills) {
-    // Don't append spinner hints when viewing a completed teammate —
-    // the "esc to return to team lead" hint already replaces "esc to interrupt"
-    const otherParts = [...(modePart ? [modePart] : []), ...parts, ...(isViewingCompletedTeammate ? [] : hintParts)];
+    // Return navigation applies only when the entire session is idle.
+    const otherParts = [...(modePart ? [modePart] : []), ...parts, ...(canReturnToLead ? [] : hintParts)];
     return <Box flexDirection="column">
         <Box>
           <BackgroundTaskStatus tasksSelected={tasksSelected} isViewingTeammate={isViewingTeammate} teammateFooterIndex={teammateFooterIndex} isLeaderIdle={!isLoading} onOpenDialog={onOpenTasksDialog} />
@@ -483,7 +481,7 @@ function ModeIndicator({
         </Text>}
     </Box>;
 }
-function getSpinnerHintParts(isLoading: boolean, escShortcut: string, todosShortcut: string, killAgentsShortcut: string, hasTaskItems: boolean, expandedView: 'none' | 'tasks' | 'teammates', hasTeammates: boolean, hasRunningAgentTasks: boolean, isKillAgentsConfirmShowing: boolean): React.ReactElement[] {
+function getSpinnerHintParts(hasActiveWork: boolean, escShortcut: string, todosShortcut: string, hasTaskItems: boolean, expandedView: 'none' | 'tasks' | 'teammates', hasTeammates: boolean): React.ReactElement[] {
   let toggleAction: string;
   if (hasTeammates) {
     // Cycling: none → tasks → teammates → none
@@ -505,10 +503,8 @@ function getSpinnerHintParts(isLoading: boolean, escShortcut: string, todosShort
   // Show the toggle hint only when there are task items to display or
   // teammates to cycle to
   const showToggleHint = hasTaskItems || hasTeammates;
-  return [...(isLoading ? [<Text dimColor key="esc">
-            <KeyboardShortcutHint shortcut={escShortcut} action="interrupt" />
-          </Text>] : []), ...(!isLoading && hasRunningAgentTasks && !isKillAgentsConfirmShowing ? [<Text dimColor key="kill-agents">
-            <KeyboardShortcutHint shortcut={killAgentsShortcut} action="stop agents" />
+  return [...(hasActiveWork ? [<Text dimColor key="esc">
+            <KeyboardShortcutHint shortcut={escShortcut} action="stop all" />
           </Text>] : []), ...(showToggleHint ? [<Text dimColor key="toggle-tasks">
             <KeyboardShortcutHint shortcut={todosShortcut} action={toggleAction} />
           </Text>] : [])];

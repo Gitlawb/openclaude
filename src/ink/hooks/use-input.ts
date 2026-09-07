@@ -13,6 +13,8 @@ type Options = {
    * @default true
    */
   isActive?: boolean
+  /** Run before ordinary input listeners (session-wide interruption). */
+  priority?: boolean
 }
 
 /**
@@ -91,12 +93,16 @@ const useInput = (inputHandler: Handler, options: Options = {}) => {
   })
 
   useLayoutEffect(() => {
-    internal_eventEmitter?.on('input', handleData)
+    if (options.priority) {
+      internal_eventEmitter?.prependListener('input', handleData)
+    } else {
+      internal_eventEmitter?.on('input', handleData)
+    }
 
     return () => {
       internal_eventEmitter?.removeListener('input', handleData)
     }
-  }, [internal_eventEmitter, handleData])
+  }, [internal_eventEmitter, handleData, options.priority])
 }
 
 export default useInput

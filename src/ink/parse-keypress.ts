@@ -20,7 +20,7 @@ const FN_KEY_RE =
 // Example: ESC[13;2u = Shift+Enter, ESC[27u = Escape (no modifiers)
 // Modifier is optional - when absent, defaults to 1 (no modifiers)
 // eslint-disable-next-line no-control-regex
-const CSI_U_RE = /^\x1b\[(\d+)(?:;(\d+))?u/
+const CSI_U_RE = /^\x1b\[(\d+)(?::[\d:]*)?(?:;(\d*)(?::([123]))?)?(?:;[\d:]*)?u$/
 
 // xterm modifyOtherKeys: ESC [ 27 ; modifier ; keycode ~
 // Example: ESC[27;2;13~ = Shift+Enter. Emitted by Ghostty/tmux/xterm when
@@ -567,6 +567,8 @@ function keycodeToName(keycode: number): string | undefined {
 }
 
 export type ParsedKey = {
+  /** Kitty event type; legacy input is a press. */
+  eventType?: 'press' | 'repeat' | 'release'
   kind: 'key'
   fn: boolean
   name: string | undefined
@@ -664,6 +666,7 @@ function parseKeypress(s: string = ''): ParsedKey {
     const name = keycodeToName(codepoint)
     return {
       kind: 'key',
+      eventType: match[3] === '3' ? 'release' : match[3] === '2' ? 'repeat' : 'press',
       name,
       fn: false,
       ctrl: mods.ctrl,

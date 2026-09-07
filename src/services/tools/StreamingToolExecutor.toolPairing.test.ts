@@ -288,3 +288,42 @@ test('non-streaming budget rejection keeps one terminal result per tool call', a
   expect(executed).toBe(1)
   expect(state.completionReason).toBe('max_tool_calls')
 })
+
+test('user cancellation releases a stuck tool, cancels queued tools, and ignores late results', async () => {
+  let release!: () => void
+  const blocked = new Promise<void>(resolve => { release = resolve })
+  let started!: () => void
+  const entered = new Promise<void>(resolve => { started = resolve })
+  const stuck = createTool('stuck', 'success')
+  stuck.isConcurrencySafe = () => false
+  stuck.call = async () => {
+    started()
+    await blocked // Deliberately ignores AbortSignal, like an unresponsive transport.
+    return { data: 'late result' }
+  }
+  let queuedCalls = 0
+  const queued = createTool('queued', 'success', () => queuedCalls++)
+  const context = createContext([stuck, queued])
+  const executor = new StreamingToolExecutor([stuck, queued],
+    (async () => ({ behavior: 'allow' })) as CanUseToolFn, context)
+  const assistant = createAssistantMessage({ content: 'run tools' })
+  executor.addTool({ type: 'tool_use', id: 'stuck', name: stuck.name, input: {} } as ToolUseBlock, assistant)
+  executor.addTool({ type: 'tool_use', id: 'queued', name: queued.name, input: {} } as ToolUseBlock, assistant)
+  const messages: Message[] = []
+  const collecting = (async () => {
+    for await (const update of executor.getRemainingResults()) {
+      if (update.message) messages.push(update.message)
+    }
+  })()
+  await entered
+  context.abortController.abort('user-cancel')
+  await collecting
+  expect(queuedCalls).toBe(0)
+  expect(collectToolResults(messages)).toEqual([
+    { id: 'stuck', isError: true }, { id: 'queued', isError: true },
+  ])
+  release()
+  await Bun.sleep(10)
+  expect([...executor.getCompletedResults()]).toEqual([])
+  expect(queuedCalls).toBe(0)
+})

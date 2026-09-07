@@ -21,6 +21,22 @@ export function createAbortController(
   return controller
 }
 
+/** Link a foreground phase to its parent, with explicit detachment on handoff. */
+export function linkAbortController(parent: AbortSignal, child: AbortController): () => void {
+  const cleanup = () => {
+    parent.removeEventListener('abort', onAbort)
+    child.signal.removeEventListener('abort', cleanup)
+  }
+  const onAbort = () => child.abort(parent.reason)
+  if (parent.aborted) {
+    onAbort()
+  } else if (!child.signal.aborted) {
+    parent.addEventListener('abort', onAbort, { once: true })
+    child.signal.addEventListener('abort', cleanup, { once: true })
+  }
+  return cleanup
+}
+
 /**
  * Propagates abort from a parent to a weakly-referenced child controller.
  * Both parent and child are weakly held — neither direction creates a

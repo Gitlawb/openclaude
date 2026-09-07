@@ -86,6 +86,9 @@ import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js';
 import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
 import { getShortcutDisplay } from '../keybindings/shortcutFormat.js';
 import { CancelRequestHandler } from '../hooks/useCancelRequest.js';
+import { cancelSessionTasks, hasActiveSessionTasks } from '../tasks/cancelSessionTasks.js';
+import { finishInterruptedMessages } from '../utils/finishInterruptedMessages.js';
+import { exitTeammateView } from '../state/teammateViewHelpers.js';
 import { useBackgroundTaskNavigation } from '../hooks/useBackgroundTaskNavigation.js';
 import { useSwarmInitialization } from '../hooks/useSwarmInitialization.js';
 import { useTeammateViewAutoExit } from '../hooks/useTeammateViewAutoExit.js';
@@ -219,7 +222,7 @@ const shouldShowAntModelSwitch = "external" === 'ant' ? require('../components/A
 const UndercoverAutoCallout = "external" === 'ant' ? require('../components/UndercoverAutoCallout.js').UndercoverAutoCallout : null;
 /* eslint-enable custom-rules/no-process-env-top-level, @typescript-eslint/no-require-imports */
 import { activityManager } from '../utils/activityManager.js';
-import { createAbortController } from '../utils/abortController.js';
+import { createAbortController, createChildAbortController } from '../utils/abortController.js';
 import { MCPConnectionManager } from 'src/services/mcp/MCPConnectionManager.js';
 import { VerbooStartupFeedback } from 'src/components/VerbooFeedback/VerbooStartupFeedback.js';
 import { useVerbooStartupFeedback } from 'src/components/VerbooFeedback/useVerbooStartupFeedback.js';
@@ -859,11 +862,14 @@ export function REPL({
       }
     }
   }, [streamingThinking]);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [abortController, setAbortControllerState] = useState<AbortController | null>(null);
   // Ref that always points to the current abort controller, used by the
   // REPL bridge to abort the active query when a remote interrupt arrives.
   const abortControllerRef = useRef<AbortController | null>(null);
-  abortControllerRef.current = abortController;
+  const setAbortController = useCallback((controller: AbortController | null) => {
+    abortControllerRef.current = controller;
+    setAbortControllerState(controller);
+  }, []);
 
   // Ref for the bridge result callback — set after useReplBridge initializes,
   // read in the onQuery finally block to notify mobile clients that a turn ended.
@@ -899,6 +905,7 @@ export function REPL({
   // Subscribe to the guard — true during dispatching or running.
   // This is the single source of truth for "is a local query in flight".
   const isQueryActive = React.useSyncExternalStore(queryGuard.subscribe, queryGuard.getSnapshot);
+  const isQueuePaused = React.useSyncExternalStore(queryGuard.subscribe, queryGuard.getPausedSnapshot);
 
   // Separate loading flag for operations outside the local query guard:
   // remote sessions (useRemoteSession / useDirectConnect) and foregrounded
@@ -2166,63 +2173,66 @@ export function REPL({
     if (was !== now) repinScroll();
     prevDialogRef.current = focusedInputDialog;
   }, [focusedInputDialog, repinScroll]);
+  const canCancelWork = () => queryGuard.isActive ||
+    (!!abortControllerRef.current && !abortControllerRef.current.signal.aborted) ||
+    (!queryGuard.isPaused && isExternalLoading) || hasActiveSessionTasks(store.getState().tasks);
+
   function onCancel() {
-    if (focusedInputDialog === 'elicitation') {
-      // Elicitation dialog handles its own Escape, and closing it shouldn't affect any loading state.
-      return;
-    }
-    logForDebugging(`[onCancel] focusedInputDialog=${focusedInputDialog} streamMode=${streamMode}`);
-
-    // Pause proactive mode so the user gets control back.
-    // It will resume when they submit their next input (see onSubmit).
-    if (feature('PROACTIVE') || feature('KAIROS')) {
-      proactiveModule?.pauseProactive();
-    }
-    queryGuard.forceEnd();
-    skipIdleCheckRef.current = false;
-
-    // Preserve partially-streamed text so the user can read what was
-    // generated before pressing Esc. Pushed before resetLoadingState clears
-    // streamingText, and before query.ts yields the async interrupt marker,
-    // giving final order [user, partial-assistant, [Request interrupted by user]].
-    if (streamingText?.trim()) {
-      setMessages(prev => [...prev, createAssistantMessage({
-        content: streamingText
-      })]);
-    }
-    resetLoadingState();
-
-    // Clear any active token budget so the backstop doesn't fire on
-    // a stale budget if the query generator hasn't exited yet.
-    if (feature('TOKEN_BUDGET')) {
-      snapshotOutputTokensForTurn(null);
-    }
-    if (focusedInputDialog === 'tool-permission') {
-      // Tool use confirm handles the abort signal itself
-      toolUseConfirmQueue[0]?.onAbort();
-      setToolUseConfirmQueue([]);
-    } else if (focusedInputDialog === 'prompt') {
-      // Reject all pending prompts and clear the queue
-      for (const item of promptQueue) {
-        item.reject(new Error('Prompt cancelled by user'));
-      }
-      setPromptQueue([]);
-      abortController?.abort('user-cancel');
-    } else if (activeRemote.isRemoteMode) {
-      // Remote mode: send interrupt signal to CCR
-      activeRemote.cancelRequest();
-    } else {
-      abortController?.abort('user-cancel');
-    }
-
-    // Clear the controller so subsequent Escape presses don't see a stale
-    // aborted signal. Without this, canCancelRunningTask is false (signal
-    // defined but .aborted === true), so isActive becomes false if no other
-    // activating conditions hold — leaving the Escape keybinding inactive.
+    if (!canCancelWork()) return;
+    const controller = abortControllerRef.current;
+    // Freeze dispatch BEFORE any abort listener can enqueue a notification.
+    queryGuard.pause();
+    if (feature('PROACTIVE') || feature('KAIROS')) proactiveModule?.pauseProactive();
+    controller?.abort('user-cancel');
     setAbortController(null);
-
-    // forceEnd() skips the finally path — fire directly (aborted=true).
+    const cancelledGeneration = queryGuard.generation;
+    void cancelSessionTasks(store.getState, setAppState).then(failed => {
+      if (failed.length && queryGuard.isCurrent(cancelledGeneration)) {
+        addNotification({ key: 'session-stop-failed', priority: 'immediate',
+          text: `Could not stop ${failed.length} task(s). Press Esc to retry.` });
+      }
+    });
+    const settle = (action: () => void) => {
+      try { action(); } catch (error) { logError(error); }
+    };
+    for (const item of toolUseConfirmQueue) settle(() => item.onAbort());
+    for (const item of promptQueue) settle(() => item.reject(new Error('Prompt cancelled by user')));
+    for (const item of sandboxPermissionRequestQueue) settle(() => item.resolvePromise(false));
+    const currentState = store.getState();
+    for (const item of currentState.elicitation.queue) {
+      settle(() => item.respond({ action: 'cancel' }));
+      settle(() => item.onWaitingDismiss?.('cancel'));
+    }
+    for (const item of currentState.workerSandboxPermissions.queue) {
+      void sendSandboxPermissionResponseViaMailbox(item.workerName, item.requestId, item.host, false, teamContext?.teamName);
+    }
+    setToolUseConfirmQueue([]);
+    setPromptQueue([]);
+    setSandboxPermissionRequestQueue([]);
+    setPermissionStickyFooter(null);
+    setAppState(prev => ({ ...prev, elicitation: { queue: [] },
+      workerSandboxPermissions: { ...prev.workerSandboxPermissions, queue: [] } }));
+    if (activeRemote.isRemoteMode) settle(() => activeRemote.cancelRequest());
+    exitTeammateView(setAppState);
+    setScreen('prompt');
+    setIsSearchingHistory(false);
+    setIsHelpOpen(false);
+    setIsMessageSelectorVisible(false);
+    setShowBashesDialog(false);
+    setToolJSX({ jsx: null, shouldHidePromptInput: false, clearLocalJSX: true });
+    skipIdleCheckRef.current = false;
+    setMessages(prev => finishInterruptedMessages(prev, streamingText));
+    resetLoadingState();
+    setInProgressToolUseIDs(new Set());
+    hasInterruptibleToolInProgressRef.current = false;
+    setStreamingThinking(null);
+    resetCurrentTurn();
+    if (feature('TOKEN_BUDGET')) snapshotOutputTokensForTurn(null);
+    addNotification({ key: 'session-interrupted',
+      text: 'Execution stopped. Queued messages are paused until your next submission.',
+      priority: 'immediate' });
     void mrOnTurnComplete(messagesRef.current, true);
+    sendBridgeResultRef.current();
   }
 
   // Function to handle queued command when canceling a permission request
@@ -2248,12 +2258,12 @@ export function REPL({
 
   // CancelRequestHandler props - rendered inside KeybindingSetup
   const cancelRequestProps = {
-    setToolUseConfirmQueue,
+    canCancelWork,
+    isQueuePaused: () => queryGuard.isPaused,
     onCancel,
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
     screen,
-    abortSignal: abortController?.signal,
     popCommandFromQueue: handleQueuedCommandOnCancel,
     vimMode,
     isLocalJSXCommand: toolJSX?.isLocalJSXCommand,
@@ -2458,6 +2468,8 @@ export function REPL({
     // render between turns); decouples freshness from React's render cycle for
     // a future headless conversation loop. Same pattern refreshTools() uses.
     const s = store.getState();
+    const generation = queryGuard.generation;
+    const isCurrent = () => !abortController.signal.aborted && queryGuard.isCurrent(generation);
 
     // Compute tools fresh from store.getState() rather than the closure-
     // captured `tools`. useManageMCPConnections populates appState.mcp
@@ -2501,7 +2513,7 @@ export function REPL({
       getAppState: () => store.getState(),
       setAppState,
       messages,
-      setMessages,
+      setMessages: update => { if (isCurrent()) setMessages(update); },
       updateFileHistoryState(updater: (prev: FileHistoryState) => FileHistoryState) {
         // Perf: skip the setState when the updater returns the same reference
         // (e.g. fileHistoryTrackEdit returns `state` when the file is already
@@ -2532,9 +2544,9 @@ export function REPL({
       },
       onChangeAPIKey: reverify,
       readFileState: readFileState.current,
-      setToolJSX,
+      setToolJSX: value => { if (isCurrent()) setToolJSX(value); },
       addNotification,
-      appendSystemMessage: msg => setMessages(prev => [...prev, msg]),
+      appendSystemMessage: msg => { if (isCurrent()) setMessages(prev => [...prev, msg]); },
       sendOSNotification: opts => {
         void sendNotification(opts, terminal);
       },
@@ -2544,7 +2556,7 @@ export function REPL({
       loadedNestedMemoryPaths: loadedNestedMemoryPathsRef.current,
       dynamicSkillDirTriggers: new Set<string>(),
       discoveredSkillNames: discoveredSkillNamesRef.current,
-      setResponseLength,
+      setResponseLength: value => { if (isCurrent()) setResponseLength(value); },
       pushApiMetricsEntry: "external" === 'ant' ? (ttftMs: number) => {
         const now = Date.now();
         const baseline = responseLengthRef.current;
@@ -2564,8 +2576,9 @@ export function REPL({
           isStreaming: true
         };
       } : undefined,
-      setStreamMode,
+      setStreamMode: value => { if (isCurrent()) setStreamMode(value); },
       onCompactProgress: event => {
+        if (!isCurrent()) return;
         switch (event.type) {
           case 'hooks_start':
             setSpinnerColor('claudeBlue_FOR_SYSTEM_SPINNER');
@@ -2582,13 +2595,14 @@ export function REPL({
             break;
         }
       },
-      setInProgressToolUseIDs,
+      setInProgressToolUseIDs: update => { if (isCurrent()) setInProgressToolUseIDs(update); },
       setHasInterruptibleToolInProgress: (v: boolean) => {
+        if (!isCurrent()) return;
         hasInterruptibleToolInProgressRef.current = v;
       },
       resume,
-      setConversationId,
-      requestPrompt: feature('HOOK_PROMPTS') ? requestPrompt : undefined,
+      setConversationId: id => { if (isCurrent()) setConversationId(id); },
+      requestPrompt: feature('HOOK_PROMPTS') ? (...args) => request => isCurrent() ? requestPrompt(...args)(request) : Promise.reject(new Error('Request cancelled by user')) : undefined,
       contentReplacementState: contentReplacementStateRef.current,
       syncToolResultReplacements
     };
@@ -2731,6 +2745,7 @@ export function REPL({
     }, onStreamingText);
   }, [setMessages, setResponseLength, setStreamMode, setStreamingToolUses, setStreamingThinking, onStreamingText]);
   const onQueryImpl = useCallback(async (messagesIncludingNewMessages: MessageType[], newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, effort?: EffortValue) => {
+    if (abortController.signal.aborted || abortControllerRef.current !== abortController) return;
     // Prepare IDE integration for new prompt. Read mcpClients fresh from
     // store — useManageMCPConnections may have populated it since the
     // render that captured this closure (same pattern as computeTools).
@@ -2874,8 +2889,9 @@ export function REPL({
       toolUseContext,
       querySource: getQuerySourceForREPL()
     })) {
-      onQueryEvent(event);
+      if (!abortController.signal.aborted && abortControllerRef.current === abortController) onQueryEvent(event);
     }
+    if (abortController.signal.aborted || abortControllerRef.current !== abortController) return;
     if (isBuddyEnabled()) {
       void fireCompanionObserver(messagesRef.current, reaction => setAppState(prev => prev.companionReaction === reaction ? prev : {
         ...prev,
@@ -2928,6 +2944,7 @@ export function REPL({
     await onTurnComplete?.(messagesRef.current);
   }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
+    if (abortController.signal.aborted || queryGuard.isPaused) return;
     // If this is a teammate, mark them as active when starting a turn
     if (isAgentSwarmsEnabled()) {
       const teamName = getTeamName();
@@ -3000,6 +3017,8 @@ export function REPL({
           return;
         }
       }
+      await awaitPendingHooks();
+      if (abortController.signal.aborted) return;
       await onQueryImpl(latestMessages, newMessages, abortController, shouldQuery, additionalAllowedTools, mainLoopModelParam, effort);
     } finally {
       // queryGuard.end() atomically checks generation and transitions
@@ -3013,6 +3032,7 @@ export function REPL({
         // onQueryImpl only on successful completion.
         resetLoadingState();
         await mrOnTurnComplete(messagesRef.current, abortController.signal.aborted);
+        if (!queryGuard.isCurrent(thisGeneration)) return;
 
         // Notify bridge clients that the turn is complete so mobile apps
         // can stop the spark animation and show post-turn UI.
@@ -3124,7 +3144,7 @@ export function REPL({
       // avoids removeLastFromHistory removing B's entry instead of A's),
       // not viewing a teammate (messagesRef is the main conversation — the
       // old Up-arrow quick-restore had this guard, preserve it).
-      if (abortController.signal.reason === 'user-cancel' && !queryGuard.isActive && inputValueRef.current === '' && getCommandQueueLength() === 0 && !store.getState().viewingAgentTaskId) {
+      if (abortController.signal.reason === 'user-cancel' && queryGuard.generation === thisGeneration + 1 && !queryGuard.isActive && inputValueRef.current === '' && getCommandQueueLength() === 0 && !store.getState().viewingAgentTaskId) {
         const msgs = messagesRef.current;
         const lastUserMsg = msgs.findLast(selectableUserMessagesFilter);
         if (lastUserMsg) {
@@ -3138,14 +3158,14 @@ export function REPL({
         }
       }
     }
-  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete]);
+  }, [onQueryImpl, setAppState, resetLoadingState, queryGuard, mrOnBeforeQuery, mrOnTurnComplete, awaitPendingHooks]);
 
   // Handle initial message (from CLI args or plan mode exit with context clear)
   // This effect runs when isLoading becomes false and there's a pending message
   const initialMessageRef = useRef(false);
   useEffect(() => {
     const pending = initialMessage;
-    if (!pending || isLoading || initialMessageRef.current) return;
+    if (!pending || isLoading || isQueuePaused || queryGuard.isPaused || initialMessageRef.current) return;
 
     // Mark as processing to prevent re-entry
     initialMessageRef.current = true;
@@ -3216,11 +3236,6 @@ export function REPL({
         }, initialMsg.message.uuid);
       }
 
-      // Ensure SessionStart hook context is available before the first API
-      // call. onSubmit calls this internally but the onQuery path below
-      // bypasses onSubmit — hoist here so both paths see hook messages.
-      await awaitPendingHooks();
-
       // Route all initial prompts through onSubmit to ensure UserPromptSubmit hooks fire
       // TODO: Simplify by always routing through onSubmit once it supports
       // ContentBlockParam arrays (images) as input
@@ -3268,7 +3283,7 @@ export function REPL({
       }, 100, initialMessageRef);
     }
     void processInitialMessage(pending);
-  }, [initialMessage, isLoading, setMessages, setAppState, onQuery, mainLoopModel, tools]);
+  }, [initialMessage, isLoading, isQueuePaused, queryGuard, setMessages, setAppState, onQuery, mainLoopModel, tools]);
   const onSubmit = useCallback(async (input: string, helpers: PromptInputHelpers, speculationAccept?: {
     state: ActiveSpeculationState;
     speculationSessionTimeSavedMs: number;
@@ -3279,6 +3294,9 @@ export function REPL({
     // Re-pin scroll to bottom on submit so the user always sees the new
     // exchange (matches OpenCode's auto-scroll behavior).
     repinScroll();
+    // A stopped session must process the submission afresh, without applying
+    // speculative output produced before the interruption.
+    if (queryGuard.isPaused) speculationAccept = undefined;
 
     // Resume loop mode if paused
     if (feature('PROACTIVE') || feature('KAIROS')) {
@@ -3336,12 +3354,16 @@ export function REPL({
 
         // Execute the command directly
         const executeImmediateCommand = async (): Promise<void> => {
+          const generation = queryGuard.generation;
+          const commandController = abortControllerRef.current ? createChildAbortController(abortControllerRef.current) : createAbortController();
+          const isCurrentCommand = () => !commandController.signal.aborted && queryGuard.isCurrent(generation);
           let doneWasCalled = false;
           const onDone = (result?: string, doneOptions?: {
             display?: CommandResultDisplay;
             metaMessages?: string[];
           }): void => {
             doneWasCalled = true;
+            if (!isCurrentCommand()) return;
             setToolJSX({
               jsx: null,
               shouldHidePromptInput: false,
@@ -3390,13 +3412,14 @@ export function REPL({
           // Read messages via ref to keep onSubmit stable across message
           // updates — matches the pattern at L2384/L2400/L2662 and avoids
           // pinning stale REPL render scopes in downstream closures.
-          const context = getToolUseContext(messagesRef.current, [], createAbortController(), mainLoopModel);
+          const context = getToolUseContext(messagesRef.current, [], commandController, mainLoopModel);
           const mod = await matchingCommand.load();
+          if (!isCurrentCommand()) return;
           const jsx = await mod.call(onDone, context, commandArgs);
 
           // Skip if onDone already fired — prevents stuck isLocalJSXCommand
           // (see processSlashCommand.tsx local-jsx case for full mechanism).
-          if (jsx && !doneWasCalled) {
+          if (isCurrentCommand() && jsx && !doneWasCalled) {
             // shouldHidePromptInput: false keeps Notifications mounted
             // so the onDone result isn't lost
             setToolJSX({
@@ -3608,6 +3631,8 @@ export function REPL({
       });
       setMessages(prev => [...prev, userMessage]);
 
+      // A new explicit submission also resumes a previously stopped remote turn.
+      queryGuard.resume();
       // Send to remote session
       await activeRemote.sendMessage(remoteContent, {
         uuid: userMessage.uuid
@@ -3616,8 +3641,8 @@ export function REPL({
     }
 
     // Ensure SessionStart hook context is available before the first API call.
-    await awaitPendingHooks();
     await handlePromptSubmit({
+      beforeProcessInput: awaitPendingHooks,
       input,
       helpers,
       queryGuard,
@@ -3962,6 +3987,7 @@ export function REPL({
 
   const executeQueuedInput = useCallback(async (queuedCommands: QueuedCommand[]) => {
     await handlePromptSubmit({
+      beforeProcessInput: awaitPendingHooks,
       helpers: {
         setCursorOffset: () => { },
         clearBuffer: () => { },
@@ -3987,7 +4013,7 @@ export function REPL({
       setMessages,
       queuedCommands
     });
-  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery]);
+  }, [queryGuard, commands, setToolJSX, getToolUseContext, messages, mainLoopModel, ideSelection, setUserInputOnProcessing, canUseTool, setAbortController, onQuery, addNotification, setAppState, onBeforeQuery, awaitPendingHooks]);
   useQueueProcessor({
     executeQueuedInput,
     hasActiveLocalJsxUI: isShowingLocalJSXCommand,
@@ -4098,7 +4124,7 @@ export function REPL({
   const handleIncomingPrompt = useCallback((content: string, options?: {
     isMeta?: boolean;
   }): boolean => {
-    if (queryGuard.isActive) return false;
+    if (queryGuard.isActive || queryGuard.isPaused) return false;
 
     // Defer to user-queued commands — user input always takes priority
     // over system messages (teammate messages, task list items, etc.)
@@ -4644,10 +4670,7 @@ export function REPL({
     <GlobalKeybindingHandlers {...globalKeybindingProps} />
     {feature('VOICE_MODE') ? <VoiceKeybindingHandler voiceHandleKeyEvent={voice.handleKeyEvent} stripTrailing={voice.stripTrailing} resetAnchor={voice.resetAnchor} isActive={!toolJSX?.isLocalJSXCommand} /> : null}
     <CommandKeybindingHandlers onSubmit={onSubmit} isActive={!toolJSX?.isLocalJSXCommand} />
-    {/* ScrollKeybindingHandler must mount before CancelRequestHandler so
-          ctrl+c-with-selection copies instead of cancelling the active task.
-          Its raw useInput handler only stops propagation when a selection
-          exists — without one, ctrl+c falls through to CancelRequestHandler.
+    {/* CancelRequestHandler lets Ctrl+C with a selection reach the copy handler.
           PgUp/PgDn/wheel always scroll the transcript behind the modal —
           the modal's inner ScrollBox is not keyboard-driven. onScroll
           stays suppressed while a modal is showing so scroll doesn't
@@ -4660,7 +4683,7 @@ export function REPL({
         setCursor(null);
         jumpToNew(scrollRef.current);
       }} scrollable={<>
-        <TeammateViewHeader />
+        <TeammateViewHeader isLoading={isLoading} />
         <Messages messages={displayedMessages} tools={tools} commands={renderCommands} verbose={verbose} toolJSX={toolJSX} toolUseConfirmQueue={toolUseConfirmQueue} inProgressToolUseIDs={viewedTeammateTask ? viewedTeammateTask.inProgressToolUseIDs ?? new Set() : inProgressToolUseIDs} isMessageSelectorVisible={isMessageSelectorVisible} conversationId={conversationId} screen={screen} streamingToolUses={streamingToolUses} showAllInTranscript={showAllInTranscript} agentDefinitions={agentDefinitions} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null} isBriefOnly={viewedAgentTask ? false : isBriefOnly} unseenDivider={viewedAgentTask ? undefined : unseenDivider} scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined} trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined} cursor={cursor} setCursor={setCursor} cursorNavRef={cursorNavRef} />
         <AwsAuthStatusBox />
         {/* Hide the processing placeholder while a modal is showing —

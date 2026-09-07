@@ -134,6 +134,18 @@ export function enqueue(command: QueuedCommand): void {
   )
 }
 
+/** Restore unstarted commands ahead of newer commands at the same priority. */
+export function restoreQueuedCommands(commands: QueuedCommand[]): void {
+  if (commands.length === 0) return
+  commandQueue.unshift(...commands.map(command => ({
+    ...command, priority: command.priority ?? 'next' as const,
+  })))
+  notifySubscribers()
+  for (const command of commands) {
+    logOperation('enqueue', typeof command.value === 'string' ? command.value : undefined)
+  }
+}
+
 /**
  * Add a task notification to the queue.
  * Convenience wrapper that defaults priority to 'later' so user input

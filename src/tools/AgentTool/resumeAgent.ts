@@ -10,6 +10,7 @@ import { asAgentId } from '../../types/ids.js'
 import { runWithAgentContext } from '../../utils/agentContext.js'
 import { runWithCwdOverride } from '../../utils/cwd.js'
 import { logForDebugging } from '../../utils/debug.js'
+import { AbortError } from '../../utils/errors.js'
 import {
   createUserMessage,
   filterOrphanedThinkingOnlyMessages,
@@ -204,6 +205,7 @@ export async function resumeAgentBackground({
   }
 
   // Skip name-registry write — original entry persists from the initial spawn
+  if (toolUseContext.abortController.signal.aborted) throw new AbortError()
   const agentBackgroundTask = registerAsyncAgent({
     agentId,
     description: uiDescription,

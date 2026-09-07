@@ -29,6 +29,7 @@ import { createSignal } from './signal.js'
 export class QueryGuard {
   private _status: 'idle' | 'dispatching' | 'running' = 'idle'
   private _generation = 0
+  private _paused = false
   private _changed = createSignal()
 
   /**
@@ -36,8 +37,9 @@ export class QueryGuard {
    * Returns false if not idle (another query or dispatch in progress).
    */
   reserve(): boolean {
-    if (this._status !== 'idle') return false
+    if (this._status !== 'idle' || this._paused) return false
     this._status = 'dispatching'
+    ++this._generation
     this._notify()
     return true
   }
@@ -46,7 +48,8 @@ export class QueryGuard {
    * Cancel a reservation when processQueueIfReady had nothing to process.
    * Transitions dispatching → idle.
    */
-  cancelReservation(): void {
+  cancelReservation(generation = this._generation): void {
+    if (!this.isCurrent(generation)) return
     if (this._status !== 'dispatching') return
     this._status = 'idle'
     this._notify()
@@ -59,9 +62,9 @@ export class QueryGuard {
    * and dispatching (queue processor path).
    */
   tryStart(): number | null {
-    if (this._status === 'running') return null
+    if (this._status === 'running' || this._paused) return null
+    if (this._status === 'idle') ++this._generation
     this._status = 'running'
-    ++this._generation
     this._notify()
     return this._generation
   }
@@ -86,7 +89,6 @@ export class QueryGuard {
    * query's promise rejection will see a mismatch and skip cleanup.
    */
   forceEnd(): void {
-    if (this._status === 'idle') return
     this._status = 'idle'
     ++this._generation
     this._notify()
@@ -103,6 +105,28 @@ export class QueryGuard {
   get generation(): number {
     return this._generation
   }
+
+  isCurrent(generation: number): boolean {
+    return this._generation === generation
+  }
+
+  /** Stop automatic dispatch until the user explicitly submits again. */
+  pause(): void {
+    this._paused = true
+    this.forceEnd()
+  }
+
+  resume(): void {
+    if (!this._paused) return
+    this._paused = false
+    this._notify()
+  }
+
+  get isPaused(): boolean {
+    return this._paused
+  }
+
+  getPausedSnapshot = (): boolean => this._paused
 
   // --
   // useSyncExternalStore interface
