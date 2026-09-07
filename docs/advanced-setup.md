@@ -494,6 +494,12 @@ Model env vars are provider-scoped: first-party Anthropic sessions read
 `GEMINI_MODEL`, and Mistral reads `MISTRAL_MODEL`. For manual Bedrock, Vertex,
 or Foundry launches, select the model with `--model`.
 
+An OpenAI-compatible provider profile's maximum context length applies to every
+model in its configured list and the supported saved `/model` selection restored
+for that profile. Query options such as `?reasoning=high` or `?thinking=disabled`
+remain in the selected model, but context-limit keys use the model name before
+`?`. For example, `gpt-5.4?reasoning=high` uses the `gpt-5.4` context limit.
+
 ### Per-model limit overrides (`settings.json`)
 
 When a custom OpenAI-compatible provider does not expose context metadata from

@@ -753,7 +753,12 @@ function serializeProfileContextWindows(
 
   return JSON.stringify(
     Object.fromEntries(
-      contextModels.map(model => [model, maxContextLength]),
+      // Match resolveModelRuntimeLimits' query-stripped lookup key without
+      // changing case, [1m] tags, or the raw model selection and its options.
+      contextModels.map(model => [
+        model.split('?', 1)[0]?.trim() || model,
+        maxContextLength,
+      ]),
     ),
   )
 }
