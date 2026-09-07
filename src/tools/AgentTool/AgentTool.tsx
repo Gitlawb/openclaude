@@ -1101,8 +1101,10 @@ export const AgentTool = buildTool({
                     // prevent the other from running. Without this, if
                     // clearInvokedSkillsForAgent throws, clearDumpState is
                     // skipped and dump state leaks.
-                    try { if (canCleanUp) clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
-                    try { if (canCleanUp) clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
+                    if (canCleanUp) {
+                      try { clearInvokedSkillsForAgent(syncAgentId); } catch { /* cleanup best-effort */ }
+                      try { clearDumpState(syncAgentId); } catch { /* cleanup best-effort */ }
+                    }
                   }
                 });
 
