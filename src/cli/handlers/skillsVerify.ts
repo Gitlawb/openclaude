@@ -6,6 +6,8 @@
  */
 
 import { spawn } from 'child_process'
+import { constants as fsConstants } from 'fs'
+import { access } from 'fs/promises'
 import { delimiter, join, relative, resolve, sep } from 'path'
 import { getCwd } from '../../utils/cwd.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -108,24 +110,32 @@ async function describeSkill(root: string, dir: string): Promise<InstalledSkill>
 }
 
 /**
- * Finds skill directories under a skills root: a directory that holds
- * SKILL.md, nested to any depth, reached through symlinks too. Files
- * directly in the root are ignored, a directory below a found skill is
- * not searched, and a symlink loop stops at the first repeat.
+ * Finds skill directories under a skills root the way the loader does: a
+ * directory that holds SKILL.md, nested to any depth, reached through
+ * symlinks too, including a skill nested below another skill. Files
+ * directly in the root are ignored. `visited` holds real directory paths
+ * and is shared across roots, so a symlink back to the root, to an
+ * ancestor, or to a directory another root already covered cannot loop
+ * or report a skill twice.
  */
-async function findInstalledSkills(root: string): Promise<InstalledSkill[]> {
+async function findInstalledSkills(
+  root: string,
+  visited: Set<string>,
+): Promise<InstalledSkill[]> {
   const fs = getFsImplementation()
   const found: InstalledSkill[] = []
-  const visited = new Set<string>()
+
+  function realDirectory(dir: string): string | undefined {
+    try {
+      return fs.realpathSync(dir)
+    } catch {
+      return undefined
+    }
+  }
 
   async function walk(dir: string): Promise<void> {
-    let realDir = dir
-    try {
-      realDir = fs.realpathSync(dir)
-    } catch {
-      return
-    }
-    if (visited.has(realDir)) {
+    const realDir = realDirectory(dir)
+    if (realDir === undefined || visited.has(realDir)) {
       return
     }
     visited.add(realDir)
@@ -138,7 +148,6 @@ async function findInstalledSkills(root: string): Promise<InstalledSkill[]> {
     }
     if (entries.some(entry => entry.name === 'SKILL.md')) {
       found.push(await describeSkill(root, dir))
-      return
     }
     for (const entry of entries) {
       const entryPath = join(dir, entry.name)
@@ -148,6 +157,11 @@ async function findInstalledSkills(root: string): Promise<InstalledSkill[]> {
     }
   }
 
+  const realRoot = realDirectory(root)
+  if (realRoot === undefined) {
+    return []
+  }
+  visited.add(realRoot)
   let topLevel
   try {
     topLevel = await fs.readdir(root)
@@ -180,29 +194,44 @@ function revocationReason(match: SkillRevocation): string {
 }
 
 /**
+ * True for a regular file the current user can execute. On Windows the
+ * name's extension decides, so existence is enough there.
+ */
+async function isExecutableFile(candidate: string): Promise<boolean> {
+  try {
+    if (!(await getFsImplementation().stat(candidate)).isFile()) {
+      return false
+    }
+    await access(
+      candidate,
+      process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK,
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Locates eyebrow: OPENCLAUDE_EYEBROW_BIN when set, otherwise the first
- * `eyebrow` executable on PATH. Returns undefined when neither exists, so
- * the caller can say so and stop instead of failing.
+ * executable named `eyebrow` on PATH. A file on an earlier PATH entry
+ * without execute permission is skipped. Returns undefined when nothing
+ * is found, so the caller can say so and stop instead of failing.
  */
 async function findEyebrowBinary(): Promise<string | undefined> {
   const override = process.env[EYEBROW_BINARY_ENV]
   if (override && override.trim() !== '') {
     return override
   }
-  const names =
-    process.platform === 'win32'
-      ? ['eyebrow.exe', 'eyebrow.cmd', 'eyebrow.bat', 'eyebrow']
-      : ['eyebrow']
+  // Only names a plain spawn can start: no .cmd or .bat wrappers on
+  // Windows, which need a shell.
+  const names = process.platform === 'win32' ? ['eyebrow.exe'] : ['eyebrow']
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (dir === '') continue
     for (const name of names) {
       const candidate = join(dir, name)
-      try {
-        if ((await getFsImplementation().stat(candidate)).isFile()) {
-          return candidate
-        }
-      } catch {
-        // Not here; keep looking.
+      if (await isExecutableFile(candidate)) {
+        return candidate
       }
     }
   }
@@ -232,9 +261,11 @@ export function setEyebrowRunnerForTesting(runner: EyebrowRunner | undefined): v
  */
 export async function skillsVerifyHandler(options: VerifyOptions = {}): Promise<void> {
   const projectDir = resolve(options.projectDir ?? getCwd())
-  const skills = (
-    await Promise.all(skillRoots(projectDir).map(findInstalledSkills))
-  ).flat()
+  const visited = new Set<string>()
+  const skills: InstalledSkill[] = []
+  for (const root of skillRoots(projectDir)) {
+    skills.push(...(await findInstalledSkills(root, visited)))
+  }
 
   const registrySource = await resolveRegistrySource(options.registry)
   const revocationsSource = resolveRevocationsSource(registrySource)

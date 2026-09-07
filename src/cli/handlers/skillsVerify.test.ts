@@ -232,6 +232,51 @@ test.serial('finds a skill behind a symlinked skill directory', async () => {
   })
 })
 
+test.serial('finds a skill nested below another skill', async () => {
+  await withVerifyFixture(async ({ projectDir, projectSkills, registryDir, captured }) => {
+    writeSkill(projectSkills, 'outer', registrySidecar({ id: 'gitlawb/outer' }))
+    writeSkill(projectSkills, 'outer:inner', registrySidecar({ id: 'gitlawb/inner' }))
+    writeRevocations(registryDir, [{ id: 'gitlawb/inner' }])
+
+    await skillsVerifyHandler({ projectDir, registry: registryDir })
+
+    assert.equal(process.exitCode, 1)
+    assert.match(captured.out[0]!, /^Found 2 installed skills\. /)
+    assert.ok(captured.out.some(line => /^\s+outer\s+ok$/.test(line)))
+    assert.ok(captured.out.some(line => /^\s+outer:inner\s+REVOKED$/.test(line)))
+  })
+})
+
+test.serial('reports a skill once when a symlink points back at the skills root', async () => {
+  await withVerifyFixture(async ({ projectDir, projectSkills, registryDir, captured }) => {
+    writeSkill(projectSkills, 'sample-skill', registrySidecar())
+    symlinkSync(projectSkills, join(projectSkills, 'loop-root'), 'dir')
+    symlinkSync(projectDir, join(projectSkills, 'loop-ancestor'), 'dir')
+
+    await skillsVerifyHandler({ projectDir, registry: registryDir })
+
+    assert.equal(process.exitCode, 0)
+    assert.match(captured.out[0]!, /^Found 1 installed skill\. /)
+    assert.equal(captured.out.filter(line => /sample-skill\s+ok$/.test(line)).length, 1)
+  })
+})
+
+test.serial('reports a skill once when project and user roots link the same directory', async () => {
+  await withVerifyFixture(async ({ tempDir, projectDir, projectSkills, userSkills, registryDir, captured }) => {
+    const target = writeSkill(join(tempDir, 'elsewhere'), 'shared', registrySidecar({ id: 'gitlawb/shared' }))
+    symlinkSync(target, join(projectSkills, 'shared'), 'dir')
+    symlinkSync(target, join(userSkills, 'shared'), 'dir')
+    writeRevocations(registryDir, [{ id: 'gitlawb/shared' }])
+
+    await skillsVerifyHandler({ projectDir, registry: registryDir })
+
+    assert.equal(process.exitCode, 1)
+    assert.match(captured.out[0]!, /^Found 1 installed skill\. /)
+    assert.equal(captured.out.filter(line => /^\s+shared\s+REVOKED$/.test(line)).length, 1)
+    assert.match(captured.err[0]!, /^1 revoked skill installed\./)
+  })
+})
+
 test.serial('fails closed when the revocation list cannot be parsed', async () => {
   await withVerifyFixture(async ({ projectDir, projectSkills, registryDir, captured }) => {
     writeSkill(projectSkills, 'sample-skill', registrySidecar())
@@ -356,6 +401,7 @@ test.serial('finds eyebrow on PATH', async () => {
     const binDir = join(tempDir, 'bin')
     mkdirSync(binDir)
     writeFileSync(join(binDir, 'eyebrow'), '', 'utf8')
+    chmodSync(join(binDir, 'eyebrow'), 0o755)
     process.env.PATH = [process.env.PATH, binDir].join(delimiter)
     writeFileSync(join(projectDir, 'eyebrowlock.json'), '{}', 'utf8')
     const binaries: string[] = []
@@ -369,6 +415,33 @@ test.serial('finds eyebrow on PATH', async () => {
     assert.deepEqual(binaries, [join(binDir, 'eyebrow')])
     assert.equal(process.exitCode, 0)
     assert.ok(captured.out.some(line => line.startsWith(`Running ${join(binDir, 'eyebrow')} verify `)))
+  })
+})
+
+test.serial('skips a non-executable eyebrow file earlier on PATH', async () => {
+  if (process.platform === 'win32') {
+    return
+  }
+  await withVerifyFixture(async ({ tempDir, projectDir, registryDir }) => {
+    const plainDir = join(tempDir, 'plain')
+    const execDir = join(tempDir, 'exec')
+    mkdirSync(plainDir)
+    mkdirSync(execDir)
+    writeFileSync(join(plainDir, 'eyebrow'), '', 'utf8')
+    chmodSync(join(plainDir, 'eyebrow'), 0o644)
+    writeFileSync(join(execDir, 'eyebrow'), '', 'utf8')
+    chmodSync(join(execDir, 'eyebrow'), 0o755)
+    process.env.PATH = [plainDir, execDir, process.env.PATH].join(delimiter)
+    writeFileSync(join(projectDir, 'eyebrowlock.json'), '{}', 'utf8')
+    const binaries: string[] = []
+    setEyebrowRunnerForTesting(async bin => {
+      binaries.push(bin)
+      return 0
+    })
+
+    await skillsVerifyHandler({ projectDir, registry: registryDir })
+
+    assert.deepEqual(binaries, [join(execDir, 'eyebrow')])
   })
 })
 
