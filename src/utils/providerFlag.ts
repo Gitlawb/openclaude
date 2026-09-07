@@ -607,29 +607,33 @@ export function applyProviderFlag(
       // Preserve a user-supplied custom proxy URL; only seed the preset's
       // default when the shell value is missing, a sentinel (literal
       // 'null'/'undefined'), or already a known MiniMax URL (#2207 P1).
-      {
-        const existingBaseUrl = process.env.ANTHROPIC_BASE_URL
-        const shouldSeedDefaultBaseUrl =
-          !hasNonEmptyEnvValue(existingBaseUrl) ||
-          isMiniMaxBaseUrl(existingBaseUrl)
-        if (shouldSeedDefaultBaseUrl) {
-          process.env.ANTHROPIC_BASE_URL =
-            defaultBaseUrl ??
-            (provider === 'minimax-cn'
-              ? 'https://api.minimaxi.com/anthropic'
-              : 'https://api.minimax.io/anthropic')
-        }
+      const existingBaseUrl = process.env.ANTHROPIC_BASE_URL
+      const shouldSeedDefaultBaseUrl =
+        !hasNonEmptyEnvValue(existingBaseUrl) ||
+        isMiniMaxBaseUrl(existingBaseUrl)
+      if (shouldSeedDefaultBaseUrl) {
+        process.env.ANTHROPIC_BASE_URL =
+          defaultBaseUrl ??
+          (provider === 'minimax-cn'
+            ? 'https://api.minimaxi.com/anthropic'
+            : 'https://api.minimax.io/anthropic')
       }
       process.env.ANTHROPIC_MODEL = defaultModel ?? 'MiniMax-M3'
       if (model) process.env.ANTHROPIC_MODEL = model
-      {
-        const sanitizedMiniMaxKey = sanitizeApiKey(process.env.MINIMAX_API_KEY)
-        const sanitizedAnthropicKey = sanitizeApiKey(
-          process.env.ANTHROPIC_API_KEY,
-        )
-        if (sanitizedMiniMaxKey && !sanitizedAnthropicKey) {
-          process.env.ANTHROPIC_API_KEY = sanitizedMiniMaxKey
-        }
+      // Only seed ANTHROPIC_API_KEY from MINIMAX_API_KEY when the resolved
+      // ANTHROPIC_BASE_URL is a MiniMax endpoint. If the user supplied a
+      // custom Anthropic-compatible proxy, forwarding the MiniMax key there
+      // would leak the credential to an unrelated host (#2207 P1 follow-up).
+      const sanitizedMiniMaxKey = sanitizeApiKey(process.env.MINIMAX_API_KEY)
+      const sanitizedAnthropicKey = sanitizeApiKey(
+        process.env.ANTHROPIC_API_KEY,
+      )
+      if (
+        sanitizedMiniMaxKey &&
+        !sanitizedAnthropicKey &&
+        isMiniMaxBaseUrl(process.env.ANTHROPIC_BASE_URL)
+      ) {
+        process.env.ANTHROPIC_API_KEY = sanitizedMiniMaxKey
       }
       if (copiedOpenAIKeyProvider === 'minimax') {
         delete process.env.OPENAI_API_KEY

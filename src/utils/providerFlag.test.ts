@@ -1142,6 +1142,25 @@ describe('applyProviderFlag - minimax', () => {
     expect(result.error).toBeUndefined()
     expect(process.env.ANTHROPIC_API_KEY).toBe('pre-existing-anthropic-key')
   })
+
+  test('does not copy MINIMAX_API_KEY to ANTHROPIC_API_KEY when ANTHROPIC_BASE_URL is a custom non-MiniMax proxy (#2207 P1 follow-up)', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://my-anthropic-proxy.example/v1'
+    process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+    delete process.env.ANTHROPIC_API_KEY
+
+    const result = applyProviderFlag('minimax-cn', [])
+
+    expect(result.error).toBeUndefined()
+    // Custom proxy URL is preserved verbatim, not overwritten by the
+    // preset's MiniMax default.
+    expect(process.env.ANTHROPIC_BASE_URL).toBe(
+      'https://my-anthropic-proxy.example/v1',
+    )
+    // Forwarding the MiniMax key to a non-MiniMax endpoint would leak the
+    // credential, so the flag path must NOT seed ANTHROPIC_API_KEY from
+    // MINIMAX_API_KEY when a custom URL is in play.
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined()
+  })
 })
 
 describe('applyProviderFlag - nvidia-nim', () => {
