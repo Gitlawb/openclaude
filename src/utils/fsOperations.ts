@@ -34,6 +34,8 @@ export type FsOperations = {
   stat(path: string): Promise<fs.Stats>
   /** Gets file stats asynchronously without following symlinks */
   lstat(path: string): Promise<fs.Stats>
+  /** Rejects unless the process has the given fs.constants access mode on the path */
+  access(path: string, mode?: number): Promise<void>
   /** Lists directory contents with file type information asynchronously */
   readdir(path: string): Promise<fs.Dirent[]>
   /** Deletes file asynchronously */
@@ -430,6 +432,10 @@ export const NodeFsOperations: FsOperations = {
 
   async stat(fsPath) {
     return statPromise(fsPath)
+  },
+
+  async access(fsPath, mode) {
+    return fs.promises.access(fsPath, mode)
   },
 
   async lstat(fsPath) {

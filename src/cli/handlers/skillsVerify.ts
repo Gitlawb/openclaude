@@ -6,6 +6,7 @@
  */
 
 import { spawn } from 'child_process'
+import { constants as fsConstants } from 'fs'
 import { delimiter, join, relative, resolve, sep } from 'path'
 import { getCwd } from '../../utils/cwd.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -192,17 +193,21 @@ function revocationReason(match: SkillRevocation): string {
 }
 
 /**
- * True for a regular file with an execute bit set, read through the
+ * True for a regular file this process may execute, checked through the
  * active filesystem implementation. On Windows the name's extension
  * decides, so existence is enough there.
  */
 async function isExecutableFile(candidate: string): Promise<boolean> {
+  const fs = getFsImplementation()
   try {
-    const stats = await getFsImplementation().stat(candidate)
-    if (!stats.isFile()) {
+    if (!(await fs.stat(candidate)).isFile()) {
       return false
     }
-    return process.platform === 'win32' || (stats.mode & 0o111) !== 0
+    await fs.access(
+      candidate,
+      process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK,
+    )
+    return true
   } catch {
     return false
   }

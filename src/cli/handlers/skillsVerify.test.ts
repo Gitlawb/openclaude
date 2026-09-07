@@ -94,22 +94,23 @@ async function withVerifyFixture(
 /**
  * True when this platform lets the test create a directory symlink.
  * Windows needs a privilege or developer mode for that, so the symlink
- * cases skip there instead of failing in setup.
+ * cases are reported as skipped there instead of failing in setup.
  */
-function canSymlinkDirectories(tempDir: string): boolean {
-  const target = join(tempDir, 'symlink-probe-target')
-  const link = join(tempDir, 'symlink-probe-link')
+function canSymlinkDirectories(): boolean {
+  const probeDir = mkdtempSync(join(tmpdir(), 'openclaude-skill-verify-symlink-probe-'))
+  const target = join(probeDir, 'target')
   mkdirSync(target)
   try {
-    symlinkSync(target, link, 'dir')
+    symlinkSync(target, join(probeDir, 'link'), 'dir')
     return true
   } catch {
     return false
   } finally {
-    rmSync(link, { force: true })
-    rmSync(target, { recursive: true, force: true })
+    rmSync(probeDir, { recursive: true, force: true })
   }
 }
+
+const symlinkTest = test.serial.skipIf(!canSymlinkDirectories())
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -239,9 +240,8 @@ test.serial('matches a copied sidecar on a local install like a registry one', a
   })
 })
 
-test.serial('finds a skill behind a symlinked skill directory', async () => {
+symlinkTest('finds a skill behind a symlinked skill directory', async () => {
   await withVerifyFixture(async ({ tempDir, projectDir, projectSkills, registryDir, captured }) => {
-    if (!canSymlinkDirectories(tempDir)) return
     const target = writeSkill(join(tempDir, 'elsewhere'), 'linked', registrySidecar({ id: 'gitlawb/linked' }))
     symlinkSync(target, join(projectSkills, 'linked'), 'dir')
     writeRevocations(registryDir, [{ id: 'gitlawb/linked' }])
@@ -268,9 +268,8 @@ test.serial('finds a skill nested below another skill', async () => {
   })
 })
 
-test.serial('reports a skill once when a symlink points back at the skills root', async () => {
+symlinkTest('reports a skill once when a symlink points back at the skills root', async () => {
   await withVerifyFixture(async ({ tempDir, projectDir, projectSkills, registryDir, captured }) => {
-    if (!canSymlinkDirectories(tempDir)) return
     writeSkill(projectSkills, 'sample-skill', registrySidecar())
     symlinkSync(projectSkills, join(projectSkills, 'loop-root'), 'dir')
     symlinkSync(projectDir, join(projectSkills, 'loop-ancestor'), 'dir')
@@ -283,9 +282,8 @@ test.serial('reports a skill once when a symlink points back at the skills root'
   })
 })
 
-test.serial('reports a skill once when project and user roots link the same directory', async () => {
+symlinkTest('reports a skill once when project and user roots link the same directory', async () => {
   await withVerifyFixture(async ({ tempDir, projectDir, projectSkills, userSkills, registryDir, captured }) => {
-    if (!canSymlinkDirectories(tempDir)) return
     const target = writeSkill(join(tempDir, 'elsewhere'), 'shared', registrySidecar({ id: 'gitlawb/shared' }))
     symlinkSync(target, join(projectSkills, 'shared'), 'dir')
     symlinkSync(target, join(userSkills, 'shared'), 'dir')
