@@ -10,6 +10,7 @@ openclaude skills show <name>                      Show details for an installed
 openclaude skills validate <path>                  Validate a local skill directory
 openclaude skills install <idOrUrlOrPath> [options] Install a skill
 openclaude skills remove <name> [--global]         Remove an installed skill
+openclaude skills verify [options]                 Check installed skills for revocations and, with eyebrow, drift
 ```
 
 ## Install from the registry
@@ -69,6 +70,22 @@ $ openclaude skills list
 ci-fix  enabled   Diagnoses and fixes CI pipeline failures.
 ```
 
+## Verify installed skills
+
+`verify` reads the skills installed in the project's `.openclaude/skills` and in your user skills directory. Skills that `list` shows from plugins, MCP servers, or `--add-dir` directories are outside it. For each skill it reads the id, version, and digest from `skill.json` as written on disk, and matches them against the registry's `revocations.json` with the rule the installer uses. The digest is the registry pin recorded at install, not a hash of the current files, so `verify` says nothing about the contents on disk and trusts `skill.json` as it finds it. A skill whose `skill.json` has no id and no digest, such as one written by hand, is listed as skipped. A local install that copied a `skill.json` keeps that file's id and digest, so `verify` matches it like a registry install. The list comes from the default registry, from `--registry`, or from the environment variables named above. A list that cannot be read fails the command, the same as an install does.
+
+```text
+$ openclaude skills verify
+Found 2 installed skills. Revocation list: https://raw.githubusercontent.com/Gitlawb/openclaude-skills/main/revocations.json
+  ci-fix     ok
+  hand-made  skipped (no registry metadata)
+eyebrow not found; install it to check skill contents against a lockfile (see docs/skills.md).
+```
+
+When an executable named `eyebrow` is on `PATH`, or `OPENCLAUDE_EYEBROW_BIN` names one, and the project has a lockfile, `verify` runs `eyebrow verify --path . --lockfile eyebrowlock.json` in the project directory, shows its output, and prints the path of the binary it ran. `--lockfile` names another lockfile and `--policy` adds `--ci` and the policy file to the eyebrow run. `verify` does not check the eyebrow version. An eyebrow older than 0.4.4 finds no OpenClaude skills and reports every locked skill as removed, so use 0.4.6 or newer, as the next section explains. That section also shows how to create the lockfile and how to read the verdict.
+
+Exit codes: `1` when a skill is revoked, when the revocation list cannot be read, or when eyebrow cannot be started; otherwise the eyebrow exit code; `0` when both checks pass, and also when eyebrow is absent or the lockfile is missing, in which case `verify` prints what to install or run.
+
 ## Check installed skills after install
 
 [eyebrow](https://github.com/alexverify/eyebrow) is a separate, MIT-licensed single binary that records a hash of every skill, MCP server, hook, and rule it finds across coding tools in a lockfile you commit, and reports what changed since. Discovery of OpenClaude skills in the project's `.openclaude/skills` and in `~/.openclaude/skills` shipped in eyebrow 0.4.4, and 0.4.5 added the egress fingerprint used below; see the [changelog](https://github.com/alexverify/eyebrow/blob/main/CHANGELOG.md). Use 0.4.6 or newer: in 0.4.5 a skill folder that is a symlink appeared in the inventory with no hashed files, so a clean `verify` said nothing about the contents behind the link. 0.4.6 hashes the linked contents.
@@ -85,6 +102,8 @@ Check them again at any time, or in CI:
 ```bash
 eyebrow verify --path . --lockfile eyebrowlock.json --ci
 ```
+
+`openclaude skills verify` runs this command for you when eyebrow is installed.
 
 `verify` exit codes: `0` clean under the active policy, which includes content changes the policy permits; `1` rejected drift or a policy violation; `2` usage error, such as a bad flag; `3` internal or I/O error, such as a missing lockfile. In CI, treat `1` as a review task and `2` or `3` as a broken job. On the edited skill above, with no policy file:
 

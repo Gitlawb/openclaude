@@ -30,6 +30,7 @@ import {
 import { validateSkillPath } from './skillsValidation.js'
 
 export { skillsInstallHandler } from './skillsInstall.js'
+export { skillsVerifyHandler } from './skillsVerify.js'
 
 type SkillCommand = SkillListCommand
 type ListOptions = { json?: boolean }

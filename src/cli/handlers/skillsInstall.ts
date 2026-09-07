@@ -45,7 +45,7 @@ type RegistryEntriesResult = {
   registrySource: string
 }
 
-type SkillRevocation = {
+export type SkillRevocation = {
   id?: unknown
   version?: unknown
   sha256?: unknown
@@ -167,20 +167,30 @@ async function readSourceText(source: string): Promise<string> {
   return getFsImplementation().readFile(resolve(source), { encoding: 'utf8' })
 }
 
-async function readRegistryEntries(source: string): Promise<RegistryEntriesResult> {
-  let registrySource = source
-  if (!isUrl(source)) {
-    const resolved = resolve(source)
-    try {
-      const sourceStats = await getFsImplementation().stat(resolved)
-      registrySource = sourceStats.isDirectory()
-        ? join(resolved, 'registry.json')
-        : resolved
-    } catch {
-      registrySource = resolved
-    }
+/**
+ * The registry an install or verify reads: the given value, then the
+ * OPENCLAUDE_SKILLS_REGISTRY_URL env var, then the default registry. A
+ * local directory resolves to the registry.json inside it.
+ */
+export async function resolveRegistrySource(registry?: string): Promise<string> {
+  const source =
+    registry ??
+    process.env.OPENCLAUDE_SKILLS_REGISTRY_URL ??
+    DEFAULT_SKILLS_REGISTRY_URL
+  if (isUrl(source)) {
+    return source
   }
+  const resolved = resolve(source)
+  try {
+    const sourceStats = await getFsImplementation().stat(resolved)
+    return sourceStats.isDirectory() ? join(resolved, 'registry.json') : resolved
+  } catch {
+    return resolved
+  }
+}
 
+async function readRegistryEntries(source?: string): Promise<RegistryEntriesResult> {
+  const registrySource = await resolveRegistrySource(source)
   const raw = await readSourceText(registrySource)
   const parsed = JSON.parse(raw) as unknown
   return {
@@ -209,7 +219,7 @@ function resolveRegistryEntrySource(
  * OPENCLAUDE_SKILLS_REVOCATIONS_URL env var when set, otherwise a
  * revocations.json sibling of the registry (URL or local file).
  */
-function resolveRevocationsSource(registrySource: string): string {
+export function resolveRevocationsSource(registrySource: string): string {
   return (
     process.env.OPENCLAUDE_SKILLS_REVOCATIONS_URL ??
     resolveRegistryEntrySource('revocations.json', registrySource)
@@ -279,7 +289,7 @@ function parseRevocation(
  * list revokes nothing; any other read, parse, or schema failure throws
  * so the install fails closed.
  */
-async function readRevocations(registrySource: string): Promise<SkillRevocation[]> {
+export async function readRevocations(registrySource: string): Promise<SkillRevocation[]> {
   const source = resolveRevocationsSource(registrySource)
   let raw: string
   try {
@@ -311,11 +321,7 @@ async function resolveRegistryEntry(
   idOrName: string,
   options: InstallOptions,
 ): Promise<{ entry: SkillRegistryEntry; registrySource: string } | null> {
-  const registrySource =
-    options.registry ??
-    process.env.OPENCLAUDE_SKILLS_REGISTRY_URL ??
-    DEFAULT_SKILLS_REGISTRY_URL
-  const registry = await readRegistryEntries(registrySource)
+  const registry = await readRegistryEntries(options.registry)
   const entry = registry.entries.find(
     candidate =>
       candidate.id === idOrName ||
@@ -395,7 +401,7 @@ function assertSha256Matches(text: string, expectedSha256: string, spec: string)
  * specifies must match (id alone covers all versions, sha256 covers the
  * exact content under any id).
  */
-function revocationApplies(
+export function revocationApplies(
   revocation: SkillRevocation,
   skill: { id?: string; version?: string; sha256: string },
 ): boolean {

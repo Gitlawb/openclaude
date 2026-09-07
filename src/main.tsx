@@ -4169,6 +4169,13 @@ async function run(): Promise<CommanderCommand> {
   }) => {
     await runSkillsCommanderAction(({ skillsRemoveHandler }) => skillsRemoveHandler(name, options));
   });
+  skillsCmd.command('verify').description('Check installed skills against the registry revocation list and, when eyebrow is installed, the lockfile').option('--registry <urlOrPath>', 'Registry JSON URL/path whose revocations.json to read').option('--lockfile <path>', 'eyebrow lockfile path (default: eyebrowlock.json)').option('--policy <path>', 'eyebrow policy file; adds --ci to the eyebrow run').action(async (options: {
+    registry?: string;
+    lockfile?: string;
+    policy?: string;
+  }) => {
+    await runSkillsCommanderAction(({ skillsVerifyHandler }) => skillsVerifyHandler(options));
+  });
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     // Skip when tengu_auto_mode_config.enabled === 'disabled' (circuit breaker).
     // Reads from disk cache — GrowthBook isn't initialized at registration time.
