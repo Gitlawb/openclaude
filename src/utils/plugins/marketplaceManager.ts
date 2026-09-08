@@ -1831,14 +1831,30 @@ async function loadAndCacheMarketplace(
           // Rename temp cache to final name
           try {
             await fs.rename(temporaryCachePath, finalCachePath)
+            temporaryCachePath = finalCachePath
           } catch (renameError) {
             // Rename may fail for cross-device moves (EXDEV). Fall back to
-            // copy + delete.
-            await fs.cp(temporaryCachePath, finalCachePath, { recursive: true })
-            await fs.rm(temporaryCachePath, { recursive: true, force: true })
+            // copy + delete. Recursive copy can still throw ENOENT on Windows
+            // for dangling symlinks or unreadable nested files in large
+            // clones (ChromeDevTools/chrome-devtools-mcp third_party trees,
+            // issue #2183). The clone already succeeded and marketplace.json
+            // was parsed from temporaryCachePath — keep that directory rather
+            // than failing the add.
+            try {
+              await fs.cp(temporaryCachePath, finalCachePath, {
+                recursive: true,
+              })
+              await fs.rm(temporaryCachePath, { recursive: true, force: true })
+              temporaryCachePath = finalCachePath
+            } catch (copyError) {
+              await fs.rm(finalCachePath, { recursive: true, force: true })
+              logForDebugging(
+                `Marketplace cache rename and copy failed; keeping ${temporaryCachePath}. rename=${errorMessage(renameError)} copy=${errorMessage(copyError)}`,
+                { level: 'warn' },
+              )
+            }
           }
-          temporaryCachePath = finalCachePath
-          cleanupNeeded = false // Successfully renamed, no cleanup needed
+          cleanupNeeded = false // Clone is the live cache (renamed, copied, or kept)
         } catch (error) {
           const errorMsg = errorMessage(error)
           throw new Error(

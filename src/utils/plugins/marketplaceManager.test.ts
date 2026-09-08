@@ -416,6 +416,36 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     const newEntries = afterEntries.filter(e => !beforeEntries.has(e))
     expect(newEntries).toEqual(['mymarketplace'])
   })
+
+  test('keeps the temp cache when copy fallback throws ENOENT (issue #2183)', async () => {
+    renameSpy.mockImplementation(() => {
+      throw new Error('EXDEV: cross-device link not permitted, rename')
+    })
+    cpSpy.mockImplementation(async () => {
+      throw Object.assign(
+        new Error(
+          "ENOENT: no such file or directory, copyfile 'chromedevtools-chrome-devtools-mcp/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps' -> 'chrome-devtools-plugins/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps'",
+        ),
+        { code: 'ENOENT' },
+      )
+    })
+
+    const source: MarketplaceSource = {
+      source: 'url',
+      url: 'https://example.com/marketplace.json',
+    }
+
+    const cacheDir = join(tempDir, 'marketplaces')
+    mkdirSync(cacheDir, { recursive: true })
+
+    const result = await loadAndCacheWithMockedAxios!(source)
+
+    expect(result.marketplace.name).toBe('MyMarketplace')
+    expect(result.cachePath.startsWith(join(cacheDir, 'temp_'))).toBe(true)
+    expect(existsSync(result.cachePath)).toBe(true)
+    expect(existsSync(join(cacheDir, 'mymarketplace'))).toBe(false)
+    expect(cpSpy).toHaveBeenCalled()
+  })
 })
 
 /**
