@@ -13,10 +13,11 @@ import {
   it,
   mock,
 } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Command } from '@commander-js/extra-typings'
+import { applyChildProcessHeapOptions } from './applyChildProcessHeapOptions.js'
 import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
@@ -118,71 +119,61 @@ function clearRuntimeMocks() {
 }
 
 describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
-  const originalNodeOptions = process.env.NODE_OPTIONS
-  const originalHeapSizeMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
+  const cliSource = readFileSync(new URL('./cli.tsx', import.meta.url), 'utf8')
 
-  beforeEach(() => {
-    delete process.env.NODE_OPTIONS
-    delete process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
-  })
-
-  afterEach(() => {
-    if (originalNodeOptions !== undefined) {
-      process.env.NODE_OPTIONS = originalNodeOptions
-    } else {
-      delete process.env.NODE_OPTIONS
-    }
-    if (originalHeapSizeMb !== undefined) {
-      process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB = originalHeapSizeMb
-    } else {
-      delete process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
-    }
+  it('wires the child-process heap helper from the CLI entrypoint', () => {
+    expect(cliSource).toContain(
+      "import { applyChildProcessHeapOptions } from './applyChildProcessHeapOptions.js'",
+    )
+    expect(cliSource).toContain('applyChildProcessHeapOptions(process.env)')
   })
 
   it('sets --max-old-space-size=8192 when NODE_OPTIONS is not set', () => {
-    // Guard predicate: fires when the flag is absent
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS?.includes('--max-old-space-size')
-    expect(shouldSetHeapCap).toBe(true)
+    const env: NodeJS.ProcessEnv = {}
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=8192')
   })
 
   it('does not override existing --max-old-space-size=4096', () => {
-    process.env.NODE_OPTIONS = '--max-old-space-size=4096 --experimental-vm-modules'
-
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
-    expect(shouldSetHeapCap).toBe(false)
-    expect(process.env.NODE_OPTIONS).toContain('4096')
+    const env: NodeJS.ProcessEnv = {
+      NODE_OPTIONS: '--max-old-space-size=4096 --experimental-vm-modules',
+    }
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe(
+      '--max-old-space-size=4096 --experimental-vm-modules',
+    )
   })
 
   it('does not override existing --max-old-space-size=8192', () => {
-    process.env.NODE_OPTIONS = '--max-old-space-size=8192'
-
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
-    expect(shouldSetHeapCap).toBe(false)
-    expect(process.env.NODE_OPTIONS).toBe('--max-old-space-size=8192')
+    const env: NodeJS.ProcessEnv = {
+      NODE_OPTIONS: '--max-old-space-size=8192',
+    }
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=8192')
   })
 
   it('appends --max-old-space-size when NODE_OPTIONS has other flags', () => {
-    process.env.NODE_OPTIONS = '--inspect=9229'
-
-    const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
-    const result = `${process.env.NODE_OPTIONS} --max-old-space-size=${heapMb}`
-    expect(result).toBe('--inspect=9229 --max-old-space-size=8192')
+    const env: NodeJS.ProcessEnv = { NODE_OPTIONS: '--inspect=9229' }
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe('--inspect=9229 --max-old-space-size=8192')
   })
 
   it('does not override existing --max-old-space-size-percentage=50', () => {
-    process.env.NODE_OPTIONS = '--max-old-space-size-percentage=50'
-
-    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
-    expect(shouldSetHeapCap).toBe(false)
+    const env: NodeJS.ProcessEnv = {
+      NODE_OPTIONS: '--max-old-space-size-percentage=50',
+    }
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size-percentage=50')
+    expect(env.NODE_OPTIONS).not.toMatch(/--max-old-space-size=\d+/)
   })
 
   it('uses OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB when appending a heap cap', () => {
-    process.env.NODE_OPTIONS = '--inspect=9229'
-    process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB = '2048'
-
-    const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
-    const result = `${process.env.NODE_OPTIONS} --max-old-space-size=${heapMb}`
-    expect(result).toBe('--inspect=9229 --max-old-space-size=2048')
+    const env: NodeJS.ProcessEnv = {
+      NODE_OPTIONS: '--inspect=9229',
+      OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB: '2048',
+    }
+    applyChildProcessHeapOptions(env)
+    expect(env.NODE_OPTIONS).toBe('--inspect=9229 --max-old-space-size=2048')
   })
 })
 

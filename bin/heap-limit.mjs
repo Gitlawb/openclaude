@@ -179,6 +179,13 @@ export function resolveHeapSizeMb(input = {}) {
     if (mb != null) {
       return { mb, source: 'argv-percentage', percentage: argvPercentage }
     }
+    // Valid percentage requested; memory size unknown. Do not treat this as
+    // "no percentage" and fall through to an unrelated MB env value.
+    return {
+      mb: DEFAULT_HEAP_SIZE_MB,
+      source: 'percentage-unavailable',
+      percentage: argvPercentage,
+    }
   }
 
   const envPercentage = parsePercentage(env[HEAP_PERCENTAGE_ENV])
@@ -187,10 +194,27 @@ export function resolveHeapSizeMb(input = {}) {
     if (mb != null) {
       return { mb, source: 'env-percentage', percentage: envPercentage }
     }
+    return {
+      mb: DEFAULT_HEAP_SIZE_MB,
+      source: 'percentage-unavailable',
+      percentage: envPercentage,
+    }
   }
 
   const envMb = parsePositiveIntegerMb(env[HEAP_SIZE_ENV])
   if (envMb != null) return { mb: envMb, source: 'env-mb' }
 
   return { mb: DEFAULT_HEAP_SIZE_MB, source: 'default' }
+}
+
+/**
+ * One-line operator warning when a valid percentage cannot be converted.
+ * @param {number} percentage
+ * @param {number} [fallbackMb]
+ */
+export function formatPercentageUnavailableStderr(
+  percentage,
+  fallbackMb = DEFAULT_HEAP_SIZE_MB,
+) {
+  return `openclaude: could not convert heap percentage ${percentage} to megabytes because available memory is unknown; using ${fallbackMb}`
 }

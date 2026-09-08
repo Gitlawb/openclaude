@@ -8,6 +8,7 @@ import {
   HEAP_PERCENTAGE_FLAG,
   HEAP_SIZE_ENV,
   HEAP_SIZE_FLAG,
+  formatPercentageUnavailableStderr,
   getAvailableMemoryBytes,
   hasHeapLimitFlag,
   heapSizeMbFromPercentage,
@@ -28,6 +29,8 @@ describe('openclaude launcher heap guard', () => {
 
     expect(heapSource).toContain("export const HEAP_SIZE_FLAG = '--max-old-space-size'")
     expect(source).toContain('`${HEAP_SIZE_FLAG}=${resolved.mb}`')
+    expect(source).toContain('formatPercentageUnavailableStderr')
+    expect(source).toContain("resolved.source === 'percentage-unavailable'")
     expect(source).toContain('--expose-gc')
     expect(source).toContain('spawnSync(process.execPath')
     expect(source).toContain("from './heap-limit.mjs'")
@@ -191,5 +194,33 @@ describe('heap-limit percentage resolution', () => {
         availableBytes: FOUR_GIB,
       }),
     ).toEqual({ mb: 4096, source: 'env-mb' })
+  })
+
+  test('does not fall through to an unrelated MB env when memory is unknown', () => {
+    expect(
+      resolveHeapSizeMb({
+        argv: ['--max-old-space-size-percentage=50'],
+        env: { [HEAP_SIZE_ENV]: '4096' },
+        availableBytes: 0,
+      }),
+    ).toEqual({
+      mb: DEFAULT_HEAP_SIZE_MB,
+      source: 'percentage-unavailable',
+      percentage: 50,
+    })
+    expect(
+      resolveHeapSizeMb({
+        argv: [],
+        env: { [HEAP_PERCENTAGE_ENV]: '75', [HEAP_SIZE_ENV]: '4096' },
+        availableBytes: 0,
+      }),
+    ).toEqual({
+      mb: DEFAULT_HEAP_SIZE_MB,
+      source: 'percentage-unavailable',
+      percentage: 75,
+    })
+    expect(formatPercentageUnavailableStderr(50)).toBe(
+      'openclaude: could not convert heap percentage 50 to megabytes because available memory is unknown; using 8192',
+    )
   })
 })

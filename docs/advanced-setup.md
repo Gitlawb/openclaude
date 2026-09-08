@@ -429,13 +429,21 @@ openclaude --max-old-space-size-percentage=50
 openclaude --max-old-space-size-percentage=75
 ```
 
-You can also set `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE=50`. Putting the
-native flag in `NODE_OPTIONS` or `node --max-old-space-size-percentage=…` only
-works on Node versions that accept that option; Node 22.0.0 rejects it before
-OpenClaude starts. When a supporting Node already applied that native flag,
-OpenClaude leaves it in place and does not append `8192`. `--max-memory=2048`
-remains the explicit megabyte override and still wins over a percentage
-request.
+Heap size precedence, earlier wins:
+
+1. `--max-memory=<MB>` (explicit megabyte override)
+2. `--max-old-space-size-percentage`
+3. `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE`
+4. `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB`
+5. Default `8192`
+
+Putting the native flag in `NODE_OPTIONS` or
+`node --max-old-space-size-percentage=…` only works on Node versions that accept
+that option; Node 22.0.0 rejects it before OpenClaude starts. When a supporting
+Node already applied that native flag, OpenClaude leaves it in place and does
+not append `8192`. If a valid percentage is requested but available memory cannot
+be measured, OpenClaude prints one warning on stderr and uses `8192` instead
+of an unrelated megabyte environment value.
 
 ## Environment Variables
 
@@ -491,8 +499,8 @@ host. Without this variable the behavior is unchanged.
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
 | `API_TIMEOUT_MS` | No | Time-to-response-headers deadline for generic OpenAI-compatible requests, direct GitHub Copilot Responses, and Copilot chat-to-Responses fallback requests, in milliseconds (default: `600000`, or 10 minutes). The value must be a safe positive integer; invalid, zero, negative, or fractional values use the default, and values above `2147483647` are capped. The deadline is disarmed after headers arrive, so it does not limit response streaming. Export this runtime setting from your shell or launcher; the provider env-file loader ignores runtime/debug settings, so a value configured only there leaves the default in effect. First-party Codex OAuth Responses and the Anthropic SDK retain their existing timeout handling. |
 | `OPENCLAUDE_OLLAMA_NUM_CTX` | Ollama only | Request-level Ollama context window. Defaults to `32768`; set a larger value for longer same-session history if your model and hardware can handle it. |
-| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB` | No | Explicit V8 old-space heap cap in megabytes for the Node launcher. Used when `--max-memory` and `--max-old-space-size-percentage` are unset. Default `8192`. |
-| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE` | No | Size the V8 old-space heap as a percentage (greater than 0, up to 100) of constrained/container memory when Node reports it, otherwise total system RAM. Converted to `--max-old-space-size` so Node 22.0.0 can start. Overridden by `--max-memory`. |
+| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB` | No | Explicit V8 old-space heap cap in megabytes for the Node launcher. Used only when `--max-memory`, `--max-old-space-size-percentage`, and `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE` are all unset. Default `8192`. |
+| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE` | No | Size the V8 old-space heap as a percentage (greater than 0, up to 100) of constrained/container memory when Node reports it, otherwise total system RAM. Converted to `--max-old-space-size` so Node 22.0.0 can start. Precedence, earlier wins: `--max-memory` → `--max-old-space-size-percentage` → this variable → `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB` → default `8192`. |
 | `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
 | `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS` | No | JSON map of OpenAI-compatible model names to max output tokens, such as `{"custom-model":32768}`. Use this when a custom provider does not expose output-limit metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |

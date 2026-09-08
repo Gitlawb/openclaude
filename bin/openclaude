@@ -15,6 +15,7 @@ import { enableNodeCompileCacheIfAvailable } from './node-compile-cache.mjs'
 import {
   HEAP_SIZE_ENV,
   HEAP_SIZE_FLAG,
+  formatPercentageUnavailableStderr,
   hasHeapLimitFlag,
   hasNodeFlag,
   nodeOptionArgs,
@@ -53,6 +54,9 @@ function relaunchWithLongSessionHeapIfNeeded() {
       argv: process.argv.slice(2),
       env: process.env,
     })
+    if (resolved.source === 'percentage-unavailable') {
+      console.error(formatPercentageUnavailableStderr(resolved.percentage))
+    }
     applyResolvedHeapEnv(resolved)
     execArgv.push(`${HEAP_SIZE_FLAG}=${resolved.mb}`)
   }

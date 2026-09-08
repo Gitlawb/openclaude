@@ -3,6 +3,7 @@ import {
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
+import { applyChildProcessHeapOptions } from './applyChildProcessHeapOptions.js'
 import {
   argsBeforeModelOwningSubcommand,
   parseRootOptionValue,
@@ -224,19 +225,8 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
 // running by this point; the package launcher raises its heap before importing
 // dist/cli.mjs. Keeping NODE_OPTIONS here preserves the larger cap for tools or
 // subprocesses spawned after startup without overriding user-provided limits.
-// eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level, custom-rules/safe-env-boolean-check
-if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
-  // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  const existing = process.env.NODE_OPTIONS || ''
-  // Launcher percentage/MB resolution writes OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
-  // before importing this file so subprocesses inherit the same cap.
-  // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
-  // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  process.env.NODE_OPTIONS = existing
-    ? `${existing} --max-old-space-size=${heapMb}`
-    : `--max-old-space-size=${heapMb}`
-}
+// eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
+applyChildProcessHeapOptions(process.env)
 
 // Harness-science L0 ablation baseline. Inlined here (not init.ts) because
 // BashTool/AgentTool/PowerShellTool capture DISABLE_BACKGROUND_TASKS into
