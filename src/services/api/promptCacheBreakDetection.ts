@@ -434,7 +434,12 @@ function resolvePromptCacheBreakAPIProvider(
     case 'bedrock':
     case 'vertex':
     case 'nvidia-nim':
+      return activeRouteId
     case 'minimax':
+    case 'minimax-cn':
+      // Normalize minimax-cn to the legacy 'minimax' bucket so cache-break
+      // detection treats both regions the same (#2207 P1 follow-up).
+      return 'minimax'
     case 'xiaomi-mimo':
     case 'xai':
       return activeRouteId

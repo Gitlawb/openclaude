@@ -3522,11 +3522,12 @@ test('buildLaunchEnv assembles Anthropic env for selectedProfile === "minimax-cn
   assert.equal(env.ANTHROPIC_MODEL, 'MiniMax-M3')
 })
 
-test('buildLaunchEnv translates legacy /v1 MiniMax-CN URL to /anthropic (#2207 P2)', async () => {
-  // Legacy OpenAI-style persisted URL .../v1 must be translated to
-  // .../anthropic so the Anthropic SDK's appended /v1/messages lands on
-  // the correct subpath. The same translation applies to ANTHROPIC_BASE_URL
-  // coming from processEnv (shell export).
+test('buildLaunchEnv replaces legacy /v1 MiniMax-CN URL with /anthropic (#2207 P2 + jatmn follow-up)', async () => {
+  // Legacy OpenAI-style persisted URL .../v1 must be translated to the
+  // canonical Anthropic form .../anthropic so the Anthropic SDK's appended
+  // /v1/messages lands on `…/anthropic/v1/messages` instead of the
+  // dangling `…/v1/anthropic/v1/messages`. The same translation applies to
+  // ANTHROPIC_BASE_URL coming from processEnv (shell export).
   const env = await buildLaunchEnv({
     profile: 'minimax-cn',
     persisted: {
@@ -3541,7 +3542,25 @@ test('buildLaunchEnv translates legacy /v1 MiniMax-CN URL to /anthropic (#2207 P
     processEnv: {},
   })
 
-  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1/anthropic')
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/anthropic')
+})
+
+test('buildLaunchEnv replaces legacy /v1 MiniMax overseas URL with /anthropic (#2207 P2 + jatmn follow-up)', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'minimax',
+    persisted: {
+      profile: 'minimax',
+      env: {
+        MINIMAX_API_KEY: 'minimax-key',
+        OPENAI_BASE_URL: 'https://api.minimax.io/v1',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {},
+  })
+
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimax.io/anthropic')
 })
 
 test('buildLaunchEnv does NOT fall back to OPENAI_API_KEY for the CN profile (#2207 P1)', async () => {
@@ -3617,6 +3636,31 @@ test('buildLaunchEnv strips inherited OPENAI_BASE_URL for minimax-cn (#2207 P2)'
   })
 
   assert.equal(env.OPENAI_BASE_URL, undefined)
-  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/v1/anthropic')
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/anthropic')
+  assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
+})
+
+test('buildLaunchEnv strips inherited OPENAI_API_BASE for minimax-cn (#2207 P2 follow-up)', async () => {
+  // Mirror --provider minimax[-cn] cleanup: both OpenAI aliases must drop
+  // so quota/shim helpers cannot pick up a stale OpenAI URL after profile
+  // application.
+  const env = await buildLaunchEnv({
+    profile: 'minimax-cn',
+    persisted: {
+      profile: 'minimax-cn',
+      env: {
+        MINIMAX_API_KEY: 'minimax-cn-key',
+        OPENAI_API_BASE: 'https://api.minimaxi.com/v1',
+      },
+      createdAt: '2026-09-04T00:00:00.000Z',
+    },
+    goal: 'coding',
+    processEnv: {
+      OPENAI_API_BASE: 'https://api.minimaxi.com/v1',
+    },
+  })
+
+  assert.equal(env.OPENAI_API_BASE, undefined)
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.minimaxi.com/anthropic')
   assert.equal(env.ANTHROPIC_API_KEY, 'minimax-cn-key')
 })

@@ -564,6 +564,10 @@ export function buildMiniMaxProfileEnv(options: {
  *     translated to `https://api.minimaxi.com/anthropic` so requests land
  *     on `…/anthropic/v1/messages` instead of `…/v1/messages` (#2207 P2).
  *
+ * The legacy `/v1` suffix is **replaced** at the host root, not appended
+ * to, so the canonical form (`…/anthropic/v1/messages`) is what the SDK
+ * actually targets (#2207 P2 follow-up from jatmn).
+ *
  * Returns the input unchanged when it cannot be normalized (the caller will
  * fall back to the route default rather than failing the whole launch).
  */
@@ -571,7 +575,7 @@ export function normalizeMiniMaxAnthropicBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '')
   if (!trimmed) return raw
   if (trimmed.endsWith('/anthropic')) return trimmed
-  if (/\/v1$/.test(trimmed)) return `${trimmed}/anthropic`
+  if (/\/v1$/.test(trimmed)) return trimmed.replace(/\/v1$/, '/anthropic')
   return trimmed
 }
 
@@ -2111,11 +2115,13 @@ export async function buildLaunchEnv(options: {
       // override x-api-key and break auth (#2207 P1). Explicitly drop it
       // before merging.
       clearInheritedAnthropicAuthToken(processEnv)
-      // An inherited OPENAI_BASE_URL would survive the spread below and
-      // could be re-picked up by the OpenAI shim helper or downstream
-      // clients (e.g. /usage), forwarding the China key to an unintended
-      // endpoint after the Anthropic profile was applied (#2207 P2).
+      // An inherited OPENAI_BASE_URL or OPENAI_API_BASE would survive the
+      // spread below and could be re-picked up by the OpenAI shim helper
+      // or downstream clients (e.g. /usage), forwarding the China key to
+      // an unintended endpoint after the Anthropic profile was applied
+      // (#2207 P2 + jatmn follow-up).
       delete processEnv.OPENAI_BASE_URL
+      delete processEnv.OPENAI_API_BASE
       return { ...processEnv, ...minimaxProfileEnv }
     }
   }

@@ -30,6 +30,41 @@ function defaultBaseUrlForConfigured(configuredBaseUrl?: string): string {
   }
 }
 
+// Convert a configured MiniMax env var into the quota /v1 root. The native
+// preset emits an Anthropic-compatible chat root (`…/anthropic`); the quota
+// API lives under the OpenAI-shaped root (`…/v1`). The two must not be
+// treated as interchangeable — overseas native `/usage` regressed on
+// earlier commits when chat base flowed verbatim into quota resolution
+// (#2207 P1 follow-up from jatmn).
+//
+// Behavior:
+//   https://api.minimaxi.com/anthropic  →  https://api.minimaxi.com/v1
+//   https://api.minimaxi.com/v1         →  https://api.minimaxi.com/v1   (already /v1)
+//   https://api.minimax.io/anthropic    →  https://api.minimax.io/v1
+//   https://api.minimax.io/v1           →  https://api.minimax.io/v1    (already /v1)
+//   custom Anthropic-compatible proxy   →  hostname if MiniMax → that
+//                                          vendor's /v1; otherwise null
+//                                          (non-MiniMax URLs cannot serve
+//                                          the MiniMax quota API).
+export function chatBaseToQuotaBase(baseUrl: string | undefined): string | null {
+  const trimmed = baseUrl?.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    const hostname = parsed.hostname.toLowerCase()
+    const isCnHost = hostname === 'api.minimaxi.com'
+    const isOverseasHost =
+      hostname === 'api.minimax.io' || hostname === 'api.minimax.chat'
+    if (!isCnHost && !isOverseasHost) return null
+    // Both `/anthropic` and `/v1` shapes collapse to the same `/v1` root
+    // because the quota API is OpenAI-shaped.
+    const origin = `${parsed.protocol}//${parsed.host}`
+    return `${origin}/v1`
+  } catch {
+    return null
+  }
+}
+
 export function resolveMiniMaxUsageBaseUrl(
   baseUrl = process.env.OPENAI_BASE_URL ??
     process.env.OPENAI_API_BASE ??
@@ -51,11 +86,20 @@ function resolveConfiguredMiniMaxUsageBaseUrl(
     }
   }
 
+  // Resolve the active MiniMax URL across every alias, then translate the
+  // chat-shape URL into the quota /v1 root. Custom Anthropic-compatible
+  // proxies do not serve the MiniMax quota API, so chatBaseToQuotaBase
+  // returns null and we fall back to the region-routed default.
   const fromEnv =
     process.env.ANTHROPIC_BASE_URL ??
     process.env.MINIMAX_BASE_URL ??
     process.env.OPENAI_BASE_URL ??
     process.env.OPENAI_API_BASE
+
+  const quotaBase = chatBaseToQuotaBase(fromEnv)
+  if (quotaBase) {
+    return { baseUrl: quotaBase, usedDefault: false }
+  }
 
   if (!fromEnv?.trim()) {
     return {
@@ -64,9 +108,10 @@ function resolveConfiguredMiniMaxUsageBaseUrl(
     }
   }
 
+  // Non-MiniMax custom URL: respect its region for the default fallback.
   return {
-    baseUrl: trimTrailingSlash(fromEnv.trim()),
-    usedDefault: false,
+    baseUrl: defaultBaseUrlForConfigured(fromEnv),
+    usedDefault: true,
   }
 }
 

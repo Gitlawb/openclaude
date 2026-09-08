@@ -1,8 +1,8 @@
 # OpenClaude × MiniMax 国内端点兼容性问题(技术报告)
 
-> 状态:**待修复** — 不阻塞使用,但 profile 自动加载路径在 MiniMax 国内端点上完全坏掉。
+> 状态:**已修复 (0.31.0+ via PR #2207)** — `minimax-cn` native preset 已合入主线,profile 自动加载路径在 MiniMax 国内端点上不再坏掉。OpenAI-shim legacy path 仍可用,但仅作 fallback。
 > 报告版本:`openclaude@0.30.0`(commit `0ea8eefb`,2026-09-04)
-> 本文档可作为上游 issue 的中文底稿,关键代码引用已用 `file_path:line` 标出。
+> 本文档保留作为历史 issue trail,关键代码引用已用 `file_path:line` 标出。
 
 ---
 

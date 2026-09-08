@@ -210,6 +210,26 @@ test('env-only XAI_API_KEY resolves to the xai provider', async () => {
   expect(getAPIProvider()).toBe('xai')
 })
 
+test('env-only minimax-cn (China MiniMax) maps to the legacy minimax category (#2207 P1)', async () => {
+  clearProviderEnv()
+  process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+  process.env.OPENAI_BASE_URL = 'https://api.minimaxi.com/v1'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+})
+
+test('--provider minimax-cn maps to the legacy minimax category (#2207 P1)', async () => {
+  clearProviderEnv()
+  // Simulate the flag path by writing the env it produces (providerFlag
+  // tests cover the applyProviderFlag entry point directly).
+  process.env.ANTHROPIC_BASE_URL = 'https://api.minimaxi.com/anthropic'
+  process.env.MINIMAX_API_KEY = 'minimax-cn-key'
+
+  const { getAPIProvider } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('minimax')
+})
+
 test('conflicting OpenAI base prevents env-only xAI provider label', async () => {
   clearProviderEnv()
   process.env.XAI_API_KEY = 'xai-test-key'

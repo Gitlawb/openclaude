@@ -304,16 +304,20 @@ describe('MiniMax usage helpers', () => {
     ])
   })
 
-  test('falls back to OPENAI_API_BASE when OPENAI_BASE_URL is unset', () => {
+  test('falls back to overseas default for a non-MiniMax OPENAI_API_BASE (#2207 P1 follow-up)', () => {
     const originalBaseUrl = process.env.OPENAI_BASE_URL
     const originalApiBase = process.env.OPENAI_API_BASE
     delete process.env.OPENAI_BASE_URL
     process.env.OPENAI_API_BASE = 'https://gateway.example/openai/v1'
 
     try {
+      // Custom non-MiniMax URLs cannot serve the MiniMax quota API. We
+      // honor the proxy's own credential scheme and fall back to the
+      // overseas default to avoid forwarding a MiniMax key to an unrelated
+      // host.
       expect(getMiniMaxUsageUrls()).toEqual([
-        'https://gateway.example/openai/v1/token_plan/remains',
-        'https://gateway.example/openai/v1/api/openplatform/coding_plan/remains',
+        'https://api.minimax.io/v1/token_plan/remains',
+        'https://api.minimax.io/v1/api/openplatform/coding_plan/remains',
       ])
     } finally {
       if (originalBaseUrl === undefined) {
@@ -440,24 +444,26 @@ describe('fetchMiniMaxUsage credential guard (#2207 P1)', () => {
 })
 
 describe('getMiniMaxUsageUrls with active profile aliases (#2207 P2)', () => {
-  test('honors ANTHROPIC_BASE_URL after profile application clears OpenAI aliases', () => {
+  test('translates Anthropic-shaped ANTHROPIC_BASE_URL to the China quota /v1 root', () => {
     // Profile application clears OPENAI_BASE_URL but emits ANTHROPIC_BASE_URL
-    // (and MINIMAX_BASE_URL). The usage path must honor those, not default
-    // overseas (#2207 P2).
+    // (Anthropic-shaped, e.g. `…/anthropic`). The quota API is OpenAI-shaped
+    // and lives under `/v1`, so the usage path must translate the chat
+    // base to the quota base before composing token_plan/remains
+    // (#2207 P1 follow-up from jatmn).
     process.env.ANTHROPIC_BASE_URL = 'https://api.minimaxi.com/anthropic'
 
     expect(getMiniMaxUsageUrls()).toEqual([
-      'https://api.minimaxi.com/anthropic/token_plan/remains',
-      'https://api.minimaxi.com/anthropic/api/openplatform/coding_plan/remains',
+      'https://api.minimaxi.com/v1/token_plan/remains',
+      'https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains',
     ])
   })
 
-  test('honors MINIMAX_BASE_URL when set without ANTHROPIC_BASE_URL', () => {
+  test('translates overseas Anthropic-shaped MINIMAX_BASE_URL to /v1 quota root', () => {
     process.env.MINIMAX_BASE_URL = 'https://api.minimax.io/anthropic'
 
     expect(getMiniMaxUsageUrls()).toEqual([
-      'https://api.minimax.io/anthropic/token_plan/remains',
-      'https://api.minimax.io/anthropic/api/openplatform/coding_plan/remains',
+      'https://api.minimax.io/v1/token_plan/remains',
+      'https://api.minimax.io/v1/api/openplatform/coding_plan/remains',
     ])
   })
 
@@ -467,8 +473,29 @@ describe('getMiniMaxUsageUrls with active profile aliases (#2207 P2)', () => {
     process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
     expect(getMiniMaxUsageUrls()).toEqual([
-      'https://api.minimaxi.com/anthropic/token_plan/remains',
-      'https://api.minimaxi.com/anthropic/api/openplatform/coding_plan/remains',
+      'https://api.minimaxi.com/v1/token_plan/remains',
+      'https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains',
+    ])
+  })
+
+  test('keeps an explicit /v1 hint on /v1 quota root', () => {
+    process.env.OPENAI_BASE_URL = 'https://api.minimaxi.com/v1'
+
+    expect(getMiniMaxUsageUrls()).toEqual([
+      'https://api.minimaxi.com/v1/token_plan/remains',
+      'https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains',
+    ])
+  })
+
+  test('falls back to overseas default for a custom non-MiniMax proxy URL', () => {
+    process.env.ANTHROPIC_BASE_URL = 'https://my-anthropic-proxy.example/v1'
+
+    // Custom proxy URLs cannot serve the MiniMax quota API; we honor the
+    // proxy's own credential scheme and pick the overseas default to avoid
+    // forwarding a MiniMax key to an unrelated host.
+    expect(getMiniMaxUsageUrls()).toEqual([
+      'https://api.minimax.io/v1/token_plan/remains',
+      'https://api.minimax.io/v1/api/openplatform/coding_plan/remains',
     ])
   })
 })

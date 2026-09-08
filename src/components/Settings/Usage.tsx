@@ -284,7 +284,11 @@ export function Usage(): React.ReactNode {
   if (provider === 'codex') {
     return <CodexUsage />;
   }
-  if (usageDescriptor.resolvedId === 'minimax' && usageDescriptor.supported) {
+  if (
+    (usageDescriptor.resolvedId === 'minimax' ||
+      usageDescriptor.resolvedId === 'minimax-cn') &&
+    usageDescriptor.supported
+  ) {
     return <MiniMaxUsage />;
   }
   if (usageDescriptor.resolvedId === 'clinepass' && usageDescriptor.supported) {

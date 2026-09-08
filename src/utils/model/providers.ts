@@ -50,6 +50,10 @@ export function getAPIProvider(): LegacyAPIProvider {
     case 'nvidia-nim':
       return 'nvidia-nim'
     case 'minimax':
+    case 'minimax-cn':
+      // Map CN to the existing legacy 'minimax' category so downstream
+      // consumers (model picker, /usage UI, cache-break detection) treat
+      // both regions uniformly. The route id distinguishes them for routing.
       return 'minimax'
     case 'xiaomi-mimo':
     case 'xiaomi-mimo-token':

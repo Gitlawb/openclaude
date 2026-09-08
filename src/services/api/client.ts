@@ -168,7 +168,7 @@ function shouldUseMiniMaxEnvOnlyProvider(
     return false
   }
 
-  if (envOnlyProviderRouteId === 'minimax') {
+  if (envOnlyProviderRouteId === 'minimax' || envOnlyProviderRouteId === 'minimax-cn') {
     return true
   }
 
