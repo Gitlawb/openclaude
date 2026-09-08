@@ -1847,7 +1847,14 @@ async function loadAndCacheMarketplace(
               await fs.rm(temporaryCachePath, { recursive: true, force: true })
               temporaryCachePath = finalCachePath
             } catch (copyError) {
-              await fs.rm(finalCachePath, { recursive: true, force: true })
+              try {
+                await fs.rm(finalCachePath, { recursive: true, force: true })
+              } catch (cleanupError) {
+                logForDebugging(
+                  `Failed to remove partial marketplace cache at ${finalCachePath}: ${errorMessage(cleanupError)}`,
+                  { level: 'warn' },
+                )
+              }
               logForDebugging(
                 `Marketplace cache rename and copy failed; keeping ${temporaryCachePath}. rename=${errorMessage(renameError)} copy=${errorMessage(copyError)}`,
                 { level: 'warn' },
@@ -2287,16 +2294,22 @@ export const getMarketplace = memoize(
 
     // Cache doesn't exist or is invalid, fetch from source
     let marketplace: PluginMarketplace
+    let cachePath: string
     try {
-      ;({ marketplace } = await loadAndCacheMarketplace(entry.source))
+      ;({ marketplace, cachePath } = await loadAndCacheMarketplace(
+        entry.source,
+      ))
     } catch (error) {
       throw new Error(
         `Failed to load marketplace "${name}" from source (${entry.source.source}): ${errorMessage(error)}`,
       )
     }
 
-    // Update lastUpdated only when we actually fetch
+    // Persist cachePath: keep-temp recovery (#2183) may leave the live clone
+    // at temporaryCachePath instead of the canonical marketplace-name directory
+    // already stored in installLocation.
     config[name]!.lastUpdated = new Date().toISOString()
+    config[name]!.installLocation = cachePath
     await saveKnownMarketplacesConfig(config)
 
     return marketplace
