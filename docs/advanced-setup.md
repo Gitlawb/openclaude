@@ -441,7 +441,10 @@ Putting the native flag in `NODE_OPTIONS` or
 `node --max-old-space-size-percentage=…` only works on Node versions that accept
 that option; Node 22.0.0 rejects it before OpenClaude starts. When a supporting
 Node already applied that native flag, OpenClaude leaves it in place and does
-not append `8192`. If a valid percentage is requested but available memory cannot
+not append `8192`. Launcher-only flags (`--max-old-space-size-percentage`,
+`--max-memory=`) are still stripped so Commander can start. That native-flag
+short-circuit also skips OpenClaude’s numbered precedence, including
+`--max-memory`. If a valid percentage is requested but available memory cannot
 be measured, OpenClaude prints one warning on stderr and uses `8192` instead
 of an unrelated megabyte environment value.
 

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
@@ -53,6 +54,7 @@ describe('openclaude launcher heap guard', () => {
     expect(heapSource).toContain(HEAP_SIZE_ENV)
     expect(source).toContain('process.env.NODE_OPTIONS')
     expect(source).toContain('hasHeapLimitFlag(nodeArgs)')
+    expect(source).toContain('replaceProcessArgvWithStrippedLauncherArgs()')
     expect(heapSource).toContain(HEAP_PERCENTAGE_FLAG)
   })
 
@@ -61,6 +63,49 @@ describe('openclaude launcher heap guard', () => {
 
     expect(source).toContain("import * as nodeModule from 'node:module'")
     expect(source).not.toMatch(/import\s*\{[^}]*enableCompileCache[^}]*\}\s*from\s*['"]node:module['"]/s)
+  })
+
+  test('strips launcher-only percentage before Commander when native heap and expose-gc are present', () => {
+    const env = {
+      ...process.env,
+      NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc',
+    }
+    delete env.OPENCLAUDE_HEAP_RELAUNCHED
+    delete env.OPENCLAUDE_DISABLE_HEAP_RELAUNCH
+    const result = spawnSync(
+      process.execPath,
+      [BIN_PATH, '--max-old-space-size-percentage=50', '--print', 'hi'],
+      {
+        encoding: 'utf8',
+        timeout: 8000,
+        env,
+      },
+    )
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    expect(output).not.toContain(
+      "unknown option '--max-old-space-size-percentage=50'",
+    )
+  })
+
+  test('strips launcher-only percentage before Commander when heap relaunch is disabled', () => {
+    const env = {
+      ...process.env,
+      OPENCLAUDE_DISABLE_HEAP_RELAUNCH: '1',
+    }
+    delete env.OPENCLAUDE_HEAP_RELAUNCHED
+    const result = spawnSync(
+      process.execPath,
+      [BIN_PATH, '--max-old-space-size-percentage=50', '--print', 'hi'],
+      {
+        encoding: 'utf8',
+        timeout: 8000,
+        env,
+      },
+    )
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    expect(output).not.toContain(
+      "unknown option '--max-old-space-size-percentage=50'",
+    )
   })
 })
 
@@ -137,6 +182,17 @@ describe('heap-limit percentage resolution', () => {
       '--max-memory=1024',
       'fix tests',
     ])).toEqual(['fix tests'])
+  })
+
+  test('does not consume a following prompt token that is not a percentage', () => {
+    expect(
+      stripLauncherHeapArgs([
+        '--max-old-space-size-percentage',
+        'fix',
+        'the',
+        'tests',
+      ]),
+    ).toEqual(['fix', 'the', 'tests'])
   })
 
   test('OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE sizes the heap from RAM', () => {

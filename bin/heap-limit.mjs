@@ -144,7 +144,7 @@ export function stripLauncherHeapArgs(args) {
     if (arg.startsWith(`${HEAP_PERCENTAGE_FLAG}=`)) continue
     if (arg === HEAP_PERCENTAGE_FLAG) {
       const next = args[i + 1]
-      if (next && !next.startsWith('-')) i += 1
+      if (next && !next.startsWith('-') && parsePercentage(next) != null) i += 1
       continue
     }
     stripped.push(arg)
