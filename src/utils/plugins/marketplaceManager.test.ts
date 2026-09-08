@@ -10,9 +10,10 @@ import {
   test,
 } from 'bun:test'
 import * as realAxios from 'axios'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import * as realExecFileNoThrow from '../execFileNoThrow.js'
 import {
   getFsImplementation,
   NodeFsOperations,
@@ -282,6 +283,31 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
       },
       isAxiosError: () => false,
     }))
+    mock.module('../execFileNoThrow.js', () => ({
+      ...realExecFileNoThrow,
+      execFileNoThrow: async () => ({
+        code: 255,
+        stdout: '',
+        stderr: 'Permission denied',
+      }),
+      execFileNoThrowWithCwd: async (
+        _file: string,
+        args: string[] = [],
+      ) => {
+        if (args.includes('clone')) {
+          const targetPath = args.at(-1)
+          if (targetPath) {
+            mkdirSync(join(targetPath, '.claude-plugin'), { recursive: true })
+            writeFileSync(
+              join(targetPath, '.claude-plugin', 'marketplace.json'),
+              JSON.stringify(fakeMarketplaceJson),
+            )
+          }
+          return { code: 0, stdout: '', stderr: '' }
+        }
+        return { code: 1, stdout: '', stderr: 'not a git repository' }
+      },
+    }))
 
     // Re-import with mocked axios so the module under test picks up the mock.
     // The `?bust=` suffix is the same trick the dynamic import at the top of
@@ -308,6 +334,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
 
   afterAll(() => {
     mock.module('axios', () => realAxios)
+    mock.module('../execFileNoThrow.js', () => realExecFileNoThrow)
   })
 
   beforeEach(() => {
@@ -584,6 +611,73 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
       ),
     ).toBe(true)
     expect(pluginInfo!.marketplaceInstallLocation).not.toBe(staleCanonicalPath)
+  })
+
+  test('keeps the GitHub clone directory when copy fallback throws ENOENT', async () => {
+    renameSpy.mockImplementation(() => {
+      throw new Error('EXDEV: cross-device link not permitted, rename')
+    })
+    cpSpy.mockImplementation(async () => {
+      throw Object.assign(
+        new Error(
+          "ENOENT: no such file or directory, copyfile 'chromedevtools-chrome-devtools-mcp/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps' -> 'chrome-devtools-plugins/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps'",
+        ),
+        { code: 'ENOENT' },
+      )
+    })
+
+    const source: MarketplaceSource = {
+      source: 'github',
+      repo: 'ChromeDevTools/chrome-devtools-mcp',
+    }
+
+    const cacheDir = join(tempDir, 'marketplaces')
+    mkdirSync(cacheDir, { recursive: true })
+
+    const result = await loadAndCacheWithMockedAxios!(source)
+    const cloneDir = join(cacheDir, 'chromedevtools-chrome-devtools-mcp')
+
+    expect(result.marketplace.name).toBe('MyMarketplace')
+    expect(result.cachePath).toBe(cloneDir)
+    expect(
+      existsSync(join(cloneDir, '.claude-plugin', 'marketplace.json')),
+    ).toBe(true)
+    expect(existsSync(join(cacheDir, 'mymarketplace'))).toBe(false)
+    expect(cpSpy).toHaveBeenCalled()
+  })
+
+  test('getMarketplace refetch does not rewrite local file installLocation', async () => {
+    const localRoot = join(tempDir, 'local-marketplace')
+    mkdirSync(join(localRoot, '.claude-plugin'), { recursive: true })
+    writeFileSync(
+      join(localRoot, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify(fakeMarketplaceJson),
+    )
+    const storedManifestPath = join(
+      localRoot,
+      '.claude-plugin',
+      'marketplace.json',
+    )
+    const missingCachePath = join(tempDir, 'missing-installLocation.json')
+
+    await saveKnownMarketplacesConfigWithMockedAxios!({
+      MyMarketplace: {
+        source: {
+          source: 'file',
+          path: storedManifestPath,
+        },
+        installLocation: missingCachePath,
+        lastUpdated: '2020-01-01T00:00:00.000Z',
+      },
+    })
+    clearMarketplacesCacheWithMockedAxios!()
+
+    const marketplace = await getMarketplaceWithMockedAxios!('MyMarketplace')
+    expect(marketplace.name).toBe('MyMarketplace')
+
+    const config = await loadKnownMarketplacesConfigWithMockedAxios!()
+    expect(config.MyMarketplace?.installLocation).toBe(missingCachePath)
+    expect(config.MyMarketplace?.installLocation).not.toBe(localRoot)
   })
 })
 

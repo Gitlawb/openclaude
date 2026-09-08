@@ -2305,11 +2305,17 @@ export const getMarketplace = memoize(
       )
     }
 
-    // Persist cachePath: keep-temp recovery (#2183) may leave the live clone
-    // at temporaryCachePath instead of the canonical marketplace-name directory
-    // already stored in installLocation.
+    // Persist cachePath for remote sources: keep-temp recovery (#2183) may
+    // leave the live clone at temporaryCachePath instead of the canonical
+    // marketplace-name directory already stored in installLocation.
+    // Local file/directory sources do not go through rename/copy; cachePath is
+    // the user's marketplace root. Overwriting a stored manifest path with that
+    // root would make removeMarketplaceSource recursively delete the user's
+    // directory.
     config[name]!.lastUpdated = new Date().toISOString()
-    config[name]!.installLocation = cachePath
+    if (!isLocalMarketplaceSource(entry.source)) {
+      config[name]!.installLocation = cachePath
+    }
     await saveKnownMarketplacesConfig(config)
 
     return marketplace
