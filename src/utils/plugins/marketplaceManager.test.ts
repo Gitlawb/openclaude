@@ -250,6 +250,7 @@ describe('loadAndCacheMarketplace — Windows cache finalization (#1500)', () =>
 describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
   let loadAndCacheWithMockedAxios: typeof loadAndCacheMarketplace
   let getMarketplaceWithMockedAxios: typeof import('./marketplaceManager.js').getMarketplace
+  let getPluginByIdWithMockedAxios: typeof import('./marketplaceManager.js').getPluginById
   let saveKnownMarketplacesConfigWithMockedAxios: typeof import('./marketplaceManager.js').saveKnownMarketplacesConfig
   let loadKnownMarketplacesConfigWithMockedAxios: typeof import('./marketplaceManager.js').loadKnownMarketplacesConfig
   let clearMarketplacesCacheWithMockedAxios: typeof import('./marketplaceManager.js').clearMarketplacesCache
@@ -266,7 +267,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
   const fakeMarketplaceJson = {
     name: 'MyMarketplace',
     owner: { name: 'test' },
-    plugins: [],
+    plugins: [{ name: 'demo-plugin', source: './' }],
   }
   const axiosGetSpy = mock(async () => ({
     data: fakeMarketplaceJson,
@@ -299,6 +300,7 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     )) as typeof import('./marketplaceManager.js')
     loadAndCacheWithMockedAxios = mod._test.loadAndCacheMarketplace
     getMarketplaceWithMockedAxios = mod.getMarketplace
+    getPluginByIdWithMockedAxios = mod.getPluginById
     saveKnownMarketplacesConfigWithMockedAxios = mod.saveKnownMarketplacesConfig
     loadKnownMarketplacesConfigWithMockedAxios = mod.loadKnownMarketplacesConfig
     clearMarketplacesCacheWithMockedAxios = mod.clearMarketplacesCache
@@ -540,6 +542,48 @@ describe('loadAndCacheMarketplace — rename failure fallback (EXDEV)', () => {
     expect(persisted?.startsWith(join(cacheDir, 'temp_'))).toBe(true)
     expect(existsSync(persisted!)).toBe(true)
     expect(persisted).not.toBe(staleCanonicalPath)
+  })
+
+  test('getPluginById returns persisted keep-temp installLocation after refetch', async () => {
+    renameSpy.mockImplementation(() => {
+      throw new Error('EXDEV: cross-device link not permitted, rename')
+    })
+    cpSpy.mockImplementation(async () => {
+      throw Object.assign(
+        new Error(
+          "ENOENT: no such file or directory, copyfile 'chromedevtools-chrome-devtools-mcp/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps' -> 'chrome-devtools-plugins/third_party/devtools-frontend/build/android/gyp/binary_baseline_profile.pydeps'",
+        ),
+        { code: 'ENOENT' },
+      )
+    })
+
+    const cacheDir = join(tempDir, 'marketplaces')
+    mkdirSync(cacheDir, { recursive: true })
+    const staleCanonicalPath = join(cacheDir, 'mymarketplace')
+
+    await saveKnownMarketplacesConfigWithMockedAxios!({
+      MyMarketplace: {
+        source: {
+          source: 'url',
+          url: 'https://example.com/marketplace.json',
+        },
+        installLocation: staleCanonicalPath,
+        lastUpdated: '2020-01-01T00:00:00.000Z',
+      },
+    })
+    clearMarketplacesCacheWithMockedAxios!()
+
+    const pluginInfo = await getPluginByIdWithMockedAxios!(
+      'demo-plugin@MyMarketplace',
+    )
+    expect(pluginInfo).not.toBeNull()
+    expect(pluginInfo!.entry.name).toBe('demo-plugin')
+    expect(
+      pluginInfo!.marketplaceInstallLocation.startsWith(
+        join(cacheDir, 'temp_'),
+      ),
+    ).toBe(true)
+    expect(pluginInfo!.marketplaceInstallLocation).not.toBe(staleCanonicalPath)
   })
 })
 

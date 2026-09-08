@@ -2405,9 +2405,16 @@ export async function getPluginById(pluginId: string): Promise<{
       return null
     }
 
+    // getMarketplace refetch may persist a keep-temp cachePath (#2183) that
+    // differs from the snapshot loaded above.
+    const refreshedConfig = await loadKnownMarketplacesConfig()
+    const installLocation =
+      refreshedConfig[marketplaceName]?.installLocation ??
+      marketplaceConfig.installLocation
+
     return {
       entry: plugin,
-      marketplaceInstallLocation: marketplaceConfig.installLocation,
+      marketplaceInstallLocation: installLocation,
     }
   } catch (error) {
     logForDebugging(
