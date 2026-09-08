@@ -203,6 +203,11 @@ import {
   type ThinkingConfig,
 } from 'src/utils/thinking.js'
 import {
+  isClaude5ModelId,
+  isOpus5ModelId,
+  isSonnet5ModelId,
+} from 'src/utils/model/modelIdMatch.js'
+import {
   extractDiscoveredToolNames,
   isDeferredToolsDeltaEnabled,
   isToolSearchEnabled,
@@ -1773,10 +1778,23 @@ async function* queryModel(
     const hasThinking = shouldUseThinkingForModel(retryContext.model, thinkingConfig)
     let thinking: BetaMessageStreamParams['thinking'] | undefined = undefined
 
-    // IMPORTANT: Do not change the adaptive-vs-budget thinking selection below
-    // without notifying the model launch DRI and research. This is a sensitive
-    // setting that can greatly affect model quality and bashing.
-    if (hasThinking) {
+    const isClaude5 = isClaude5ModelId(retryContext.model)
+    if (isClaude5) {
+      if (
+        !hasThinking ||
+        thinkingConfig.type === 'disabled' ||
+        isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING) ||
+        (thinkingConfig.type === 'enabled' && thinkingConfig.budgetTokens !== undefined)
+      ) {
+        thinking = {
+          type: 'disabled',
+        } satisfies BetaMessageStreamParams['thinking']
+      } else {
+        thinking = {
+          type: 'adaptive',
+        } satisfies BetaMessageStreamParams['thinking']
+      }
+    } else if (hasThinking) {
       if (
         !isEnvTruthy(process.env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING) &&
         modelSupportsAdaptiveThinking(retryContext.model)
@@ -1804,9 +1822,19 @@ async function* queryModel(
       }
     }
 
+    if (
+      isOpus5ModelId(retryContext.model) &&
+      thinking?.type === 'disabled' &&
+      (outputConfig.effort === 'xhigh' || outputConfig.effort === 'max')
+    ) {
+      outputConfig.effort = 'high'
+    }
+
+    const isThinkingActive = thinking?.type === 'adaptive' || thinking?.type === 'enabled'
+
     // Get API context management strategies if enabled
     const contextManagement = getAPIContextManagement({
-      hasThinking,
+      hasThinking: isThinkingActive,
       isRedactThinkingActive: betasParams.includes(REDACT_THINKING_BETA_HEADER),
       clearAllThinking: thinkingClearLatched,
     })
@@ -1915,7 +1943,8 @@ async function* queryModel(
 
     // Only send temperature when thinking is disabled — the API requires
     // temperature: 1 when thinking is enabled, which is already the default.
-    const temperature = !hasThinking
+    // Sonnet 5 rejects non-default sampling values, so omit temperature for Sonnet 5.
+    const temperature = !isThinkingActive && !isSonnet5ModelId(retryContext.model)
       ? (options.temperatureOverride ?? 1)
       : undefined
 

@@ -23,6 +23,7 @@ import {
   getCanonicalName,
   getMarketingNameForModel,
 } from '../utils/model/model.js'
+import { isOpus5ModelId, isSonnet5ModelId, isOpus48ModelId } from '../utils/model/modelIdMatch.js'
 import { getSkillToolCommands } from 'src/commands.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
 import { getOutputStyleConfig } from './outputStyles.js'
@@ -116,7 +117,7 @@ export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY =
   '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
 
 // @[MODEL LAUNCH]: Update the latest frontier model.
-const FRONTIER_MODEL_NAME = 'Claude Opus 4.8'
+const FRONTIER_MODEL_NAME = 'Claude Opus 5'
 
 function getHooksSection(): string {
   return `Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.`
@@ -706,8 +707,12 @@ export async function computeSimpleEnvInfo(
 // @[MODEL LAUNCH]: Add a knowledge cutoff date for the new model.
 function getKnowledgeCutoff(modelId: string): string | null {
   const canonical = getCanonicalName(modelId)
-  if (
-    canonical.includes('claude-opus-4-8') ||
+  if (isOpus5ModelId(canonical)) {
+    return 'May 2026'
+  } else if (isSonnet5ModelId(canonical)) {
+    return 'January 2026'
+  } else if (
+    isOpus48ModelId(canonical) ||
     canonical.includes('claude-opus-4-7')
   ) {
     return 'January 2026'

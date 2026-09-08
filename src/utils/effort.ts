@@ -4,6 +4,10 @@ import { getInitialSettings } from './settings/settings.js'
 import { isProSubscriber, isMaxSubscriber, isTeamSubscriber } from './auth.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js'
 import { getAPIProvider } from './model/providers.js'
+import {
+  isClaude5ModelId,
+  isOpus5ModelId,
+} from './model/modelIdMatch.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './model/antModels.js'
 import { baseUrlSupportsResponsesAutoRoute, supportsCodexReasoningEffort } from '../services/api/providerConfig.js'
@@ -513,10 +517,11 @@ function legacyModelSupportsEffort(
   context?: ReasoningControlContext,
 ): boolean {
   const m = model.toLowerCase()
+  const apiProvider = getReasoningApiProvider(context)
   const supported3P = get3PModelCapabilityOverride(
     model,
     'effort',
-    getReasoningApiProvider(context),
+    apiProvider,
   )
   if (supported3P !== undefined) {
     return supported3P
@@ -528,18 +533,21 @@ function legacyModelSupportsEffort(
     return true
   }
   const nativeTransport = resolveNativeLegacyEffortTransport(model, context)
-  // Claude 4 models that support effort. Mirrors the Anthropic /messages
+  const supportsClaude5Effort =
+    apiProvider !== 'vertex' && isClaude5ModelId(m)
+  // Claude models that support effort. Mirrors the Anthropic /messages
   // shim's isAdaptive || isOpus45 set (openaiShim.ts:2292-2297) — only
   // these models serialize low/medium as anthropicBody.effort. Older
   // variants (opus-4-1, sonnet-4-5, haiku) only emit thinking for
   // high/max, so advertising effort for them would silently drop
   // low/medium on the wire. The substring match also covers prefix
-  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`).
+  // variations (e.g. `claude-opus-4-7`, `opencode-claude-opus-4-8`). Vertex
+  // does not expose the Claude 5 effort controls.
   if (
     nativeTransport === 'anthropic' &&
     (m.includes('opus-4-5') || m.includes('opus-4-6') ||
       m.includes('opus-4-7') || m.includes('opus-4-8') ||
-      m.includes('sonnet-4-6'))
+      m.includes('sonnet-4-6') || supportsClaude5Effort)
   ) {
     return true
   }
@@ -572,7 +580,7 @@ function legacyModelSupportsEffort(
   // Default to true for unknown model strings on 1P.
   // Do not default to true for 3P as they have different formats for their
   // model strings (ex. anthropics/claude-code#30795)
-  return getReasoningApiProvider(context) === 'firstParty'
+  return apiProvider === 'firstParty'
 }
 
 function resolveLegacyReasoningControl(
@@ -782,8 +790,8 @@ export function resolveOpenAIShimReasoningRequestPlan(options: {
   }
 }
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'max' effort.
-// Per API docs, 'max' is supported on the recent Opus models (4.8/4.7/4.6) for
-// public models — other models return an error.
+// Per API docs, 'max' is supported on the recent Opus models (5/4.8/4.7/4.6)
+// and Sonnet 5 for public models — other models return an error.
 function legacyModelSupportsMaxEffort(
   model: string,
   context?: ReasoningControlContext,
@@ -796,7 +804,14 @@ function legacyModelSupportsMaxEffort(
   if (supported3P !== undefined) {
     return supported3P
   }
-  if (model.toLowerCase().includes('opus-4-6') || model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  // Same transport/provider gate xhigh already applies: a third-party route
+  // serving a Claude-named model without an explicit capability override does
+  // not support effort at all, so it must not be offered 'max' either.
+  if (!legacyModelSupportsEffort(model, context)) {
+    return false
+  }
+  const m = model.toLowerCase()
+  if (m.includes('opus-4-6') || m.includes('opus-4-7') || m.includes('opus-4-8') || isClaude5ModelId(m)) {
     return true
   }
   if (process.env.USER_TYPE === 'ant' && resolveAntModel(model)) {
@@ -806,7 +821,8 @@ function legacyModelSupportsMaxEffort(
 }
 
 // @[MODEL LAUNCH]: Add the new model to the allowlist if it supports 'xhigh' effort.
-// xhigh is reserved for OpenAI/Codex models and OpenCode Claude opus 4-7 / 4-8.
+// xhigh is reserved for OpenAI/Codex models, Claude Opus 5 / Sonnet 5, and
+// OpenCode Claude opus 4-7 / 4-8.
 // All other effort-supporting models reject xhigh at the API.
 function legacyModelSupportsXHighEffort(
   model: string,
@@ -826,7 +842,8 @@ function legacyModelSupportsXHighEffort(
   if (modelUsesOpenAIEffort(model, context)) {
     return true
   }
-  if (model.toLowerCase().includes('opus-4-7') || model.toLowerCase().includes('opus-4-8')) {
+  const m = model.toLowerCase()
+  if (m.includes('opus-4-7') || m.includes('opus-4-8') || isClaude5ModelId(m)) {
     return true
   }
   return false
@@ -1249,9 +1266,9 @@ export function getEffortLevelDescription(level: EffortLevel | OpenAIEffortLevel
     case 'high':
       return 'Comprehensive implementation with extensive testing and documentation'
     case 'max':
-      return 'Maximum capability with deepest reasoning (Opus 4.8+)'
+      return 'Maximum capability with deepest reasoning (Sonnet 5, Opus 4.8+)'
     case 'xhigh':
-      return 'Extra high reasoning effort for complex tasks'
+      return 'Extra high reasoning effort for complex tasks (OpenAI/Codex, Sonnet 5, Opus 4.7+)'
     case 'ultracode':
       return 'xhigh effort + standing permission for multi-agent orchestration'
   }
@@ -1298,6 +1315,26 @@ export function getOpusDefaultEffortConfig(): OpusDefaultEffortConfig {
   }
 }
 
+// @[MODEL LAUNCH]: Add the new model here when it takes the medium-effort
+// default. Single source of truth for the cohort: both the default resolved in
+// getLegacyDefaultEffortForModel() and the EffortCallout copy that announces it
+// read this, so the UI cannot advertise a default the resolver does not apply.
+//
+// Takes an already-resolved model id. Callers holding a user-facing setting
+// (an alias, or a legacy id that resolves forward) parse it first — the
+// resolver must NOT, because parseUserSpecifiedModel maps retired ids such as
+// `claude-opus-4-1` onto the current default Opus, which would hand them a
+// default they do not get.
+export function modelGetsMediumEffortDefault(model: string): boolean {
+  const m = model.toLowerCase()
+  return (
+    isOpus5ModelId(m) ||
+    m.includes('opus-4-8') ||
+    m.includes('opus-4-7') ||
+    m.includes('opus-4-6')
+  )
+}
+
 // @[MODEL LAUNCH]: Update the default effort levels for new models
 function getLegacyDefaultEffortForModel(
   model: string,
@@ -1328,14 +1365,11 @@ function getLegacyDefaultEffortForModel(
   // the model launch DRI and research. Default effort is a sensitive setting
   // that can greatly affect model quality and bashing.
 
-  // Default effort on the recent Opus models (4.8/4.7/4.6) to medium for Pro.
+  // Default effort on the recent Opus models (5/4.8/4.7/4.6) to medium for Pro.
   // Max/Team also get medium when the tengu_grey_step2 config is enabled.
-  // getDefaultOpusModel() now returns opus48 for first-party users.
-  const lowerModel = model.toLowerCase()
   if (
-    lowerModel.includes('opus-4-8') ||
-    lowerModel.includes('opus-4-7') ||
-    lowerModel.includes('opus-4-6')
+    legacyModelSupportsEffort(model, context) &&
+    modelGetsMediumEffortDefault(model)
   ) {
     if (isProSubscriber()) {
       return 'medium'

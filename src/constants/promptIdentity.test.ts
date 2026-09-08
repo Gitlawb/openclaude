@@ -10,6 +10,7 @@ const hadOriginalMacro = Object.hasOwn(globalThis, 'MACRO')
 
 let clearSystemPromptSections: typeof import('./systemPromptSections.js').clearSystemPromptSections
 let getSystemPrompt: typeof import('./prompts.js').getSystemPrompt
+let computeSimpleEnvInfo: typeof import('./prompts.js').computeSimpleEnvInfo
 let DEFAULT_AGENT_PROMPT: typeof import('./prompts.js').DEFAULT_AGENT_PROMPT
 let CLI_SYSPROMPT_PREFIXES: typeof import('./system.js').CLI_SYSPROMPT_PREFIXES
 let getCLISyspromptPrefix: typeof import('./system.js').getCLISyspromptPrefix
@@ -39,7 +40,7 @@ beforeAll(async () => {
   }
 
   ;({ clearSystemPromptSections } = await import('./systemPromptSections.js'))
-  ;({ getSystemPrompt, DEFAULT_AGENT_PROMPT } = await import('./prompts.js'))
+  ;({ getSystemPrompt, computeSimpleEnvInfo, DEFAULT_AGENT_PROMPT } = await import('./prompts.js'))
   ;({ CLI_SYSPROMPT_PREFIXES, getCLISyspromptPrefix } = await import('./system.js'))
   ;({ CLAUDE_CODE_GUIDE_AGENT } = await import(
     '../tools/AgentTool/built-in/claudeCodeGuideAgent.js'
@@ -206,4 +207,44 @@ test('built-in agent prompts describe OpenClaude instead of Claude Code', () => 
   expect(guidePrompt).toContain('**OpenClaude** (the CLI tool)')
   expect(guidePrompt).not.toContain('You are the Claude guide agent.')
   expect(guidePrompt).not.toContain('**Claude Code** (the CLI tool)')
+})
+
+test('knowledge cutoff matches exact Claude Opus 5 and Opus 4.8 without matching near-miss IDs', async () => {
+  const opus5Env = await computeSimpleEnvInfo('claude-opus-5')
+  expect(opus5Env).toContain('Assistant knowledge cutoff is May 2026.')
+
+  const opus48Env = await computeSimpleEnvInfo('claude-opus-4-8')
+  expect(opus48Env).toContain('Assistant knowledge cutoff is January 2026.')
+
+  const nearMatches = [
+    'claude-opus-50',
+    'claude-opus-5x',
+    'notclaude-opus-5',
+    'claude-opus-4-80',
+    'claude-opus-4-8x',
+    'notclaude-opus-4-8',
+  ]
+  for (const model of nearMatches) {
+    const env = await computeSimpleEnvInfo(model)
+    expect(env).not.toContain('Assistant knowledge cutoff is May 2026.')
+    expect(env).not.toContain('Assistant knowledge cutoff is January 2026.')
+  }
+})
+
+test('knowledge cutoff matches Claude Sonnet 5 including dated and provider-prefixed forms without matching near-miss IDs', async () => {
+  const sonnet5Env = await computeSimpleEnvInfo('claude-sonnet-5')
+  expect(sonnet5Env).toContain('Assistant knowledge cutoff is January 2026.')
+
+  const datedSonnet5Env = await computeSimpleEnvInfo('us.anthropic.claude-sonnet-5-20260101-v1:0')
+  expect(datedSonnet5Env).toContain('Assistant knowledge cutoff is January 2026.')
+
+  const nearMatches = [
+    'claude-sonnet-50',
+    'claude-sonnet-5x',
+    'notclaude-sonnet-5',
+  ]
+  for (const model of nearMatches) {
+    const env = await computeSimpleEnvInfo(model)
+    expect(env).not.toContain('Assistant knowledge cutoff is January 2026.')
+  }
 })

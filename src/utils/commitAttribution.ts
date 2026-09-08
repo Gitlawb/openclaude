@@ -15,6 +15,7 @@ import { getRemoteUrlForDir, resolveGitDir } from './git/gitFilesystem.js'
 import { findGitRoot, gitExe } from './git.js'
 import { logError } from './log.js'
 import { getCanonicalName, type ModelName } from './model/model.js'
+import { isOpus5ModelId, isSonnet5ModelId } from './model/modelIdMatch.js'
 import { sequential } from './sequential.js'
 
 /**
@@ -153,6 +154,8 @@ export function sanitizeSurfaceKey(surfaceKey: string): string {
  */
 export function sanitizeModelName(shortName: string): string {
   // Map internal variants to public equivalents based on model family
+  if (isOpus5ModelId(shortName)) return 'claude-opus-5'
+  if (isSonnet5ModelId(shortName)) return 'claude-sonnet-5'
   if (shortName.includes('opus-4-8')) return 'claude-opus-4-8'
   if (shortName.includes('opus-4-7')) return 'claude-opus-4-7'
   if (shortName.includes('opus-4-6')) return 'claude-opus-4-6'

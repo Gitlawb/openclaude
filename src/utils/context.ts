@@ -9,6 +9,12 @@ import {
   resolveActiveRouteIdFromEnv,
 } from '../integrations/routeMetadata.js'
 import { getCanonicalName } from './model/model.js'
+import {
+  isClaude5ModelId,
+  isOpus5ModelId,
+  isOpus48ModelId,
+  isSonnet5ModelId,
+} from './model/modelIdMatch.js'
 import { getModelCapability } from './model/modelCapabilities.js'
 import { resolveAntModel } from './model/antModels.js'
 import { getActiveProviderProfile } from './providerProfiles.js'
@@ -156,8 +162,44 @@ export function modelSupports1M(model: string): boolean {
     canonical.includes('claude-sonnet-4') ||
     canonical.includes('opus-4-6') ||
     canonical.includes('opus-4-7') ||
-    canonical.includes('opus-4-8')
+    isOpus48ModelId(canonical) ||
+    isClaude5ModelId(canonical)
   )
+}
+
+// @[MODEL LAUNCH]: Update this pattern if the new model ships with 1M context
+// unconditionally (no [1m] suffix or extra-usage opt-in required).
+// Unlike modelSupports1M/getSonnet1mExpTreatmentEnabled, this bypasses
+// checkOpus1mAccess/checkSonnet1mAccess and the [1m] suffix entirely.
+export function modelHasUnconditional1MContext(model: string): boolean {
+  if (is1mContextDisabled()) {
+    return false
+  }
+  const canonical = getCanonicalName(model)
+  return isClaude5ModelId(canonical) || isOpus48ModelId(canonical)
+}
+
+/**
+ * Whether this model should be treated as 1M on the active route.
+ *
+ * Covers both the unconditional Claude 5 / Opus 4.8 default and an explicit
+ * `[1m]` suffix. A route may expose a Claude 5-named model with a lower
+ * discovered limit (the Concentrate gateway maps `claude-sonnet-5` to a 200k
+ * `max_input_tokens`), and route metadata wins there — including when the
+ * picker restored `sonnet[1m]`. The context budget and the outbound 1M beta
+ * header are both derived from this one decision so they cannot disagree.
+ *
+ * Deliberately reads only the route limit, not the resolved window: the
+ * CLAUDE_CODE_MAX_CONTEXT_TOKENS and /set_context_window overrides cap local
+ * budgeting while still talking to a 1M-capable endpoint, so they must not
+ * strip the beta header.
+ */
+export function modelResolvesTo1MContext(model: string): boolean {
+  if (!has1mContext(model) && !modelHasUnconditional1MContext(model)) {
+    return false
+  }
+  const routeContextWindow = resolveRouteContextWindow(model)
+  return routeContextWindow === undefined || routeContextWindow >= 1_000_000
 }
 
 function getAppliedActiveProfileProvider(
@@ -220,6 +262,36 @@ function warnUnknownIntegrationRuntimeLimits(model: string): void {
   )
 }
 
+function usesRouteContextWindow(runtimeLimits?: {
+  contextWindow?: number
+}): boolean {
+  return (
+    runtimeLimits?.contextWindow !== undefined ||
+    shouldUseIntegrationRuntimeLimits()
+  )
+}
+
+/**
+ * The context window the active route reports for `model`, or undefined when
+ * the route supplies none. Shared by the context-window resolver and the
+ * 1M-context decision so both read the same source.
+ */
+function resolveRouteContextWindow(
+  model: string,
+  runtimeLimits?: { contextWindow?: number },
+): number | undefined {
+  if (!usesRouteContextWindow(runtimeLimits)) {
+    return undefined
+  }
+  return (
+    runtimeLimits ??
+    resolveModelRuntimeLimits({
+      model,
+      activeProfileProvider: getAppliedActiveProfileProvider(),
+    })
+  ).contextWindow
+}
+
 export function getContextWindowForModel(
   model: string,
   betas?: string[],
@@ -246,51 +318,73 @@ export function getContextWindowForModel(
     return sessionOverride
   }
 
-  // [1m] suffix — explicit client-side opt-in, respected over all detection
-  if (has1mContext(model)) {
-    return 1_000_000
-  }
-
   // OpenAI-compatible provider — use known context windows for the model.
   // Unknown models get a conservative 128k default. This was previously 8k,
   // but that caused auto-compact to fire on every turn because the effective
   // context (8k minus output reservation) became negative (issue #635).
-  if (runtimeLimits?.contextWindow !== undefined || shouldUseIntegrationRuntimeLimits()) {
-    const resolvedRuntimeLimits = runtimeLimits ?? resolveModelRuntimeLimits({
-      model,
-      activeProfileProvider: getAppliedActiveProfileProvider(),
-    })
-    if (resolvedRuntimeLimits.contextWindow !== undefined) {
-      return resolvedRuntimeLimits.contextWindow
+  //
+  // A discovered route limit is authoritative and is therefore resolved BEFORE
+  // both the [1m] suffix and the unconditional-1M default: a proxy can serve
+  // `claude-sonnet-5` (or `claude-sonnet-5[1m]`) with a 200k window, and
+  // budgeting it as 1M keeps sending history until the endpoint rejects the
+  // request. The suffix remains an explicit preference on unrestricted routes.
+  const useRuntimeLimits = usesRouteContextWindow(runtimeLimits)
+  const routeContextWindow = resolveRouteContextWindow(model, runtimeLimits)
+
+  const resolveEffectiveContext = (): number => {
+    if (has1mContext(model)) {
+      if (routeContextWindow !== undefined && routeContextWindow < 1_000_000) {
+        return routeContextWindow
+      }
+      return 1_000_000
     }
-    warnUnknownIntegrationRuntimeLimits(model)
-    return OPENAI_FALLBACK_CONTEXT_WINDOW
+
+    if (routeContextWindow !== undefined) {
+      return routeContextWindow
+    }
+
+    // Models that ship with 1M context unconditionally (no [1m] suffix or
+    // extra-usage opt-in required) — e.g. claude-sonnet-5, claude-opus-5,
+    // claude-opus-4-8. Applied only when the route supplied no limit of its own,
+    // so an unknown Anthropic-proxy route still gets 1M rather than the 128k
+    // fallback below.
+    if (modelHasUnconditional1MContext(model)) {
+      return 1_000_000
+    }
+
+    if (useRuntimeLimits) {
+      warnUnknownIntegrationRuntimeLimits(model)
+      return OPENAI_FALLBACK_CONTEXT_WINDOW
+    }
+
+    const cap = getModelCapability(model)
+    if (cap?.max_input_tokens && cap.max_input_tokens >= 100_000) {
+      return cap.max_input_tokens
+    }
+
+    if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
+      return 1_000_000
+    }
+    if (getSonnet1mExpTreatmentEnabled(model)) {
+      return 1_000_000
+    }
+    if (process.env.USER_TYPE === 'ant') {
+      const antModel = resolveAntModel(model)
+      if (antModel?.contextWindow) {
+        return antModel.contextWindow
+      }
+    }
+    return MODEL_CONTEXT_WINDOW_DEFAULT
   }
 
-  const cap = getModelCapability(model)
-  if (cap?.max_input_tokens && cap.max_input_tokens >= 100_000) {
-    if (
-      cap.max_input_tokens > MODEL_CONTEXT_WINDOW_DEFAULT &&
-      is1mContextDisabled()
-    ) {
-      return MODEL_CONTEXT_WINDOW_DEFAULT
-    }
-    return cap.max_input_tokens
+  const effectiveContext = resolveEffectiveContext()
+  if (
+    is1mContextDisabled() &&
+    effectiveContext > MODEL_CONTEXT_WINDOW_DEFAULT
+  ) {
+    return MODEL_CONTEXT_WINDOW_DEFAULT
   }
-
-  if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
-    return 1_000_000
-  }
-  if (getSonnet1mExpTreatmentEnabled(model)) {
-    return 1_000_000
-  }
-  if (process.env.USER_TYPE === 'ant') {
-    const antModel = resolveAntModel(model)
-    if (antModel?.contextWindow) {
-      return antModel.contextWindow
-    }
-  }
-  return MODEL_CONTEXT_WINDOW_DEFAULT
+  return effectiveContext
 }
 
 export function getSonnet1mExpTreatmentEnabled(model: string): boolean {
@@ -386,14 +480,19 @@ export function getModelMaxOutputTokens(model: string): {
 
   const m = getCanonicalName(model)
 
+  // @[MODEL LAUNCH]: keep these branches in step with the descriptor's
+  // maxOutputTokens in src/integrations/models/claude.ts — Claude 5 declares
+  // 128k there, and falling through to the generic branch would silently cap it
+  // at 64k for native Anthropic routes.
   if (
-    m.includes('opus-4-8') ||
+    isOpus5ModelId(m) ||
+    isOpus48ModelId(m) ||
     m.includes('opus-4-7') ||
     m.includes('opus-4-6')
   ) {
     defaultTokens = 64_000
     upperLimit = 128_000
-  } else if (m.includes('sonnet-4-6')) {
+  } else if (isSonnet5ModelId(m) || m.includes('sonnet-4-6')) {
     defaultTokens = 32_000
     upperLimit = 128_000
   } else if (

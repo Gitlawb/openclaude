@@ -106,6 +106,19 @@ function createTestStreams(): {
   }
 }
 
+test('/effort --help describes max and xhigh with Sonnet 5 support', async () => {
+  const { call } = await importFreshEffortCommandModule()
+  const messages: (string | undefined)[] = []
+  const onDone = (result?: string) => {
+    messages.push(result)
+  }
+
+  await call(onDone, {}, '--help')
+  expect(messages).toHaveLength(1)
+  expect(messages[0]).toContain('max: Maximum capability with deepest reasoning (Sonnet 5, Opus 4.8+)')
+  expect(messages[0]).toContain('xhigh: Extra-high reasoning (OpenAI/Codex, Sonnet 5, and Opus 4.7+)')
+})
+
 test('/effort ultracode reports unavailable for a model without ultracode support', async () => {
   const { call } = await importFreshEffortCommandModule()
   const messages: (string | undefined)[] = []

@@ -8,6 +8,7 @@ import {
   resolveActiveRouteIdFromEnv,
 } from '../integrations/index.js'
 import { getCanonicalName } from './model/model.js'
+import { isClaude5ModelId } from './model/modelIdMatch.js'
 import { resolveAntModel } from './model/antModels.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import {
@@ -151,6 +152,9 @@ export function modelSupportsThinking(model: string): boolean {
       return false
     }
   }
+  if (provider === 'bedrock' && isClaude5ModelId(canonical)) {
+    return true
+  }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
 }
@@ -161,7 +165,11 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   if (supported3P !== undefined) {
     return supported3P
   }
+  const provider = getAPIProvider()
   const canonical = getCanonicalName(model)
+  if (isClaude5ModelId(canonical)) {
+    return provider !== 'vertex'
+  }
   // Supported by a subset of Claude 4 models
   if (canonical.includes('opus-4-8') || canonical.includes('opus-4-7') || canonical.includes('opus-4-6') || canonical.includes('sonnet-4-6')) {
     return true
@@ -185,7 +193,6 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   // Default to true for unknown model strings on 1P and Foundry (because Foundry
   // is a proxy). Do not default to true for other 3P as they have different formats
   // for their model strings.
-  const provider = getAPIProvider()
   return provider === 'firstParty' || provider === 'foundry'
 }
 
