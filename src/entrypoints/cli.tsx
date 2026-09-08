@@ -228,8 +228,14 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
 if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
   const existing = process.env.NODE_OPTIONS || ''
+  // Launcher percentage/MB resolution writes OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
+  // before importing this file so subprocesses inherit the same cap.
   // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-  process.env.NODE_OPTIONS = existing ? `${existing} --max-old-space-size=8192` : '--max-old-space-size=8192'
+  const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
+  // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
+  process.env.NODE_OPTIONS = existing
+    ? `${existing} --max-old-space-size=${heapMb}`
+    : `--max-old-space-size=${heapMb}`
 }
 
 // Harness-science L0 ablation baseline. Inlined here (not init.ts) because

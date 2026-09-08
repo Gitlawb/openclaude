@@ -193,6 +193,13 @@ function hasNodeFlag(args: string[], flag: string): boolean {
   return args.some(arg => arg === flag || arg.startsWith(`${flag}=`))
 }
 
+function hasHeapLimitFlag(args: string[]): boolean {
+  return (
+    hasNodeFlag(args, '--max-old-space-size') ||
+    hasNodeFlag(args, '--max-old-space-size-percentage')
+  )
+}
+
 function safeNodeExecArgvForBackground(
   execPath: string,
   execArgv: string[],
@@ -210,7 +217,7 @@ function safeNodeExecArgvForBackground(
     .split(/\s+/)
     .filter(Boolean)
   const effectiveArgs = [...safeArgs, ...nodeOptions]
-  if (!hasNodeFlag(effectiveArgs, '--max-old-space-size')) {
+  if (!hasHeapLimitFlag(effectiveArgs)) {
     const configuredHeap = Number.parseInt(processEnv[HEAP_SIZE_ENV] ?? '', 10)
     const heapSize =
       Number.isSafeInteger(configuredHeap) && configuredHeap > 0

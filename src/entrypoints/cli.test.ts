@@ -119,9 +119,11 @@ function clearRuntimeMocks() {
 
 describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   const originalNodeOptions = process.env.NODE_OPTIONS
+  const originalHeapSizeMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
 
   beforeEach(() => {
     delete process.env.NODE_OPTIONS
+    delete process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
   })
 
   afterEach(() => {
@@ -129,6 +131,11 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
       process.env.NODE_OPTIONS = originalNodeOptions
     } else {
       delete process.env.NODE_OPTIONS
+    }
+    if (originalHeapSizeMb !== undefined) {
+      process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB = originalHeapSizeMb
+    } else {
+      delete process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB
     }
   })
 
@@ -157,8 +164,25 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
   it('appends --max-old-space-size when NODE_OPTIONS has other flags', () => {
     process.env.NODE_OPTIONS = '--inspect=9229'
 
-    const result = `${process.env.NODE_OPTIONS} --max-old-space-size=8192`
+    const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
+    const result = `${process.env.NODE_OPTIONS} --max-old-space-size=${heapMb}`
     expect(result).toBe('--inspect=9229 --max-old-space-size=8192')
+  })
+
+  it('does not override existing --max-old-space-size-percentage=50', () => {
+    process.env.NODE_OPTIONS = '--max-old-space-size-percentage=50'
+
+    const shouldSetHeapCap = !process.env.NODE_OPTIONS.includes('--max-old-space-size')
+    expect(shouldSetHeapCap).toBe(false)
+  })
+
+  it('uses OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB when appending a heap cap', () => {
+    process.env.NODE_OPTIONS = '--inspect=9229'
+    process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB = '2048'
+
+    const heapMb = process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB || '8192'
+    const result = `${process.env.NODE_OPTIONS} --max-old-space-size=${heapMb}`
+    expect(result).toBe('--inspect=9229 --max-old-space-size=2048')
   })
 })
 

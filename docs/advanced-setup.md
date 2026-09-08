@@ -410,6 +410,30 @@ missing. Install only what you need:
 When installing OpenClaude from source (`bun install`), all of these are
 already present as dev dependencies, so source/dev builds need no extra steps.
 
+## Node.js heap size
+
+The installed CLI relaunches Node with `--max-old-space-size=8192` unless a heap
+limit is already present in `NODE_OPTIONS` or `process.execArgv`. That fixed cap
+is too large for small containers and too small for high-RAM workstations.
+
+To size the V8 old-space heap as a percentage of available memory (cgroup or OS
+constraint when Node reports one, otherwise total system RAM), pass Node's
+percentage flag through the OpenClaude launcher. The launcher converts it to an
+explicit `--max-old-space-size` in megabytes so the same command works on every
+supported Node version, including `22.0.0`:
+
+```bash
+openclaude --max-old-space-size-percentage=50
+openclaude --max-old-space-size-percentage=75
+```
+
+You can also set `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE=50`. If
+`NODE_OPTIONS` or the Node process already contains
+`--max-old-space-size-percentage` or `--max-old-space-size`, OpenClaude leaves
+that native limit in place and does not append `8192`. `--max-memory=2048`
+remains the explicit megabyte override and still wins over a percentage
+request.
+
 ## Environment Variables
 
 ### Custom (Anthropic-compatible) APIs
@@ -464,6 +488,8 @@ host. Without this variable the behavior is unchanged.
 | `OPENAI_API_BASE` | No | Compatibility alias for `OPENAI_BASE_URL` |
 | `API_TIMEOUT_MS` | No | Time-to-response-headers deadline for generic OpenAI-compatible requests, direct GitHub Copilot Responses, and Copilot chat-to-Responses fallback requests, in milliseconds (default: `600000`, or 10 minutes). The value must be a safe positive integer; invalid, zero, negative, or fractional values use the default, and values above `2147483647` are capped. The deadline is disarmed after headers arrive, so it does not limit response streaming. Export this runtime setting from your shell or launcher; the provider env-file loader ignores runtime/debug settings, so a value configured only there leaves the default in effect. First-party Codex OAuth Responses and the Anthropic SDK retain their existing timeout handling. |
 | `OPENCLAUDE_OLLAMA_NUM_CTX` | Ollama only | Request-level Ollama context window. Defaults to `32768`; set a larger value for longer same-session history if your model and hardware can handle it. |
+| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB` | No | Explicit V8 old-space heap cap in megabytes for the Node launcher. Used when `--max-memory` and `--max-old-space-size-percentage` are unset. Default `8192`. |
+| `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE` | No | Size the V8 old-space heap as a percentage (greater than 0, up to 100) of constrained/container memory when Node reports it, otherwise total system RAM. Converted to `--max-old-space-size` so Node 22.0.0 can start. Overridden by `--max-memory`. |
 | `CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS` | No | JSON map of OpenAI-compatible model names to context windows, such as `{"custom-model":1000000}`. Use this when a custom provider does not expose context metadata from `/v1/models`. |
 | `CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS` | No | JSON map of OpenAI-compatible model names to max output tokens, such as `{"custom-model":32768}`. Use this when a custom provider does not expose output-limit metadata from `/v1/models`. |
 | `OPENCODE_API_KEY` | OpenCode Zen / Go | Shared API key for OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription); get yours from https://opencode.ai |

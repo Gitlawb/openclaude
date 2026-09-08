@@ -632,6 +632,46 @@ describe('background session CLI parsing', () => {
     expect(config.env[BACKGROUND_SESSION_LAUNCHER_PID_ENV]).toBe('700')
   })
 
+  it('does not add a fixed heap cap when NODE_OPTIONS already has a percentage limit', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/bin/node',
+      execArgv: [],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'fix failing tests'],
+      processEnv: {
+        NODE_OPTIONS: '--max-old-space-size-percentage=50',
+      },
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-percentage-node-options',
+      processMarker: TEST_PROCESS_MARKER,
+      launcherPid: 705,
+    })
+
+    expect(config.args.filter(arg => arg.startsWith('--max-old-space-size='))).toEqual(
+      [],
+    )
+    expect(config.args[0]).toBe('--expose-gc')
+  })
+
+  it('preserves an execArgv percentage heap flag instead of appending 8192', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/bin/node',
+      execArgv: ['--max-old-space-size-percentage=75'],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'fix failing tests'],
+      processEnv: {},
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-percentage-execargv',
+      processMarker: TEST_PROCESS_MARKER,
+      launcherPid: 706,
+    })
+
+    expect(config.args.slice(0, 2)).toEqual([
+      '--max-old-space-size-percentage=75',
+      '--expose-gc',
+    ])
+  })
+
   it('supplies launcher heap flags instead of relaunching to a different PID', () => {
     const config = buildBackgroundChildProcessConfig({
       execPath: '/usr/bin/node',

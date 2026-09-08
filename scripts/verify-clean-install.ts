@@ -299,6 +299,7 @@ function checkTarballContents(tarballPath: string): void {
     'package/package.json',
     'package/bin/openclaude',
     'package/bin/node-compile-cache.mjs',
+    'package/bin/heap-limit.mjs',
     'package/dist/cli.mjs',
     'package/dist/sdk.mjs',
     'package/src/entrypoints/sdk.d.ts',
