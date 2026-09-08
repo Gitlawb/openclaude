@@ -200,17 +200,38 @@ function hasHeapLimitFlag(args: string[]): boolean {
   )
 }
 
+function keepBackgroundNodeExecArg(arg: string): boolean {
+  return (
+    arg === '--expose-gc' ||
+    arg.startsWith('--max-old-space-size') ||
+    arg.startsWith('--heapsnapshot-near-heap-limit')
+  )
+}
+
+function isValueTakingHeapExecArg(arg: string): boolean {
+  return (
+    arg === '--max-old-space-size' ||
+    arg === '--max-old-space-size-percentage' ||
+    arg === '--heapsnapshot-near-heap-limit'
+  )
+}
+
 function safeNodeExecArgvForBackground(
   execPath: string,
   execArgv: string[],
   processEnv: NodeJS.ProcessEnv,
 ): string[] {
-  const safeArgs = execArgv.filter(
-    arg =>
-      arg === '--expose-gc' ||
-      arg.startsWith('--max-old-space-size') ||
-      arg.startsWith('--heapsnapshot-near-heap-limit'),
-  )
+  const safeArgs: string[] = []
+  for (let i = 0; i < execArgv.length; i++) {
+    const arg = execArgv[i]
+    if (!keepBackgroundNodeExecArg(arg)) continue
+    safeArgs.push(arg)
+    const next = execArgv[i + 1]
+    if (isValueTakingHeapExecArg(arg) && next && !next.startsWith('-')) {
+      i += 1
+      safeArgs.push(next)
+    }
+  }
   if (!isNodeExecutable(execPath)) return safeArgs
 
   const nodeOptions = (processEnv.NODE_OPTIONS ?? '')

@@ -78,6 +78,7 @@ describe('heap-limit percentage resolution', () => {
     expect(heapSizeMbFromPercentage(50, 2 * 1024 * 1024 * 1024)).toBe(1024)
     expect(heapSizeMbFromPercentage(100, FOUR_GIB)).toBe(4096)
     expect(heapSizeMbFromPercentage(50, 0)).toBeNull()
+    expect(heapSizeMbFromPercentage(50, 512 * 1024)).toBe(1)
   })
 
   test('prefers constrained memory over host totalmem', () => {
@@ -90,6 +91,12 @@ describe('heap-limit percentage resolution', () => {
     expect(
       getAvailableMemoryBytes({
         constrainedMemory: () => 0,
+        totalmem: () => FOUR_GIB,
+      }),
+    ).toBe(FOUR_GIB)
+    expect(
+      getAvailableMemoryBytes({
+        constrainedMemory: () => 18446744073709552000,
         totalmem: () => FOUR_GIB,
       }),
     ).toBe(FOUR_GIB)
@@ -152,6 +159,20 @@ describe('heap-limit percentage resolution', () => {
       mb: 1536,
       source: 'max-memory',
       setMaxMemoryEnv: true,
+    })
+  })
+
+  test('clamps a sub-megabyte percentage to 1 MB instead of the 8192 default', () => {
+    expect(
+      resolveHeapSizeMb({
+        argv: ['--max-old-space-size-percentage=50'],
+        env: {},
+        availableBytes: 512 * 1024,
+      }),
+    ).toEqual({
+      mb: 1,
+      source: 'argv-percentage',
+      percentage: 50,
     })
   })
 

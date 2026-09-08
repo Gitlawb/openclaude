@@ -672,6 +672,26 @@ describe('background session CLI parsing', () => {
     ])
   })
 
+  it('preserves a spaced execArgv percentage value so Node still receives the argument', () => {
+    const config = buildBackgroundChildProcessConfig({
+      execPath: '/usr/bin/node',
+      execArgv: ['--max-old-space-size-percentage', '75'],
+      entrypoint: '/repo/bin/openclaude',
+      childArgs: ['--print', 'fix failing tests'],
+      processEnv: {},
+      stdoutLogPath: '/tmp/bg.out.log',
+      backgroundSessionId: 'bg-percentage-spaced-execargv',
+      processMarker: TEST_PROCESS_MARKER,
+      launcherPid: 707,
+    })
+
+    expect(config.args.slice(0, 3)).toEqual([
+      '--max-old-space-size-percentage',
+      '75',
+      '--expose-gc',
+    ])
+  })
+
   it('supplies launcher heap flags instead of relaunching to a different PID', () => {
     const config = buildBackgroundChildProcessConfig({
       execPath: '/usr/bin/node',

@@ -76,7 +76,9 @@ export function getAvailableMemoryBytes(sources = {}) {
   const totalmem = sources.totalmem ?? (() => os.totalmem())
 
   const constrained = constrainedMemory()
-  if (typeof constrained === 'number' && Number.isFinite(constrained) && constrained > 0) {
+  // Node/libuv reports UINT64_MAX (not a safe integer in JS) when there is no
+  // cgroup/OS memory limit. Treat only real byte caps as constraints.
+  if (typeof constrained === 'number' && Number.isSafeInteger(constrained) && constrained > 0) {
     return constrained
   }
   const total = totalmem()
@@ -94,7 +96,7 @@ export function getAvailableMemoryBytes(sources = {}) {
 export function heapSizeMbFromPercentage(percentage, availableBytes) {
   if (!(percentage > 0 && percentage <= 100) || !(availableBytes > 0)) return null
   const mb = Math.floor((availableBytes * (percentage / 100)) / (1024 * 1024))
-  return mb > 0 ? mb : null
+  return Math.max(1, mb)
 }
 
 /**

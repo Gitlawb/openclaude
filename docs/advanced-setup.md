@@ -417,20 +417,23 @@ limit is already present in `NODE_OPTIONS` or `process.execArgv`. That fixed cap
 is too large for small containers and too small for high-RAM workstations.
 
 To size the V8 old-space heap as a percentage of available memory (cgroup or OS
-constraint when Node reports one, otherwise total system RAM), pass Node's
-percentage flag through the OpenClaude launcher. The launcher converts it to an
-explicit `--max-old-space-size` in megabytes so the same command works on every
-supported Node version, including `22.0.0`:
+constraint when Node reports a real byte cap, otherwise total system RAM), pass
+the percentage through the OpenClaude launcher. OpenClaude converts
+`--max-old-space-size-percentage` and
+`OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE` to an explicit
+`--max-old-space-size` in megabytes so the same command works on every supported
+Node version, including `22.0.0`:
 
 ```bash
 openclaude --max-old-space-size-percentage=50
 openclaude --max-old-space-size-percentage=75
 ```
 
-You can also set `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE=50`. If
-`NODE_OPTIONS` or the Node process already contains
-`--max-old-space-size-percentage` or `--max-old-space-size`, OpenClaude leaves
-that native limit in place and does not append `8192`. `--max-memory=2048`
+You can also set `OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE=50`. Putting the
+native flag in `NODE_OPTIONS` or `node --max-old-space-size-percentage=…` only
+works on Node versions that accept that option; Node 22.0.0 rejects it before
+OpenClaude starts. When a supporting Node already applied that native flag,
+OpenClaude leaves it in place and does not append `8192`. `--max-memory=2048`
 remains the explicit megabyte override and still wins over a percentage
 request.
 
