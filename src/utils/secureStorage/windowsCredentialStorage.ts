@@ -39,9 +39,12 @@ function runPowerShell(
   options?: { input?: string },
 ): ReturnType<typeof execaSync> | null {
   try {
-    return execaSync('powershell.exe', ['-Command', script], {
-      input: options?.input,
+    return execaSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+      // Credential operations must not load shell profiles or wait for input
+      // from the CLI's terminal. An empty input closes stdin for reads/deletes.
+      input: options?.input ?? '',
       reject: false,
+      timeout: 10_000,
     })
   } catch {
     return null
