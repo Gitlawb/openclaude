@@ -1,3 +1,4 @@
+import { setupFreeTokens } from '../api/verbooFreeTokens.js'
 import { toString as qrToString } from 'qrcode'
 import React, { useCallback, useState } from 'react'
 import {
@@ -180,6 +181,9 @@ function hasCardTrial(group: MarketplaceGroup): boolean {
 export function getPlanDetailOptions(
   plan: MarketplaceGroup,
 ): Array<{ label: string; value: string }> {
+  if ((plan.freeTokens ?? 0) > 0 && plan.freeTokensEligible !== false) {
+    return [{ label: `Usar ${plan.freeTokens!.toLocaleString('pt-BR')} tokens grátis — cartão sem cobrança`, value: 'free-tokens' }, { label: 'Voltar', value: 'back' }]
+  }
   if (hasCardlessTrial(plan)) {
     return [
       { label: `Testar grátis por ${plan.trialDays} dias`, value: 'trial' },
@@ -1014,6 +1018,19 @@ export function PurchaseFlowView({
     }
   }, [accessToken, cardlessVerification, verificationWaitSeconds])
 
+  const handleFreeTokens = async (group: MarketplaceGroup) => {
+    setStep('checkout'); setInlineMessage(null)
+    try {
+      const status = await setupFreeTokens(group.id, group.billingInterval)
+      if (status.state === 'active') { void startEntitlementPolling(group.id, 'polling', 'access'); return }
+      if (status.checkoutUrl) {
+        setManualCheckoutUrl(status.checkoutUrl); setManualEntitlementRequirement('access')
+        if (await openBrowser(status.checkoutUrl)) void startEntitlementPolling(group.id, 'polling', 'access')
+        else setStep('manual-browser')
+      } else { setInlineMessage(`Continue em ${status.activationUrl}`); setStep('plan-detail') }
+    } catch { setInlineMessage('Não foi possível cadastrar o cartão. Tente novamente.'); setStep('plan-detail') }
+  }
+
   const handleCheckout = useCallback(
     async function runCheckout(
       group: MarketplaceGroup,
@@ -1321,7 +1338,8 @@ export function PurchaseFlowView({
           <Select
             options={options}
             onChange={(value: string) => {
-              if (value === 'trial') void prepareCardlessTrial(plan)
+              if (value === 'free-tokens') void handleFreeTokens(plan)
+              else if (value === 'trial') void prepareCardlessTrial(plan)
               else if (value === 'card-trial')
                 void handleCheckout(plan, 'stripe', undefined, 'access')
               else if (value === 'pix') setStep('woovi-form')

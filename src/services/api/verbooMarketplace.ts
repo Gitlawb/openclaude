@@ -30,6 +30,8 @@ const marketplaceGroupSchema = z
     ),
     memberCount: z.number().int().nonnegative().optional(),
     subscriberLimit: z.number().int().positive().nullable().optional(),
+    freeTokens: z.number().int().nonnegative().optional(),
+    freeTokensEligible: z.boolean().optional(),
     trialDays: z.number().int().positive().nullable().optional(),
     trialPaymentMethodRequired: z.boolean().default(false),
     trialEligible: z.boolean(),

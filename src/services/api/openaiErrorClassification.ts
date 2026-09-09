@@ -4,6 +4,8 @@ export type OpenAICompatibilityFailureCategory =
   | 'request_timeout'
   | 'network_error'
   | 'auth_invalid'
+  | 'free_tokens_required'
+  | 'free_tokens_accounting_pending'
   | 'terms_required'
   | 'rate_limited'
   | 'model_not_found'
@@ -36,6 +38,8 @@ const OPENAI_COMPATIBILITY_FAILURE_CATEGORIES: ReadonlySet<OpenAICompatibilityFa
     'request_timeout',
     'network_error',
     'auth_invalid',
+    'free_tokens_required',
+    'free_tokens_accounting_pending',
     'terms_required',
     'rate_limited',
     'model_not_found',
@@ -306,6 +310,9 @@ export function classifyOpenAIHttpFailure(options: {
       hint: 'The current Terms of Use require explicit acceptance before product access.',
     }
   }
+
+  if (options.status === 402 && body.includes('free_tokens_')) return { source: 'http', category: 'free_tokens_required', retryable: false, status: 402, message: body, hint: 'Confirme a ativação nas opções apresentadas pela CLI ou no painel da sua conta.' }
+  if (options.status === 503 && body.includes('free_tokens_accounting_pending')) return { source: 'http', category: 'free_tokens_accounting_pending', retryable: false, status: 503, message: body, hint: 'Aguarde a confirmação do consumo antes de uma nova solicitação.' }
 
   if (options.status === 429) {
     return {

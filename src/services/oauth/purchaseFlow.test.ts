@@ -143,3 +143,11 @@ test('moves grid focus without crossing row edges or partial rows', () => {
   expect(getPlanColumnCount(90)).toBe(2)
   expect(getPlanColumnCount(140)).toBe(3)
 })
+
+
+test('offers free tokens with a saved card even for annual billing, without day trial copy', () => {
+  const eligible = plan({ freeTokens: 100000, freeTokensEligible: true, trialDays: null, billingInterval: 'year' })
+  expect(getPlanDetailOptions(eligible).map(option => option.value)).toEqual(['free-tokens', 'back'])
+  expect(getPlanDetailOptions(eligible)[0]!.label).toContain('sem cobrança')
+  expect(getPlanDetailOptions({ ...eligible, freeTokensEligible: false }).map(option => option.value)).toEqual(['buy', 'back'])
+})

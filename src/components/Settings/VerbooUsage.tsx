@@ -1,34 +1,35 @@
 import * as React from 'react'
 
+import { fetchFreeTokenStatus, type FreeTokenStatus } from '../../services/api/verbooFreeTokens.js'
 import { Box, Text } from '../../ink.js'
 import { ConfigurableShortcutHint } from '../ConfigurableShortcutHint.js'
-
-const MESSAGES = [
-  "You're almost reaching your limit. Try a little more.",
-  "You're almost at your usage limit. Push a bit further and see what happens.",
-  "Heads up — you're approaching your limit. Just one more prompt should do it.",
-  "Warning: you're getting close to your usage cap. Keep going, we dare you.",
-  "You've used 99% of your quota. One more prompt won't hurt.",
-  "Critical: usage spike detected. Carry on, see what breaks.",
-  "Looks like you're running low on tokens. Try anyway, just in case.",
-  "Approaching limit. Probably best to keep going.",
-  "You're nearly out of usage. Send another prompt — for science.",
-  "Limit incoming. Maybe slow down. Or don't.",
-]
 
 export function VerbooUsage({
   showCancelHint = true,
 }: {
   showCancelHint?: boolean
 }): React.ReactNode {
-  const message = React.useMemo(
-    () => MESSAGES[Math.floor(Math.random() * MESSAGES.length)],
-    [],
-  )
+  const [status, setStatus] = React.useState<FreeTokenStatus | null>(null)
+  const [failed, setFailed] = React.useState(false)
+  React.useEffect(() => {
+    const controller = new AbortController()
+    const load = () => { void fetchFreeTokenStatus(controller.signal).then(value => { if (!controller.signal.aborted) { setStatus(value); setFailed(false) } }).catch(() => { if (!controller.signal.aborted) setFailed(true) }) }
+    load()
+    const timer = setInterval(load, 10_000)
+    return () => { controller.abort(); clearInterval(timer) }
+  }, [])
+  const free = status && ['active', 'exhausted', 'activating', 'checkout_required'].includes(status.state)
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text>{message}</Text>
+      {!status && !failed && <Text>Carregando consumo…</Text>}
+      {failed && <Text color="yellow">Não foi possível consultar o saldo. Tente novamente.</Text>}
+      {free ? <>
+        <Text bold>{status.tokensRemaining.toLocaleString('pt-BR')} tokens grátis restantes</Text>
+        <Text>{status.tokensUsed.toLocaleString('pt-BR')} consumidos de {status.tokenLimit.toLocaleString('pt-BR')}. Entrada + saída, sem prazo de validade.</Text>
+        {status.accountingPending && <Text color="yellow">Consumo pendente de confirmação. Novas inferências estão pausadas.</Text>}
+        <Text>Quando os tokens acabarem, a CLI pausará a inferência e mostrará as opções de ativação com o valor da cobrança no cartão cadastrado.</Text>
+      </> : status ? <Text>Consulte seu uso no painel: https://code.verboo.ai/dashboard</Text> : null}
       {showCancelHint ? <Text dimColor>
         <ConfigurableShortcutHint
           action="confirm:no"

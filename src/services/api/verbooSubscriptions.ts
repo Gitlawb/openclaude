@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { freeTokenStatusSchema } from './verbooFreeTokens.js'
 import { z } from 'zod'
 
 import { VERBOO_API_BASE_URL } from '../../constants/oauth.js'
@@ -38,6 +39,7 @@ const subscriptionSchema = z
       .passthrough()
       .optional(),
     source: subscriptionSourceSchema.optional(),
+    freeTokens: freeTokenStatusSchema.optional(),
     status: z.string().min(1),
     wooviSubscriptionId: z.string().optional(),
     currentPeriodStart: z.string().datetime({ offset: true }).optional(),

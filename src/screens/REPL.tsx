@@ -1,3 +1,5 @@
+import { registerFreeTokenActivationPresenter } from '../services/oauth/freeTokenActivation.js';
+import { FreeTokenActivationView } from '../components/FreeTokenActivation.js';
 import { c as _c } from "react-compiler-runtime";
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { feature } from 'bun:bundle';
@@ -1102,6 +1104,15 @@ export function REPL({
     }
     setToolJSXInternal(args);
   }, []);
+  const [freeTokenActivation, setFreeTokenActivation] = useState<{ finish: (result: boolean) => void } | null>(null);
+  useEffect(() => {
+    let finishPending: ((result: boolean) => void) | undefined;
+    const unregister = registerFreeTokenActivationPresenter(() => new Promise<boolean>(resolve => {
+      finishPending = result => { setFreeTokenActivation(null); finishPending = undefined; resolve(result); };
+      setFreeTokenActivation({ finish: finishPending });
+    }));
+    return () => { unregister(); finishPending?.(false); };
+  }, []);
   const [toolUseConfirmQueue, setToolUseConfirmQueue] = useState<ToolUseConfirm[]>([]);
   // Sticky footer JSX registered by permission request components (currently
   // only ExitPlanModePermissionRequest). Renders in FullscreenLayout's `bottom`
@@ -2083,9 +2094,10 @@ export function REPL({
   // Permission and interactive dialogs can show even when toolJSX is set,
   // as long as shouldContinueAnimation is true. This prevents deadlocks when
   // agents set background hints while waiting for user interaction.
-  function getFocusedInputDialog(): 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'model-switch' | 'undercover-callout' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | undefined {
+  function getFocusedInputDialog(): 'free-tokens' | 'message-selector' | 'sandbox-permission' | 'tool-permission' | 'prompt' | 'worker-sandbox-permission' | 'elicitation' | 'cost' | 'idle-return' | 'init-onboarding' | 'ide-onboarding' | 'model-switch' | 'undercover-callout' | 'effort-callout' | 'remote-callout' | 'lsp-recommendation' | 'plugin-hint' | 'desktop-upsell' | 'ultraplan-choice' | 'ultraplan-launch' | undefined {
     // Exit states always take precedence
     if (isExiting || exitFlow) return undefined;
+    if (freeTokenActivation) return 'free-tokens';
 
     // High priority dialogs (always show regardless of typing)
     if (isMessageSelectorVisible) return 'message-selector';
@@ -4520,7 +4532,7 @@ export function REPL({
     // only one ScrollBox is ever mounted at a time.
     const transcriptScrollRef = isFullscreenEnvEnabled() && !disableVirtualScroll && !dumpMode ? scrollRef : undefined;
     const transcriptMessagesElement = <Messages messages={transcriptMessages} tools={tools} commands={renderCommands} verbose={true} toolJSX={null} toolUseConfirmQueue={[]} inProgressToolUseIDs={inProgressToolUseIDs} isMessageSelectorVisible={false} conversationId={conversationId} screen={screen} agentDefinitions={agentDefinitions} streamingToolUses={transcriptStreamingToolUses} showAllInTranscript={showAllInTranscript} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} hidePastThinking={true} streamingThinking={streamingThinking} scrollRef={transcriptScrollRef} jumpRef={jumpRef} onSearchMatchesChange={onSearchMatchesChange} scanElement={scanElement} setPositions={setPositions} disableRenderCap={dumpMode} />;
-    const transcriptToolJSX = toolJSX && <Box flexDirection="column" width="100%">
+    const transcriptToolJSX = freeTokenActivation ? <FreeTokenActivationView onDone={freeTokenActivation.finish} /> : toolJSX && <Box flexDirection="column" width="100%">
       {toolJSX.jsx}
     </Box>;
     const transcriptReturn = <KeybindingSetup>
@@ -4920,6 +4932,7 @@ export function REPL({
               resetHistory: () => { }
             });
           }} />}
+          {focusedInputDialog === 'free-tokens' && freeTokenActivation && <FreeTokenActivationView onDone={freeTokenActivation.finish} />}
           {focusedInputDialog === 'ide-onboarding' && <IdeOnboardingDialog onDone={() => setShowIdeOnboarding(false)} installationStatus={ideInstallationStatus} />}
           {"external" === 'ant' && focusedInputDialog === 'model-switch' && AntModelSwitchCallout && <AntModelSwitchCallout onDone={(selection: string, modelAlias?: string) => {
             setShowModelSwitchCallout(false);

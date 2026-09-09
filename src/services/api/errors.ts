@@ -1,3 +1,4 @@
+import { FreeTokensRequiredError } from '../oauth/freeTokenActivation.js'
 import {
   APIConnectionError,
   APIConnectionTimeoutError,
@@ -125,6 +126,10 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
       })
     }
 
+    case 'free_tokens_required':
+      return createAssistantAPIErrorMessage({ content: new FreeTokensRequiredError().message, error: 'invalid_request' })
+    case 'free_tokens_accounting_pending':
+      return createAssistantAPIErrorMessage({ content: 'Estamos confirmando o consumo dos tokens grátis. Novas solicitações estão pausadas. Tente novamente em instantes.', error: 'invalid_request' })
     case 'terms_required':
       return createAssistantAPIErrorMessage({
         content: getIsNonInteractiveSession()
@@ -615,6 +620,7 @@ export function getAssistantMessageFromError(
     messagesForAPI?: (UserMessage | AssistantMessage)[]
   },
 ): AssistantMessage {
+  if (error instanceof FreeTokensRequiredError) return createAssistantAPIErrorMessage({ content: error.message, error: 'invalid_request' })
   // Check for SDK timeout errors
   if (
     error instanceof APIConnectionTimeoutError ||
@@ -1230,6 +1236,7 @@ function get3PModelFallbackSuggestion(model: string): string | undefined {
  * Returns a standardized error type string suitable for Datadog tagging.
  */
 export function classifyAPIError(error: unknown): string {
+  if (error instanceof FreeTokensRequiredError) return error.code
   // Aborted requests
   if (error instanceof Error && error.message === 'Request was aborted.') {
     return 'aborted'

@@ -24,6 +24,7 @@ import { logError } from '../../utils/log.js'
 import { storeOAuthAccountInfo } from './client.js'
 import type { OAuthTokens } from './types.js'
 import { showNoModelsFlow } from './purchaseFlow.js'
+import { requestFreeTokenActivation, FreeTokensRequiredError } from './freeTokenActivation.js'
 import { showPastDueNotice } from './pastDueFlow.js'
 import { showVerbooTermsAcceptance } from '../../components/VerbooTermsAcceptance.js'
 import {
@@ -352,10 +353,19 @@ async function ensureVerbooTermsAccepted(accessToken: string): Promise<void> {
 }
 
 async function ensureCLIEntitlement(accessToken: string): Promise<void> {
+  const requestStartedAt = performance.now()
   clearCLIEntitlementCache()
   let entitlement = await fetchCLIEntitlement({ force: true })
   if (entitlement.allowed) return
 
+  if (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending') {
+    if (await requestFreeTokenActivation({ startup: true, requestStartedAt })) {
+      entitlement = await fetchCLIEntitlement({ force: true })
+      if (entitlement.allowed) return
+    }
+    throw new FreeTokensRequiredError()
+  }
+  if (entitlement.reason === 'free_tokens_accounting_pending') throw new Error(getCLIEntitlementDeniedMessage(entitlement.reason))
   if (entitlement.reason === 'past_due') {
     const resolved = await showPastDueNotice(accessToken)
     if (resolved) {

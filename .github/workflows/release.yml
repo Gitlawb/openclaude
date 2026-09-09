@@ -81,13 +81,17 @@ jobs:
             src/__tests__/bugfixes-behavioral.test.ts \
             src/commands/effort/effort.verboo.test.ts \
             src/commands/logout/logoutState.test.ts \
+            src/components/FreeTokenActivation.test.tsx \
             src/services/api/boundedResponseBody.test.ts \
             src/services/api/codexShim.test.ts \
             src/services/api/openaiProtocolReliability.test.ts \
+            src/services/api/openaiErrorClassification.test.ts \
             src/services/api/openaiShim.test.ts \
             src/services/api/verbooCheckout.test.ts \
             src/services/api/verbooModels.test.ts \
             src/services/oauth/purchaseFlow.test.ts \
+            src/services/oauth/cliEntitlement.test.ts \
+            src/services/oauth/freeTokenActivation.test.ts \
             src/services/oauth/pastDueFlow.test.tsx \
             src/services/oauth/subscriptionAccess.test.ts \
             src/services/oauth/verbooStartupAuth.test.ts \

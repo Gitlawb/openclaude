@@ -1,3 +1,4 @@
+import { requestFreeTokenActivation, FreeTokensRequiredError } from '../oauth/freeTokenActivation.js'
 /**
  * OpenAI-compatible API shim for Claude Code.
  *
@@ -3549,6 +3550,8 @@ class OpenAIShimMessages {
     }
 
     let response: Response | undefined
+    const requestStartedAt = performance.now()
+    let didRetryFreeTokenActivation = false
     let didRetryVerbooAuth = false
     const provider = request.baseUrl.includes('nvidia')
       ? 'nvidia-nim'
@@ -3601,6 +3604,21 @@ class OpenAIShimMessages {
       }
 
       captureRouterRateLimit(response.headers, requestUrl)
+      if (!didRetryFreeTokenActivation && response.status === 402 && isVerbooRouterUrl(request.baseUrl)) {
+        const body = await response.clone().json().catch(() => null) as { error?: { code?: string } } | null
+        if (body?.error?.code === 'free_tokens_exhausted' || body?.error?.code === 'free_tokens_activation_pending') {
+          didRetryFreeTokenActivation = true
+          if (options?.signal?.aborted) throw options.signal.reason
+          if (!await requestFreeTokenActivation({ requestStartedAt })) throw new FreeTokensRequiredError()
+          if (options?.signal?.aborted) throw options.signal.reason
+          // Only repeat this rejected HTTP request. No response or tool call
+          // from the conversation is replayed by the activation flow.
+          await response.body?.cancel()
+          attempt--
+          continue
+        }
+      }
+
 
       if (response.ok) {
         // Do not clone a response stream just to inspect usage. Fetch tees can

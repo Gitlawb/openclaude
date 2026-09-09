@@ -1,3 +1,4 @@
+import { FreeTokensRequiredError, requestFreeTokenActivation } from './freeTokenActivation.js'
 import { getClaudeAIOAuthTokensAsync } from '../../utils/auth.js'
 import { errorMessage } from '../../utils/errors.js'
 import { withOAuth401Retry } from '../../utils/http.js'
@@ -12,6 +13,9 @@ const RECHECK_AFTER_SECONDS = 300
 export type CLIEntitlement = {
   allowed: boolean
   reason:
+    | 'free_tokens_exhausted'
+    | 'free_tokens_activation_pending'
+    | 'free_tokens_accounting_pending'
     | 'active'
     | 'trialing'
     | 'past_due'
@@ -56,7 +60,7 @@ export function buildCLIEntitlementFromSubscriptions(
   now = Date.now(),
 ): CLIEntitlement {
   const active = subscriptions.filter(subscription =>
-    hasCurrentSubscriptionAccess(subscription, now),
+    hasCurrentSubscriptionAccess(subscription, now) && (!subscription.freeTokens || subscription.freeTokens.state === 'converted' || (subscription.freeTokens.state === 'active' && !subscription.freeTokens.accountingPending && subscription.freeTokens.tokensRemaining > 0)),
   )
   const result: CLIEntitlement = {
     allowed: active.length > 0,
@@ -78,7 +82,11 @@ export function buildCLIEntitlementFromSubscriptions(
     return result
   }
 
-  if (subscriptions.some(subscription => subscription.status === 'past_due')) {
+  const free = subscriptions.find(subscription => subscription.freeTokens && ['active', 'exhausted', 'activating', 'checkout_required'].includes(subscription.freeTokens.state))?.freeTokens
+  if (free) {
+    result.reason = free.accountingPending ? 'free_tokens_accounting_pending' : ['activating', 'checkout_required'].includes(free.state) ? 'free_tokens_activation_pending' : 'free_tokens_exhausted'
+    result.recheckAfterSeconds = 3
+  } else if (subscriptions.some(subscription => subscription.status === 'past_due')) {
     result.reason = 'past_due'
   } else if (subscriptions.length > 0) {
     result.reason = 'expired'
@@ -135,6 +143,11 @@ export function getCLIEntitlementDeniedMessage(
   reason: CLIEntitlement['reason'],
 ): string {
   switch (reason) {
+    case 'free_tokens_exhausted':
+    case 'free_tokens_activation_pending':
+      return new FreeTokensRequiredError().message
+    case 'free_tokens_accounting_pending':
+      return 'Estamos confirmando o consumo de tokens grátis. Novas solicitações estão pausadas; tente novamente em instantes.'
     case 'past_due':
       return 'Sua assinatura Verboo Code está com pagamento pendente. Regularize-a para continuar usando a CLI.'
     case 'expired':
@@ -150,6 +163,7 @@ export function getCLIEntitlementDeniedMessage(
 export async function assertCLIEntitlement(options?: {
   force?: boolean
 }): Promise<CLIEntitlement> {
+  const requestStartedAt = performance.now()
   let entitlement: CLIEntitlement
   try {
     entitlement = await fetchCLIEntitlement(options)
@@ -157,6 +171,12 @@ export async function assertCLIEntitlement(options?: {
     throw new Error(
       `Não foi possível validar sua assinatura Verboo Code: ${errorMessage(error)}. Novas solicitações foram bloqueadas; tente novamente em instantes.`,
     )
+  }
+  if (!entitlement.allowed && (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending')) {
+    if (await requestFreeTokenActivation({ requestStartedAt })) {
+      clearCLIEntitlementCache()
+      entitlement = await fetchCLIEntitlement({ force: true })
+    } else throw new FreeTokensRequiredError()
   }
   if (!entitlement.allowed) {
     throw new Error(getCLIEntitlementDeniedMessage(entitlement.reason))

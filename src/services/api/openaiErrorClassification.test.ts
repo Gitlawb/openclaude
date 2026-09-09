@@ -189,3 +189,9 @@ test('isLocalhostLikeHost matches loopback variants', () => {
   expect(isLocalhostLikeHost('integrate.api.nvidia.com')).toBe(false)
   expect(isLocalhostLikeHost(undefined)).toBe(false)
 })
+
+
+test('free token billing errors remain terminal and do not suggest credential changes', () => {
+  expect(classifyOpenAIHttpFailure({ status: 402, body: '{"error":{"code":"free_tokens_exhausted"}}', url: 'https://router.verboo.ai/v1/chat/completions' })).toMatchObject({ category: 'free_tokens_required', retryable: false })
+  expect(classifyOpenAIHttpFailure({ status: 503, body: '{"error":{"code":"free_tokens_accounting_pending"}}', url: 'https://router.verboo.ai/v1/chat/completions' })).toMatchObject({ category: 'free_tokens_accounting_pending', retryable: false })
+})
