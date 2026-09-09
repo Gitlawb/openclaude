@@ -13,10 +13,34 @@ jobs:
   cli-quality:
     uses: ./.github/workflows/cli-quality.yml
 
+  docker-smoke:
+    name: docker-smoke
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: useblacksmith/setup-docker-builder@v1
+        with:
+          max-cache-size-mb: "20480"
+
+      - name: Build and load image
+        uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          load: true
+          tags: verboo:ci-smoke
+
+      - name: Verify container version and protocol
+        run: |
+          docker run --rm verboo:ci-smoke --version
+          docker run --rm verboo:ci-smoke --internal-protocol-self-test
+
   # Keep this check name stable for existing branch-protection rules.
   smoke-and-tests:
     name: smoke-and-tests
-    needs: cli-quality
+    needs: [cli-quality, docker-smoke]
     if: ${{ always() }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
@@ -24,7 +48,10 @@ jobs:
       - name: Require the complete quality gate
         env:
           QUALITY_RESULT: ${{ needs.cli-quality.result }}
-        run: test "$QUALITY_RESULT" = success
+          DOCKER_RESULT: ${{ needs.docker-smoke.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$DOCKER_RESULT" = success
 
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

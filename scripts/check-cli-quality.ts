@@ -17,6 +17,7 @@ if (!terminalOnly) {
   run([node, 'scripts/prepare-cli-package.mjs', '--pack-only'])
 }
 if (!process.argv.includes('--suite')) {
+  run([node, '--test', 'scripts/e2e/fake-router.test.mjs'])
   run([node, 'scripts/setup-pty.mjs'])
   run([node, 'scripts/prepare-cli-package.mjs', '--install-only'])
   if (process.platform === 'win32') {

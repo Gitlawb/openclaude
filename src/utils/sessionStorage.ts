@@ -317,7 +317,20 @@ async function persistAgentMetadata(path: string, metadata: AgentMetadata): Prom
   const temporary = `${path}.${process.pid}.tmp`
   try {
     await writeFile(temporary, JSON.stringify(metadata))
-    await rename(temporary, path)
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(temporary, path)
+        break
+      } catch (error) {
+        // Windows readers and antivirus scanners can briefly prevent replacing
+        // an existing file. Keep the complete temporary file and the per-path
+        // write queue while retrying; never remove the last good metadata.
+        const code = (error as NodeJS.ErrnoException).code
+        if (process.platform !== 'win32' || attempt >= 6 ||
+          (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY')) throw error
+        await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt))
+      }
+    }
   } finally { await unlink(temporary).catch(() => {}) }
 }
 export async function writeAgentMetadata(

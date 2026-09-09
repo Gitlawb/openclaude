@@ -2,8 +2,9 @@
 
 The shared `.github/workflows/cli-quality.yml` workflow is required by PR checks
 and every release publication job. No test-failure baseline is accepted.
-The existing `smoke-and-tests` check explicitly fails when this gate fails or is
-cancelled; it cannot become a successful skipped check after a dependency fails.
+The existing `smoke-and-tests` check explicitly fails when this gate or the
+Docker build/protocol check fails or is cancelled; it cannot become a successful
+skipped check after a dependency fails.
 
 ## Agent consumption and completion
 
@@ -21,6 +22,9 @@ cancelled; it cannot become a successful skipped check after a dependency fails.
   SDK output wakes independently of the parent query yielding another message.
 - Metadata writes are atomic and serialized. An execution identifier prevents a
   late callback from overwriting a resumed agent's metadata or task state.
+- Windows metadata replacement retries temporary reader/scanner locks for up to
+  630 ms, preserving the previous complete file and write order; permanent
+  failures still propagate and remove the temporary file.
 - Display success, provider failure, user interruption and execution-budget
   limits distinctly. Closing task details must not cancel running agents.
 
@@ -37,6 +41,8 @@ cancelled; it cannot become a successful skipped check after a dependency fails.
 | Terminal matrix | Linux, macOS and Windows; Node 22 and 24; 40×12, 80×24 and 120×40; 1/2/8/20 agents; normal and fullscreen |
 | Interaction/error cases | Missing/partial/explicit-zero usage, background completion, task menu/detail, draft preservation, resize, Esc, provider failure, configured maxTurns, streaming JSON |
 | Other components | Python tests, web typecheck/build, existing native desktop checks |
+| Docker | Full image build, version and protocol smoke on every PR; native test compilation tools stay in the build stage |
+| Fixture lifecycle | Partial HTTP request cancellation, draining stream handlers and malformed-request failures under Bun and the six Node/platform jobs |
 
 The terminal fixture uses a fresh project and configuration, synthetic OAuth,
 strict empty MCP configuration, disabled plugin installation and no provider
