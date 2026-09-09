@@ -42,6 +42,7 @@ skipped check after a dependency fails.
 | Interaction/error cases | Missing/partial/explicit-zero usage, background completion, task menu/detail, draft preservation, resize, Esc, provider failure, configured maxTurns, streaming JSON |
 | Other components | Python tests, web typecheck/build, existing native desktop checks |
 | Docker | Full image build, version and protocol smoke on every PR; native test compilation tools stay in the build stage |
+| Fixture lifecycle | Partial HTTP request cancellation, draining stream handlers and malformed-request failures under Bun and the six Node/platform jobs |
 
 The terminal fixture uses a fresh project and configuration, synthetic OAuth,
 strict empty MCP configuration, disabled plugin installation and no provider

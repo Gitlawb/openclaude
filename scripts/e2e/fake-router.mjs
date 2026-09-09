@@ -6,7 +6,8 @@ export async function createFakeRouter({ agents = 2, omitUsage = false, zeroUsag
   const unexpected = []
   let sequence = 0
   const activeAgents = new Set()
-  const server = createServer(async (req, res) => {
+  const activeRequests = new Set()
+  async function handleRequest(req, res) {
     const path = new URL(req.url, 'http://fixture').pathname
     const json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
     if (path === '/') return json({ ok: true })
@@ -56,7 +57,25 @@ export async function createFakeRouter({ agents = 2, omitUsage = false, zeroUsag
       emit({}, 'stop', omitUsage ? undefined : zeroUsage ? { prompt_tokens: 0, completion_tokens: 0 } : partialUsage ? { prompt_tokens: 120 } : { prompt_tokens: 120, completion_tokens: 24, prompt_tokens_details: { cached_tokens: 5 } })
     }
     res.end('data: [DONE]\n\n')
+  }
+  const server = createServer((req, res) => {
+    const handling = handleRequest(req, res).catch(error => {
+      // Stopping the CLI may abort a request while its body is arriving.
+      // HTTP event listeners do not consume rejected async promises themselves.
+      if (req.aborted && error?.code === 'ECONNRESET') return
+      unexpected.push(`Fixture handler failed: ${error?.message ?? String(error)}`)
+      res.destroy()
+    }).finally(() => activeRequests.delete(handling))
+    activeRequests.add(handling)
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  return { origin: `http://127.0.0.1:${server.address().port}`, requests, unexpected, activeAgents, async close() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) } }
+  return {
+    origin: `http://127.0.0.1:${server.address().port}`, requests, unexpected, activeAgents, activeRequests,
+    async close() {
+      const closed = new Promise(resolve => server.close(resolve))
+      server.closeAllConnections()
+      await closed
+      await Promise.all([...activeRequests])
+    },
+  }
 }
