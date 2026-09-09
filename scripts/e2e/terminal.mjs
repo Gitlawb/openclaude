@@ -26,9 +26,13 @@ export async function startCli({ columns = 80, rows = 24, fullscreen = false, ar
   await writeFile(join(config, '.config.json'), JSON.stringify({ theme: 'dark', hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true, projects: { [project]: { hasTrustDialogAccepted: true } } }))
   const router = await createFakeRouter(routerOptions)
   await writeFile(join(dir, 'unexpected-network.log'), '')
-  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && /^(PATH|Path|SystemRoot|SYSTEMROOT|WINDIR|windir|COMSPEC|PATHEXT|USERPROFILE|SHELL)$/i.test(key)))
+  // Preserve OS runtime directories required by PowerShell/.NET, while keeping
+  // provider credentials and user CLI configuration out of the fixture.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined && /^(PATH|SystemRoot|SystemDrive|WINDIR|COMSPEC|PATHEXT|USERPROFILE|USERNAME|USERDOMAIN|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|ProgramData|ProgramFiles(?:\(x86\))?|ProgramW6432|CommonProgramFiles(?:\(x86\))?|CommonProgramW6432|PSModulePath|PROCESSOR_ARCHITECTURE|SHELL)$/i.test(key)))
+  const inheritedPath = Object.entries(env).find(([key]) => key.toUpperCase() === 'PATH')?.[1] || ''
+  for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key]
   Object.assign(env, {
-    PATH: `${dirname(process.execPath)}${process.platform === 'win32' ? ';' : ':'}${env.PATH || env.Path || ''}`,
+    PATH: `${dirname(process.execPath)}${process.platform === 'win32' ? ';' : ':'}${inheritedPath}`,
     TERM: 'xterm-256color', LANG: 'en_US.UTF-8', FORCE_COLOR: '1',
     VERBOO_DISABLE_PLUGINS: '1', VERBOO_CONFIG_DIR: config, VERBOO_PROJECTS_DIR: join(dir, 'projects'),
     TMPDIR: join(dir, 'tmp'), TMP: join(dir, 'tmp'), TEMP: join(dir, 'tmp'),

@@ -39,7 +39,10 @@ function runPowerShell(
   options?: { input?: string },
 ): ReturnType<typeof execaSync> | null {
   try {
-    return execaSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+    // EncodedCommand transports multiline scripts without Windows command-line
+    // quote/newline interpretation; PowerShell requires UTF-16LE here.
+    const encodedScript = Buffer.from(script, 'utf16le').toString('base64')
+    return execaSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encodedScript], {
       // Credential operations must not load shell profiles or wait for input
       // from the CLI's terminal. An empty input closes stdin for reads/deletes.
       input: options?.input ?? '',
