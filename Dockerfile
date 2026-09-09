@@ -3,6 +3,11 @@ FROM node:22-slim AS build
 
 WORKDIR /app
 
+# The terminal test dependency node-pty builds from source on Linux.
+# Keep its compiler toolchain in the build stage only.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy dependency manifests first for better layer caching
 COPY package.json bun.lock .bun-version ./
 
