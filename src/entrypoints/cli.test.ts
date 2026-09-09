@@ -125,7 +125,19 @@ describe('cli.tsx — NODE_OPTIONS --max-old-space-size (issue #402)', () => {
     expect(cliSource).toContain(
       "import { applyChildProcessHeapOptions } from './applyChildProcessHeapOptions.js'",
     )
-    expect(cliSource).toContain('applyChildProcessHeapOptions(process.env)')
+    expect(cliSource).toContain('applyChildProcessHeapOptions(process.env, process.execArgv)')
+  })
+
+  it('propagates a numeric process.execArgv heap cap to NODE_OPTIONS for subprocesses', () => {
+    const env: NodeJS.ProcessEnv = {}
+    applyChildProcessHeapOptions(env, ['--max-old-space-size=4096', '--expose-gc'])
+    expect(env.NODE_OPTIONS).toBe('--max-old-space-size=4096')
+  })
+
+  it('does not append 8192 when process.execArgv already has a percentage heap flag', () => {
+    const env: NodeJS.ProcessEnv = {}
+    applyChildProcessHeapOptions(env, ['--max-old-space-size-percentage=50'])
+    expect(env.NODE_OPTIONS).toBeUndefined()
   })
 
   it('sets --max-old-space-size=8192 when NODE_OPTIONS is not set', () => {

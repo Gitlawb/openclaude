@@ -226,7 +226,7 @@ function getSkillsCliArgs(args: string[]): SkillsCliParseResult | undefined {
 // dist/cli.mjs. Keeping NODE_OPTIONS here preserves the larger cap for tools or
 // subprocesses spawned after startup without overriding user-provided limits.
 // eslint-disable-next-line custom-rules/no-top-level-side-effects, custom-rules/no-process-env-top-level
-applyChildProcessHeapOptions(process.env)
+applyChildProcessHeapOptions(process.env, process.execArgv)
 
 // Harness-science L0 ablation baseline. Inlined here (not init.ts) because
 // BashTool/AgentTool/PowerShellTool capture DISABLE_BACKGROUND_TASKS into

@@ -53,7 +53,10 @@ function relaunchWithLongSessionHeapIfNeeded() {
     replaceProcessArgvWithStrippedLauncherArgs()
     return
   }
-  if (process.env[HEAP_RELAUNCHED_ENV] === '1') return
+  if (process.env[HEAP_RELAUNCHED_ENV] === '1') {
+    replaceProcessArgvWithStrippedLauncherArgs()
+    return
+  }
   const nodeArgs = currentNodeOptionArgs()
   const hasHeapLimit = hasHeapLimitFlag(nodeArgs)
   const hasExplicitGc = hasNodeFlag(nodeArgs, '--expose-gc')
