@@ -3,6 +3,7 @@ import xterm from '@xterm/headless'
 import unicode11 from '@xterm/addon-unicode11'
 import { mkdir, mkdtemp, writeFile, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { spawnSync } from 'node:child_process'
 import { createFakeRouter } from './fake-router.mjs'
@@ -41,7 +42,7 @@ export async function startCli({ columns = 80, rows = 24, fullscreen = false, ar
   terminal.unicode.activeVersion = '11'
   let child
   try {
-    child = pty.spawn(process.execPath, ['--import', resolve('scripts/e2e/transport-preload.mjs'), join(consumer, 'node_modules/@verboo/code/bin/verboo'), '--model', 'fixture-model', '--dangerously-skip-permissions', '--setting-sources', 'user', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands', '--debug-file', join(dir, 'debug.log'), ...args], { cwd: project, env, cols: columns, rows, name: 'xterm-256color' })
+    child = pty.spawn(process.execPath, ['--import', pathToFileURL(resolve('scripts/e2e/transport-preload.mjs')).href, join(consumer, 'node_modules/@verboo/code/bin/verboo'), '--model', 'fixture-model', '--dangerously-skip-permissions', '--setting-sources', 'user', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands', '--debug-file', join(dir, 'debug.log'), ...args], { cwd: project, env, cols: columns, rows, name: 'xterm-256color' })
   } catch (error) { terminal.dispose(); await router.close(); throw error }
   let raw = ''
   let exited
@@ -65,7 +66,10 @@ export async function startCli({ columns = 80, rows = 24, fullscreen = false, ar
       }
     },
     async stop() {
-      if (!exited) { child.kill(); await Promise.race([exit, delay(3000, undefined, { ref: false })]) }
+      // ConPTY retains its output worker even after the child exits naturally.
+      // Release the terminal on Windows as well as stopping live children.
+      if (!exited || process.platform === 'win32') child.kill()
+      if (!exited) await Promise.race([exit, delay(3000, undefined, { ref: false })])
       await delay(25)
       await writeFile(join(dir, 'terminal.ansi'), raw)
       await writeFile(join(dir, 'frames.json'), JSON.stringify(frames, null, 2))
