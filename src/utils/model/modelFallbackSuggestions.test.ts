@@ -51,6 +51,8 @@ test.each(FALLBACK_PATHS)(
     expect(getFallback('claude-sonnet-50')).toBeUndefined()
     expect(getFallback('claude_opus_50')).toBeUndefined()
     expect(getFallback('claude_sonnet_5x')).toBeUndefined()
+    expect(getFallback('notclaude_opus_5')).toBeUndefined()
+    expect(getFallback('prefixclaude_sonnet_5')).toBeUndefined()
   },
 )
 

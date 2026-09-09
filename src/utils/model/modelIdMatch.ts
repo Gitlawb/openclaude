@@ -80,6 +80,7 @@ export function isOpus5FallbackModelId(name: string): boolean {
   const normalized = name.toLowerCase()
   return (
     isOpus5ModelId(normalized) ||
+    matchesModelIdAtBoundary(normalized, 'claude_opus_5') ||
     matchesModelIdAtBoundary(normalized, 'opus_5')
   )
 }
@@ -89,6 +90,7 @@ export function isSonnet5FallbackModelId(name: string): boolean {
   const normalized = name.toLowerCase()
   return (
     isSonnet5ModelId(normalized) ||
+    matchesModelIdAtBoundary(normalized, 'claude_sonnet_5') ||
     matchesModelIdAtBoundary(normalized, 'sonnet_5')
   )
 }
