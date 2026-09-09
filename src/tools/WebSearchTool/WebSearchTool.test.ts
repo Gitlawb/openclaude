@@ -1,12 +1,50 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
+import {
+  getMainLoopModelOverride,
+  setMainLoopModelOverride,
+} from '../../bootstrap/state.js'
+import {
+  acquireSharedMutationLock,
+  releaseSharedMutationLock,
+} from '../../test/sharedMutationLock.js'
+import * as searchProviders from './providers/index.js'
 import type { ProviderOutput } from './providers/types.js'
-import { __test } from './WebSearchTool.js'
+import { __test, WebSearchTool } from './WebSearchTool.js'
 
 const {
   buildEmptyAdapterResultHint,
   formatProviderOutputWithEmptyHint,
   buildAdapterUnavailableError,
 } = __test
+
+describe('Vertex native search availability', () => {
+  let previousEnv: NodeJS.ProcessEnv
+  let previousModel: ReturnType<typeof getMainLoopModelOverride>
+  let availableProviders: ReturnType<typeof spyOn<typeof searchProviders, 'getAvailableProviders'>>
+
+  beforeEach(async () => {
+    await acquireSharedMutationLock('WebSearchTool native availability')
+    previousEnv = process.env
+    previousModel = getMainLoopModelOverride()
+    process.env = { CLAUDE_CODE_USE_VERTEX: '1', WEB_SEARCH_PROVIDER: 'native' }
+    availableProviders = spyOn(searchProviders, 'getAvailableProviders').mockReturnValue([])
+  })
+
+  afterEach(() => {
+    availableProviders.mockRestore()
+    setMainLoopModelOverride(previousModel)
+    process.env = previousEnv
+    releaseSharedMutationLock()
+  })
+
+  test.each([
+    ['claude-sonnet-5', true],
+    ['claude-sonnet-50', false],
+  ] as const)('%s native search is enabled: %s', (model, enabled) => {
+    setMainLoopModelOverride(model)
+    expect(WebSearchTool.isEnabled()).toBe(enabled)
+  })
+})
 
 describe('buildEmptyAdapterResultHint', () => {
   test('names the active provider and the failing backend', () => {
