@@ -16,7 +16,7 @@ const mockExecaSync = mock((..._args: unknown[]): { exitCode: number; stdout: st
 const execaCalls = (): MockExecaCall[] => mockExecaSync.mock.calls as unknown as MockExecaCall[]
 const powershellScript = (index = 0): string => {
   const args = execaCalls()[index][1]
-  return Buffer.from(args[args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le')
+  return args[args.indexOf('-Command') + 1]
 }
 mock.module("execa", () => ({
   execaSync: mockExecaSync,
@@ -150,7 +150,7 @@ describe("Secure Storage Platform Implementations", () => {
       windowsCredentialStorage.read();
       const [command, args, options] = execaCalls()[0];
       expect(command).toBe('powershell.exe');
-      expect(args.slice(0, 4)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand']);
+      expect(args.slice(0, 4)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
       expect(options.input).toBe('');
       expect(options.timeout).toBe(10_000);
     });

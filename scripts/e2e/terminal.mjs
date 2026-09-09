@@ -23,7 +23,8 @@ export async function startCli({ columns = 80, rows = 24, fullscreen = false, ar
   const git = spawnSync('git', ['init', '-q', project], { encoding: 'utf8' })
   if (git.status !== 0) throw new Error(git.stderr || 'Could not isolate fixture project')
   await writeFile(join(project, 'README.md'), 'A deterministic CLI test fixture. No external services or user files.\n')
-  await writeFile(join(config, '.config.json'), JSON.stringify({ theme: 'dark', hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true, projects: { [project]: { hasTrustDialogAccepted: true } } }))
+  const projectConfigKey = project.replaceAll('\\', '/')
+  await writeFile(join(config, '.config.json'), JSON.stringify({ theme: 'dark', hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true, projects: { [projectConfigKey]: { hasTrustDialogAccepted: true } } }))
   const router = await createFakeRouter(routerOptions)
   await writeFile(join(dir, 'unexpected-network.log'), '')
   // Preserve OS runtime directories required by PowerShell/.NET, while keeping
