@@ -4,7 +4,6 @@ import { startCli } from './terminal.mjs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import stripAnsi from 'strip-ansi'
 
 after(() => {
   // Let normal native/IPC cleanup finish, but fail promptly if a PTY worker
@@ -114,11 +113,11 @@ test('background task menu remains usable while agents stream', { timeout: 60_00
 })
 
 test('installed streaming JSON emits confirmed agent usage and optional estimates', { timeout: 60_000 }, async () => {
-  const cli = await startCli({ args: ['--print', '--verbose', '--output-format', 'stream-json', 'E2E_PARENT: delegate to fixture agents.'] })
+  const cli = await startCli({ usePty: false, args: ['--print', '--verbose', '--output-format', 'stream-json', 'E2E_PARENT: delegate to fixture agents.'] })
   try {
     await cli.waitFor(() => Boolean(cli.exited))
     assert.equal(cli.exited.exitCode, 0)
-    const events = stripAnsi(cli.raw).split(/\r?\n/).filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    const events = cli.raw.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line))
     const progress = events.filter(event => event.subtype === 'task_progress')
     assert.ok(progress.some(event => event.usage.token_usage?.state === 'estimated'))
     const finished = events.filter(event => event.subtype === 'task_notification' && event.status === 'completed')
