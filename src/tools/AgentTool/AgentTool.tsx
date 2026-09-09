@@ -252,6 +252,12 @@ export const AgentTool = buildTool({
     cwd
   }: AgentToolInput, toolUseContext, canUseTool, assistantMessage, onProgress?) {
     const startTime = Date.now();
+    // Coordinator workers always run the default model, so the override is
+    // dropped here. Swallowing it silently hides the mismatch from whoever
+    // asked for it; log so it shows up when a run uses an unexpected model.
+    if (isCoordinatorMode() && modelParam !== undefined) {
+      logForDebugging(`Agent model override "${modelParam}" ignored in coordinator mode`);
+    }
     const model = isCoordinatorMode() ? undefined : modelParam;
 
     // Get app state for permission mode and agent filtering

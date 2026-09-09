@@ -253,7 +253,11 @@ export function enqueueAgentNotification({
   // results may reference stale task output. The prompt suggestion text is
   // preserved; only the pre-computed response is discarded.
   abortSpeculation(setAppState);
-  const summary = status === 'completed' ? `Agent "${description}" completed` : status === 'failed' ? `Agent "${description}" failed: ${error || 'Unknown error'}` : `Agent "${description}" was stopped`;
+  // The description reaches this point from the model's own tool input and is
+  // interpolated into the <summary> envelope below. An angle bracket in it
+  // would close the tag early and truncate the notification the parser reads.
+  const safeDescription = description.replace(/[<>]/g, '');
+  const summary = status === 'completed' ? `Agent "${safeDescription}" completed` : status === 'failed' ? `Agent "${safeDescription}" failed: ${error || 'Unknown error'}` : `Agent "${safeDescription}" was stopped`;
   const outputPath = getTaskOutputPath(taskId);
   const toolUseIdLine = toolUseId ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>` : '';
   const resultSection = finalMessage ? `\n<result>${finalMessage}</result>` : '';
