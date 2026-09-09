@@ -1,4 +1,5 @@
 import { execaSync } from 'execa'
+import { readFileSync } from 'node:fs'
 import { join } from 'path'
 import { getClaudeConfigHomeDir } from '../envUtils.js'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
@@ -34,14 +35,44 @@ function shouldUseLegacyPasswordVault(): boolean {
   return (process.env.VERBOO_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT ?? process.env.OPENCLAUDE_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT) === '1'
 }
 
+type DpapiFileRead =
+  | { kind: 'ok'; encrypted: string }
+  | { kind: 'missing' }
+  | { kind: 'error'; warning: string }
+
+function readDpapiFile(path: string): DpapiFileRead {
+  try {
+    return { kind: 'ok', encrypted: readFileSync(path, 'utf8').trim() }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { kind: 'missing' }
+    return { kind: 'error', warning: `Windows credential file could not be read (${code ?? 'unknown error'}).` }
+  }
+}
+
+// Every read still checks the encrypted file. A login, refresh or logout in
+// another process becomes visible immediately, without starting PowerShell
+// again for each agent that uses an unchanged credential record.
+let readCache: {
+  path: string
+  entropy: string
+  encrypted: string
+  data: SecureStorageData
+} | null = null
+
 function runPowerShell(
   script: string,
   options?: { input?: string },
 ): ReturnType<typeof execaSync> | null {
   try {
-    return execaSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
-      // Credential operations must not load shell profiles or wait for input
-      // from the CLI's terminal. An empty input closes stdin for reads/deletes.
+    // Execa reads/writes UTF-8 pipes; Windows console code pages must not
+    // corrupt non-ASCII credential metadata on either side of the pipe.
+    const utf8Script = `[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+${script}`
+    return execaSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', utf8Script], {
+      // Credential operations use a closed input pipe, never the CLI terminal
+      // or interactive shell profiles. Delete operations receive empty input.
       input: options?.input ?? '',
       reject: false,
       timeout: 10_000,
@@ -102,24 +133,22 @@ function readLegacyPasswordVault(): SecureStorageData | null {
 export const windowsCredentialStorage: SecureStorage = {
   name: 'credential-locker-dpapi',
   read(): SecureStorageData | null {
-    const filePath = escapePowerShellSingleQuoted(
-      getWindowsSecureStorageFilePath(),
-    )
-    const entropy = escapePowerShellSingleQuoted(
-      getWindowsSecureStorageEntropy(),
-    )
+    const path = getWindowsSecureStorageFilePath()
+    const rawEntropy = getWindowsSecureStorageEntropy()
+    const file = readDpapiFile(path)
+    if (file.kind !== 'ok') {
+      readCache = null
+      return readLegacyPasswordVault()
+    }
+    if (readCache?.path === path && readCache.entropy === rawEntropy && readCache.encrypted === file.encrypted) {
+      return structuredClone(readCache.data)
+    }
+    readCache = null
+    const entropy = escapePowerShellSingleQuoted(rawEntropy)
     const script = `
       try {
         Add-Type -AssemblyName System.Security
-        $path = '${filePath}'
-        if (!(Test-Path -LiteralPath $path)) {
-          exit 1
-        }
-
-        $protectedBase64 = [System.IO.File]::ReadAllText(
-          $path,
-          [System.Text.Encoding]::UTF8
-        ).Trim()
+        $protectedBase64 = [Console]::In.ReadToEnd().Trim()
         if (-not $protectedBase64) {
           exit 1
         }
@@ -137,11 +166,15 @@ export const windowsCredentialStorage: SecureStorage = {
       }
     `
 
-    const result = runPowerShell(script)
+    // Decrypt exactly the bytes used as the cache key, even if another
+    // process replaces the file while PowerShell starts. Never use argv for it.
+    const result = runPowerShell(script, { input: file.encrypted })
     const stdout = typeof result?.stdout === 'string' ? result.stdout : ''
     if (result?.exitCode === 0 && stdout) {
       try {
-        return jsonParse(stdout)
+        const data = jsonParse<SecureStorageData>(stdout)
+        readCache = { path, entropy: rawEntropy, encrypted: file.encrypted, data: structuredClone(data) }
+        return data
       } catch {
         return readLegacyPasswordVault()
       }
@@ -150,14 +183,15 @@ export const windowsCredentialStorage: SecureStorage = {
     return readLegacyPasswordVault()
   },
   readResult(): SecureStorageReadResult {
-    const filePath = escapePowerShellSingleQuoted(getWindowsSecureStorageFilePath())
+    // Stateful read-modify-write callers must always decrypt a fresh snapshot.
+    readCache = null
+    const file = readDpapiFile(getWindowsSecureStorageFilePath())
+    if (file.kind !== 'ok') return file
     const entropy = escapePowerShellSingleQuoted(getWindowsSecureStorageEntropy())
     const script = `
       try {
         Add-Type -AssemblyName System.Security
-        $path = '${filePath}'
-        if (!(Test-Path -LiteralPath $path)) { exit 2 }
-        $protectedBase64 = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8).Trim()
+        $protectedBase64 = [Console]::In.ReadToEnd().Trim()
         if (-not $protectedBase64) { exit 3 }
         $protectedBytes = [Convert]::FromBase64String($protectedBase64)
         $entropyBytes = [System.Text.Encoding]::UTF8.GetBytes('${entropy}')
@@ -168,7 +202,7 @@ export const windowsCredentialStorage: SecureStorage = {
         [Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($bytes))
       } catch { exit 3 }
     `
-    const result = runPowerShell(script)
+    const result = runPowerShell(script, { input: file.encrypted })
     const stdout = typeof result?.stdout === 'string' ? result.stdout : ''
     if (result?.exitCode === 0 && stdout) {
       try {
@@ -177,7 +211,6 @@ export const windowsCredentialStorage: SecureStorage = {
         return { kind: 'error', warning: 'DPAPI returned malformed JSON.' }
       }
     }
-    if (result?.exitCode === 2) return { kind: 'missing' }
     if (result?.exitCode === 3 && shouldUseLegacyPasswordVault()) {
       const legacy = readLegacyPasswordVault()
       if (legacy) return { kind: 'ok', data: legacy }
@@ -188,6 +221,7 @@ export const windowsCredentialStorage: SecureStorage = {
     return this.read()
   },
   update(data: SecureStorageData): { success: boolean; warning?: string } {
+    readCache = null
     const filePath = escapePowerShellSingleQuoted(
       getWindowsSecureStorageFilePath(),
     )
@@ -244,6 +278,7 @@ export const windowsCredentialStorage: SecureStorage = {
     }
   },
   delete(): boolean {
+    readCache = null
     const filePath = escapePowerShellSingleQuoted(
       getWindowsSecureStorageFilePath(),
     )

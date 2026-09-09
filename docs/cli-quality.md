@@ -30,6 +30,7 @@ cancelled; it cannot become a successful skipped check after a dependency fails.
 | --- | --- |
 | Isolated suites | Every tracked or new non-ignored `.test.ts`, `.test.tsx`, `.test.js`, `.test.mjs` file, including SDK, extension and desktop contracts |
 | Runtime contracts | Late/partial/zero usage, retries, split messages, replay, background progress, cancellation, stale executions, persisted metadata |
+| Windows credentials | Real DPAPI encrypt/decrypt, no native calls for missing files, one decryption for 20 agent reads, fresh classified reads, external refresh/logout and corrupt-record errors on Node 22 and 24 |
 | Stress | Seeded 10,000-event streams, 1/2/8/20 agents, bounded SDK progress queues with start and final events preserved |
 | Rendered terminal | Compare changing Ink output against a Unicode-aware VT screen, with bounded group height and input retained |
 | Installed CLI | Real npm tarball, actual agent/query/auth/parser paths, local HTTP/SSE server, PTY input and resize; SDK streaming JSON through ordinary stdin/stdout pipes |

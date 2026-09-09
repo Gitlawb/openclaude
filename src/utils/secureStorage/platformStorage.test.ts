@@ -1,5 +1,6 @@
 
 import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
+import * as fs from 'node:fs';
 import { linuxSecretStorage } from "./linuxSecretStorage.js";
 import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { macOsKeychainStorage } from "./macOsKeychainStorage.js";
@@ -22,12 +23,27 @@ mock.module("execa", () => ({
   execaSync: mockExecaSync,
 }));
 
+const realReadFileSync = fs.readFileSync;
+let encryptedFile: string | Error = 'encrypted-fixture';
+let fileGeneration = 0;
+mock.module('node:fs', () => ({
+  ...fs,
+  readFileSync: (...args: Parameters<typeof fs.readFileSync>) => {
+    if (String(args[0]).endsWith('.secure.dpapi')) {
+      if (encryptedFile instanceof Error) throw encryptedFile;
+      return encryptedFile;
+    }
+    return realReadFileSync(...args);
+  },
+}));
+
 describe("Secure Storage Platform Implementations", () => {
   const originalEnv = process.env;
 
   beforeEach(async () => {
     await acquireSharedMutationLock("platformStorage.test.ts");
     process.env = { ...originalEnv };
+    encryptedFile = `encrypted-fixture-${++fileGeneration}`;
     mockExecaSync.mockClear();
     // Default mock behavior
     mockExecaSync.mockImplementation(() => ({ exitCode: 0, stdout: "" }));
@@ -80,8 +96,9 @@ describe("Secure Storage Platform Implementations", () => {
     });
 
     test("Windows classified reads distinguish a missing DPAPI file", () => {
-      mockExecaSync.mockReturnValue({ exitCode: 2, stdout: "", stderr: "" });
+      encryptedFile = Object.assign(new Error('Missing'), { code: 'ENOENT' });
       expect(windowsCredentialStorage.readResult?.()).toEqual({ kind: "missing" });
+      expect(mockExecaSync).not.toHaveBeenCalled();
     });
 
     test("Keychain classified reads bypass the process cache", () => {
@@ -151,7 +168,7 @@ describe("Secure Storage Platform Implementations", () => {
       const [command, args, options] = execaCalls()[0];
       expect(command).toBe('powershell.exe');
       expect(args.slice(0, 4)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
-      expect(options.input).toBe('');
+      expect(options.input).toBe(encryptedFile);
       expect(options.timeout).toBe(10_000);
     });
 
@@ -245,6 +262,130 @@ describe("Secure Storage Platform Implementations", () => {
 
       expect(result).toBeNull();
       expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Windows credential read cache', () => {
+    const freshData = { verbooInstallationId: 'fresh-installation' };
+    const respondWith = (data: object) => mockExecaSync.mockReturnValue({ exitCode: 0, stdout: JSON.stringify(data) });
+
+    test('an absent file never starts PowerShell during repeated agent reads', async () => {
+      encryptedFile = Object.assign(new Error('Missing'), { code: 'ENOENT' });
+      for (let i = 0; i < 20; i++) expect(await windowsCredentialStorage.readAsync()).toBeNull();
+      expect(mockExecaSync).not.toHaveBeenCalled();
+    });
+
+    test('filesystem permission errors stay distinct from missing credentials', () => {
+      encryptedFile = Object.assign(new Error('Denied'), { code: 'EACCES' });
+      expect(windowsCredentialStorage.readResult?.()).toMatchObject({ kind: 'error' });
+      expect(windowsCredentialStorage.read()).toBeNull();
+      expect(mockExecaSync).not.toHaveBeenCalled();
+    });
+
+    test('concurrent-agent reads decrypt an unchanged record only once', async () => {
+      respondWith(testData);
+      const records = await Promise.all(Array.from({ length: 20 }, () => windowsCredentialStorage.readAsync()));
+      expect(records).toEqual(Array.from({ length: 20 }, () => testData));
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+      expect(execaCalls()[0][2].input).toBe(encryptedFile);
+      expect(execaCalls()[0][1].join(' ')).not.toContain(encryptedFile as string);
+    });
+
+    test('classifying a read always bypasses and invalidates the cache', () => {
+      respondWith(testData);
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      respondWith(freshData);
+      expect(windowsCredentialStorage.readResult?.()).toEqual({ kind: 'ok', data: freshData });
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(3);
+    });
+
+    test('a changed encrypted record is visible without a TTL delay', () => {
+      respondWith(testData);
+      windowsCredentialStorage.read();
+      encryptedFile = (encryptedFile as string).replace('fixture', 'changed');
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test('logout and recreation cannot recover an old cached record', () => {
+      const original = encryptedFile;
+      respondWith(testData);
+      windowsCredentialStorage.read();
+      encryptedFile = Object.assign(new Error('Missing'), { code: 'ENOENT' });
+      expect(windowsCredentialStorage.read()).toBeNull();
+      encryptedFile = original;
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test('a failed write invalidates previously decrypted data', () => {
+      respondWith(testData);
+      windowsCredentialStorage.read();
+      mockExecaSync.mockReturnValue({ exitCode: 1, stdout: '' });
+      expect(windowsCredentialStorage.update(freshData).success).toBe(false);
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(3);
+    });
+
+    test('deleting credentials invalidates previously decrypted data', () => {
+      respondWith(testData);
+      windowsCredentialStorage.read();
+      expect(windowsCredentialStorage.delete()).toBe(true);
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(3);
+    });
+
+    test('scoped configurations cannot share a decrypted record', () => {
+      respondWith(testData);
+      windowsCredentialStorage.read();
+      process.env.VERBOO_CONFIG_DIR = '/tmp/another-credential-cache-scope';
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test('mutating a returned object cannot poison the cached snapshot', () => {
+      respondWith(testData);
+      const record = windowsCredentialStorage.read()!;
+      record.mcpOAuth!['test-server'].accessToken = 'mutated';
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+    });
+
+    test('decryption failures are not cached', () => {
+      mockExecaSync.mockReturnValue({ exitCode: 3, stdout: '' });
+      expect(windowsCredentialStorage.read()).toBeNull();
+      respondWith(testData);
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(2);
+    });
+
+    test('the decrypted input and cache key remain the same snapshot during replacement', () => {
+      const before = encryptedFile;
+      mockExecaSync.mockImplementationOnce(() => {
+        encryptedFile = 'replacement-during-decrypt';
+        return { exitCode: 0, stdout: JSON.stringify(testData) };
+      });
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      expect(execaCalls()[0][2].input).toBe(before);
+      respondWith(freshData);
+      expect(windowsCredentialStorage.read()).toEqual(freshData);
+      expect(execaCalls()[1][2].input).toBe('replacement-during-decrypt');
+    });
+
+    test('missing native files retain explicitly enabled legacy reads', () => {
+      process.env.VERBOO_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = '1';
+      encryptedFile = Object.assign(new Error('Missing'), { code: 'ENOENT' });
+      respondWith(testData);
+      expect(windowsCredentialStorage.read()).toEqual(testData);
+      expect(mockExecaSync).toHaveBeenCalledTimes(1);
+      expect(powershellScript()).toContain('PasswordVault');
     });
   });
 
