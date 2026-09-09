@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
-import { afterEach, expect, mock, test } from 'bun:test'
-import React from 'react'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+import React, { act } from 'react'
 import stripAnsi from 'strip-ansi'
 import { createRoot } from '../ink.js'
 import type { FreeTokenStatus } from '../services/api/verbooFreeTokens.js'
@@ -17,9 +17,12 @@ const quote = {
   currency: 'BRL', billingInterval: 'month' as const, expiresAt: '2030-01-01T00:00:00Z',
 }
 const cleanups: Array<() => void> = []
+const reactTestEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+const previousActEnvironment = reactTestEnvironment.IS_REACT_ACT_ENVIRONMENT
+beforeEach(() => { reactTestEnvironment.IS_REACT_ACT_ENVIRONMENT = true })
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) cleanup()
-  await Bun.sleep(0)
+  await act(async () => { for (const cleanup of cleanups.splice(0)) cleanup() })
+  reactTestEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
 })
 
 async function waitFor(condition: () => boolean) {
@@ -50,8 +53,11 @@ async function activationMenu(result: FreeTokenStatus = { ...exhausted, state: '
     stdin: stdin as unknown as NodeJS.ReadStream, patchConsole: false,
   })
   cleanups.push(() => { root.unmount(); stdin.end(); stdout.end() })
-  root.render(<FreeTokenActivationView dependencies={dependencies} onDone={onDone} />)
-  return { dependencies, onDone, stdin, output: () => stripAnsi(output) }
+  await act(async () => { root.render(<FreeTokenActivationView dependencies={dependencies} onDone={onDone} />) })
+  // Flush React's effects before sending keys so the test also waits for the
+  // selection handlers, which can be installed after the first visible frame.
+  const press = async (key: string) => { await act(async () => { stdin.write(key) }) }
+  return { dependencies, onDone, press, output: () => stripAnsi(output) }
 }
 
 test('explains exhaustion and lets the user decline with arrow keys without charging', async () => {
@@ -63,11 +69,8 @@ test('explains exhaustion and lets the user decline with arrow keys without char
   expect(text).toContain('Renovação por R$ 20,00/mês até cancelar')
   expect(text).toContain('Agora não')
   expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
-  // Ink installs input subscriptions after committing the first frame.
-  await Bun.sleep(20)
-  menu.stdin.write('\x1B[B')
-  await Bun.sleep(20)
-  menu.stdin.write('\r')
+  await menu.press('\x1B[B')
+  await menu.press('\r')
   await waitFor(() => menu.onDone.mock.calls.length > 0)
   expect(menu.onDone).toHaveBeenCalledWith(false)
   expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
@@ -78,7 +81,7 @@ test('activates with the quoted saved-card price only after selecting acceptance
   const menu = await activationMenu()
   await waitFor(() => menu.output().includes('Ativar plano e pagar'))
   expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
-  menu.stdin.write('\r')
+  await menu.press('\r')
   await waitFor(() => menu.onDone.mock.calls.length > 0)
   expect(menu.dependencies.activateFreeTokens).toHaveBeenCalledTimes(1)
   expect(menu.dependencies.activateFreeTokens).toHaveBeenCalledWith(quote.token, expect.any(AbortSignal))
@@ -90,7 +93,7 @@ test('opens Stripe when activation requires another card action', async () => {
   const checkoutUrl = 'https://checkout.stripe.com/test-fallback'
   const menu = await activationMenu({ ...exhausted, state: 'checkout_required', checkoutUrl })
   await waitFor(() => menu.output().includes('Ativar plano e pagar'))
-  menu.stdin.write('\r')
+  await menu.press('\r')
   await waitFor(() => menu.output().includes('Abrir Stripe'))
   expect(menu.dependencies.openBrowser).toHaveBeenCalledWith(checkoutUrl)
   expect(menu.onDone).not.toHaveBeenCalled()
