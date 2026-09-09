@@ -2,9 +2,18 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 
 import { saveGlobalConfig } from '../config.js'
 
+// Exercise the retained compatibility implementation explicitly.
+const actualOauth = { ...await import('../../constants/oauth.js') }
+mock.module('../../constants/oauth.js', () => ({ ...actualOauth, isVerbooMode: () => false }))
+
+const actualAuth = { ...await import('../auth.js') }
+
+const actualProviders = { ...await import('./providers.js') }
+
 async function importFreshModelModule() {
   mock.restore()
   mock.module('../auth.js', () => ({
+    ...actualAuth,
     getSubscriptionType: () => 'max',
     isClaudeAISubscriber: () => true,
     isMaxSubscriber: () => true,
@@ -12,6 +21,7 @@ async function importFreshModelModule() {
     isTeamPremiumSubscriber: () => false,
   }))
   mock.module('./providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: () => {
       if (process.env.NVIDIA_NIM) return 'nvidia-nim'
       if (process.env.MINIMAX_API_KEY) return 'minimax'

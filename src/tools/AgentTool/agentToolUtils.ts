@@ -1,4 +1,6 @@
 import { feature } from 'bun:bundle'
+import { agentUsageFromMessages, type AgentTokenUsage, type AgentUsageUpdate } from '../../utils/agentUsage.js'
+import { agentTokenUsageSchema } from '../../utils/agentUsageSchema.js'
 import { z } from 'zod/v4'
 import { clearInvokedSkillsForAgent } from '../../bootstrap/state.js'
 import {
@@ -34,6 +36,8 @@ import {
   type ProgressTracker,
   updateAgentProgress as updateAsyncAgentProgress,
   updateProgressFromMessage,
+  updateProgressUsage,
+  getTrackerUsage,
 } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import { asAgentId } from '../../types/ids.js'
 import type { Message as MessageType } from '../../types/message.js'
@@ -60,7 +64,6 @@ import {
 } from '../../utils/permissions/yoloClassifier.js'
 import { emitTaskProgress as emitTaskProgressEvent } from '../../utils/task/sdkProgress.js'
 import { isInProcessTeammate } from '../../utils/teammateContext.js'
-import { getTokenCountFromUsage } from '../../utils/tokens.js'
 import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../ExitPlanModeTool/constants.js'
 import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME } from './constants.js'
 import type { AgentDefinition } from './loadAgentsDir.js'
@@ -240,6 +243,7 @@ export const agentToolResultSchema = lazySchema(() =>
     totalToolUseCount: z.number(),
     totalDurationMs: z.number(),
     totalTokens: z.number(),
+    tokenUsage: agentTokenUsageSchema.optional(),
     usage: z.object({
       input_tokens: z.number(),
       output_tokens: z.number(),
@@ -260,7 +264,7 @@ export const agentToolResultSchema = lazySchema(() =>
         .nullable(),
     }),
     completionReason: z
-      .enum(['completed', 'max_turns', 'max_tool_calls', 'timeout'])
+      .enum(['completed', 'max_turns', 'max_tool_calls', 'timeout', 'failed', 'killed'])
       .optional(),
     budgetUsage: z
       .object({
@@ -277,17 +281,17 @@ export const agentToolResultSchema = lazySchema(() =>
 export type AgentToolResult = z.input<ReturnType<typeof agentToolResultSchema>>
 
 export function countToolUses(messages: MessageType[]): number {
-  let count = 0
+  const ids = new Set<string>()
   for (const m of messages) {
     if (m.type === 'assistant') {
       for (const block of m.message.content) {
         if (block.type === 'tool_use') {
-          count++
+          ids.add(block.id)
         }
       }
     }
   }
-  return count
+  return ids.size
 }
 
 export function finalizeAgentTool(
@@ -301,6 +305,8 @@ export function finalizeAgentTool(
     agentType: string
     isAsync: boolean
     executionBudgetState?: AgentExecutionBudgetState
+    tokenUsage?: AgentTokenUsage
+    completionReason?: 'failed' | 'killed'
   },
 ): AgentToolResult {
   const {
@@ -346,10 +352,12 @@ export function finalizeAgentTool(
     }
   }
 
-  const totalTokens = getTokenCountFromUsage(lastAssistantMessage.message.usage)
+  const tokenUsage = metadata.tokenUsage ?? agentUsageFromMessages(agentMessages)
+  const totalTokens = tokenUsage.confirmed
   const totalToolUseCount = countToolUses(agentMessages)
-  const completionReason: AgentCompletionReason =
-    executionBudgetState?.completionReason ?? 'completed'
+  const reachedMaxTurns = agentMessages.some(message => message.type === 'attachment' && message.attachment.type === 'max_turns_reached')
+  const completionReason: AgentCompletionReason | 'failed' | 'killed' =
+    metadata.completionReason ?? executionBudgetState?.completionReason ?? (reachedMaxTurns ? 'max_turns' : lastAssistantMessage.isApiErrorMessage ? 'failed' : 'completed')
 
   logEvent('tengu_agent_tool_completed', {
     agent_type:
@@ -390,10 +398,11 @@ export function finalizeAgentTool(
     content,
     totalDurationMs: Date.now() - startTime,
     totalTokens,
+    tokenUsage,
     totalToolUseCount,
-    usage: lastAssistantMessage.message.usage,
+    usage: { ...lastAssistantMessage.message.usage, input_tokens: tokenUsage.inputTokens, output_tokens: tokenUsage.outputTokens, cache_read_input_tokens: tokenUsage.cacheReadTokens, cache_creation_input_tokens: tokenUsage.cacheCreationTokens },
+    completionReason,
     ...(executionBudgetState && {
-      completionReason,
       budgetUsage: getAgentBudgetUsage(executionBudgetState),
     }),
   }
@@ -415,7 +424,7 @@ export function emitTaskProgress(
   toolUseId: string | undefined,
   description: string,
   startTime: number,
-  lastToolName: string,
+  lastToolName?: string,
 ): void {
   const progress = getProgressUpdate(tracker)
   emitTaskProgressEvent({
@@ -424,6 +433,7 @@ export function emitTaskProgress(
     description: progress.lastActivity?.activityDescription ?? description,
     startTime,
     totalTokens: progress.tokenCount,
+    tokenUsage: progress.tokenUsage,
     toolUses: progress.toolUseCount,
     lastToolName,
   })
@@ -564,6 +574,7 @@ export async function runAsyncAgentLifecycle({
   abortController: AbortController
   makeStream: (
     onCacheSafeParams: ((p: CacheSafeParams) => void) | undefined,
+    onUsageUpdate: (update: AgentUsageUpdate) => void,
   ) => AsyncGenerator<MessageType, void>
   metadata: Parameters<typeof finalizeAgentTool>[2]
   description: string
@@ -600,7 +611,13 @@ export async function runAsyncAgentLifecycle({
           stopSummarization = stop
         }
       : undefined
-    for await (const message of makeStream(onCacheSafeParams)) {
+    const onUsageUpdate = (update: AgentUsageUpdate) => {
+      if (!isCurrentExecution() || (abortController.signal.aborted && !update.final)) return
+      updateProgressUsage(tracker, update)
+      updateAsyncAgentProgress(taskId, getProgressUpdate(tracker), rootSetAppState, executionId, update.final)
+      emitTaskProgress(tracker, taskId, toolUseContext.toolUseId, description, metadata.startTime)
+    }
+    for await (const message of makeStream(onCacheSafeParams, onUsageUpdate)) {
       if (!isCurrentExecution()) return
       if (abortController.signal.aborted) throw new AbortError()
       agentMessages.push(message)
@@ -648,7 +665,7 @@ export async function runAsyncAgentLifecycle({
     if (!isCurrentExecution()) return
     if (abortController.signal.aborted) throw new AbortError()
 
-    const agentResult = finalizeAgentTool(agentMessages, taskId, metadata)
+    const agentResult = finalizeAgentTool(agentMessages, taskId, { ...metadata, tokenUsage: getTrackerUsage(tracker) })
 
     // Mark task completed FIRST so TaskOutput(block=true) unblocks
     // immediately. classifyHandoffIfNeeded (API call) and getWorktreeResult
@@ -680,11 +697,11 @@ export async function runAsyncAgentLifecycle({
     enqueueAgentNotification({
       taskId,
       description,
-      status: 'completed',
+      status: agentResult.completionReason === 'failed' ? 'failed' : 'completed',
       setAppState: rootSetAppState,
       finalMessage,
       usage: {
-        totalTokens: getTokenCountFromTracker(tracker),
+        totalTokens: getTokenCountFromTracker(tracker), tokenUsage: getTrackerUsage(tracker),
         toolUses: agentResult.totalToolUseCount,
         durationMs: agentResult.totalDurationMs,
       },
@@ -721,6 +738,7 @@ export async function runAsyncAgentLifecycle({
         setAppState: rootSetAppState,
         toolUseId: toolUseContext.toolUseId,
         finalMessage: partialResult,
+        usage: { totalTokens: getTokenCountFromTracker(tracker), tokenUsage: getTrackerUsage(tracker), toolUses: tracker.toolUseCount, durationMs: Date.now() - metadata.startTime },
         ...worktreeResult,
       })
       return
@@ -736,6 +754,7 @@ export async function runAsyncAgentLifecycle({
       error: msg,
       setAppState: rootSetAppState,
       toolUseId: toolUseContext.toolUseId,
+      usage: { totalTokens: getTokenCountFromTracker(tracker), tokenUsage: getTrackerUsage(tracker), toolUses: tracker.toolUseCount, durationMs: Date.now() - metadata.startTime },
       ...worktreeResult,
     })
   } finally {

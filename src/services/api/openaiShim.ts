@@ -1145,6 +1145,17 @@ function makeMessageId(): string {
   return `msg_${randomUUID().replace(/-/g, '')}`
 }
 
+// Normalization fills absent fields with zero for legacy consumers. Preserve
+// presence separately so live agent counters never mistake absence for a report.
+function usagePresence(raw: unknown) {
+  const value = (raw ?? {}) as Record<string, unknown>
+  const valid = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0
+  return {
+    ...(!valid(value.prompt_tokens) && !valid(value.input_tokens) && { usageInputReported: false }),
+    ...(!valid(value.completion_tokens) && !valid(value.output_tokens) && { usageOutputReported: false }),
+  }
+}
+
 function convertChunkUsage(
   usage: OpenAIStreamChunk['usage'] | undefined,
 ): Partial<AnthropicUsage> | undefined {
@@ -1475,6 +1486,7 @@ async function* openaiStreamToAnthropic(
       model,
       stop_reason: null,
       stop_sequence: null,
+      usageReported: false,
       usage: {
         input_tokens: 0,
         output_tokens: 0,
@@ -2471,7 +2483,7 @@ async function* openaiStreamToAnthropic(
             yield {
               type: 'message_delta',
               delta: { stop_reason: stopReason, stop_sequence: null },
-              ...(chunkUsage ? { usage: chunkUsage } : {}),
+              ...(chunkUsage ? { usage: chunkUsage, ...usagePresence(chunk.usage) } : {}),
             }
             if (chunkUsage) {
               hasEmittedFinalUsage = true
@@ -2489,6 +2501,7 @@ async function* openaiStreamToAnthropic(
             type: 'message_delta',
             delta: { stop_reason: lastStopReason, stop_sequence: null },
             usage: chunkUsage,
+            ...usagePresence(chunk.usage),
           }
           hasEmittedFinalUsage = true
         }
@@ -4022,6 +4035,8 @@ class OpenAIShimMessages {
       usage: buildAnthropicUsageFromRawUsage(
         data.usage as unknown as Record<string, unknown> | undefined,
       ),
+      ...(data.usage == null && { usageReported: false }),
+      ...usagePresence(data.usage),
     }
   }
 }

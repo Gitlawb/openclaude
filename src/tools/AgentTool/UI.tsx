@@ -1,3 +1,6 @@
+import { agentUsageFromMessages, agentUsageDisplay, type AgentTokenUsage } from '../../utils/agentUsage.js';
+import { agentGroupLayout, agentStatusLabel } from '../../components/agentPresentation.js';
+import { TOOL_EXECUTION_INTERRUPTED } from '../../utils/finishInterruptedMessages.js';
 import { c as _c } from "react-compiler-runtime";
 import type { ToolResultBlockParam, ToolUseBlockParam } from '@anthropic-ai/sdk/resources/index.mjs';
 import * as React from 'react';
@@ -22,7 +25,7 @@ import { count } from '../../utils/array.js';
 import { getSearchOrReadFromContent, getSearchReadSummaryText } from '../../utils/collapseReadSearch.js';
 import { getDisplayPath } from '../../utils/file.js';
 import { formatDuration, formatNumber } from '../../utils/format.js';
-import { buildSubagentLookups, createAssistantMessage, EMPTY_LOOKUPS } from '../../utils/messages.js';
+import { buildSubagentLookups, createAssistantMessage, EMPTY_LOOKUPS, INTERRUPT_MESSAGE_FOR_TOOL_USE } from '../../utils/messages.js';
 import type { ModelAlias } from '../../utils/model/aliases.js';
 import { getMainLoopModel, parseUserSpecifiedModel, renderModelName } from '../../utils/model/model.js';
 import type { Theme, ThemeName } from '../../utils/theme.js';
@@ -373,8 +376,8 @@ export function renderToolResultMessage(data: Output, progressMessagesForMessage
     content,
     prompt
   } = data;
-  const result = [totalToolUseCount === 1 ? '1 tool use' : `${totalToolUseCount} tool uses`, formatNumber(totalTokens) + ' tokens', formatDuration(totalDurationMs)];
-  const completionMessage = `Done (${result.join(' · ')})`;
+  const result = [totalToolUseCount === 1 ? '1 tool use' : `${totalToolUseCount} tool uses`, agentUsageDisplay(data.tokenUsage, totalTokens, formatNumber), formatDuration(totalDurationMs)];
+  const completionMessage = `${agentStatusLabel(data.completionReason ?? 'completed')} (${result.join(' · ')})`;
   const finalAssistantMessage = createAssistantMessage({
     content: completionMessage,
     usage: {
@@ -468,37 +471,17 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
   // This prevents flickers when the terminal size is too small to render all the dynamic content
   const toolToolRenderLinesEstimate = (inProgressToolCallCount ?? 1) * ESTIMATED_LINES_PER_TOOL + TERMINAL_BUFFER_LINES;
   const shouldUseCondensedMode = !isTranscriptMode && terminalSize && terminalSize.rows && terminalSize.rows < toolToolRenderLinesEstimate;
-  const getProgressStats = () => {
-    const toolUseCount = count(progressMessages, msg => {
-      if (!hasProgressMessage(msg.data)) {
-        return false;
-      }
-      const message = msg.data.message;
-      return message.message.content.some(content => content.type === 'tool_use');
-    });
-    const latestAssistant = progressMessages.findLast((msg): msg is ProgressMessage<AgentToolProgress> => hasProgressMessage(msg.data) && msg.data.message.type === 'assistant');
-    let tokens = null;
-    if (latestAssistant?.data.message.type === 'assistant') {
-      const usage = latestAssistant.data.message.message.usage;
-      tokens = (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + usage.input_tokens + usage.output_tokens;
-    }
-    return {
-      toolUseCount,
-      tokens
-    };
-  };
+  const getProgressStats = () => calculateAgentStats(progressMessages);
   if (shouldUseCondensedMode) {
     const {
       toolUseCount,
-      tokens
+      tokens, tokenUsage
     } = getProgressStats();
     return <MessageResponse height={1}>
-        <Text dimColor>
-          In progress… · <Text bold>{toolUseCount}</Text> tool{' '}
-          {toolUseCount === 1 ? 'use' : 'uses'}
-          {tokens && ` · ${formatNumber(tokens)} tokens`} ·{' '}
-          <ConfigurableShortcutHint action="app:toggleTranscript" context="Global" fallback="ctrl+o" description="expand" parens />
-        </Text>
+        <Box flexGrow={1} minWidth={0} overflow="hidden">
+          <Box flexShrink={0}><Text dimColor>{agentUsageDisplay(tokenUsage, tokens, formatNumber)}</Text></Box>
+          <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate-end">{` · ${toolUseCount} tool ${toolUseCount === 1 ? 'use' : 'uses'} · working`}</Text></Box>
+        </Box>
       </MessageResponse>;
   }
 
@@ -533,7 +516,7 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
   // initializing text so MessageResponse doesn't render a bare └.
   if (displayedMessages.length === 0 && !(isTranscriptMode && prompt)) {
     return <MessageResponse height={1}>
-        <Text dimColor>{INITIALIZING_TEXT}</Text>
+        <Text dimColor>{agentUsageDisplay(getProgressStats().tokenUsage, getProgressStats().tokens, formatNumber)}</Text>
       </MessageResponse>;
   }
   const {
@@ -561,6 +544,7 @@ export function renderToolUseProgressMessage(progressMessages: ProgressMessage<P
           return <MessageComponent key={processed.message.uuid} message={processed.message.data.message} lookups={subagentLookups} addMargin={false} tools={tools} commands={[]} verbose={verbose} inProgressToolUseIDs={collapsedInProgressIDs} progressMessagesForMessage={[]} shouldAnimate={false} shouldShowDot={false} style="condensed" isTranscriptMode={false} isStatic={true} />;
         })}
         </SubAgentProvider>
+        <Text dimColor>{agentUsageDisplay(getProgressStats().tokenUsage, getProgressStats().tokens, formatNumber)}</Text>
         {hiddenToolUseCount > 0 && <Text dimColor>
             +{hiddenToolUseCount} more tool{' '}
             {hiddenToolUseCount === 1 ? 'use' : 'uses'} <CtrlOToExpand />
@@ -624,27 +608,17 @@ export function renderToolUseErrorMessage(result: ToolResultBlockParam['content'
       <FallbackToolUseErrorMessage result={result} verbose={verbose} />
     </>;
 }
-function calculateAgentStats(progressMessages: ProgressMessage<Progress>[]): {
-  toolUseCount: number;
-  tokens: number | null;
-} {
-  const toolUseCount = count(progressMessages, msg => {
-    if (!hasProgressMessage(msg.data)) {
-      return false;
-    }
-    const message = msg.data.message;
-    return message.type === 'user' && message.message.content.some(content => content.type === 'tool_result');
-  });
-  const latestAssistant = progressMessages.findLast((msg): msg is ProgressMessage<AgentToolProgress> => hasProgressMessage(msg.data) && msg.data.message.type === 'assistant');
-  let tokens = null;
-  if (latestAssistant?.data.message.type === 'assistant') {
-    const usage = latestAssistant.data.message.message.usage;
-    tokens = (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + usage.input_tokens + usage.output_tokens;
+export function calculateAgentStats(progressMessages: ProgressMessage<Progress>[]): { toolUseCount: number; tokens: number | null; tokenUsage?: AgentTokenUsage } {
+  const live = progressMessages.findLast(pm => pm.data.type === 'agent_usage')?.data;
+  if (live) return { toolUseCount: live.toolUseCount, tokens: live.tokenCount, tokenUsage: live.tokenUsage };
+  const messages = progressMessages.filter(pm => hasProgressMessage(pm.data)).map(pm => pm.data.message);
+  const ids = new Set<string>();
+  for (const message of messages) for (const block of message.message.content) {
+    if (block.type === 'tool_use') ids.add(block.id);
+    if (block.type === 'tool_result') ids.add(block.tool_use_id);
   }
-  return {
-    toolUseCount,
-    tokens
-  };
+  const tokenUsage = agentUsageFromMessages(messages);
+  return { toolUseCount: ids.size, tokens: tokenUsage.confirmed, tokenUsage };
 }
 export function renderGroupedAgentToolUse(toolUses: Array<{
   param: ToolUseBlockParam;
@@ -659,6 +633,8 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
 }>, options: {
   shouldAnimate: boolean;
   tools: Tools;
+  terminalSize?: { columns: number; rows: number };
+  activeGroupCount?: number;
 }): React.ReactNode | null {
   const {
     shouldAnimate,
@@ -713,8 +689,10 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
       id: param.id,
       agentType,
       description,
-      toolUseCount: stats.toolUseCount,
-      tokens: stats.tokens,
+      toolUseCount: result?.output?.totalToolUseCount ?? stats.toolUseCount,
+      tokens: result?.output?.totalTokens ?? stats.tokens,
+      tokenUsage: result?.output?.tokenUsage ?? stats.tokenUsage,
+      status: result?.output?.completionReason ?? (result?.param.is_error && (result.param.content === TOOL_EXECUTION_INTERRUPTED || result.param.content === INTERRUPT_MESSAGE_FOR_TOOL_USE) ? 'killed' as const : undefined),
       isResolved,
       isError,
       isAsync,
@@ -735,8 +713,9 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
 
   // Check if all resolved agents are async (background)
   const allAsync = agentStats.every(stat => stat.isAsync);
-  return <Box flexDirection="column" marginTop={1}>
-      <Box flexDirection="row">
+  const layout = agentGroupLayout(options.terminalSize?.columns ?? 80, options.terminalSize?.rows ?? 24, agentStats.length, options.activeGroupCount);
+  return <Box flexDirection="column" marginTop={layout.gap} width={layout.width}>
+      <Box flexDirection="row" height={1} overflow="hidden">
         <ToolUseLoader shouldAnimate={shouldAnimate && anyUnresolved} isUnresolved={anyUnresolved} isError={anyError} />
         <Text>
           {allComplete ? allAsync ? <>
@@ -754,7 +733,8 @@ export function renderGroupedAgentToolUse(toolUses: Array<{
         </Text>
         {!allAsync && <CtrlOToExpand />}
       </Box>
-      {agentStats.map((stat, index) => <AgentProgressLine key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === agentStats.length - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastToolInfo={stat.lastToolInfo} hideType={allSameType} name={stat.name} />)}
+      {agentStats.slice(0, layout.visible).map((stat, index) => <AgentProgressLine compact={layout.compact} width={layout.width} status={stat.status} tokenUsage={stat.tokenUsage} key={stat.id} agentType={stat.agentType} description={stat.description} descriptionColor={stat.descriptionColor} taskDescription={stat.taskDescription} toolUseCount={stat.toolUseCount} tokens={stat.tokens} color={stat.color} isLast={index === layout.visible - 1} isResolved={stat.isResolved} isError={stat.isError} isAsync={stat.isAsync} shouldAnimate={shouldAnimate} lastToolInfo={stat.lastToolInfo} hideType={allSameType} name={stat.name} />)}
+      {layout.showOverflow && <Box height={1} overflow="hidden"><Text dimColor wrap="truncate-end">   +{layout.hidden} agents · ctrl+o to expand / ↓ to manage</Text></Box>}
     </Box>;
 }
 export function userFacingName(input: Partial<{

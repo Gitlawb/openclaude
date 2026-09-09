@@ -11,9 +11,13 @@ import {
 
 // Mock execaSync. Keep the call tuple explicit so command assertions stay
 // type-safe without weakening production code.
-type MockExecaCall = [string, string[], { input?: string; reject?: boolean }]
+type MockExecaCall = [string, string[], { input?: string; reject?: boolean; timeout?: number }]
 const mockExecaSync = mock((..._args: unknown[]): { exitCode: number; stdout: string; stderr?: string } => ({ exitCode: 0, stdout: "" }));
 const execaCalls = (): MockExecaCall[] => mockExecaSync.mock.calls as unknown as MockExecaCall[]
+const powershellScript = (index = 0): string => {
+  const args = execaCalls()[index][1]
+  return args[args.indexOf('-Command') + 1]
+}
 mock.module("execa", () => ({
   execaSync: mockExecaSync,
 }));
@@ -94,7 +98,7 @@ describe("Secure Storage Platform Implementations", () => {
 
       windowsCredentialStorage.update(testData);
 
-      const script = execaCalls()[0][1][1];
+      const script = powershellScript();
       const options = execaCalls()[0][2];
       expect(script).toContain(expectedName);
       expect(script).toContain("ProtectedData");
@@ -112,7 +116,7 @@ describe("Secure Storage Platform Implementations", () => {
   describe("Windows DPAPI write encoding (issue #77)", () => {
     function updateScript(): string {
       windowsCredentialStorage.update(testData);
-      return execaCalls()[0][1][1];
+      return powershellScript();
     }
 
     function writePath(script: string): string {
@@ -142,6 +146,22 @@ describe("Secure Storage Platform Implementations", () => {
   });
 
   describe("Windows PowerShell Escaping", () => {
+    test("credential reads do not load profiles or wait for terminal input", () => {
+      windowsCredentialStorage.read();
+      const [command, args, options] = execaCalls()[0];
+      expect(command).toBe('powershell.exe');
+      expect(args.slice(0, 4)).toEqual(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+      expect(options.input).toBe('');
+      expect(options.timeout).toBe(10_000);
+    });
+
+    test("a timed-out credential reader remains an error for classified reads", () => {
+      mockExecaSync.mockImplementation(() => { throw Object.assign(new Error('Timed out'), { timedOut: true }); });
+      expect(windowsCredentialStorage.readResult?.()).toMatchObject({ kind: 'error' });
+      expect(windowsCredentialStorage.read()).toBeNull();
+      expect(windowsCredentialStorage.update(testData).success).toBe(false);
+    });
+
     test("escapes single quotes and prevents $ expansion", () => {
       const dataWithDollar = {
         mcpOAuth: {
@@ -156,7 +176,7 @@ describe("Secure Storage Platform Implementations", () => {
 
       windowsCredentialStorage.update(dataWithDollar);
 
-      const script = execaCalls()[0][1][1];
+      const script = powershellScript();
       const options = execaCalls()[0][2];
       expect(script).toContain("[Console]::In.ReadToEnd()");
       expect(options.input).toContain("token-with-$env:USERNAME");
@@ -170,23 +190,24 @@ describe("Secure Storage Platform Implementations", () => {
     test("delete() skips legacy PasswordVault by default", () => {
       windowsCredentialStorage.delete();
       expect(mockExecaSync).toHaveBeenCalledTimes(1);
-      const script = execaCalls()[0][1][1];
+      const script = powershellScript();
       expect(script).not.toContain("System.Runtime.WindowsRuntime");
     });
 
     test("delete() includes legacy assembly load when explicitly enabled", () => {
       process.env.VERBOO_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
       windowsCredentialStorage.delete();
-      const script = execaCalls()[1][1][1];
+      const script = powershellScript(1);
       expect(script).toContain("Add-Type -AssemblyName System.Runtime.WindowsRuntime");
     });
 
     test("escapes double quotes in username", () => {
       process.env.VERBOO_ENABLE_LEGACY_WINDOWS_PASSWORDVAULT = "1";
-      process.env.USER = 'user"name';
+      process.env.USER = 'user"name 日本語';
       windowsCredentialStorage.read();
-      const script = execaCalls()[1][1][1];
+      const script = powershellScript(1);
       expect(script).toContain('user`"name');
+      expect(script).toContain('日本語');
       expect(script).not.toContain('user"name');
     });
 

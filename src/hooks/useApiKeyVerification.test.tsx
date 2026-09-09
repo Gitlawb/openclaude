@@ -4,6 +4,10 @@ import { afterEach, expect, mock, test } from 'bun:test'
 import React from 'react'
 import { createRoot, Text } from '../ink.js'
 
+// Exercise the retained compatibility implementation explicitly.
+const actualOauth = { ...await import('../constants/oauth.js') }
+mock.module('../constants/oauth.js', () => ({ ...actualOauth, isVerbooMode: () => false }))
+
 type AuthState = {
   anthropicAuthEnabled: boolean
   claudeSubscriber: boolean

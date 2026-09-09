@@ -43,6 +43,7 @@ import {
   createProgressTracker,
   getProgressUpdate,
   updateProgressFromMessage,
+  updateProgressUsage,
 } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import type { CustomAgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 import { runAgent } from '../../tools/AgentTool/runAgent.js'
@@ -1173,6 +1174,11 @@ export async function runInProcessTeammate(
           // so they CAN show permission prompts (unlike true background agents).
           // Use currentWorkAbortController so Escape stops this turn only, not the teammate.
           for await (const message of runAgent({
+            onUsageUpdate: update => {
+              if ((currentWorkAbortController.signal.aborted || abortController.signal.aborted) && !update.final) return;
+              updateProgressUsage(tracker, update);
+              updateTaskState(taskId, task => ({ ...task, progress: getProgressUpdate(tracker) }), setAppState);
+            },
             agentDefinition: iterationAgentDefinition,
             promptMessages,
             toolUseContext,

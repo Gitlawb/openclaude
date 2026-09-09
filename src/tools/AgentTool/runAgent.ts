@@ -1,6 +1,7 @@
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
+import { AgentUsageAccumulator, createUsagePublisher, type AgentUsageUpdate } from '../../utils/agentUsage.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { getProjectRoot, getSessionId } from '../../bootstrap/state.js'
@@ -77,6 +78,7 @@ import {
   recordSidechainTranscript,
   setAgentTranscriptSubdir,
   writeAgentMetadata,
+  writeAgentUsageMetadata,
 } from '../../utils/sessionStorage.js'
 import {
   isRestrictedToPluginOnly,
@@ -276,6 +278,7 @@ export async function* runAgent({
   description,
   transcriptSubdir,
   onQueryProgress,
+  onUsageUpdate,
   agentName,
   modelResolution,
   executionBudgetState: providedExecutionBudgetState,
@@ -338,6 +341,7 @@ export async function* runAgent({
    * during long single-block streams (e.g. thinking) where no assistant
    * message is yielded for >60s. */
   onQueryProgress?: () => void
+  onUsageUpdate?: (update: AgentUsageUpdate) => void
   /** Agent name (team member name) for routing resolution */
   agentName?: string
   /** Pre-resolved by AgentTool so prompt/logging/API use the exact same route. */
@@ -789,8 +793,12 @@ export async function* runAgent({
   void recordSidechainTranscript(initialMessages, agentId).catch(_err =>
     logForDebugging(`Failed to record sidechain transcript: ${_err}`),
   )
-  void writeAgentMetadata(agentId, {
+  const usageExecutionId = randomUUID()
+  const usageAccumulator = new AgentUsageAccumulator(Math.ceil(JSON.stringify({ messages: initialMessages, system: agentSystemPrompt }).length / 4))
+  const usagePublisher = createUsagePublisher(onUsageUpdate)
+  const metadataWrite = writeAgentMetadata(agentId, {
     agentType: agentDefinition.agentType,
+    executionId: usageExecutionId,
     ...(worktreePath && { worktreePath }),
     ...(description && { description }),
   }).catch(_err => logForDebugging(`Failed to write agent metadata: ${_err}`))
@@ -829,6 +837,8 @@ export async function* runAgent({
       executionBudgetState,
     })) {
       onQueryProgress?.()
+      usageAccumulator.observe(message)
+      usagePublisher.update({ executionId: usageExecutionId, usage: usageAccumulator.snapshot() }, message.type === 'stream_event' && (message.event.type === 'message_delta' || message.event.type === 'message_stop'))
       // Forward subagent API request starts to parent's metrics display
       // so TTFT/OTPS update during subagent execution.
       if (
@@ -844,6 +854,7 @@ export async function* runAgent({
       if (message.type === 'attachment') {
         // Handle max turns reached signal from query.ts
         if (message.attachment.type === 'max_turns_reached') {
+          yield message
           logForDebugging(
             `[Agent
 : $
@@ -890,6 +901,9 @@ export async function* runAgent({
       agentDefinition.callback()
     }
   } finally {
+    usagePublisher.update({ executionId: usageExecutionId, usage: usageAccumulator.snapshot(), final: true }, true)
+    await metadataWrite
+    await writeAgentUsageMetadata(agentId, usageExecutionId, usageAccumulator.snapshot()).catch(error => logForDebugging(`Failed to persist agent usage: ${error}`))
     stopBudgetTimers?.()
     // Clean up agent-specific MCP servers (runs on normal completion, abort, or error)
     await mcpCleanup()

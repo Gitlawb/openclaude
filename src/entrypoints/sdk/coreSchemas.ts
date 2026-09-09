@@ -9,6 +9,7 @@
 
 import { z } from 'zod/v4'
 import { lazySchema } from '../../utils/lazySchema.js'
+import { agentTokenUsageSchema } from '../../utils/agentUsageSchema.js'
 
 // ============================================================================
 // Usage & Model Types
@@ -1705,6 +1706,7 @@ export const SDKTaskNotificationMessageSchema = lazySchema(() =>
         total_tokens: z.number(),
         tool_uses: z.number(),
         duration_ms: z.number(),
+        token_usage: agentTokenUsageSchema.optional(),
       })
       .optional(),
     uuid: UUIDPlaceholder(),
@@ -1758,6 +1760,7 @@ export const SDKTaskProgressMessageSchema = lazySchema(() =>
       total_tokens: z.number(),
       tool_uses: z.number(),
       duration_ms: z.number(),
+      token_usage: agentTokenUsageSchema.optional(),
     }),
     last_tool_name: z.string().optional(),
     summary: z.string().optional(),

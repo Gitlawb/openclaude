@@ -788,6 +788,8 @@ export type Tool<
     options: {
       shouldAnimate: boolean
       tools: Tools
+      terminalSize?: { columns: number; rows: number }
+      activeGroupCount?: number
     },
   ): React.ReactNode | null
 }

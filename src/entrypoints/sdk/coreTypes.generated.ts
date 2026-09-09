@@ -1957,6 +1957,15 @@ export type SDKTaskNotificationMessage = {
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: {
+      confirmed: number
+      estimated: number
+      state: "pending" | "estimated" | "reported"
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheCreationTokens: number
+    }
   }
   uuid: string
   session_id: string
@@ -1985,6 +1994,15 @@ export type SDKTaskProgressMessage = {
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: {
+      confirmed: number
+      estimated: number
+      state: "pending" | "estimated" | "reported"
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheCreationTokens: number
+    }
   }
   last_tool_name?: string
   summary?: string
@@ -2257,6 +2275,15 @@ export type SDKMessage = ({
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: {
+      confirmed: number
+      estimated: number
+      state: "pending" | "estimated" | "reported"
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheCreationTokens: number
+    }
   }
   uuid: string
   session_id: string
@@ -2281,6 +2308,15 @@ export type SDKMessage = ({
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: {
+      confirmed: number
+      estimated: number
+      state: "pending" | "estimated" | "reported"
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheCreationTokens: number
+    }
   }
   last_tool_name?: string
   summary?: string

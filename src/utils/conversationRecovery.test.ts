@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const actualProviders = { ...await import('./model/providers.js') }
+
 const tempDirs: string[] = []
 const originalSimple = process.env.CLAUDE_CODE_SIMPLE
 const providerEnvKeys = [
@@ -76,6 +78,7 @@ afterEach(async () => {
 async function importFreshConversationRecovery() {
   mock.restore()
   mock.module('./model/providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: () => {
       if (process.env.CLAUDE_CODE_USE_GITHUB) return 'github'
       if (process.env.CLAUDE_CODE_USE_OPENAI) return 'openai'

@@ -169,6 +169,8 @@ test('navigates from the standalone selector through the plan grid with arrow ke
       await Bun.sleep(20)
     }
 
+    // A committed frame precedes registration of the grid input effect.
+    await Bun.sleep(30)
     stdin.write('\x1B[C')
     await Bun.sleep(20)
     stdin.write('\r')

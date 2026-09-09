@@ -10,12 +10,22 @@ permissions:
   contents: read
 
 jobs:
+  cli-quality:
+    uses: ./.github/workflows/cli-quality.yml
+
   # Keep this check name stable for existing branch-protection rules.
   smoke-and-tests:
     name: smoke-and-tests
+    needs: cli-quality
+    if: ${{ always() }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
+      - name: Require the complete quality gate
+        env:
+          QUALITY_RESULT: ${{ needs.cli-quality.result }}
+        run: test "$QUALITY_RESULT" = success
+
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

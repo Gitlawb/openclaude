@@ -11,7 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
-import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
+import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage, updateProgressUsage, getTrackerUsage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
@@ -24,7 +24,7 @@ import { isEnvTruthy } from '../../utils/envUtils.js';
 import { AbortError, errorMessage, toError } from '../../utils/errors.js';
 import type { CacheSafeParams } from '../../utils/forkedAgent.js';
 import { lazySchema } from '../../utils/lazySchema.js';
-import { createUserMessage, extractTextContent, isSyntheticMessage, normalizeMessages } from '../../utils/messages.js';
+import { createUserMessage, extractTextContent, normalizeMessages } from '../../utils/messages.js';
 import { resolveAgentExecutionModel } from '../../services/api/agentRouting.js';
 import { getInitialSettings } from '../../utils/settings/settings.js';
 import { createAgentExecutionBudgetState } from '../../query/agentExecutionBudget.js';
@@ -772,14 +772,15 @@ export const AgentTool = buildTool({
       void runWithAgentContext(asyncAgentContext, () => wrapWithCwd(() => runAsyncAgentLifecycle({
         taskId: agentBackgroundTask.agentId,
         abortController: agentBackgroundTask.abortController!,
-        makeStream: onCacheSafeParams => runAgent({
+        makeStream: (onCacheSafeParams, onUsageUpdate) => runAgent({
           ...runAgentParams,
           override: {
             ...runAgentParams.override,
             agentId: asAgentId(agentBackgroundTask.agentId),
             abortController: agentBackgroundTask.abortController!
           },
-          onCacheSafeParams
+          onCacheSafeParams,
+          onUsageUpdate
         }),
         metadata,
         description,
@@ -888,9 +889,24 @@ export const AgentTool = buildTool({
         // const capture for sound type narrowing inside the callback below
         const summaryTaskId = foregroundTaskId;
 
+        const publishSyncUsage = (update: import('../../utils/agentUsage.js').AgentUsageUpdate) => {
+          const task = foregroundTaskId ? toolUseContext.getAppState().tasks[foregroundTaskId] : undefined;
+          if (isLocalAgentTask(task) && task.executionId !== foregroundExecutionId) return;
+          if (wasBackgrounded && !update.final) return;
+          updateProgressUsage(syncTracker, update);
+          if (wasBackgrounded) return;
+          const progress = getProgressUpdate(syncTracker);
+          if (foregroundTaskId) {
+            updateAsyncAgentProgress(foregroundTaskId, progress, rootSetAppState, foregroundExecutionId, update.final);
+            emitTaskProgress(syncTracker, foregroundTaskId, toolUseContext.toolUseId, description, agentStartTime);
+          }
+          onProgress?.({ toolUseID: `agent_usage_${syncAgentId}`, data: { type: 'agent_usage', agentId: syncAgentId, ...progress } });
+        };
+
         // Get async iterator for the agent
         const agentIterator = runAgent({
           ...runAgentParams,
+          onUsageUpdate: publishSyncUsage,
           override: {
             ...runAgentParams.override,
             agentId: syncAgentId,
@@ -976,13 +992,19 @@ export const AgentTool = buildTool({
                     if (!isCurrentBackground()) return;
                     if (backgroundController.signal.aborted) throw new AbortError();
                     // Initialize progress tracking from existing messages
-                    const tracker = createProgressTracker();
+                    const tracker = syncTracker;
                     const resolveActivity2 = createActivityDescriptionResolver(toolUseContext.options.tools);
                     for (const existingMsg of agentMessages) {
                       updateProgressFromMessage(tracker, existingMsg, resolveActivity2, toolUseContext.options.tools);
                     }
                     for await (const msg of runAgent({
                       ...runAgentParams,
+                      onUsageUpdate: update => {
+                        if (!isCurrentBackground()) return;
+                        updateProgressUsage(tracker, update);
+                        updateAsyncAgentProgress(backgroundedTaskId, getProgressUpdate(tracker), rootSetAppState, task.executionId, update.final);
+                        emitTaskProgress(tracker, backgroundedTaskId, toolUseContext.toolUseId, description, startTime);
+                      },
                       isAsync: true,
                       // Agent is now running in background
                       override: {
@@ -1011,7 +1033,7 @@ export const AgentTool = buildTool({
                     }
                     if (!isCurrentBackground()) return;
                     if (backgroundController.signal.aborted) throw new AbortError();
-                    const agentResult = finalizeAgentTool(agentMessages, backgroundedTaskId, metadata);
+                    const agentResult = finalizeAgentTool(agentMessages, backgroundedTaskId, { ...metadata, tokenUsage: getTrackerUsage(tracker) });
 
                     // Mark task completed FIRST so TaskOutput(block=true)
                     // unblocks immediately. classifyHandoffIfNeeded and
@@ -1042,11 +1064,11 @@ export const AgentTool = buildTool({
                     enqueueAgentNotification({
                       taskId: backgroundedTaskId,
                       description,
-                      status: 'completed',
+                      status: agentResult.completionReason === 'failed' ? 'failed' : 'completed',
                       setAppState: rootSetAppState,
                       finalMessage,
                       usage: {
-                        totalTokens: getTokenCountFromTracker(tracker),
+                        totalTokens: getTokenCountFromTracker(tracker), tokenUsage: getTrackerUsage(tracker),
                         toolUses: agentResult.totalToolUseCount,
                         durationMs: agentResult.totalDurationMs
                       },
@@ -1145,7 +1167,7 @@ export const AgentTool = buildTool({
                 // Keep AppState task.progress in sync when SDK summaries are
                 // enabled, so updateAgentSummary reads correct token/tool counts
                 // instead of zeros.
-                if (getSdkAgentProgressSummariesEnabled()) {
+                if (foregroundTaskId) {
                   updateAsyncAgentProgress(foregroundTaskId, getProgressUpdate(syncTracker), rootSetAppState);
                 }
               }
@@ -1222,6 +1244,10 @@ export const AgentTool = buildTool({
         } finally {
           const foregroundTask = foregroundTaskId ? toolUseContext.getAppState().tasks[foregroundTaskId] : undefined;
           const wasReplaced = isLocalAgentTask(foregroundTask) && foregroundTask.executionId !== foregroundExecutionId;
+          wasAborted ||= (toolUseContext.abortController.signal.aborted || foregroundAbortController?.signal.aborted === true) && !metadata.executionBudgetState?.completionReason;
+          if (agentMessages.findLast(message => message.type === 'assistant')?.isApiErrorMessage) {
+            syncAgentError ??= new Error(extractPartialResult(agentMessages) || 'Agent request failed');
+          }
           // Clear the background hint UI
           if (toolUseContext.setToolJSX) {
             toolUseContext.setToolJSX(null);
@@ -1251,7 +1277,8 @@ export const AgentTool = buildTool({
                 usage: {
                   total_tokens: progress.tokenCount,
                   tool_uses: progress.toolUseCount,
-                  duration_ms: Date.now() - agentStartTime
+                  duration_ms: Date.now() - agentStartTime,
+                  token_usage: progress.tokenUsage
                 }
               });
             }
@@ -1279,8 +1306,7 @@ export const AgentTool = buildTool({
 
         // Re-throw abort errors
         // TODO: Find a cleaner way to express this
-        const lastMessage = agentMessages.findLast(_ => _.type !== 'system' && _.type !== 'progress');
-        if (lastMessage && isSyntheticMessage(lastMessage)) {
+        if ((toolUseContext.abortController.signal.aborted || foregroundAbortController?.signal.aborted) && !metadata.executionBudgetState?.completionReason) {
           logEvent('tengu_agent_tool_terminated', {
             agent_type: metadata.agentType as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
             model: metadata.resolvedAgentModel as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1307,7 +1333,7 @@ export const AgentTool = buildTool({
           // This allows the parent agent to see partial progress even after an error
           logForDebugging(`Sync agent recovering from error with ${agentMessages.length} messages`);
         }
-        const agentResult = finalizeAgentTool(agentMessages, syncAgentId, metadata);
+        const agentResult = finalizeAgentTool(agentMessages, syncAgentId, { ...metadata, tokenUsage: getTrackerUsage(syncTracker), completionReason: syncAgentError ? 'failed' : undefined });
         if (feature('TRANSCRIPT_CLASSIFIER')) {
           const currentAppState = toolUseContext.getAppState();
           const handoffWarning = await classifyHandoffIfNeeded({

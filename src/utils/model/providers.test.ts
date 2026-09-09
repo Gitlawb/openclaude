@@ -1,4 +1,9 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
+
+const actualOauth = { ...await import('../../constants/oauth.js') }
+let verbooMode = false
+mock.module('../../constants/oauth.js', () => ({ ...actualOauth, isVerbooMode: () => verbooMode }))
+beforeEach(() => { verbooMode = false })
 
 const originalEnv = {
   CLAUDE_CODE_USE_GEMINI: process.env.CLAUDE_CODE_USE_GEMINI,
@@ -281,4 +286,14 @@ test('isGithubNativeAnthropicMode: false for github:copilot:gpt- model', async (
   process.env.OPENAI_MODEL = 'github:copilot:gpt-4o'
   const { isGithubNativeAnthropicMode } = await importFreshProvidersModule()
   expect(isGithubNativeAnthropicMode()).toBe(false)
+})
+
+// Product mode must never be redirected by stale compatibility credentials.
+test('Verboo mode ignores external provider flags and credentials', async () => {
+  verbooMode = true
+  process.env.CLAUDE_CODE_USE_OPENAI = '1'
+  process.env.OPENAI_BASE_URL = 'https://untrusted.example/v1'
+  const { getAPIProvider, usesAnthropicAccountFlow } = await importFreshProvidersModule()
+  expect(getAPIProvider()).toBe('firstParty')
+  expect(usesAnthropicAccountFlow()).toBe(true) // legacy name for the native account flow
 })

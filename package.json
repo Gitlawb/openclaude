@@ -1,6 +1,6 @@
 {
   "name": "@verboo/code",
-  "version": "0.15.20",
+  "version": "0.15.21",
   "description": "Verboo Code — coding agent for the Verboo platform",
   "type": "module",
   "bin": {
@@ -73,7 +73,10 @@
     "doctor:report": "bun run scripts/system-check.ts --out reports/doctor-runtime.json",
     "hardening:check": "bun run smoke && bun run doctor:runtime",
     "hardening:strict": "bun run typecheck && bun run hardening:check",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test:quality": "bun scripts/check-cli-quality.ts",
+    "test:pty": "node --test --test-concurrency=1 scripts/e2e/cli.e2e.mjs",
+    "typecheck:agents": "tsc --project tsconfig.agent-contracts.json"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "0.3.0",
@@ -162,9 +165,14 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@mswjs/interceptors": "0.42.4",
     "@types/bun": "1.3.11",
     "@types/node": "25.5.0",
     "@types/react": "19.2.14",
+    "@xterm/addon-unicode11": "0.9.0",
+    "@xterm/headless": "6.0.0",
+    "node-gyp": "11.4.2",
+    "node-pty": "1.1.0",
     "tsx": "^4.21.0",
     "typescript": "5.9.3"
   },

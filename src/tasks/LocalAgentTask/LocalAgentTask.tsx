@@ -1,4 +1,5 @@
 import { getSdkAgentProgressSummariesEnabled } from '../../bootstrap/state.js';
+import { agentUsageFromMessages, combineAgentUsage, type AgentTokenUsage, type AgentUsageUpdate } from '../../utils/agentUsage.js';
 import { OUTPUT_FILE_TAG, STATUS_TAG, SUMMARY_TAG, TASK_ID_TAG, TASK_NOTIFICATION_TAG, TOOL_USE_ID_TAG, WORKTREE_BRANCH_TAG, WORKTREE_PATH_TAG, WORKTREE_TAG } from '../../constants/xml.js';
 import { abortSpeculation } from '../../services/PromptSuggestion/speculation.js';
 import type { AppState } from '../../state/AppState.js';
@@ -33,6 +34,7 @@ export type ToolActivity = {
 export type AgentProgress = {
   toolUseCount: number;
   tokenCount: number;
+  tokenUsage?: AgentTokenUsage;
   lastActivity?: ToolActivity;
   recentActivities?: ToolActivity[];
   summary?: string;
@@ -40,23 +42,28 @@ export type AgentProgress = {
 const MAX_RECENT_ACTIVITIES = 5;
 export type ProgressTracker = {
   toolUseCount: number;
-  // Track input and output separately to avoid double-counting.
-  // input_tokens in Claude API is cumulative per turn (includes all previous context),
-  // so we keep the latest value. output_tokens is per-turn, so we sum those.
-  latestInputTokens: number;
-  cumulativeOutputTokens: number;
+  usageUpdates: Map<string, AgentTokenUsage>;
+  messages: Map<string, Message>;
+  toolUseIds: Set<string>;
   recentActivities: ToolActivity[];
 };
 export function createProgressTracker(): ProgressTracker {
   return {
     toolUseCount: 0,
-    latestInputTokens: 0,
-    cumulativeOutputTokens: 0,
+    usageUpdates: new Map(),
+    messages: new Map(),
+    toolUseIds: new Set(),
     recentActivities: []
   };
 }
 export function getTokenCountFromTracker(tracker: ProgressTracker): number {
-  return tracker.latestInputTokens + tracker.cumulativeOutputTokens;
+  return getTrackerUsage(tracker).confirmed;
+}
+export function updateProgressUsage(tracker: ProgressTracker, update: AgentUsageUpdate): void {
+  tracker.usageUpdates.set(update.executionId, update.usage);
+}
+export function getTrackerUsage(tracker: ProgressTracker): AgentTokenUsage {
+  return tracker.usageUpdates.size ? combineAgentUsage(tracker.usageUpdates.values()) : agentUsageFromMessages([...tracker.messages.values()]);
 }
 
 /**
@@ -69,12 +76,11 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
   if (message.type !== 'assistant') {
     return;
   }
-  const usage = message.message.usage;
-  // Keep latest input (it's cumulative in the API), sum outputs
-  tracker.latestInputTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
-  tracker.cumulativeOutputTokens += usage.output_tokens;
+  tracker.messages.set(message.uuid, message);
   for (const content of message.message.content) {
     if (content.type === 'tool_use') {
+      if (tracker.toolUseIds.has(content.id)) continue;
+      tracker.toolUseIds.add(content.id);
       tracker.toolUseCount++;
       // Omit StructuredOutput from preview - it's an internal tool
       if (content.name !== SYNTHETIC_OUTPUT_TOOL_NAME) {
@@ -98,6 +104,7 @@ export function getProgressUpdate(tracker: ProgressTracker): AgentProgress {
   return {
     toolUseCount: tracker.toolUseCount,
     tokenCount: getTokenCountFromTracker(tracker),
+    tokenUsage: getTrackerUsage(tracker),
     lastActivity: tracker.recentActivities.length > 0 ? tracker.recentActivities[tracker.recentActivities.length - 1] : undefined,
     recentActivities: [...tracker.recentActivities]
   };
@@ -216,6 +223,7 @@ export function enqueueAgentNotification({
   finalMessage?: string;
   usage?: {
     totalTokens: number;
+    tokenUsage?: AgentTokenUsage;
     toolUses: number;
     durationMs: number;
   };
@@ -249,7 +257,7 @@ export function enqueueAgentNotification({
   const outputPath = getTaskOutputPath(taskId);
   const toolUseIdLine = toolUseId ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>` : '';
   const resultSection = finalMessage ? `\n<result>${finalMessage}</result>` : '';
-  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens><tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>` : '';
+  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens><tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms>${usage.tokenUsage ? `<token_usage>${JSON.stringify(usage.tokenUsage)}</token_usage>` : ''}</usage>` : '';
   const worktreeSection = worktreePath ? `\n<${WORKTREE_TAG}><${WORKTREE_PATH_TAG}>${worktreePath}</${WORKTREE_PATH_TAG}>${worktreeBranch ? `<${WORKTREE_BRANCH_TAG}>${worktreeBranch}</${WORKTREE_BRANCH_TAG}>` : ''}</${WORKTREE_TAG}>` : '';
   const message = `<${TASK_NOTIFICATION_TAG}>
 <${TASK_ID_TAG}>${taskId}</${TASK_ID_TAG}>${toolUseIdLine}
@@ -338,9 +346,9 @@ export function markAgentsNotified(taskId: string, setAppState: SetAppState): vo
  * Preserves the existing summary field so that background summarization
  * results are not clobbered by progress updates from assistant messages.
  */
-export function updateAgentProgress(taskId: string, progress: AgentProgress, setAppState: SetAppState): void {
+export function updateAgentProgress(taskId: string, progress: AgentProgress, setAppState: SetAppState, executionId?: string, final = false): void {
   updateTaskState<LocalAgentTaskState>(taskId, setAppState, task => {
-    if (task.status !== 'running') {
+    if ((task.status !== 'running' && !(final && executionId !== undefined && (task.status === 'killed' || task.status === 'failed'))) || (executionId !== undefined && task.executionId !== executionId)) {
       return task;
     }
     const existingSummary = task.progress?.summary;
@@ -420,8 +428,10 @@ export function completeAgentTask(result: AgentToolResult, setAppState: SetAppSt
     task.unregisterCleanup?.();
     return {
       ...task,
-      status: 'completed',
+      status: result.completionReason === 'failed' ? 'failed' : result.completionReason === 'killed' ? 'killed' : 'completed',
+      error: result.completionReason === 'failed' ? result.content.map(block => block.text).join('\n') : undefined,
       result,
+      progress: { ...task.progress, tokenCount: result.totalTokens, tokenUsage: result.tokenUsage, toolUseCount: result.totalToolUseCount },
       endTime: Date.now(),
       evictAfter: task.retain ? undefined : Date.now() + PANEL_GRACE_MS,
       abortController: undefined,

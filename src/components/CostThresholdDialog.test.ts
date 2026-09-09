@@ -4,7 +4,7 @@ import { getCostThresholdProviderLabelForProvider } from './CostThresholdProvide
 
 test('getCostThresholdProviderLabel uses the active provider category for first-party sessions', () => {
   expect(getCostThresholdProviderLabelForProvider('firstParty')).toBe(
-    'Anthropic API',
+    'Verboo API',
   )
 })
 

@@ -32,6 +32,7 @@ import { Notifications } from './Notifications.js';
 import { PromptInputFooterLeftSide } from './PromptInputFooterLeftSide.js';
 import { PromptInputFooterSuggestions, type SuggestionItem } from './PromptInputFooterSuggestions.js';
 import { PromptInputHelpMenu } from './PromptInputHelpMenu.js';
+import { ContextUsageRow } from './ContextUsageRow.js';
 
 /**
  * ContextWindowDisplay with memo to prevent re-renders on every keystroke.
@@ -42,6 +43,7 @@ function ContextWindowDisplayInner({ messages, permissionMode }: {
   permissionMode: PermissionMode;
 }): React.ReactNode {
   const mainLoopModel = useMainLoopModel();
+  const { columns } = useTerminalSize();
   const exceeds200k = useMemo(() => doesMostRecentAssistantMessageExceed200k(messages), [messages]);
   const runtimeModel = getRuntimeMainLoopModel({ permissionMode, mainLoopModel, exceeds200kTokens: exceeds200k });
   const activeModel = getActiveModelIdentity(runtimeModel);
@@ -50,26 +52,11 @@ function ContextWindowDisplayInner({ messages, permissionMode }: {
 
   const contextTokens = useMemo(() => tokenCountWithEstimation(messages), [messages]);
   const pct = useMemo(() => Math.min(100, Math.max(0, Math.round((contextTokens / windowSize) * 100))), [contextTokens, windowSize]);
-  const contextColor = pct >= 90 ? 'red' : pct >= 70 ? 'yellow' : undefined;
   const rateValue = Math.round(avgRate10s);
-  const showTokenRate = rateValue > 0;
-  const rateColor = isGenerating ? 'success' : undefined;
   const inputK = formatNumber(contextTokens);
   const windowK = formatNumber(windowSize);
 
-  return (
-    <Box flexDirection="row" gap={1} flexShrink={1}>
-      <Text color="claude">{activeModel.provider}</Text>
-      <Text dimColor wrap="truncate">{activeModel.model}</Text>
-      <Text dimColor>·</Text>
-      <Text dimColor>context</Text>
-      <Text color={contextColor} dimColor={contextColor === undefined}>{pct}%</Text>
-      <Text dimColor>·</Text>
-      <Text dimColor>{inputK} / {windowK}</Text>
-      {showTokenRate && <Text dimColor>·</Text>}
-      {showTokenRate && <Text dimColor={!isGenerating} color={rateColor}>{rateValue} tok/s</Text>}
-    </Box>
-  );
+  return <ContextUsageRow provider={activeModel.provider} model={activeModel.model} columns={columns} pct={pct} input={inputK} window={windowK} rate={rateValue} generating={isGenerating} />;
 }
 
 export const ContextWindowDisplay = React.memo(ContextWindowDisplayInner, (prevProps, nextProps) => {
