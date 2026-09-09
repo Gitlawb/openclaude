@@ -1,6 +1,30 @@
 // Test-only Node preload. The installed package, parser, auth and query loop stay real.
 import { HttpRequestInterceptor } from '@mswjs/interceptors/http'
 import { appendFileSync } from 'node:fs'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+
+// Trace executable names and timings only; never record arguments or input,
+// which may contain credentials. This also locates synchronous startup stalls.
+const processLog = process.env.CLI_E2E_PROCESS_LOG
+if (processLog) {
+  const spawnSync = childProcess.spawnSync
+  childProcess.spawnSync = (...args) => {
+    const started = Date.now()
+    appendFileSync(processLog, `${JSON.stringify({ event: 'spawnSync', file: args[0], at: started })}\n`)
+    try { return spawnSync(...args) }
+    finally { appendFileSync(processLog, `${JSON.stringify({ event: 'spawnSync:end', file: args[0], durationMs: Date.now() - started })}\n`) }
+  }
+  const spawn = childProcess.spawn
+  childProcess.spawn = (...args) => {
+    const child = spawn(...args)
+    const started = Date.now()
+    appendFileSync(processLog, `${JSON.stringify({ event: 'spawn', file: args[0], pid: child.pid, at: started })}\n`)
+    child.once('exit', code => appendFileSync(processLog, `${JSON.stringify({ event: 'spawn:exit', file: args[0], pid: child.pid, code, durationMs: Date.now() - started })}\n`))
+    return child
+  }
+  syncBuiltinESMExports()
+}
 
 const origin = process.env.CLI_E2E_ORIGIN
 if (!origin?.startsWith('http://127.0.0.1:')) throw new Error('Missing loopback fixture origin')

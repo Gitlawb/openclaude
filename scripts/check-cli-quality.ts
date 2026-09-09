@@ -19,5 +19,6 @@ if (!terminalOnly) {
 if (!process.argv.includes('--suite')) {
   run([node, 'scripts/setup-pty.mjs'])
   run([node, 'scripts/prepare-cli-package.mjs', '--install-only'])
+  run([node, '--test', '--test-name-pattern=installed CLI: 1 agents, 80x24, fullscreen=false', 'scripts/e2e/cli.e2e.mjs'])
   run([node, '--test', '--test-concurrency=1', 'scripts/e2e/cli.e2e.mjs'])
 }

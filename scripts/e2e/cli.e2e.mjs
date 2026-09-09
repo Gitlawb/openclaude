@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { startCli } from './terminal.mjs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import stripAnsi from 'strip-ansi'
+
+after(() => {
+  // Let normal native/IPC cleanup finish, but fail promptly if a PTY worker
+  // keeps the test process alive after all cases and artifacts have completed.
+  setTimeout(() => {
+    console.error('PTY suite leaked active resources:', process.getActiveResourcesInfo())
+    process.exit(1)
+  }, 10_000).unref()
+})
 
 async function metadata(cli) {
   const root = join(cli.dir, 'projects')

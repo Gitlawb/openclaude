@@ -36,6 +36,7 @@ export async function startCli({ columns = 80, rows = 24, fullscreen = false, ar
     DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1', DISABLE_TELEMETRY: '1',
     CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '1',
     CLI_E2E_ORIGIN: router.origin, CLI_E2E_NETWORK_LOG: join(dir, 'unexpected-network.log'),
+    CLI_E2E_PROCESS_LOG: join(dir, 'startup-processes.jsonl'),
   })
   const terminal = new xterm.Terminal({ cols: columns, rows, allowProposedApi: true, scrollback: 5000 })
   terminal.loadAddon(new unicode11.Unicode11Addon())
