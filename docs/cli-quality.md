@@ -22,6 +22,9 @@ skipped check after a dependency fails.
   SDK output wakes independently of the parent query yielding another message.
 - Metadata writes are atomic and serialized. An execution identifier prevents a
   late callback from overwriting a resumed agent's metadata or task state.
+- Windows metadata replacement retries temporary reader/scanner locks for up to
+  630 ms, preserving the previous complete file and write order; permanent
+  failures still propagate and remove the temporary file.
 - Display success, provider failure, user interruption and execution-budget
   limits distinctly. Closing task details must not cancel running agents.
 
