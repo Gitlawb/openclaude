@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 
+const actualAuth = { ...await import('./auth.js') }
+
 const originalEnv = { ...process.env }
 
 async function importFreshFastModeModule() {
@@ -105,6 +107,7 @@ function installCommonMocks(options?: {
   }))
 
   mock.module('./auth.js', () => ({
+    ...actualAuth,
     isAnthropicAuthEnabled: () => true,
     getAuthTokenSource: () => 'none',
     getAnthropicApiKey: () => options?.apiKey ?? null,

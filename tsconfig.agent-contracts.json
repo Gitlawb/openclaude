@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "lib": ["ES2023", "DOM"], "module": "ESNext",
+    "moduleResolution": "bundler", "strict": true, "noEmit": true,
+    "skipLibCheck": true, "types": ["bun"]
+  },
+  "files": ["src/utils/agentUsage.ts", "src/utils/agentUsageSchema.ts", "src/components/agentPresentation.ts", "scripts/run-tests-isolated.ts"]
+}

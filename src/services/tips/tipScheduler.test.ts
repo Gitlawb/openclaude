@@ -76,8 +76,8 @@ function setState(opts: {
   relevantTipsRef.value = opts.tips
 }
 
-describe('getTipToShowOnSpinner — sponsored partitioning', () => {
-  test('picks sponsored when cap met and sponsored tips eligible', async () => {
+describe('getTipToShowOnSpinner — legacy sponsorship settings', () => {
+  test('uses normal tip ordering regardless of legacy sponsorship frequency', async () => {
     setState({
       numStartups: 100,
       lastSponsored: 80, // 20 sessions ago, frequency 10 → eligible
@@ -86,7 +86,7 @@ describe('getTipToShowOnSpinner — sponsored partitioning', () => {
     })
     const { getTipToShowOnSpinner } = await freshScheduler()
     const pick = await getTipToShowOnSpinner()
-    expect(pick?.id).toBe('atomic-x')
+    expect(pick?.id).toBe('regular-1')
   })
 
   test('falls back to regular when cap not met', async () => {
@@ -113,7 +113,7 @@ describe('getTipToShowOnSpinner — sponsored partitioning', () => {
     expect(pick?.id).toBe('regular-1')
   })
 
-  test('first-ever sponsored slot is eligible (no history)', async () => {
+  test('no legacy sponsorship history grants priority', async () => {
     setState({
       numStartups: 100,
       // no lastSponsored → Infinity sessions
@@ -122,7 +122,7 @@ describe('getTipToShowOnSpinner — sponsored partitioning', () => {
     })
     const { getTipToShowOnSpinner } = await freshScheduler()
     const pick = await getTipToShowOnSpinner()
-    expect(pick?.id).toBe('atomic-x')
+    expect(pick?.id).toBe('regular-1')
   })
 
   test('returns undefined when no tips at all', async () => {
@@ -145,14 +145,12 @@ describe('getTipToShowOnSpinner — sponsored partitioning', () => {
 })
 
 describe('recordShownTip — sponsored side effects', () => {
-  test('records sponsored history when tip has sponsor', async () => {
+  test('records ordinary history without reviving removed sponsorship tracking', async () => {
     setState({ numStartups: 100, tips: [] })
     const { recordShownTip } = await freshScheduler()
     recordShownTip(makeTip('atomic-x', true))
-    expect(configRef.value.sponsoredTipsHistory).toEqual({
-      lastShownAt: 100,
-      totalShown: 1,
-    })
+    expect(configRef.value.sponsoredTipsHistory).toBeUndefined()
+    expect(configRef.value.tipsHistory).toEqual({ 'atomic-x': 100 })
   })
 
   test('does not record sponsored history for regular tips', async () => {

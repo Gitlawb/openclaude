@@ -1,5 +1,6 @@
 import { feature } from 'bun:bundle'
 import type { UUID } from 'crypto'
+import type { AgentTokenUsage } from './agentUsage.js'
 import type { Dirent } from 'fs'
 // Sync fs primitives for readFileTailSync — separate from fs/promises
 // imports above. Named (not wildcard) per CLAUDE.md style; no collisions
@@ -12,6 +13,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
   stat,
   unlink,
   writeFile,
@@ -185,6 +187,7 @@ function isLegacyProgressEntry(entry: unknown): entry is LegacyProgressEntry {
  * by loadTranscriptFile to skip legacy entries from old transcripts.
  */
 const EPHEMERAL_PROGRESS_TYPES = new Set([
+  'agent_usage',
   'bash_progress',
   'powershell_progress',
   'mcp_progress',
@@ -283,6 +286,8 @@ function getAgentMetadataPath(agentId: AgentId): string {
 
 export type AgentMetadata = {
   agentType: string
+  executionId?: string
+  tokenUsage?: AgentTokenUsage
   /** Worktree path if the agent was spawned with isolation: "worktree" */
   worktreePath?: string
   /** Original task description from the AgentTool input. Persisted so a
@@ -300,13 +305,35 @@ export type AgentMetadata = {
  * Also stores the worktreePath when the agent was spawned with worktree
  * isolation, enabling resume to restore the correct cwd.
  */
+const agentMetadataWrites = new Map<string, Promise<void>>()
+function serializeAgentMetadata(path: string, update: () => Promise<void>): Promise<void> {
+  const writing = (agentMetadataWrites.get(path) ?? Promise.resolve()).catch(() => {}).then(update)
+  agentMetadataWrites.set(path, writing)
+  void writing.finally(() => { if (agentMetadataWrites.get(path) === writing) agentMetadataWrites.delete(path) }).catch(() => {})
+  return writing
+}
+async function persistAgentMetadata(path: string, metadata: AgentMetadata): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const temporary = `${path}.${process.pid}.tmp`
+  try {
+    await writeFile(temporary, JSON.stringify(metadata))
+    await rename(temporary, path)
+  } finally { await unlink(temporary).catch(() => {}) }
+}
 export async function writeAgentMetadata(
   agentId: AgentId,
   metadata: AgentMetadata,
 ): Promise<void> {
   const path = getAgentMetadataPath(agentId)
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(metadata))
+  await serializeAgentMetadata(path, () => persistAgentMetadata(path, metadata))
+}
+
+export async function writeAgentUsageMetadata(agentId: AgentId, executionId: string, tokenUsage: AgentTokenUsage): Promise<void> {
+  const path = getAgentMetadataPath(agentId)
+  await serializeAgentMetadata(path, async () => {
+    const metadata = await readAgentMetadata(agentId)
+    if (metadata?.executionId === executionId) await persistAgentMetadata(path, { ...metadata, tokenUsage })
+  })
 }
 
 export async function readAgentMetadata(

@@ -1,5 +1,6 @@
 import type { SdkWorkflowProgress } from '../../types/tools.js'
 import { enqueueSdkEvent } from '../sdkEventQueue.js'
+import type { AgentTokenUsage } from '../agentUsage.js'
 
 /**
  * Emit a `task_progress` SDK event. Shared by background agents (per tool_use
@@ -13,6 +14,7 @@ export function emitTaskProgress(params: {
   description: string
   startTime: number
   totalTokens: number
+  tokenUsage?: AgentTokenUsage
   toolUses: number
   lastToolName?: string
   summary?: string
@@ -28,6 +30,7 @@ export function emitTaskProgress(params: {
       total_tokens: params.totalTokens,
       tool_uses: params.toolUses,
       duration_ms: Date.now() - params.startTime,
+      ...(params.tokenUsage && { token_usage: params.tokenUsage }),
     },
     last_tool_name: params.lastToolName,
     summary: params.summary,

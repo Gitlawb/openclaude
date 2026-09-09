@@ -43,6 +43,7 @@ type CancelRequestHandlerProps = {
   isQueuePaused: () => boolean
   onAgentsKilled: () => void
   isMessageSelectorVisible: boolean
+  isTaskDialogVisible?: boolean
   screen: Screen
   popCommandFromQueue?: () => void
   vimMode?: VimMode
@@ -65,6 +66,7 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     isQueuePaused,
     onAgentsKilled,
     isMessageSelectorVisible,
+    isTaskDialogVisible = false,
     screen,
     popCommandFromQueue,
     vimMode,
@@ -83,8 +85,19 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const viewSelectionMode = useAppState(s => s.viewSelectionMode)
   const selection = useSelection()
 
-  // Always registered, and reads live state at the keypress boundary. React
-  // may not have rendered a newly-started or just-cancelled turn yet.
+  // Task management owns its close gesture. Other active-work cancellation
+  // keeps priority and reads live state before slower modal/Vim/chord handlers.
+  const isOverlayActive = useIsOverlayActive()
+  const isViewingTeammate = viewSelectionMode === 'viewing-agent'
+  const isContextActive =
+    screen !== 'transcript' &&
+    !isSearchingHistory &&
+    !isMessageSelectorVisible &&
+    !isLocalJSXCommand &&
+    !isHelpOpen &&
+    !isOverlayActive &&
+    !(isVimModeEnabled() && vimMode === 'INSERT')
+
   const cancelActiveWork = useCallback(() => {
     if (!canCancelWork()) return false
     logEvent('tengu_cancel', {
@@ -97,11 +110,12 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   useKeybinding('chat:cancel', cancelActiveWork, {
     context: 'Chat',
     priority: true,
+    isActive: !isTaskDialogVisible,
   })
   useKeybinding('app:interrupt', () => {
     if (selection.hasSelection()) return false
     return cancelActiveWork()
-  }, { context: 'Global', priority: true })
+  }, { context: 'Global', priority: true, isActive: !isTaskDialogVisible })
 
   const handleCancel = useCallback(() => {
     const cancelProps = {
@@ -141,23 +155,10 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   // Other contexts (Transcript, HistorySearch, Help) have their own escape handlers
   // Overlays (ModelPicker, ThinkingToggle, etc.) register themselves via useRegisterOverlay
   // Local JSX commands (like /model, /btw) handle their own input
-  const isOverlayActive = useIsOverlayActive()
   const hasQueuedCommands = !isQueuePaused() && queuedCommandsLength > 0
   // Idle Escape can leave bash/background mode when the input is empty.
   const isInSpecialModeWithEmptyInput =
     inputMode !== undefined && inputMode !== 'prompt' && !inputValue
-  // When viewing a teammate's transcript, let useBackgroundTaskNavigation handle Escape
-  const isViewingTeammate = viewSelectionMode === 'viewing-agent'
-  // Context guards: other screens/overlays handle their own cancel
-  const isContextActive =
-    screen !== 'transcript' &&
-    !isSearchingHistory &&
-    !isMessageSelectorVisible &&
-    !isLocalJSXCommand &&
-    !isHelpOpen &&
-    !isOverlayActive &&
-    !(isVimModeEnabled() && vimMode === 'INSERT')
-
   // Escape (chat:cancel) defers to mode-exit when in special mode with empty
   // input, and to useBackgroundTaskNavigation when viewing a teammate
   const isEscapeActive =

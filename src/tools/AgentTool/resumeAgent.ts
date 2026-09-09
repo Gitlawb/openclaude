@@ -245,7 +245,7 @@ export async function resumeAgentBackground({
       runAsyncAgentLifecycle({
         taskId: agentBackgroundTask.agentId,
         abortController: agentBackgroundTask.abortController!,
-        makeStream: onCacheSafeParams =>
+        makeStream: (onCacheSafeParams, onUsageUpdate) =>
           runAgent({
             ...runAgentParams,
             override: {
@@ -254,6 +254,7 @@ export async function resumeAgentBackground({
               abortController: agentBackgroundTask.abortController!,
             },
             onCacheSafeParams,
+            onUsageUpdate,
           }),
         metadata,
         description: uiDescription,

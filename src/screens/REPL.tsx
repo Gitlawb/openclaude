@@ -2275,6 +2275,7 @@ export function REPL({
     onCancel,
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
+    isTaskDialogVisible: !!showBashesDialog,
     screen,
     popCommandFromQueue: handleQueuedCommandOnCancel,
     vimMode,
@@ -2715,6 +2716,14 @@ export function REPL({
         // history). Replacing those leaves the AgentTool UI stuck at
         // "Initializing…" because it renders the full progress trail.
         setMessages(oldMessages => {
+          if (newMessage.data.type === 'agent_usage') {
+            const index = oldMessages.findLastIndex(m => m.type === 'progress' && m.data.type === 'agent_usage' && m.parentToolUseID === newMessage.parentToolUseID && m.data.agentId === newMessage.data.agentId);
+            if (index >= 0) {
+              const copy = oldMessages.slice();
+              copy[index] = { ...newMessage, uuid: oldMessages[index].uuid };
+              return copy;
+            }
+          }
           const last = oldMessages.at(-1);
           if (last?.type === 'progress' && last.parentToolUseID === newMessage.parentToolUseID && last.data.type === newMessage.data.type) {
             const copy = oldMessages.slice();

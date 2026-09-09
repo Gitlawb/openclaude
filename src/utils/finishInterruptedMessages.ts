@@ -2,6 +2,8 @@ import type { Message } from '../types/message.js'
 import type { UUID } from 'crypto'
 import { createAssistantMessage, createUserInterruptionMessage, createUserMessage } from './messages.js'
 
+export const TOOL_EXECUTION_INTERRUPTED = 'Tool execution interrupted by the user.'
+
 /** Close tool calls before retiring a stream, so the next turn has valid history. */
 export function finishInterruptedMessages(messages: Message[], streamingText?: string | null): Message[] {
   const unresolved = new Map<string, UUID>()
@@ -18,7 +20,7 @@ export function finishInterruptedMessages(messages: Message[], streamingText?: s
   for (const [id, assistantUUID] of unresolved) {
     result.push(createUserMessage({
       content: [{ type: 'tool_result', tool_use_id: id, is_error: true,
-        content: 'Tool execution interrupted by the user.' }],
+        content: TOOL_EXECUTION_INTERRUPTED }],
       sourceToolAssistantUUID: assistantUUID,
     }))
   }

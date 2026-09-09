@@ -93,6 +93,7 @@ describe('Verboo paths', () => {
   })
 
   test('local installation detection matches .verboo path only', async () => {
+    process.env.VERBOO_CONFIG_DIR = join(homedir(), '.verboo')
     await acquireEnvMutex()
     const { isManagedLocalInstallationPath } =
       await importFreshLocalInstaller()
@@ -117,6 +118,7 @@ describe('Verboo paths', () => {
   })
 
   test('local installs are detected when they expose the verboo binary', async () => {
+    process.env.VERBOO_CONFIG_DIR = join(homedir(), '.verboo')
     await acquireEnvMutex()
     mock.module('fs/promises', () => ({
       ...fsPromises,

@@ -58,7 +58,7 @@ describe('checkDomainBlocklist', () => {
     expect(getSpy).not.toHaveBeenCalled()
   })
 
-  test('calls Anthropic domain check in first-party mode', async () => {
+  test('Verboo mode never calls the Anthropic domain service', async () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.CLAUDE_CODE_USE_GEMINI
     delete process.env.CLAUDE_CODE_USE_GITHUB
@@ -78,6 +78,6 @@ describe('checkDomainBlocklist', () => {
     const result = await checkDomainBlocklist('example.com')
 
     expect(result.status).toBe('allowed')
-    expect(getSpy).toHaveBeenCalledTimes(1)
+    expect(getSpy).not.toHaveBeenCalled()
   })
 })

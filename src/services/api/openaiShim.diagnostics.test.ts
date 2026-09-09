@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 
+const actualDebug = { ...await import('../../utils/debug.js') }
+
 const originalFetch = globalThis.fetch
 const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
@@ -35,6 +37,7 @@ afterEach(() => {
 test('logs classified transport diagnostics with category and code', async () => {
   const debugSpy = mock(() => {})
   mock.module('../../utils/debug.js', () => ({
+    ...actualDebug,
     logForDebugging: debugSpy,
   }))
 
@@ -82,6 +85,7 @@ test('logs classified transport diagnostics with category and code', async () =>
 test('redacts credentials in transport diagnostic URL logs', async () => {
   const debugSpy = mock(() => {})
   mock.module('../../utils/debug.js', () => ({
+    ...actualDebug,
     logForDebugging: debugSpy,
   }))
 
@@ -129,6 +133,7 @@ test('redacts credentials in transport diagnostic URL logs', async () => {
 test('logs self-heal localhost fallback with redacted from/to URLs', async () => {
   const debugSpy = mock(() => {})
   mock.module('../../utils/debug.js', () => ({
+    ...actualDebug,
     logForDebugging: debugSpy,
   }))
 
@@ -206,6 +211,7 @@ test('logs self-heal localhost fallback with redacted from/to URLs', async () =>
 test('logs self-heal toolless retry for local tool-call incompatibility', async () => {
   const debugSpy = mock(() => {})
   mock.module('../../utils/debug.js', () => ({
+    ...actualDebug,
     logForDebugging: debugSpy,
   }))
 

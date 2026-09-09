@@ -2,6 +2,8 @@ import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { renderToString } from '../../utils/staticRender.js'
 
+const actualAppState = { ...await import('src/state/AppState.js') }
+
 describe('PromptInputQueuedCommands', () => {
   beforeEach(() => {
     mock.module('../../hooks/useCommandQueue.js', () => ({
@@ -14,6 +16,7 @@ describe('PromptInputQueuedCommands', () => {
     }))
 
     mock.module('src/state/AppState.js', () => ({
+    ...actualAppState,
       useAppState: (
         selector: (state: { viewingAgentTaskId?: string; isBriefOnly: boolean }) => unknown,
       ) => selector({ viewingAgentTaskId: undefined, isBriefOnly: false }),

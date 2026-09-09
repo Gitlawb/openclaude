@@ -194,8 +194,20 @@ Verboo Code uses Bun's built-in test runner for unit tests.
 Run the full unit suite:
 
 ```bash
-bun test
+bun run test:isolated
 ```
+
+Run the release quality gate with the Bun version pinned in `.bun-version` and
+Node 22 or 24:
+
+```bash
+bun run test:quality
+```
+
+This builds and installs the npm package in an independent consumer directory,
+runs every isolated test file, then exercises the installed CLI in real PTYs
+against a local HTTP/SSE fixture. See [CLI quality checks](docs/cli-quality.md)
+for the test matrix, artifacts and release requirements.
 
 Generate unit test coverage:
 

@@ -1,3 +1,4 @@
+import { parseAgentUsageMetadata } from '../utils/agentUsageSchema.js'
 // biome-ignore-all assist/source/organizeImports: internal-only import markers must not be reordered
 import { feature } from 'bun:bundle'
 import { readFile, stat } from 'fs/promises'
@@ -352,7 +353,7 @@ import { unassignTeammateTasks } from '../utils/tasks.js'
 import { getRunningTasks } from '../utils/task/framework.js'
 import { isBackgroundTask } from '../tasks/types.js'
 import { stopTask } from '../tasks/stopTask.js'
-import { drainSdkEvents } from '../utils/sdkEventQueue.js'
+import { drainSdkEvents, subscribeSdkEvents } from '../utils/sdkEventQueue.js'
 import { initializeGrowthBook } from '../services/analytics/growthbook.js'
 import { errorMessage, toError } from '../utils/errors.js'
 import { sleep } from '../utils/sleep.js'
@@ -1922,6 +1923,9 @@ function runHeadlessStreaming(
     // queue re-checks at the bottom of run().
     const isMainThread = (cmd: QueuedCommand) => cmd.agentId === undefined
 
+    const unsubscribeSdkEvents = subscribeSdkEvents(() => {
+      for (const event of drainSdkEvents()) output.enqueue(event)
+    })
     try {
       let command: QueuedCommand | undefined
       let waitingForAgents = false
@@ -2051,6 +2055,7 @@ function runHeadlessStreaming(
               /<usage>([\s\S]*?)<\/usage>/,
             )
             const usageContent = usageMatch?.[1] ?? ''
+            const tokenUsage = parseAgentUsageMetadata(usageContent.match(/<token_usage>([\s\S]*?)<\/token_usage>/)?.[1])
             const totalTokensMatch = usageContent.match(
               /<total_tokens>(\d+)<\/total_tokens>/,
             )
@@ -2081,6 +2086,7 @@ function runHeadlessStreaming(
                   totalTokensMatch && toolUsesMatch
                     ? {
                         total_tokens: parseInt(totalTokensMatch[1]!, 10),
+                        ...(tokenUsage && { token_usage: tokenUsage }),
                         tool_uses: parseInt(toolUsesMatch[1]!, 10),
                         duration_ms: durationMsMatch
                           ? parseInt(durationMsMatch[1]!, 10)
@@ -2466,6 +2472,7 @@ function runHeadlessStreaming(
       gracefulShutdownSync(1)
       return
     } finally {
+      unsubscribeSdkEvents()
       runPhase = 'finally_flush'
       // Flush pending internal events before going idle
       await structuredIO.flushInternalEvents()

@@ -2290,6 +2290,11 @@ async function* queryModel(
             const lastMsg = newMessages.at(-1)
             if (lastMsg) {
               lastMsg.message.usage = usage
+              if (part.usage != null) {
+                lastMsg.message.usageReported = true
+                lastMsg.message.usageInputReported = part.usageInputReported !== false
+                lastMsg.message.usageOutputReported = part.usageOutputReported !== false
+              }
               lastMsg.message.stop_reason = stopReason
             }
 

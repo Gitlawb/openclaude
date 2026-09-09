@@ -2,6 +2,7 @@ import type { UUID } from 'crypto'
 import { randomUUID } from 'crypto'
 import { getIsNonInteractiveSession, getSessionId } from '../bootstrap/state.js'
 import type { SdkWorkflowProgress } from '../types/tools.js'
+import type { AgentTokenUsage } from './agentUsage.js'
 
 type TaskStartedEvent = {
   type: 'system'
@@ -24,6 +25,7 @@ type TaskProgressEvent = {
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: AgentTokenUsage
   }
   last_tool_name?: string
   summary?: string
@@ -50,6 +52,7 @@ type TaskNotificationSdkEvent = {
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    token_usage?: AgentTokenUsage
   }
 }
 
@@ -73,6 +76,13 @@ export type SdkEvent =
 
 const MAX_QUEUE_SIZE = 1000
 const queue: SdkEvent[] = []
+const listeners = new Set<() => void>()
+
+/** Wake the headless output while the parent is awaiting a tool's next message. */
+export function subscribeSdkEvents(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
 
 export function enqueueSdkEvent(event: SdkEvent): void {
   // SDK events are only consumed (drained) in headless/streaming mode.
@@ -80,10 +90,21 @@ export function enqueueSdkEvent(event: SdkEvent): void {
   if (!getIsNonInteractiveSession()) {
     return
   }
+  // Agent usage snapshots replace one another while the parent awaits a tool.
+  // Never coalesce workflow delta batches or terminal notifications.
+  if (event.subtype === 'task_progress' && !event.workflow_progress) {
+    const index = queue.findIndex(previous => previous.subtype === 'task_progress' && previous.task_id === event.task_id && !previous.workflow_progress)
+    if (index !== -1) {
+      queue[index] = event
+      for (const listener of listeners) listener()
+      return
+    }
+  }
   if (queue.length >= MAX_QUEUE_SIZE) {
     queue.shift()
   }
   queue.push(event)
+  for (const listener of listeners) listener()
 }
 
 export function drainSdkEvents(): Array<

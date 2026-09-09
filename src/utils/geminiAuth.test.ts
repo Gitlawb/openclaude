@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 
 import {
   getGeminiProjectIdHint,
@@ -7,6 +7,9 @@ import {
 } from './geminiAuth.ts'
 
 const existingFilePath = import.meta.path
+const actualFs = { ...await import('node:fs') }
+// Never discover credentials from the developer machine.
+mock.module('node:fs', () => ({ ...actualFs, existsSync: (path: string) => path === existingFilePath }))
 
 const originalEnv = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,

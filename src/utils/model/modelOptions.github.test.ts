@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { mock } from 'bun:test'
 
 import { resetModelStringsForTestingOnly } from '../../bootstrap/state.js'
@@ -8,9 +8,16 @@ import {
   setSessionSettingsCache,
 } from '../settings/settingsCache.js'
 
+// Exercise the retained compatibility implementation explicitly.
+const actualOauth = { ...await import('../../constants/oauth.js') }
+mock.module('../../constants/oauth.js', () => ({ ...actualOauth, isVerbooMode: () => false }))
+
+const actualProviders = { ...await import('./providers.js') }
+
 async function importFreshModelOptionsModule() {
   mock.restore()
   mock.module('./providers.js', () => ({
+    ...actualProviders,
     getAPIProvider: () => 'github',
     getAPIProviderForStatsig: () => 'github',
     isFirstPartyAnthropicBaseUrl: () => false,

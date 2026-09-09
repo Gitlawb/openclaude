@@ -1,3 +1,5 @@
+import { agentUsageDisplay } from '../../utils/agentUsage.js';
+import { agentStatusLabel } from '../agentPresentation.js';
 import { c as _c } from "react-compiler-runtime";
 import React, { useMemo } from 'react';
 import type { DeepImmutable } from 'src/types/utils.js';
@@ -98,6 +100,7 @@ export function AsyncAgentDetailDialog(t0) {
   const planContent = t5;
   const displayPrompt = agent.prompt.length > 300 ? agent.prompt.substring(0, 297) + "\u2026" : agent.prompt;
   const tokenCount = agent.result?.totalTokens ?? agent.progress?.tokenCount;
+  const tokenDisplay = agentUsageDisplay(agent.result?.tokenUsage ?? agent.progress?.tokenUsage, tokenCount, formatNumber);
   const toolUseCount = agent.result?.totalToolUseCount ?? agent.progress?.toolUseCount;
   const t6 = agent.selectedAgent?.agentType ?? "agent";
   const t7 = agent.description || "Async agent";
@@ -111,18 +114,19 @@ export function AsyncAgentDetailDialog(t0) {
     t8 = $[13];
   }
   const title = t8;
+  const displayStatus = agent.status === 'completed' ? agent.result?.completionReason ?? 'completed' : agent.status;
   let t9;
-  if ($[14] !== agent.status) {
-    t9 = agent.status !== "running" && <Text color={getTaskStatusColor(agent.status)}>{getTaskStatusIcon(agent.status)}{" "}{agent.status === "completed" ? "Completed" : agent.status === "failed" ? "Failed" : "Stopped"}{" \xB7 "}</Text>;
-    $[14] = agent.status;
+  if ($[14] !== displayStatus) {
+    t9 = agent.status !== "running" && <Text color={getTaskStatusColor(agent.status)}>{getTaskStatusIcon(agent.status)}{" "}{agentStatusLabel(displayStatus)}{" \xB7 "}</Text>;
+    $[14] = displayStatus;
     $[15] = t9;
   } else {
     t9 = $[15];
   }
   let t10;
-  if ($[16] !== tokenCount) {
-    t10 = tokenCount !== undefined && tokenCount > 0 && <> · {formatNumber(tokenCount)} tokens</>;
-    $[16] = tokenCount;
+  if ($[16] !== tokenDisplay) {
+    t10 = <> · {tokenDisplay}</>;
+    $[16] = tokenDisplay;
     $[17] = t10;
   } else {
     t10 = $[17];

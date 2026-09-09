@@ -1,3 +1,4 @@
+import { agentUsageDisplay } from '../../utils/agentUsage.js';
 import { c as _c } from "react-compiler-runtime";
 import React, { useMemo } from 'react';
 import type { DeepImmutable } from 'src/types/utils.js';
@@ -104,6 +105,7 @@ export function InProcessTeammateDetailDialog(t0) {
   }
   const activity = t5;
   const tokenCount = teammate.result?.totalTokens ?? teammate.progress?.tokenCount;
+  const tokenDisplay = agentUsageDisplay(teammate.result?.tokenUsage ?? teammate.progress?.tokenUsage, tokenCount, formatNumber);
   const toolUseCount = teammate.result?.totalToolUseCount ?? teammate.progress?.toolUseCount;
   let t6;
   if ($[12] !== teammate.prompt) {
@@ -158,9 +160,9 @@ export function InProcessTeammateDetailDialog(t0) {
     t11 = $[25];
   }
   let t12;
-  if ($[26] !== tokenCount) {
-    t12 = tokenCount !== undefined && tokenCount > 0 && <> · {formatNumber(tokenCount)} tokens</>;
-    $[26] = tokenCount;
+  if ($[26] !== tokenDisplay) {
+    t12 = <> · {tokenDisplay}</>;
+    $[26] = tokenDisplay;
     $[27] = t12;
   } else {
     t12 = $[27];

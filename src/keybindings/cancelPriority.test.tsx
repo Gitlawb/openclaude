@@ -23,7 +23,8 @@ test.each([
   ['Kitty press/release', '\x1b[27;1:1u\x1b[27;1:3u'],
   ['modifyOtherKeys Esc', '\x1b[27;1;27~'],
   ['Ctrl+C', '\x03'],
-])('%s cancels ahead of modal/Vim/chord handlers, then falls through when idle', async (_name, sequence) => {
+  ['task dialog Esc', '\x1b', true],
+])('%s respects task management focus and otherwise cancels active work before modal/Vim/chord handlers', async (_name, sequence, taskDialog = false) => {
   const stdout = new PassThrough()
   stdout.resume()
   const stdin = Object.assign(new PassThrough(), {
@@ -60,6 +61,7 @@ test.each([
       <CancelRequestHandler canCancelWork={() => active} isQueuePaused={() => !active}
         onCancel={() => { active = false; cancelled++ }} onAgentsKilled={() => {}}
         screen="transcript" isMessageSelectorVisible isLocalJSXCommand isSearchingHistory
+        isTaskDialogVisible={taskDialog}
         isHelpOpen vimMode="INSERT" inputMode="bash" inputValue="" />
     </KeybindingProvider></AppStateProvider>
   }
@@ -84,6 +86,11 @@ test.each([
     }
     stdin.write(sequence)
     await Bun.sleep(100)
+    if (taskDialog) {
+      expect(cancelled).toBe(0)
+      expect(modalKeys).toBe(1)
+      return
+    }
     expect(cancelled).toBe(1)
     expect(modalKeys).toBe(0)
     expect(domKeys).toBe(0)

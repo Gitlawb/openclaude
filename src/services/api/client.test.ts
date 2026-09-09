@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test'
 import { acquireSharedMutationLock, releaseSharedMutationLock } from '../../test/sharedMutationLock.js'
 import { getAnthropicClient } from './client.js'
+
+// Exercise the retained compatibility implementation explicitly.
+const actualOauth = { ...await import('../../constants/oauth.js') }
+mock.module('../../constants/oauth.js', () => ({ ...actualOauth, isVerbooMode: () => false }))
 
 type FetchType = typeof globalThis.fetch
 

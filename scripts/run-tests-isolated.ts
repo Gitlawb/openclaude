@@ -1,168 +1,97 @@
-/**
- * Run each tracked test file in its own Bun process.
- *
- * Bun module mocks are process-global and mock.restore() does not fully undo
- * every module replacement between files. Process isolation prevents one test
- * file from changing the imports or environment observed by later suites.
- */
+/** Each suite owns its process, configuration and session files. Every failure fails CI. */
+import { spawn } from 'node:child_process'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-type TestResult = {
-  file: string
-  exitCode: number
-  stdout: string
-  stderr: string
+export type TestResult = { file: string; exitCode: number; stdout: string; stderr: string; durationMs: number; timedOut: boolean }
+
+export function listTestFiles(cwd = process.cwd()): string[] {
+  const result = Bun.spawnSync({ cmd: ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd, stdout: 'pipe', stderr: 'pipe' })
+  if (result.exitCode !== 0) throw new Error(`Could not list tests: ${result.stderr}`)
+  return [...new Set(result.stdout.toString().split('\0').filter(file => /\.test\.(?:[cm]?[jt]s|[jt]sx)$/.test(file)))].sort()
 }
 
-function listTrackedTestFiles(): string[] {
-  const result = Bun.spawnSync({
-    cmd: [
-      'git',
-      'ls-files',
-      '--',
-      ':(glob)**/*.test.ts',
-      ':(glob)**/*.test.tsx',
-      ':(glob)**/*.test.js',
-      ':(glob)**/*.test.jsx',
-    ],
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `Could not list test files: ${result.stderr.toString().trim()}`,
-    )
-  }
-
-  return result.stdout
-    .toString()
-    .split('\n')
-    .map(file => file.trim())
-    .filter(Boolean)
-    .sort()
-}
-
-function selectTestFiles(files: string[]): string[] {
-  const filters = process.argv.slice(2)
-  if (filters.length === 0) return files
-
-  const selected = files.filter(file =>
-    filters.some(filter =>
-      filter.endsWith('/') ? file.startsWith(filter) : file === filter,
-    ),
-  )
-  if (selected.length === 0) {
-    throw new Error(`No tracked test files matched: ${filters.join(', ')}`)
-  }
+export function selectTestFiles(files: string[], filters: string[]): string[] {
+  const selected = filters.length ? files.filter(file => filters.some(filter => filter.endsWith('/') ? file.startsWith(filter) : file === filter)) : files
+  if (!selected.length) throw new Error(`No test files matched: ${filters.join(', ')}`)
   return selected
 }
 
-function getConcurrency(): number {
-  const parsed = Number.parseInt(process.env.TEST_ISOLATION_CONCURRENCY ?? '', 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const n = Number(value)
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback
 }
 
-async function loadBaseline(files: string[]): Promise<Set<string>> {
-  const baselineFile = Bun.file('.github/test-baseline.txt')
-  if (!(await baselineFile.exists())) return new Set()
-
-  const baseline = new Set(
-    (await baselineFile.text())
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#')),
-  )
-  const trackedFiles = new Set(files)
-  const unknownEntries = [...baseline].filter(file => !trackedFiles.has(file))
-  if (unknownEntries.length > 0) {
-    throw new Error(
-      `Test baseline contains unknown files:\n${unknownEntries.join('\n')}`,
-    )
+export function testEnvironment(dir: string): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const key of Object.keys(env)) {
+    if (/^(?:VERBOO|CLAUDE|ANTHROPIC|OPENAI|CODEX|GEMINI|GOOGLE|GITHUB|COPILOT|OLLAMA|MISTRAL|MINIMAX|MOONSHOT|DEEPSEEK|AWS|AZURE|BEDROCK|VERTEX)_/.test(key)) delete env[key]
   }
-  return baseline
+  return { ...env, VERBOO_CONFIG_DIR: join(dir, 'config'), VERBOO_PROJECTS_DIR: join(dir, 'projects'), TMPDIR: dir, TMP: dir, TEMP: dir }
 }
 
-async function runTestFile(file: string): Promise<TestResult> {
-  const process = Bun.spawn({
-    cmd: [
-      Bun.env.BUN_EXEC_PATH || 'bun',
-      'test',
-      '--max-concurrency=1',
-      '--only-failures',
-      file,
-    ],
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...Bun.env },
+export async function runTestFile(file: string): Promise<TestResult> {
+  const dir = await mkdtemp(join(tmpdir(), 'verboo-test-'))
+  const start = Date.now()
+  const limit = positiveInteger(process.env.TEST_FILE_TIMEOUT_MS, 180_000)
+  let timedOut = false
+  let stdout = ''
+  let stderr = ''
+  const child = spawn(process.env.BUN_EXEC_PATH || process.execPath, ['test', '--max-concurrency=1', '--only-failures', file], {
+    env: testEnvironment(dir), stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32',
   })
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ])
-
-  return { file, exitCode, stdout, stderr }
-}
-
-const allTrackedTestFiles = listTrackedTestFiles()
-const files = selectTestFiles(allTrackedTestFiles)
-const baseline = await loadBaseline(allTrackedTestFiles)
-const unexpectedFailures: TestResult[] = []
-const baselineFailures: TestResult[] = []
-const baselineImprovements: string[] = []
-let nextIndex = 0
-let completed = 0
-
-async function worker(): Promise<void> {
-  while (true) {
-    const index = nextIndex++
-    const file = files[index]
-    if (!file) return
-
-    const result = await runTestFile(file)
-    completed++
-    if (result.exitCode === 0) {
-      if (baseline.has(file)) baselineImprovements.push(file)
-      process.stdout.write(`[${completed}/${files.length}] PASS ${file}\n`)
-    } else if (baseline.has(file)) {
-      baselineFailures.push(result)
-      process.stdout.write(
-        `[${completed}/${files.length}] BASELINE ${file}\n`,
-      )
+  const stop = () => {
+    if (!child.pid) return
+    if (process.platform === 'win32') {
+      Bun.spawnSync(['taskkill', '/pid', String(child.pid), '/T', '/F'])
     } else {
-      unexpectedFailures.push(result)
-      process.stdout.write(`[${completed}/${files.length}] FAIL ${file}\n`)
+      try { process.kill(-child.pid, 'SIGKILL') } catch { /* already exited */ }
     }
   }
+  child.stdout.on('data', chunk => { stdout += chunk })
+  child.stderr.on('data', chunk => { stderr += chunk })
+  const timer = setTimeout(() => { timedOut = true; stop() }, limit)
+  try {
+    const exitCode = await new Promise<number>(resolve => {
+      child.once('error', error => { stderr += String(error); resolve(1) })
+      child.once('exit', () => stop())
+      child.once('close', code => resolve(code ?? 1))
+    })
+    return { file, exitCode: timedOut ? 124 : exitCode, stdout, stderr, durationMs: Date.now() - start, timedOut }
+  } finally {
+    clearTimeout(timer)
+    stop()
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
-await Promise.all(
-  Array.from(
-    { length: Math.min(getConcurrency(), Math.max(files.length, 1)) },
-    () => worker(),
-  ),
-)
-
-for (const failure of unexpectedFailures) {
-  process.stderr.write(`\n===== ${failure.file} =====\n`)
-  process.stderr.write(failure.stdout)
-  process.stderr.write(failure.stderr)
+function xml(value: string): string {
+  return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!)
 }
 
-if (baselineImprovements.length > 0) {
-  process.stdout.write(
-    `\nBaseline files now passing (remove after confirming in CI):\n${baselineImprovements.join('\n')}\n`,
-  )
+export async function main(): Promise<void> {
+  const files = selectTestFiles(listTestFiles(), process.argv.slice(2))
+  const results: TestResult[] = []
+  let next = 0
+  const worker = async () => {
+    for (;;) {
+      const file = files[next++]
+      if (!file) return
+      const result = await runTestFile(file)
+      results.push(result)
+      process.stdout.write(`[${results.length}/${files.length}] ${result.exitCode ? 'FAIL' : 'PASS'} ${file}\n`)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(files.length, positiveInteger(process.env.TEST_ISOLATION_CONCURRENCY, 4)) }, worker))
+  const failures = results.filter(r => r.exitCode !== 0)
+  const reportDir = process.env.TEST_REPORT_DIR || '.artifacts/test-results'
+  await mkdir(reportDir, { recursive: true })
+  await writeFile(join(reportDir, 'results.json'), JSON.stringify(results, null, 2))
+  await writeFile(join(reportDir, 'junit.xml'), `<testsuite name="isolated" tests="${results.length}" failures="${failures.length}">${results.map(r => `<testcase name="${xml(r.file)}" time="${r.durationMs / 1000}">${r.exitCode ? `<failure message="${r.timedOut ? 'Suite deadline exceeded' : 'Test failure'}">${xml(r.stdout + r.stderr)}</failure>` : ''}</testcase>`).join('')}</testsuite>`)
+  for (const failure of failures) process.stderr.write(`\n${failure.file}\n${failure.stdout}${failure.stderr}`)
+  process.stdout.write(`\n${results.length - failures.length}/${files.length} test files passed; ${failures.length} failed.\n`)
+  if (failures.length) process.exitCode = 1
 }
 
-if (unexpectedFailures.length > 0) {
-  process.stderr.write(
-    `\n${unexpectedFailures.length} unexpected test files failed; ${baselineFailures.length} known baseline files also failed.\n`,
-  )
-  process.exitCode = 1
-} else {
-  process.stdout.write(
-    `\nNo new test-file regressions. ${baselineFailures.length} known baseline files still fail.\n`,
-  )
-}
+if (import.meta.main) await main()

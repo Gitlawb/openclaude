@@ -201,7 +201,9 @@ export function getActiveAgentsFromList(
   const builtInAgents = allAgents.filter(a => a.source === 'built-in')
   const pluginAgents = allAgents.filter(a => a.source === 'plugin')
   const userAgents = allAgents.filter(a => a.source === 'userSettings')
-  const projectAgents = allAgents.filter(a => a.source === 'projectSettings')
+  // The loader orders project directories from nearest/canonical to legacy/parent.
+  // Apply low priority definitions first so the nearest .verboo definition wins.
+  const projectAgents = allAgents.filter(a => a.source === 'projectSettings').reverse()
   const managedAgents = allAgents.filter(a => a.source === 'policySettings')
   const flagAgents = allAgents.filter(a => a.source === 'flagSettings')
 
