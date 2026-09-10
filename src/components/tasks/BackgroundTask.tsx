@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Text } from 'src/ink.js';
 import type { BackgroundTaskState } from 'src/tasks/types.js';
 import type { DeepImmutable } from 'src/types/utils.js';
-import { truncate } from 'src/utils/format.js';
+import { formatNumber, truncate } from 'src/utils/format.js';
 import { toInkColor } from 'src/utils/ink.js';
 import { plural } from 'src/utils/stringUtils.js';
 import { DIAMOND_FILLED, DIAMOND_OPEN } from '../../constants/figures.js';
@@ -15,7 +15,7 @@ type Props = {
   maxActivityWidth?: number;
 };
 export function BackgroundTask(t0) {
-  const $ = _c(92);
+  const $ = _c(98);
   const {
     task,
     maxActivityWidth
@@ -135,11 +135,34 @@ export function BackgroundTask(t0) {
         } else {
           t4 = $[28];
         }
+        // Consumption for the row: the finished result when the agent is done,
+        // otherwise live progress. Slots 92..97 are appended past the range the
+        // compiler already allocated, so the branches below keep theirs.
+        const tokens = "result" in task ? task.result?.totalTokens : task.progress?.tokenCount;
+        const toolUses = "result" in task ? task.result?.totalToolUseCount : task.progress?.toolUseCount;
+        let tTokens;
+        if ($[92] !== tokens) {
+          tTokens = tokens !== undefined && tokens > 0 ? <Text dimColor={true}> · {formatNumber(tokens)} tokens</Text> : null;
+          $[92] = tokens;
+          $[93] = tTokens;
+        } else {
+          tTokens = $[93];
+        }
+        let tTools;
+        if ($[94] !== toolUses) {
+          tTools = toolUses !== undefined && toolUses > 0 ? <Text dimColor={true}> · {toolUses} {plural(toolUses, "tool")}</Text> : null;
+          $[94] = toolUses;
+          $[95] = tTools;
+        } else {
+          tTools = $[95];
+        }
         let t5;
-        if ($[29] !== t1 || $[30] !== t4) {
-          t5 = <Text>{t1}{" "}{t4}</Text>;
+        if ($[29] !== t1 || $[30] !== t4 || $[96] !== tTokens || $[97] !== tTools) {
+          t5 = <Text>{t1}{tTokens}{tTools}{" "}{t4}</Text>;
           $[29] = t1;
           $[30] = t4;
+          $[96] = tTokens;
+          $[97] = tTools;
           $[31] = t5;
         } else {
           t5 = $[31];
