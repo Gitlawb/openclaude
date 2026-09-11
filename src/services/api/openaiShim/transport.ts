@@ -65,13 +65,14 @@ export function preserveCallerAbortError(
 
 export function getApiTimeoutMs(
   processEnv: NodeJS.ProcessEnv = process.env,
+  fallbackMs: number = DEFAULT_API_TIMEOUT_MS,
 ): number {
   const raw = processEnv.API_TIMEOUT_MS?.trim()
-  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_API_TIMEOUT_MS
+  if (!raw || !/^\d+$/.test(raw)) return fallbackMs
   const parsed = Number(raw)
   return Number.isSafeInteger(parsed) && parsed > 0
     ? Math.min(parsed, MAX_API_TIMEOUT_MS)
-    : DEFAULT_API_TIMEOUT_MS
+    : fallbackMs
 }
 
 function combineRequestSignals(
