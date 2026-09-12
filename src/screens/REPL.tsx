@@ -1745,7 +1745,7 @@ export function REPL({
             autoPermissionsNotificationCount: prevCount + 1
           };
         });
-        setMessages(prev => [...prev, createSystemMessage(AUTO_MODE_DESCRIPTION, 'warning')]);
+        setMessages(prev => [...prev, createSystemMessage(AUTO_MODE_DESCRIPTION, 'auto')]);
       }, 800, safeYoloMessageShownRef, setMessages);
       return () => clearTimeout(timer);
     }

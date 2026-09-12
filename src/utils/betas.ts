@@ -168,6 +168,13 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
 export function modelSupportsAutoMode(model: string): boolean {
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     const m = getCanonicalName(model)
+    // Verboo mode: the router is Anthropic-compatible and getAPIProvider() is
+    // forced to 'firstParty', so the auto-mode classifier can run against any
+    // entitled Verboo catalog model. Upstream's external allowlist below only
+    // matches Anthropic model ids, which never exist in the Verboo catalog.
+    if (isVerbooMode()) {
+      return true
+    }
     // External: firstParty-only at launch (PI probes not wired for
     // Bedrock/Vertex/Foundry yet). Checked before allowModels so the GB
     // override can't enable auto mode on unsupported providers.
