@@ -53,6 +53,7 @@ const _openBuildDefaults = {
   'tengu_hive_evidence': true,  // VERIFICATION_AGENT — read-only test/verification agent (upstream: false)
   'tengu_passport_quail': true, // EXTRACT_MEMORIES — enable memory extraction (upstream: false)
   'tengu_coral_fern': true,     // EXTRACT_MEMORIES — enable memory search in past context (upstream: false)
+  'tengu_auto_mode_config': { enabled: 'enabled' }, // AUTO MODE — expose the permission classifier in the Shift+Tab carousel (upstream default: 'disabled' when unset)
 };
 
 /* ── Known runtime feature keys (reference only) ───────────────────────

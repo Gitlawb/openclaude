@@ -21,6 +21,11 @@ const _openBuildDefaults: Record<string, unknown> = {
 	tengu_hive_evidence: true, // VERIFICATION_AGENT — read-only test/verification agent
 	tengu_passport_quail: true, // EXTRACT_MEMORIES — enable memory extraction
 	tengu_coral_fern: true, // EXTRACT_MEMORIES — enable memory search in past context
+	// Auto mode (Shift+Tab carousel): upstream keeps this behind a server-side
+	// kill switch that defaults to 'disabled' when the config is absent, which
+	// made auto mode unreachable in this build. 'enabled' exposes it in the
+	// carousel; the opt-in dialog is still shown on first entry.
+	tengu_auto_mode_config: { enabled: 'enabled' },
 }
 
 let _flags: Record<string, unknown> | null | undefined = undefined

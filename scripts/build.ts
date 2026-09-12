@@ -8,13 +8,33 @@
  * - src/ path aliases
  */
 
-import { readFileSync, readdirSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { join, resolve } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 import { CLI_EXTERNALS, SDK_EXTERNALS } from './externals.js'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const version = pkg.version
+
+// Auto-mode classifier prompts are imported as .txt. The generic text stubs
+// below replace every .md/.txt import with an empty string; these specific
+// files must keep their real content so the classifier has a policy to follow.
+const AUTO_MODE_PROMPT_DIR = resolve(
+  import.meta.dir,
+  '..',
+  'src',
+  'utils',
+  'permissions',
+  'yolo-classifier-prompts',
+)
+
+function readAutoModePromptModule(specifier: string): string | null {
+  const base = specifier.split(/[\\/]/).pop() ?? ''
+  if (!base) return null
+  const full = join(AUTO_MODE_PROMPT_DIR, base)
+  if (!existsSync(full)) return null
+  return readFileSync(full, 'utf-8')
+}
 
 // Feature flags for the open build.
 // Most Anthropic-internal features stay off; open-build features can be
@@ -294,11 +314,21 @@ export const stopNativeRecording = noop;
           }),
         )
 
-        // Resolve .md and .txt file imports to empty string stubs
-        build.onResolve({ filter: /\.(md|txt)$/ }, (args) => ({
-          path: args.path,
-          namespace: 'text-stub',
-        }))
+        // Resolve .md and .txt file imports to empty string stubs, except the
+        // auto-mode classifier prompts, which keep their real content.
+        build.onResolve({ filter: /\.(md|txt)$/ }, (args) => {
+          if (readAutoModePromptModule(args.path) !== null) {
+            return { path: args.path, namespace: 'auto-mode-prompt' }
+          }
+          return { path: args.path, namespace: 'text-stub' }
+        })
+        build.onLoad(
+          { filter: /.*/, namespace: 'auto-mode-prompt' },
+          (args) => ({
+            contents: `export default ${JSON.stringify(readAutoModePromptModule(args.path) ?? '')};`,
+            loader: 'js',
+          }),
+        )
         build.onLoad(
           { filter: /.*/, namespace: 'text-stub' },
           () => ({
@@ -699,11 +729,21 @@ export const Fragment = null;
           loader: 'js',
         }))
 
-        // Resolve .md and .txt file imports (used by yolo-classifier etc.) to empty string stubs
-        build.onResolve({ filter: /\.(md|txt)$/, namespace: 'file' }, (args) => ({
-          path: args.path,
-          namespace: 'sdk-text-stub',
-        }))
+        // Resolve .md and .txt file imports (used by yolo-classifier etc.) to
+        // empty string stubs, except the auto-mode classifier prompts.
+        build.onResolve({ filter: /\.(md|txt)$/, namespace: 'file' }, (args) => {
+          if (readAutoModePromptModule(args.path) !== null) {
+            return { path: args.path, namespace: 'sdk-auto-mode-prompt' }
+          }
+          return { path: args.path, namespace: 'sdk-text-stub' }
+        })
+        build.onLoad(
+          { filter: /.*/, namespace: 'sdk-auto-mode-prompt' },
+          (args) => ({
+            contents: `export default ${JSON.stringify(readAutoModePromptModule(args.path) ?? '')};`,
+            loader: 'js',
+          }),
+        )
         build.onLoad(
           { filter: /.*/, namespace: 'sdk-text-stub' },
           () => ({

@@ -232,7 +232,7 @@ export function SystemTextMessage(t0) {
     return null;
   }
   const t1 = message.level !== "info";
-  const t2 = message.level === "warning" ? "warning" : undefined;
+  const t2 = message.level === "warning" ? "warning" : message.level === "auto" ? "claude" : undefined;
   const t3 = message.level === "info";
   let t4;
   if ($[45] !== addMargin || $[46] !== content || $[47] !== t1 || $[48] !== t2 || $[49] !== t3) {
