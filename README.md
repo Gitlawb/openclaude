@@ -280,3 +280,11 @@ Verboo Code originated from the Claude Code codebase and has since been substant
 ## License
 
 See [LICENSE](LICENSE).
+
+## Free-token accounting
+
+`/usage` shows the number of requests awaiting usage confirmation and the
+server-configured limit (10 by default). Live requests reserve a slot until their
+usage is settled. Free inference pauses at the limit; paid activation remains
+available with explicit confirmation, including during an ongoing conversation.
+Older backend responses are supported. Non-interactive sessions never accept a payment.

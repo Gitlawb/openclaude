@@ -312,7 +312,7 @@ export function classifyOpenAIHttpFailure(options: {
   }
 
   if (options.status === 402 && body.includes('free_tokens_')) return { source: 'http', category: 'free_tokens_required', retryable: false, status: 402, message: body, hint: 'Confirme a ativação nas opções apresentadas pela CLI ou no painel da sua conta.' }
-  if (options.status === 503 && body.includes('free_tokens_accounting_pending')) return { source: 'http', category: 'free_tokens_accounting_pending', retryable: false, status: 503, message: body, hint: 'Aguarde a confirmação do consumo antes de uma nova solicitação.' }
+  if (options.status === 503 && body.includes('free_tokens_accounting_pending')) return { source: 'http', category: 'free_tokens_accounting_pending', retryable: false, status: 503, message: body, hint: 'O limite de contabilização foi atingido. Aguarde a confirmação do consumo ou ative um plano pago.' }
 
   if (options.status === 429) {
     return {

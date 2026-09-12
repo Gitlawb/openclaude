@@ -60,7 +60,7 @@ export function buildCLIEntitlementFromSubscriptions(
   now = Date.now(),
 ): CLIEntitlement {
   const active = subscriptions.filter(subscription =>
-    hasCurrentSubscriptionAccess(subscription, now) && (!subscription.freeTokens || subscription.freeTokens.state === 'converted' || (subscription.freeTokens.state === 'active' && !subscription.freeTokens.accountingPending && subscription.freeTokens.tokensRemaining > 0)),
+    hasCurrentSubscriptionAccess(subscription, now) && (!subscription.freeTokens || subscription.freeTokens.state === 'converted' || (subscription.freeTokens.state === 'active' && !(subscription.freeTokens.accountingBlocked ?? subscription.freeTokens.accountingPending) && subscription.freeTokens.tokensRemaining > 0)),
   )
   const result: CLIEntitlement = {
     allowed: active.length > 0,
@@ -84,7 +84,7 @@ export function buildCLIEntitlementFromSubscriptions(
 
   const free = subscriptions.find(subscription => subscription.freeTokens && ['active', 'exhausted', 'activating', 'checkout_required'].includes(subscription.freeTokens.state))?.freeTokens
   if (free) {
-    result.reason = free.accountingPending ? 'free_tokens_accounting_pending' : ['activating', 'checkout_required'].includes(free.state) ? 'free_tokens_activation_pending' : 'free_tokens_exhausted'
+    result.reason = (free.accountingBlocked ?? free.accountingPending) ? 'free_tokens_accounting_pending' : ['activating', 'checkout_required'].includes(free.state) ? 'free_tokens_activation_pending' : 'free_tokens_exhausted'
     result.recheckAfterSeconds = 3
   } else if (subscriptions.some(subscription => subscription.status === 'past_due')) {
     result.reason = 'past_due'
@@ -147,7 +147,7 @@ export function getCLIEntitlementDeniedMessage(
     case 'free_tokens_activation_pending':
       return new FreeTokensRequiredError().message
     case 'free_tokens_accounting_pending':
-      return 'Estamos confirmando o consumo de tokens grátis. Novas solicitações estão pausadas; tente novamente em instantes.'
+      return 'O limite de solicitações aguardando contabilização foi atingido. Novas inferências gratuitas estão pausadas até a confirmação do consumo; a ativação paga continua disponível.'
     case 'past_due':
       return 'Sua assinatura Verboo Code está com pagamento pendente. Regularize-a para continuar usando a CLI.'
     case 'expired':
@@ -172,7 +172,7 @@ export async function assertCLIEntitlement(options?: {
       `Não foi possível validar sua assinatura Verboo Code: ${errorMessage(error)}. Novas solicitações foram bloqueadas; tente novamente em instantes.`,
     )
   }
-  if (!entitlement.allowed && (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending')) {
+  if (!entitlement.allowed && (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending' || entitlement.reason === 'free_tokens_accounting_pending')) {
     if (await requestFreeTokenActivation({ requestStartedAt })) {
       clearCLIEntitlementCache()
       entitlement = await fetchCLIEntitlement({ force: true })

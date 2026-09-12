@@ -10,7 +10,7 @@ export class FreeTokensRequiredError extends Error {
     const nextStep = interactive
       ? 'Tente novamente para ver as opções de ativação'
       : 'Abra a CLI em modo interativo para confirmar a ativação'
-    super(`A inferência está pausada porque seus tokens grátis acabaram ou a ativação ainda não foi confirmada. ${nextStep} ou acesse ${VERBOO_FRONT_BASE_URL}/free-tokens.`)
+    super(`A inferência está pausada porque seus tokens grátis acabaram, o limite de contabilização foi atingido ou a ativação ainda não foi confirmada. ${nextStep} ou acesse ${VERBOO_FRONT_BASE_URL}/free-tokens.`)
     this.name = 'FreeTokensRequiredError'
   }
 }

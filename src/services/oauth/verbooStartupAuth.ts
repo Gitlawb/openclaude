@@ -358,14 +358,13 @@ async function ensureCLIEntitlement(accessToken: string): Promise<void> {
   let entitlement = await fetchCLIEntitlement({ force: true })
   if (entitlement.allowed) return
 
-  if (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending') {
+  if (entitlement.reason === 'free_tokens_exhausted' || entitlement.reason === 'free_tokens_activation_pending' || entitlement.reason === 'free_tokens_accounting_pending') {
     if (await requestFreeTokenActivation({ startup: true, requestStartedAt })) {
       entitlement = await fetchCLIEntitlement({ force: true })
       if (entitlement.allowed) return
     }
     throw new FreeTokensRequiredError()
   }
-  if (entitlement.reason === 'free_tokens_accounting_pending') throw new Error(getCLIEntitlementDeniedMessage(entitlement.reason))
   if (entitlement.reason === 'past_due') {
     const resolved = await showPastDueNotice(accessToken)
     if (resolved) {

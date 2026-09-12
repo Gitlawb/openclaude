@@ -3617,9 +3617,9 @@ class OpenAIShimMessages {
       }
 
       captureRouterRateLimit(response.headers, requestUrl)
-      if (!didRetryFreeTokenActivation && response.status === 402 && isVerbooRouterUrl(request.baseUrl)) {
+      if (!didRetryFreeTokenActivation && (response.status === 402 || response.status === 503) && isVerbooRouterUrl(request.baseUrl)) {
         const body = await response.clone().json().catch(() => null) as { error?: { code?: string } } | null
-        if (body?.error?.code === 'free_tokens_exhausted' || body?.error?.code === 'free_tokens_activation_pending') {
+        if (body?.error?.code === 'free_tokens_exhausted' || body?.error?.code === 'free_tokens_activation_pending' || body?.error?.code === 'free_tokens_accounting_pending') {
           didRetryFreeTokenActivation = true
           if (options?.signal?.aborted) throw options.signal.reason
           if (!await requestFreeTokenActivation({ requestStartedAt })) throw new FreeTokensRequiredError()

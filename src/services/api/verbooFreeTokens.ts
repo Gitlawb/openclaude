@@ -11,6 +11,9 @@ export const freeTokenStatusSchema = z.object({
   tokenLimit: z.number().int().nonnegative(), tokensUsed: z.number().int().nonnegative(), tokensRemaining: z.number().int().nonnegative(),
   groupId: z.string().uuid().optional(), subscriptionId: z.string().uuid().optional(),
   billingInterval: z.enum(['month', 'year']).optional(), accountingPending: z.boolean(),
+  accountingBlocked: z.boolean().optional(),
+  accountingOpenRequests: z.number().int().nonnegative().optional(),
+  accountingRequestLimit: z.number().int().min(1).max(100).optional(),
   activationUrl: z.string().url(), checkoutUrl: z.string().url().optional(), attemptId: z.string().uuid().optional(),
 })
 export const freeTokenQuoteSchema = z.object({

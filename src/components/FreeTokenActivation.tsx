@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Text, render } from '../ink.js'
 import { Select } from './CustomSelect/select.js'
 import { openBrowser } from '../utils/browser.js'
+import { FreeTokenAccountingNotice } from './FreeTokenAccountingNotice.js'
 import { activateFreeTokens, fetchFreeTokenQuote, fetchFreeTokenStatus, type FreeTokenQuote, type FreeTokenStatus } from '../services/api/verbooFreeTokens.js'
 
 const defaultDependencies = { activateFreeTokens, fetchFreeTokenQuote, fetchFreeTokenStatus, openBrowser }
@@ -23,8 +24,8 @@ export function FreeTokenActivationView({ onDone, dependencies = defaultDependen
     const current = await dependencies.fetchFreeTokenStatus(signal)
     if (signal?.aborted) return
     setStatus(current)
-    if (current.state === 'converted' || (current.state === 'active' && current.tokensRemaining > 0 && !current.accountingPending)) { done.current(true); return }
-    if ((current.state === 'active' || current.state === 'exhausted') && !current.accountingPending) {
+    if (current.state === 'converted' || (current.state === 'active' && current.tokensRemaining > 0 && !(current.accountingBlocked ?? current.accountingPending))) { done.current(true); return }
+    if (current.state === 'active' || current.state === 'exhausted') {
       const next = await dependencies.fetchFreeTokenQuote(signal)
       if (!signal?.aborted) setQuote(next)
     } else setQuote(null)
@@ -54,7 +55,8 @@ export function FreeTokenActivationView({ onDone, dependencies = defaultDependen
   return <Box flexDirection="column" gap={1} borderStyle="round" paddingX={1}>
     <Text bold>Ativação do plano</Text>
     {status?.state === 'exhausted' && <Text>Seus tokens grátis acabaram e a inferência foi pausada. Para continuar a conversa, ative o plano com o cartão já cadastrado. A cobrança só acontece após o seu aceite.</Text>}
-    {status?.accountingPending && <Text>Estamos confirmando o consumo de tokens. Aguarde a confirmação antes de continuar.</Text>}
+    {status && <FreeTokenAccountingNotice status={status} />}
+    {(status?.accountingBlocked ?? status?.accountingPending) && <Text>Você pode ativar o plano pago enquanto confirmamos o consumo gratuito. A cobrança só acontece após o seu aceite.</Text>}
     {status && <Text>{status.tokensRemaining.toLocaleString('pt-BR')} tokens restantes · {status.tokensUsed.toLocaleString('pt-BR')} consumidos</Text>}
     {error && <Text color="yellow">Não foi possível confirmar a operação. Verifique novamente; uma tentativa pode estar em andamento.</Text>}
     {quote && !busy && <>

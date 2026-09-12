@@ -106,3 +106,28 @@ test('continues without a payment prompt when the block has already cleared', as
   expect(menu.dependencies.fetchFreeTokenQuote).not.toHaveBeenCalled()
   expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
 })
+
+test('accounting limit shows the count and offers explicit paid activation', async () => {
+  const menu = await activationMenu(undefined, {
+    ...exhausted, state: 'active', tokensRemaining: 100, accountingPending: true,
+    accountingBlocked: true, accountingOpenRequests: 10, accountingRequestLimit: 10,
+  })
+  await waitFor(() => menu.output().includes('Ativar plano e pagar'))
+  expect(menu.output()).toContain('10/10')
+  expect(menu.output()).toContain('Uso gratuito pausado')
+  expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
+  await menu.press('\r')
+  await waitFor(() => menu.onDone.mock.calls.length > 0)
+  expect(menu.dependencies.activateFreeTokens).toHaveBeenCalledTimes(1)
+})
+
+test('tolerated open requests continue without a payment prompt', async () => {
+  const menu = await activationMenu(undefined, {
+    ...exhausted, state: 'active', tokensRemaining: 100, accountingPending: false,
+    accountingBlocked: false, accountingOpenRequests: 9, accountingRequestLimit: 10,
+  })
+  await waitFor(() => menu.onDone.mock.calls.length > 0)
+  expect(menu.onDone).toHaveBeenCalledWith(true)
+  expect(menu.dependencies.fetchFreeTokenQuote).not.toHaveBeenCalled()
+  expect(menu.dependencies.activateFreeTokens).not.toHaveBeenCalled()
+})

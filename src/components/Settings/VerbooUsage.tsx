@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { FreeTokenAccountingNotice } from '../FreeTokenAccountingNotice.js'
 
 import { fetchFreeTokenStatus, type FreeTokenStatus } from '../../services/api/verbooFreeTokens.js'
 import { Box, Text } from '../../ink.js'
@@ -27,7 +28,7 @@ export function VerbooUsage({
       {free ? <>
         <Text bold>{status.tokensRemaining.toLocaleString('pt-BR')} tokens grátis restantes</Text>
         <Text>{status.tokensUsed.toLocaleString('pt-BR')} consumidos de {status.tokenLimit.toLocaleString('pt-BR')}. Entrada + saída, sem prazo de validade.</Text>
-        {status.accountingPending && <Text color="yellow">Consumo pendente de confirmação. Novas inferências estão pausadas.</Text>}
+        <FreeTokenAccountingNotice status={status} />
         <Text>Quando os tokens acabarem, a CLI pausará a inferência e mostrará as opções de ativação com o valor da cobrança no cartão cadastrado.</Text>
       </> : status ? <Text>Consulte seu uso no painel: https://code.verboo.ai/dashboard</Text> : null}
       {showCancelHint ? <Text dimColor>

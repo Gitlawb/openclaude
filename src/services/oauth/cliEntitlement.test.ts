@@ -70,3 +70,11 @@ test('free token access has no day expiry and blocks at exhaustion or pending us
   expect(buildCLIEntitlementFromSubscriptions([{ ...sub, freeTokens: { ...sub.freeTokens, state: 'activating' } }], now)).toMatchObject({ allowed: false, reason: 'free_tokens_activation_pending' })
   expect(buildCLIEntitlementFromSubscriptions([{ ...sub, status: 'canceled', freeTokens: { ...sub.freeTokens, state: 'exhausted', tokensRemaining: 0 } }, subscription('active')], now)).toMatchObject({ allowed: true, reason: 'active' })
 })
+
+test('uses explicit accounting block while accepting older status responses', () => {
+  const free = { eligible: true, state: 'active' as const, tokenLimit: 10_000_000, tokensUsed: 1, tokensRemaining: 9_999_999, accountingPending: false, activationUrl: 'https://code.verboo.ai/plans' }
+  const sub = { ...subscription('trialing', undefined, 'free_tokens'), freeTokens: free }
+  expect(buildCLIEntitlementFromSubscriptions([sub], now).allowed).toBe(true)
+  expect(buildCLIEntitlementFromSubscriptions([{ ...sub, freeTokens: { ...free, accountingOpenRequests: 9, accountingRequestLimit: 10, accountingBlocked: false } }], now).allowed).toBe(true)
+  expect(buildCLIEntitlementFromSubscriptions([{ ...sub, freeTokens: { ...free, accountingOpenRequests: 10, accountingRequestLimit: 10, accountingBlocked: true } }], now)).toMatchObject({ allowed: false, reason: 'free_tokens_accounting_pending' })
+})

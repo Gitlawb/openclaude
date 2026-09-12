@@ -129,7 +129,7 @@ function mapOpenAICompatibilityFailureToAssistantMessage(options: {
     case 'free_tokens_required':
       return createAssistantAPIErrorMessage({ content: new FreeTokensRequiredError().message, error: 'invalid_request' })
     case 'free_tokens_accounting_pending':
-      return createAssistantAPIErrorMessage({ content: 'Estamos confirmando o consumo dos tokens grátis. Novas solicitações estão pausadas. Tente novamente em instantes.', error: 'invalid_request' })
+      return createAssistantAPIErrorMessage({ content: 'O limite de solicitações aguardando contabilização foi atingido. O uso gratuito está pausado até a confirmação do consumo; você pode ativar um plano pago.', error: 'invalid_request' })
     case 'terms_required':
       return createAssistantAPIErrorMessage({
         content: getIsNonInteractiveSession()
