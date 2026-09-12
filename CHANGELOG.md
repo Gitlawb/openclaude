@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.31.0](https://github.com/Gitlawb/openclaude/compare/v0.30.0...v0.31.0) (2026-09-12)
+
+
+### Features
+
+* **launcher:** support --max-old-space-size-percentage ([#2219](https://github.com/Gitlawb/openclaude/issues/2219)) ([055e5d5](https://github.com/Gitlawb/openclaude/commit/055e5d551a615c732597a497c2a176c1fe2a8692))
+* **providers:** add Command Code hybrid gateway ([#2196](https://github.com/Gitlawb/openclaude/issues/2196)) ([5b9daef](https://github.com/Gitlawb/openclaude/commit/5b9daef6052128c6236e02f9ba45e382491e78f7))
+* **skills:** add verify for revocations and eyebrow drift checks ([#2215](https://github.com/Gitlawb/openclaude/issues/2215)) ([eb3c590](https://github.com/Gitlawb/openclaude/commit/eb3c5902eb742322b437d33307590bdc852d4668))
+* **skills:** enforce registry revocations.json on install ([#2187](https://github.com/Gitlawb/openclaude/issues/2187)) ([0ea8eef](https://github.com/Gitlawb/openclaude/commit/0ea8eefbd0d48735ddb9e6b8c9e7ee6957dc9b98))
+* **zai:** add GLM-5.3-Flash Coding Plan support ([#2185](https://github.com/Gitlawb/openclaude/issues/2185)) ([aceacf0](https://github.com/Gitlawb/openclaude/commit/aceacf0e590a7d84447a8c44f3aa61eba781a542))
+
+
+### Bug Fixes
+
+* **ctx:** let explicit overrides beat discovered context windows ([#2082](https://github.com/Gitlawb/openclaude/issues/2082)) ([3451187](https://github.com/Gitlawb/openclaude/commit/3451187aedda550a9dd8f0a7660edb0848de7cff)), closes [#2081](https://github.com/Gitlawb/openclaude/issues/2081)
+* identify OpenCode Go requests ([#2203](https://github.com/Gitlawb/openclaude/issues/2203)) ([3609d75](https://github.com/Gitlawb/openclaude/commit/3609d751c06531873485ae5197737ae85c99b3a7))
+* **image:** allow large/metadata-less screenshots through on resize failure ([#1964](https://github.com/Gitlawb/openclaude/issues/1964)) ([#1970](https://github.com/Gitlawb/openclaude/issues/1970)) ([2e687df](https://github.com/Gitlawb/openclaude/commit/2e687df4ec1bf86195abfc37494d18e1da9e04d4))
+* **plugins:** keep Windows marketplace cache on copy ENOENT ([#2220](https://github.com/Gitlawb/openclaude/issues/2220)) ([e2b021d](https://github.com/Gitlawb/openclaude/commit/e2b021d8bbda66b64cef7dbe1e089fea3eaa563f))
+* **profiles:** apply context limit to all profile models ([#2201](https://github.com/Gitlawb/openclaude/issues/2201)) ([0b68e57](https://github.com/Gitlawb/openclaude/commit/0b68e579b9dd44fae984b9ef2b17d03f68befdad))
+* **sdk:** preserve async generator session context ([#2204](https://github.com/Gitlawb/openclaude/issues/2204)) ([0abfca3](https://github.com/Gitlawb/openclaude/commit/0abfca30e5a2945678415f5328691584387720fb))
+
 ## [0.30.0](https://github.com/Gitlawb/openclaude/compare/v0.29.1...v0.30.0) (2026-08-31)
 
 
