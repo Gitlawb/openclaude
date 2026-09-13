@@ -24,12 +24,14 @@ import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.j
 import { fetchJsonWithWebSearchTimeout } from './timeout.js'
 
 /** Join up to 3 highlight excerpts with an ellipsis separator. */
-function describeFromHighlights(r: any): string | undefined {
-  const highlights = Array.isArray(r?.highlights) ? r.highlights : null
+function describeFromHighlights(r: unknown): string | undefined {
+  if (!r || typeof r !== 'object') return undefined
+  const rec = r as Record<string, unknown>
+  const highlights = Array.isArray(rec.highlights) ? rec.highlights : null
   if (highlights && highlights.length > 0) {
-    return highlights.slice(0, 3).join(' … ')
+    return (highlights as unknown[]).slice(0, 3).filter((s): s is string => typeof s === 'string').join(' … ')
   }
-  if (typeof r?.text === 'string' && r.text) return r.text
+  if (typeof rec.text === 'string' && rec.text) return rec.text
   return undefined
 }
 
@@ -43,7 +45,7 @@ export const exaProvider: SearchProvider = {
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
     const start = performance.now()
 
-    const body: Record<string, any> = {
+    const body: Record<string, unknown> = {
       query: input.query,
       numResults: 15,
       type: 'auto',
@@ -53,7 +55,7 @@ export const exaProvider: SearchProvider = {
     if (input.allowed_domains?.length) body.includeDomains = input.allowed_domains
     if (input.blocked_domains?.length) body.excludeDomains = input.blocked_domains
 
-    const data = await fetchJsonWithWebSearchTimeout(
+    const data = (await fetchJsonWithWebSearchTimeout(
       'https://api.exa.ai/search',
       {
         method: 'POST',
@@ -65,14 +67,24 @@ export const exaProvider: SearchProvider = {
       },
       signal,
       { providerName: 'Exa' },
-    )
+    )) as { results?: unknown }
 
-    const hits = (data.results ?? []).map((r: any) => ({
-      title: r.title ?? '',
-      url: r.url ?? '',
-      description: describeFromHighlights(r),
-      source: r.url ? safeHostname(r.url) : undefined,
-    }))
+    const results = Array.isArray(data.results) ? data.results : []
+    const hits = (results as unknown[]).map((r): {
+      title: string
+      url: string
+      description: string | undefined
+      source: string | undefined
+    } => {
+      const rec = (r ?? {}) as Record<string, unknown>
+      const url = typeof rec.url === 'string' ? rec.url : ''
+      return {
+        title: typeof rec.title === 'string' ? rec.title : '',
+        url,
+        description: describeFromHighlights(r),
+        source: url ? safeHostname(url) : undefined,
+      }
+    })
 
     return {
       // Exa handles domain filtering server-side via includeDomains/excludeDomains

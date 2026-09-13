@@ -1718,18 +1718,21 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
       env: {
         CLAUDE_CODE_USE_GITHUB: '1',
         OPENAI_MODEL: GITHUB_PROVIDER_DEFAULT_MODEL,
-        OPENAI_API_KEYS: undefined as any,
-        OPENAI_API_KEY: undefined as any,
-        OPENAI_ORG: undefined as any,
-        OPENAI_PROJECT: undefined as any,
-        OPENAI_ORGANIZATION: undefined as any,
-        OPENAI_BASE_URL: undefined as any,
-        OPENAI_API_BASE: undefined as any,
-        CLAUDE_CODE_USE_OPENAI: undefined as any,
-        CLAUDE_CODE_USE_GEMINI: undefined as any,
-        CLAUDE_CODE_USE_BEDROCK: undefined as any,
-        CLAUDE_CODE_USE_VERTEX: undefined as any,
-        CLAUDE_CODE_USE_FOUNDRY: undefined as any,
+        // `undefined` instructs the merge to clear these keys from saved
+        // settings. EnvironmentVariablesSchema coerces to string, so we route
+        // through `unknown` instead of `any` for the literal assignment.
+        OPENAI_API_KEYS: undefined as unknown as string,
+        OPENAI_API_KEY: undefined as unknown as string,
+        OPENAI_ORG: undefined as unknown as string,
+        OPENAI_PROJECT: undefined as unknown as string,
+        OPENAI_ORGANIZATION: undefined as unknown as string,
+        OPENAI_BASE_URL: undefined as unknown as string,
+        OPENAI_API_BASE: undefined as unknown as string,
+        CLAUDE_CODE_USE_OPENAI: undefined as unknown as string,
+        CLAUDE_CODE_USE_GEMINI: undefined as unknown as string,
+        CLAUDE_CODE_USE_BEDROCK: undefined as unknown as string,
+        CLAUDE_CODE_USE_VERTEX: undefined as unknown as string,
+        CLAUDE_CODE_USE_FOUNDRY: undefined as unknown as string,
       },
     })
     if (error) {
@@ -1767,10 +1770,10 @@ export function ProviderManager({ mode, onDone }: Props): React.ReactNode {
 
     const { error } = updateSettingsForSource('userSettings', {
       env: {
-        CLAUDE_CODE_USE_GITHUB: undefined as any,
-        OPENAI_MODEL: undefined as any,
-        OPENAI_BASE_URL: undefined as any,
-        OPENAI_API_BASE: undefined as any,
+        CLAUDE_CODE_USE_GITHUB: undefined as unknown as string,
+        OPENAI_MODEL: undefined as unknown as string,
+        OPENAI_BASE_URL: undefined as unknown as string,
+        OPENAI_API_BASE: undefined as unknown as string,
       },
     })
     if (error) {

@@ -1745,25 +1745,27 @@ export function normalizeMessagesForAPI(
 
                   // When tool search is enabled, preserve all fields including 'caller'
                   if (toolSearchEnabled) {
-                    const { extra_content, ...restBlock } = block as any
+                    const blockWithExtra = block as unknown as { extra_content?: unknown } & Record<string, unknown>
+                    const { extra_content, ...restBlock } = blockWithExtra
                     return {
                       ...restBlock,
                       name: canonicalName,
                       input: normalizedInput,
-                      ...(extra_content ? { extra_content } : {})
-                    }
+                      ...(extra_content ? { extra_content } : {}),
+                    } as BetaContentBlock
                   }
 
                   // When tool search is NOT enabled, explicitly construct tool_use
                   // block with only standard API fields to avoid sending fields like
                   // 'caller' that may be stored in sessions from tool search runs
-                    return {
+                  const blockExtra = (block as unknown as { extra_content?: unknown }).extra_content
+                  return {
                     type: 'tool_use' as const,
                     id: block.id,
                     name: canonicalName,
                     input: normalizedInput,
-                    ...((block as any).extra_content ? { extra_content: (block as any).extra_content } : {})
-                  }
+                    ...(blockExtra ? { extra_content: blockExtra } : {}),
+                  } as BetaContentBlock
                 }
                 return block
               }),

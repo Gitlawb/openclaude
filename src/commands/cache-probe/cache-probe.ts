@@ -96,7 +96,7 @@ export function resolveCacheProbeRequestApiKey(
 function getField(obj: unknown, path: string): unknown {
   return path
     .split('.')
-    .reduce((o: any, k: string) => (o != null ? o[k] : undefined), obj)
+    .reduce((o: unknown, k: string) => (o != null && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), obj)
 }
 
 interface ProbeResult {
@@ -123,7 +123,7 @@ async function sendProbe(
       headers,
       body: JSON.stringify(body),
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     return {
       label,
       status: 0,
@@ -131,7 +131,7 @@ async function sendProbe(
       headers: {},
       usage: null,
       responseId: null,
-      error: err.message,
+      error: err instanceof Error ? err.message : String(err),
     }
   }
   const elapsed = Date.now() - start
@@ -419,21 +419,24 @@ export const call: LocalCommandCall = async (args) => {
 
   // --- Simulate what main's shim code does with this usage ---
   // codexShim.ts makeUsage() — used for Responses API (GPT-5+/Codex)
-  function mainMakeUsage(u: any) {
+  function mainMakeUsage(u: unknown) {
+    const rec = (u ?? {}) as Record<string, unknown>
     return {
-      input_tokens: u?.input_tokens ?? 0,
-      output_tokens: u?.output_tokens ?? 0,
+      input_tokens: typeof rec.input_tokens === 'number' ? rec.input_tokens : 0,
+      output_tokens: typeof rec.output_tokens === 'number' ? rec.output_tokens : 0,
       cache_creation_input_tokens: 0,
       cache_read_input_tokens: 0,  // ← main hardcodes this to 0
     }
   }
   // openaiShim.ts convertChunkUsage() — used for Chat Completions
-  function mainConvertChunkUsage(u: any) {
+  function mainConvertChunkUsage(u: unknown) {
+    const rec = (u ?? {}) as Record<string, unknown>
+    const details = (rec.prompt_tokens_details ?? {}) as Record<string, unknown>
     return {
-      input_tokens: u?.prompt_tokens ?? 0,
-      output_tokens: u?.completion_tokens ?? 0,
+      input_tokens: typeof rec.prompt_tokens === 'number' ? rec.prompt_tokens : 0,
+      output_tokens: typeof rec.completion_tokens === 'number' ? rec.completion_tokens : 0,
       cache_creation_input_tokens: 0,
-      cache_read_input_tokens: u?.prompt_tokens_details?.cached_tokens ?? 0,
+      cache_read_input_tokens: typeof details.cached_tokens === 'number' ? details.cached_tokens : 0,
     }
   }
 
