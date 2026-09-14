@@ -5,7 +5,7 @@
  * Run as part of the build to catch missing externals early.
  */
 import { readFileSync } from 'fs'
-import { CLI_EXTERNALS, SDK_EXTERNALS, SDK_ONLY_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS, RUNTIME_INDIRECTION_ONLY_EXTERNALS, TRANSITIVE_OPTIONAL_EXTERNALS } from './externals.js'
+import { CLI_EXTERNALS, SDK_EXTERNALS, SDK_ONLY_EXTERNALS, INTENTIONALLY_BUNDLED, OPTIONAL_RUNTIME_EXTERNALS, RUNTIME_INDIRECTION_ONLY_EXTERNALS, TRANSITIVE_OPTIONAL_EXTERNALS, SHIPPED_OPTIONAL_EXTERNALS } from './externals.js'
 import {
   bundledExemptionFor,
   validateBundleExternals,
@@ -22,6 +22,7 @@ const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
 // These must each be a genuine external (the bundle inlines everything else).
 const runtimeDeps = new Set<string>([
   ...Object.keys(pkg.dependencies || {}),
+  ...Object.keys(pkg.optionalDependencies || {}),
   ...Object.keys(pkg.peerDependencies || {}),
 ])
 const peerDepNames = new Set(Object.keys(pkg.peerDependencies ?? {}))
@@ -57,6 +58,7 @@ const optionalExternalsOk = report(
     RUNTIME_INDIRECTION_ONLY_EXTERNALS,
     pkg,
     TRANSITIVE_OPTIONAL_EXTERNALS,
+    SHIPPED_OPTIONAL_EXTERNALS,
   ),
 )
 
@@ -65,7 +67,10 @@ for (const [name, externals] of [
   ['CLI bundle', CLI_EXTERNALS],
   ['SDK bundle', SDK_EXTERNALS],
 ] as const) {
-  const optionalSet = new Set(OPTIONAL_RUNTIME_EXTERNALS)
+  const optionalSet = new Set([
+    ...OPTIONAL_RUNTIME_EXTERNALS,
+    ...SHIPPED_OPTIONAL_EXTERNALS,
+  ])
   const extra = externals.filter(d => !runtimeDeps.has(d) && !optionalSet.has(d))
   if (extra.length > 0) {
     console.warn(`⚠️  ${name}: External entries not in package.json (may be ok): ${extra.join(', ')}`)

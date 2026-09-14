@@ -394,21 +394,24 @@ The **OpenClaude VS Code extension** can store the key in Secret Storage and set
 ## Optional provider packages
 
 To keep the default `npm i -g @gitlawb/openclaude` install small and
-warning-free, a few provider SDKs and the native image library are **not
-bundled**. They are loaded on demand, and the CLI prints an `npm install <pkg>`
-hint (add `-g` for the global CLI) if you enable a feature whose package is
-missing. Install only what you need:
+warning-free, a few provider SDKs are **not bundled** and are **not shipped**.
+They are loaded on demand, and the CLI prints an `npm install <pkg>` hint
+(add `-g` for the global CLI) if you enable a feature whose package is
+missing. `sharp` is shipped as an `optionalDependency` so image paste/read
+work after a default install; if the native addon fails to install, use the
+hint below. Install only what you need:
 
 | Feature | Trigger | Install |
 | --- | --- | --- |
 | AWS Bedrock | `CLAUDE_CODE_USE_BEDROCK=1` | `npm i -g @anthropic-ai/bedrock-sdk`. Profile-based auth (`~/.aws/credentials`) additionally needs `@aws-sdk/credential-providers` and `@aws-sdk/client-sts`; model listing needs `@aws-sdk/client-bedrock`. Proxy and skip-auth setups may also need `@aws-sdk/credential-provider-node`, `@smithy/node-http-handler`, or `@smithy/core`. The CLI prints the exact missing package if you hit one. |
 | Azure Foundry | `CLAUDE_CODE_USE_FOUNDRY=1` | `npm i -g @anthropic-ai/foundry-sdk @azure/identity` |
 | Claude on Vertex AI / Gemini ADC | `CLAUDE_CODE_USE_VERTEX=1` / Gemini ADC auth | `npm i -g google-auth-library` |
-| Reading/processing images | reading an image file | `npm i -g sharp` |
+| Reading/processing images | reading an image file | shipped with the default install (`optionalDependencies`). If the native addon failed to install: `npm i -g sharp` |
 | Optional error reporting | `SENTRY_DSN` is set | `npm i -g @sentry/node`. Without this package installed, setting `SENTRY_DSN` has no effect and reporting is silently disabled. |
 
-When installing OpenClaude from source (`bun install`), all of these are
-already present as dev dependencies, so source/dev builds need no extra steps.
+When installing OpenClaude from source (`bun install`), the provider SDKs are
+already present as dev dependencies and `sharp` as an optional dependency, so
+source/dev builds need no extra steps.
 
 ## Node.js heap size
 

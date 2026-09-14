@@ -8,10 +8,14 @@
 
 // Packages that should be kept external in ALL bundles (CLI + SDK).
 // NOTE: some entries here are ALSO in OPTIONAL_RUNTIME_EXTERNALS below
-// (sharp, google-auth-library, @aws-sdk/*, @azure/identity). That overlap is
-// intentional: membership here means "never inline into the bundle", while
-// membership in OPTIONAL_RUNTIME_EXTERNALS additionally means "not shipped in
-// the default install — loaded on demand". A package can be both.
+// (google-auth-library, @aws-sdk/*, @azure/identity) or in
+// SHIPPED_OPTIONAL_EXTERNALS (sharp). That overlap is intentional: membership
+// here means "never inline into the bundle". OPTIONAL_RUNTIME_EXTERNALS
+// additionally means "not shipped in the default install — loaded on demand".
+// SHIPPED_OPTIONAL_EXTERNALS means "shipped via optionalDependencies so
+// published installs get the native module, but a failed native install does
+// not fail the parent package". A package can be in COMMON_EXTERNALS and
+// exactly one of those two sets.
 export const COMMON_EXTERNALS: string[] = [
   // Native image processing
   'sharp',
@@ -88,13 +92,28 @@ export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
   // node-fetch → fetch-blob → node-domexception) is what triggered the
   // deprecation warning on install, so we no longer ship it by default.
   'google-auth-library',
-  // Native image processing — loaded via dynamic import in the image tools.
-  // Optional: only image reads need it, and it carries a native install
-  // script. Kept opt-in so default installs run no install scripts.
-  'sharp',
   // Sentry error reporting — loaded via require() in utils/sentry.ts only
   // when SENTRY_DSN is set. Optional: most users never enable this.
   '@sentry/node',
+]
+
+// Native modules that stay external (never bundled) AND are shipped to
+// published installs via package.json `optionalDependencies`.
+//
+// Why optionalDependencies rather than `dependencies`: sharp has an `install`
+// script (`node install/check.js || npm run build`) and a funding field.
+// Listing it in `dependencies` would break the zero-warning install contract
+// (RUNTIME_DEPENDENCY_CONTRACT's exact-pin set + verify-clean-install, which
+// forbids consumer-visible install-script chatter and scans the installed
+// tree for install hooks). optionalDependencies still installs for default
+// `npm install -g` so clipboard paste / image reads work, but a failed native
+// compile does not fail the parent package.
+//
+// Do NOT move these to OPTIONAL_RUNTIME_EXTERNALS (that list is the unshipped
+// on-demand set). Do NOT leave them only in devDependencies (#2224).
+export const SHIPPED_OPTIONAL_EXTERNALS: string[] = [
+  // Native image processing — loaded via dynamic import in the image tools.
+  'sharp',
 ]
 
 // OPTIONAL_RUNTIME_EXTERNALS that are loaded ONLY through the runtime importer
@@ -103,8 +122,10 @@ export const OPTIONAL_RUNTIME_EXTERNALS: string[] = [
 // externals lists: marking @anthropic-ai/bedrock-sdk external would let esbuild
 // keep (and at startup evaluate) its static `@aws-sdk/client-bedrock-runtime`
 // import, which is exactly the default-install crash this design avoids. Every
-// OTHER optional external IS referenced somewhere esbuild can see (e.g. sharp's
-// dynamic import in imageProcessor.ts) and therefore must stay external.
+// OTHER optional external IS referenced somewhere esbuild can see (e.g. the
+// remaining cloud-provider SDKs) and therefore must stay external. sharp is
+// the same shape (dynamic import in imageProcessor.ts) but lives in
+// SHIPPED_OPTIONAL_EXTERNALS because published installs must include it.
 export const RUNTIME_INDIRECTION_ONLY_EXTERNALS: string[] = [
   '@anthropic-ai/bedrock-sdk',
   '@anthropic-ai/foundry-sdk',
