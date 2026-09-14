@@ -68,7 +68,7 @@ export function LanguagePicker(t0) {
   }
   let t7;
   if ($[10] === Symbol.for("react.memo_cache_sentinel")) {
-    t7 = <Text dimColor={true}>Leave empty for default (English)</Text>;
+    t7 = <Text dimColor={true}>Leave empty to respond in the user's language</Text>;
     $[10] = t7;
   } else {
     t7 = $[10];
