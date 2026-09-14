@@ -139,10 +139,17 @@ function getAntModelOverrideSection(): string | null {
   return getAntModelOverrideConfig()?.defaultSystemPromptSuffix || null
 }
 
+// Locale-agnostic default: mirror the user's language instead of pinning a
+// fixed locale — Verboo Code is an international product.
+const MIRROR_USER_LANGUAGE_SECTION = `Always respond in the same language as the user's most recent message. Use that language for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`
+
 function getLanguageSection(
   languagePreference: string | undefined,
 ): string | null {
-  if (!languagePreference) return null
+  if (!languagePreference) {
+    return `# Language
+${MIRROR_USER_LANGUAGE_SECTION}`
+  }
 
   return `# Language
 Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`
@@ -450,7 +457,8 @@ export async function getSystemPrompt(
   if (isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)) {
     return [
       `You are Verboo Code, an open-source coding agent and CLI.\n\nCWD: ${getCwd()}\nDate: ${getSessionStartDate()}`,
-    ]
+      getLanguageSection(getInitialSettings().language),
+    ].filter(s => s !== null)
   }
 
   const cwd = getCwd()
