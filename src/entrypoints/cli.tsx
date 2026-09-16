@@ -1,5 +1,6 @@
 import { feature } from 'bun:bundle';
 import {
+  BACKGROUND_SESSION_CLEANUP_WORKER_ENV,
   BACKGROUND_SESSION_ID_ENV,
   BACKGROUND_SESSION_LAUNCHER_PID_ENV,
 } from '../cli/bgRouting.js'
@@ -265,6 +266,9 @@ type CliEntrypointImporters = {
   flagSettings: () => Promise<
     typeof import('../utils/settings/flagSettings.js')
   >
+  settingsCache: () => Promise<
+    typeof import('../utils/settings/settingsCache.js')
+  >
   agentRouting: () => Promise<
     typeof import('../services/api/agentRouting.js')
   >
@@ -289,6 +293,7 @@ const defaultCliEntrypointImporters: CliEntrypointImporters = {
   providerProfile: () => import('../utils/providerProfile.js'),
   providerValidation: () => import('../utils/providerValidation.js'),
   flagSettings: () => import('../utils/settings/flagSettings.js'),
+  settingsCache: () => import('../utils/settings/settingsCache.js'),
   agentRouting: () => import('../services/api/agentRouting.js'),
   settings: () => import('../utils/settings/settings.js'),
   cliArgs: () => import('../utils/cliArgs.js'),
@@ -319,6 +324,20 @@ export async function main(
   options: CliEntrypointOptions = {},
 ): Promise<void> {
   const importers = getCliEntrypointImporters(options.importers)
+  if (process.env[BACKGROUND_SESSION_CLEANUP_WORKER_ENV] === '1') {
+    const { enableConfigs } = await importers.config()
+    enableConfigs()
+    const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
+    const { resetSettingsCache } = await importers.settingsCache()
+    const reloadSettings = () => {
+      resetSettingsCache()
+      return eagerLoadSettingsFromArgs(args).ok
+    }
+    if (!reloadSettings()) return
+    const { runBackgroundSessionCleanupWorker } = await importers.bgFinalizer()
+    await runBackgroundSessionCleanupWorker({ reloadSettings })
+    return
+  }
   // The detached CLI is the registered background-session PID. Establish
   // exact registry ownership and install its terminal finalizer before any
   // fast path or startup validation can call process.exit(). The private env
@@ -368,7 +387,13 @@ export async function main(
         await bg.attachHandler(args.slice(1));
         break;
       case 'kill':
-        await bg.killHandler(args.slice(1));
+        {
+          const { enableConfigs } = await importers.config()
+          enableConfigs()
+          const { eagerLoadSettingsFromArgs } = await importers.flagSettings()
+          const retentionSettingsReady = eagerLoadSettingsFromArgs(args).ok
+          await bg.killHandler(args.slice(1), { retentionSettingsReady });
+        }
         break;
     }
     return;
