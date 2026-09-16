@@ -756,10 +756,16 @@ export async function createBackgroundSession(
   return session
 }
 
-export async function resolveBackgroundSession(
+async function resolveBackgroundSessionWithList(
   target: string,
+  listSessions: () => Promise<BackgroundSession[]>,
 ): Promise<BackgroundSession> {
-  const sessions = await listBackgroundSessions()
+  if (SAFE_ID_RE.test(target)) {
+    const exact = await readSessionFile(metadataPathForId(target))
+    if (exact) return await applyAuthoritativeTerminalFacts(exact)
+  }
+
+  const sessions = await listSessions()
   const exactId = sessions.filter(s => s.id === target)
   if (exactId.length === 1) return exactId[0]
 
@@ -782,6 +788,16 @@ export async function resolveBackgroundSession(
   }
 
   throw new Error(`No background session found for "${target}"`)
+}
+
+export async function resolveBackgroundSession(
+  target: string,
+): Promise<BackgroundSession> {
+  return await resolveBackgroundSessionWithList(target, listBackgroundSessions)
+}
+
+export const __test = {
+  resolveBackgroundSessionWithList,
 }
 
 export async function refreshBackgroundSessionStatuses(options?: {
