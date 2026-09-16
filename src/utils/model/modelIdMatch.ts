@@ -17,6 +17,12 @@
  * accepted: provider/date suffixes (`-`), Vertex dates (`@`), query options
  * (`?`), and the context tag (`[`). Without this, `claude-opus-50` reads as
  * `claude-opus-5`.
+ *
+ * `:` is deliberately not a delimiter. Bedrock's colon always follows the
+ * version segment (`claude-opus-5-v1:0`), which the `-` case already accepts,
+ * so admitting `:` here only folds in unrelated colon-suffixed deployments
+ * such as `claude-opus-5:custom`, which would inherit Claude 5 pricing and
+ * capabilities while canonicalization still treats them as unknown.
  */
 export function matchesModelIdAtBoundary(name: string, id: string): boolean {
   let startIndex = 0
@@ -33,8 +39,7 @@ export function matchesModelIdAtBoundary(name: string, id: string): boolean {
       next === '-' ||
       next === '@' ||
       next === '?' ||
-      next === '[' ||
-      next === ':'
+      next === '['
     if (leftValid && rightValid) {
       return true
     }

@@ -57,6 +57,10 @@ test.each([
   ['claude-opus-5x', 'claude-opus-5'],
   ['claude-sonnet-50', 'claude-sonnet-5'],
   ['claude-sonnet-5x', 'claude-sonnet-5'],
+  // A colon does not end an id. Bedrock spells its colon after the version
+  // segment (`claude-opus-5-v1:0`), so these are unrelated deployments.
+  ['claude-opus-5:custom', 'claude-opus-5'],
+  ['claude-sonnet-5:custom', 'claude-sonnet-5'],
 ])('does not canonicalize near-match %s as %s', (model, canonical) => {
   expect(firstPartyNameToCanonical(model)).not.toBe(canonical)
 })
@@ -157,6 +161,7 @@ test.each([
   'claude-sonnet-5',
   'claude-sonnet-5-20260501',
   'anthropic/claude-sonnet-5',
+  'us.anthropic.claude-sonnet-5-20260501-v1:0',
 ])('recognizes %s as Sonnet 5', model => {
   expect(isSonnet5ModelId(model)).toBe(true)
   expect(isClaude5ModelId(model)).toBe(true)
@@ -182,6 +187,12 @@ test.each([
   'arbitrary-proxy-sonnet-5',
   'opus-5',
   'sonnet-5',
+  // Only Bedrock's `-vN:0` colon is a real id; a colon straight after the
+  // identity marks a separate deployment or serving variant.
+  'claude-opus-5:custom',
+  'claude-sonnet-5:custom',
+  'claude-opus-5:0',
+  'anthropic/claude-sonnet-5:beta',
 ])('rejects the near match %s', model => {
   expect(isClaude5ModelId(model)).toBe(false)
 })
@@ -196,6 +207,8 @@ test.each([
   'claude-sonnet-5x',
   'arbitrary-proxy-opus-5',
   'arbitrary-proxy-sonnet-5',
+  'claude-opus-5:custom',
+  'claude-sonnet-5:custom',
 ])('grants no Claude 5 capability to the near match %s', model => {
   expect(modelSupportsAdaptiveThinking(model)).toBe(false)
   expect(modelHasUnconditional1MContext(model)).toBe(false)
