@@ -14,6 +14,8 @@ import {
   getAssistantMessageFromError,
   OPENCODE_GO_FREE_LIMIT_ERROR_MESSAGE,
 } from './errors.ts'
+import { accumulateUsage, updateUsage } from './claude.js'
+import { EMPTY_USAGE } from './emptyUsage.js'
 import {
   extractOpenAICategoryMarker,
   isOpenAIRequestNonReplayable,
@@ -25,6 +27,8 @@ import {
   parseXmlToolCalls,
 } from './openaiShim.ts'
 import * as realGithubModelsCredentials from '../../utils/githubModelsCredentials.js'
+import { tokenCountWithEstimation } from '../../utils/tokens.js'
+import type { AssistantMessage } from '../../types/message.js'
 
 type FetchType = typeof globalThis.fetch
 
@@ -1208,9 +1212,10 @@ test('uses correct empty input fallback schema for standard responses and respon
 
 // openaiShim test extraction seam 021 start: preserves usage from final OpenAI stream chunk with empty choices
 test('preserves usage from final OpenAI stream chunk with empty choices', async () => {
+  process.env.OPENAI_BASE_URL = 'http://127.0.0.1:8000/v1'
   globalThis.fetch = (async (_input, init) => {
     const url = typeof _input === 'string' ? _input : _input.url
-    expect(url).toBe('http://example.test/v1/chat/completions')
+    expect(url).toBe('http://127.0.0.1:8000/v1/chat/completions')
 
     const body = JSON.parse(String(init?.body))
     expect(body.stream).toBe(true)
@@ -1250,6 +1255,7 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
           prompt_tokens: 123,
           completion_tokens: 45,
           total_tokens: 168,
+          prompt_tokens_details: { cached_tokens: 23 },
         },
       },
     ])
@@ -1274,13 +1280,63 @@ test('preserves usage from final OpenAI stream chunk with empty choices', async 
     events.push(event)
   }
 
-  const usageEvent = events.find(
+  const usageEvents = events.filter(
     event => event.type === 'message_delta' && typeof event.usage === 'object' && event.usage !== null,
-  ) as { usage?: { input_tokens?: number; output_tokens?: number } } | undefined
+  ) as Array<{
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_read_input_tokens?: number
+    }
+  }>
 
-  expect(usageEvent).toBeDefined()
-  expect(usageEvent?.usage?.input_tokens).toBe(123)
-  expect(usageEvent?.usage?.output_tokens).toBe(45)
+  expect(usageEvents).toHaveLength(1)
+  expect(usageEvents[0]?.usage?.input_tokens).toBe(100)
+  expect(usageEvents[0]?.usage?.output_tokens).toBe(45)
+  expect(usageEvents[0]?.usage?.cache_read_input_tokens).toBe(23)
+
+  let currentUsage = EMPTY_USAGE
+  let totalUsage = EMPTY_USAGE
+  for (const event of events) {
+    if (event.type === 'message_start') {
+      const message = event.message as {
+        usage?: Parameters<typeof updateUsage>[1]
+      }
+      currentUsage = updateUsage(EMPTY_USAGE, message.usage)
+    } else if (event.type === 'message_delta') {
+      currentUsage = updateUsage(
+        currentUsage,
+        event.usage as Parameters<typeof updateUsage>[1],
+      )
+    } else if (event.type === 'message_stop') {
+      totalUsage = accumulateUsage(totalUsage, currentUsage)
+    }
+  }
+
+  expect(events.filter(event => event.type === 'message_stop')).toHaveLength(1)
+  expect(totalUsage).toMatchObject({
+    input_tokens: 100,
+    output_tokens: 45,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 23,
+  })
+
+  const accountedMessage = {
+    type: 'assistant',
+    uuid: '00000000-0000-0000-0000-000000000213',
+    timestamp: '2026-08-19T00:00:00.000Z',
+    message: {
+      id: 'msg_local_usage',
+      type: 'message',
+      role: 'assistant',
+      model: 'fake-model',
+      content: [{ type: 'text', text: 'hello world' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: currentUsage,
+    },
+  } as unknown as AssistantMessage
+  expect(tokenCountWithEstimation([accountedMessage])).toBe(168)
 })
 // openaiShim test extraction seam 021 end
 
