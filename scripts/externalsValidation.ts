@@ -9,6 +9,7 @@ export type ValidationResult = { ok: boolean; errors: string[] }
 
 export type PkgDeps = {
   dependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
   devDependencies?: Record<string, string>
@@ -245,14 +246,21 @@ export function validateOptionalPeers(pkg: PkgDeps): ValidationResult {
 /**
  * OPTIONAL_RUNTIME_EXTERNALS are never shipped and never inlined. Anything
  * esbuild can see statically must therefore stay external in BOTH bundles;
- * dropping one from the externals lists would let esbuild bundle it (a native
- * module like sharp) or hoist its transitive imports. The indirection-only
- * subset (loaded purely via the runtime importer) is the inverse: it must stay
- * OUT of the externals lists, or esbuild would re-introduce its static imports.
+ * dropping one from the externals lists would let esbuild bundle it or hoist
+ * its transitive imports. The indirection-only subset (loaded purely via the
+ * runtime importer) is the inverse: it must stay OUT of the externals lists,
+ * or esbuild would re-introduce its static imports.
  *
- * Also guards both halves of the install contract: optional packages must never
- * be shipped (in dependencies/peerDependencies), and the non-transitive ones
- * must be devDependencies so source/dev builds still resolve them.
+ * Also guards both halves of the install contract: unshipped optional packages
+ * must never appear in dependencies / peerDependencies / optionalDependencies,
+ * and the non-transitive ones must be devDependencies so source/dev builds
+ * still resolve them.
+ *
+ * SHIPPED_OPTIONAL_EXTERNALS (e.g. sharp) is the inverse install-surface
+ * contract: those packages MUST be in optionalDependencies or dependencies so
+ * published installs include them (#2224), and they MUST stay external so
+ * esbuild never inlines a native module. They must not also appear in
+ * OPTIONAL_RUNTIME_EXTERNALS (that list is the unshipped on-demand set).
  */
 export function validateOptionalRuntimeExternals(
   optionalRuntimeExternals: string[],
@@ -261,12 +269,14 @@ export function validateOptionalRuntimeExternals(
   indirectionOnly: string[],
   pkg: PkgDeps = {},
   transitiveExternals: string[] = [],
+  shippedOptionalExternals: string[] = [],
 ): ValidationResult {
   const cli = new Set(cliExternals)
   const sdk = new Set(sdkExternals)
   const indirection = new Set(indirectionOnly)
   const transitive = new Set(transitiveExternals)
   const directDeps = pkg.dependencies ?? {}
+  const optionalDeps = pkg.optionalDependencies ?? {}
   const peerDeps = pkg.peerDependencies ?? {}
   const devDeps = pkg.devDependencies ?? {}
   const errors: string[] = []
@@ -282,16 +292,49 @@ export function validateOptionalRuntimeExternals(
     )
   }
 
-  // Optional runtime externals are loaded on demand and must NEVER be shipped by
-  // default — listing one in dependencies or peerDependencies installs it for
-  // every user and breaks the minimal/warning-free install contract.
+  const overlap = shippedOptionalExternals.filter(p =>
+    optionalRuntimeExternals.includes(p),
+  )
+  if (overlap.length > 0) {
+    errors.push(
+      `SHIPPED_OPTIONAL_EXTERNALS entries must not also be in OPTIONAL_RUNTIME_EXTERNALS (those are unshipped): ${overlap.join(', ')}`,
+    )
+  }
+
+  // Unshipped optional runtime externals are loaded on demand and must NEVER
+  // be shipped by default — listing one in dependencies, peerDependencies, or
+  // optionalDependencies installs it for every user and breaks the
+  // minimal/warning-free install contract.
   const shipped = optionalRuntimeExternals.filter(
-    dep => dep in directDeps || dep in peerDeps,
+    dep => dep in directDeps || dep in peerDeps || dep in optionalDeps,
   )
   if (shipped.length > 0) {
     errors.push(
-      `OPTIONAL_RUNTIME_EXTERNALS must not be shipped (found in dependencies/peerDependencies): ${shipped.join(', ')}`,
+      `OPTIONAL_RUNTIME_EXTERNALS must not be shipped (found in dependencies/peerDependencies/optionalDependencies): ${shipped.join(', ')}`,
     )
+  }
+
+  // Published-install contract for native modules like sharp: they must be in
+  // optionalDependencies (preferred) or dependencies. only-in-devDependencies
+  // is the #2224 regression — the published tarball would omit them.
+  const missingShipped = shippedOptionalExternals.filter(
+    dep => !(dep in optionalDeps) && !(dep in directDeps),
+  )
+  if (missingShipped.length > 0) {
+    errors.push(
+      `SHIPPED_OPTIONAL_EXTERNALS must be in optionalDependencies or dependencies (published installs need them; only-in-devDependencies was the #2224 regression): ${missingShipped.join(', ')}`,
+    )
+  }
+
+  for (const dep of shippedOptionalExternals) {
+    const missingIn: string[] = []
+    if (!cli.has(dep)) missingIn.push('CLI_EXTERNALS')
+    if (!sdk.has(dep)) missingIn.push('SDK_EXTERNALS')
+    if (missingIn.length > 0) {
+      errors.push(
+        `${dep} is a SHIPPED_OPTIONAL_EXTERNAL but missing from ${missingIn.join(' and ')} (it must never be bundled).`,
+      )
+    }
   }
 
   // Source-install contract: optional packages that source code references

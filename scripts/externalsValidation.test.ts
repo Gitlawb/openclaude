@@ -214,6 +214,79 @@ describe('validateOptionalRuntimeExternals', () => {
     expect(r.errors.join(' ')).toMatch(/must not be shipped.*google-auth-library/)
   })
 
+  test('FAILS when an unshipped optional external is in optionalDependencies', () => {
+    const pkg: PkgDeps = {
+      optionalDependencies: { 'google-auth-library': '*' },
+      devDependencies: healthyDev.devDependencies,
+    }
+    const r = validateOptionalRuntimeExternals(OPTIONAL, cli, sdk, INDIRECTION_ONLY, pkg)
+    expect(r.ok).toBe(false)
+    expect(r.errors.join(' ')).toMatch(/must not be shipped.*google-auth-library/)
+  })
+
+  test('FAILS when a shipped-optional external is only in devDependencies', () => {
+    // #2224 regression: sharp present only as a devDependency is not published.
+    const unshipped = OPTIONAL.filter(d => d !== 'sharp')
+    const pkg: PkgDeps = {
+      devDependencies: {
+        sharp: '*',
+        'google-auth-library': '*',
+        '@anthropic-ai/bedrock-sdk': '*',
+      },
+    }
+    const r = validateOptionalRuntimeExternals(
+      unshipped,
+      cli,
+      sdk,
+      INDIRECTION_ONLY,
+      pkg,
+      [],
+      ['sharp'],
+    )
+    expect(r.ok).toBe(false)
+    expect(r.errors.join(' ')).toMatch(/sharp/)
+  })
+
+  test('passes when a shipped-optional external is in optionalDependencies and kept external', () => {
+    const unshipped = OPTIONAL.filter(d => d !== 'sharp')
+    const pkg: PkgDeps = {
+      optionalDependencies: { sharp: '^0.34.5' },
+      devDependencies: {
+        'google-auth-library': '*',
+        '@anthropic-ai/bedrock-sdk': '*',
+      },
+    }
+    const r = validateOptionalRuntimeExternals(
+      unshipped,
+      cli,
+      sdk,
+      INDIRECTION_ONLY,
+      pkg,
+      [],
+      ['sharp'],
+    )
+    expect(r.ok).toBe(true)
+  })
+
+  test('FAILS when a shipped-optional external is dropped from the externals lists', () => {
+    const unshipped = OPTIONAL.filter(d => d !== 'sharp')
+    const pkg: PkgDeps = {
+      optionalDependencies: { sharp: '^0.34.5' },
+      devDependencies: healthyDev.devDependencies,
+    }
+    const r = validateOptionalRuntimeExternals(
+      unshipped,
+      ['google-auth-library'],
+      ['google-auth-library'],
+      INDIRECTION_ONLY,
+      pkg,
+      [],
+      ['sharp'],
+    )
+    expect(r.ok).toBe(false)
+    expect(r.errors.join(' ')).toMatch(/sharp/)
+  })
+
   test('FAILS when a non-transitive optional external drops out of devDependencies', () => {
     // sharp is directly imported, so it must be a devDependency for source builds.
     const pkg: PkgDeps = {
@@ -300,6 +373,30 @@ describe('validateRuntimeDependencyContract', () => {
   test('the real package.json satisfies the real contract', async () => {
     const pkg = (await import('../package.json')) as PkgDeps
     expect(validateRuntimeDependencyContract(pkg).ok).toBe(true)
+  })
+
+  test('the real package.json ships sharp for published installs (#2224)', async () => {
+    const pkg = (await import('../package.json')) as PkgDeps
+    expect(
+      pkg.dependencies?.sharp !== undefined ||
+        pkg.optionalDependencies?.sharp !== undefined,
+    ).toBe(true)
+  })
+
+  test('the real package.json satisfies optional-runtime and shipped-optional contracts', async () => {
+    const pkg = (await import('../package.json')) as PkgDeps
+    const externals = await import('./externals.js')
+    const r = validateOptionalRuntimeExternals(
+      externals.OPTIONAL_RUNTIME_EXTERNALS,
+      externals.CLI_EXTERNALS,
+      externals.SDK_EXTERNALS,
+      externals.RUNTIME_INDIRECTION_ONLY_EXTERNALS,
+      pkg,
+      externals.TRANSITIVE_OPTIONAL_EXTERNALS,
+      externals.SHIPPED_OPTIONAL_EXTERNALS ?? [],
+    )
+    expect(r.ok).toBe(true)
+    expect(r.errors).toEqual([])
   })
 })
 

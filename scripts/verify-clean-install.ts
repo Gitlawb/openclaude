@@ -64,7 +64,31 @@ const ALLOWED_OUTPUT = [
   // "up to date in 1s" — summary phrasing varies across npm 10/11.
   /^(?:added|removed|changed|up to date)[\w ,]* in [\d.]+m?s$/i,
   /^npm notice\b/i, // defense in depth; --loglevel=warn hides notices
+  // sharp is an optionalDependency (#2224). --foreground-scripts prints its
+  // lifecycle banner even when install/check.js is silent on success.
+  /^> sharp@\S+ install\b/,
+  /^> node install\/check\.js(?: \|\| npm run build)?$/,
+  /^sharp: /i,
 ]
+
+/**
+ * Native optionalDependencies whose install hooks are expected. A successful
+ * install of sharp declares `install`; a failed native compile must not fail
+ * the parent package. Offenders are `name@version (hooks)`.
+ */
+export const ALLOWED_INSTALL_SCRIPT_PACKAGES: readonly RegExp[] = [
+  /^sharp@/,
+  /^@img\/sharp(?:-libvips)?-/,
+]
+
+export function isAllowedInstallScriptOffender(entry: string): boolean {
+  const nameAtVersion = entry.replace(/ \([^)]*\)\s*$/, '')
+  return ALLOWED_INSTALL_SCRIPT_PACKAGES.some(re => re.test(nameAtVersion))
+}
+
+export function isAllowedInstallOutputLine(line: string): boolean {
+  return ALLOWED_OUTPUT.some(re => re.test(line))
+}
 
 const INFRA_FAILURE_PATTERNS = [
   /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ECONNREFUSED|EPROTO/,
@@ -167,7 +191,7 @@ function checkOutputWhitelist(scenario: string, output: string): void {
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length > 0)
-    .filter(line => !ALLOWED_OUTPUT.some(re => re.test(line)))
+    .filter(line => !isAllowedInstallOutputLine(line))
   if (offending.length === 0) {
     pass(scenario, 'install output is clean (summary line only)')
   } else {
@@ -213,8 +237,14 @@ function checkNoInstallScripts(scenario: string, prefix: string): void {
     )
     if (hooks.length > 0) offenders.push(`${pkg.name}@${pkg.version} (${hooks.join(', ')})`)
   }
-  if (offenders.length > 0) {
-    fail(scenario, `installed packages declare install scripts: ${offenders.join('; ')}`)
+  const disallowed = offenders.filter(entry => !isAllowedInstallScriptOffender(entry))
+  if (disallowed.length > 0) {
+    fail(scenario, `installed packages declare install scripts: ${disallowed.join('; ')}`)
+  } else if (offenders.length > 0) {
+    pass(
+      scenario,
+      `install scripts only on allowlisted native optionals (${offenders.length}) across ${manifests.length} installed packages`,
+    )
   } else {
     pass(scenario, `no install scripts across ${manifests.length} installed packages`)
   }

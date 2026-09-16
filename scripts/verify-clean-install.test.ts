@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { resolvePreviousPublishedVersion } from './verify-clean-install.js'
+import {
+  isAllowedInstallOutputLine,
+  isAllowedInstallScriptOffender,
+  resolvePreviousPublishedVersion,
+} from './verify-clean-install.js'
 
 // The retry/skip/infra branches decide whether the upgrade-install scenario
 // runs, is skipped, or aborts as an infra failure — regression-covered here
@@ -72,5 +76,31 @@ describe('resolvePreviousPublishedVersion', () => {
   test('unparseable success output returns null rather than a bogus version', () => {
     const { value } = run([ok('not-a-version')])
     expect(value).toBeNull()
+  })
+})
+
+describe('native optional install-script allowlist (#2224)', () => {
+  test('allows sharp and its platform binaries, rejects unrelated hooks', () => {
+    expect(isAllowedInstallScriptOffender('sharp@0.34.5 (install)')).toBe(true)
+    expect(isAllowedInstallScriptOffender('@img/sharp-linux-x64@0.34.5 (install)')).toBe(
+      true,
+    )
+    expect(
+      isAllowedInstallScriptOffender('@img/sharp-libvips-linux-x64@1.2.4 (install)'),
+    ).toBe(true)
+    expect(isAllowedInstallScriptOffender('left-pad@1.0.0 (postinstall)')).toBe(false)
+    expect(isAllowedInstallScriptOffender('@sentry/node@10.70.0 (install)')).toBe(false)
+  })
+
+  test('allows sharp lifecycle banners and rejects other npm warn lines', () => {
+    expect(isAllowedInstallOutputLine('> sharp@0.34.5 install')).toBe(true)
+    expect(isAllowedInstallOutputLine('> node install/check.js || npm run build')).toBe(
+      true,
+    )
+    expect(isAllowedInstallOutputLine('sharp: skipping install check: missing')).toBe(
+      true,
+    )
+    expect(isAllowedInstallOutputLine('added 8 packages in 19s')).toBe(true)
+    expect(isAllowedInstallOutputLine('npm warn deprecated left-pad@1.0.0')).toBe(false)
   })
 })
