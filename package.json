@@ -1,6 +1,6 @@
 {
   "name": "@verboo/code",
-  "version": "0.15.25",
+  "version": "0.15.26",
   "description": "Verboo Code — coding agent for the Verboo platform",
   "type": "module",
   "bin": {
