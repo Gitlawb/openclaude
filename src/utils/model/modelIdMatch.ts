@@ -22,7 +22,7 @@
  * version segment (`claude-opus-5-v1:0`), which the `-` case already accepts,
  * so admitting `:` here only folds in unrelated colon-suffixed deployments
  * such as `claude-opus-5:custom`, which would inherit Claude 5 pricing and
- * capabilities while canonicalization still treats them as unknown.
+ * capabilities.
  */
 export function matchesModelIdAtBoundary(name: string, id: string): boolean {
   let startIndex = 0
