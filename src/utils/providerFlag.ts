@@ -31,6 +31,7 @@ import {
 import { PRESET_VENDOR_MAP } from '../integrations/compatibility.js'
 import { getCommandcodeChatCompletionsModelError } from '../integrations/gateways/commandcode.js'
 import {
+  isCanonicalApiRouteInferenceBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
@@ -402,6 +403,9 @@ export function applyProviderFlag(
                           process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
                         ? 'apismart'
                         : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.API_ROUTE_API_KEY
+                        ? 'api-route'
+                        : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.CONCENTRATE_API_KEY
                         ? 'concentrate'
                         : process.env.OPENAI_API_KEY !== undefined &&
@@ -470,6 +474,8 @@ export function applyProviderFlag(
       // OpenAI-compatible env-only route override it later in startup.
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
+      delete process.env.API_ROUTE_API_KEY
+      delete process.env.API_ROUTE_MODEL
       delete process.env.ANTHROPIC_AUTH_TOKEN
       delete process.env.ANTHROPIC_CUSTOM_HEADERS
       break
@@ -517,6 +523,8 @@ export function applyProviderFlag(
       // known gateway endpoint, but preserve a user-supplied custom endpoint.
       delete process.env.APISMART_API_KEY
       delete process.env.APISMART_MODEL
+      delete process.env.API_ROUTE_API_KEY
+      delete process.env.API_ROUTE_MODEL
       applyOpenAIBaseUrlDefault(provider, defaultBaseUrl)
       if (effectiveModel) process.env.OPENAI_MODEL = effectiveModel
       break
@@ -888,7 +896,9 @@ export function applyProviderFlag(
         (provider === 'llmtr' &&
           isCanonicalLlmtrInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) ||
         (provider === 'commandcode' &&
-          isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl()))
+          isCanonicalCommandcodeInferenceBaseUrl(getConfiguredOpenAIBaseUrl())) ||
+        (provider === 'api-route' &&
+          isCanonicalApiRouteInferenceBaseUrl(getConfiguredOpenAIBaseUrl()))
       ) {
         clearUnsupportedOpenAIShimSettings(provider)
         delete process.env.ANTHROPIC_CUSTOM_HEADERS
@@ -918,6 +928,24 @@ export function applyProviderFlag(
           delete process.env.OPENAI_API_KEY
         }
       }
+      if (
+        provider === 'api-route' &&
+        isCanonicalApiRouteInferenceBaseUrl(getConfiguredOpenAIBaseUrl())
+      ) {
+        const dedicatedApiRouteKey = hasUsableOpenAICredential(
+          process.env.API_ROUTE_API_KEY,
+        )
+          ? process.env.API_ROUTE_API_KEY
+          : undefined
+        if (dedicatedApiRouteKey) {
+          process.env.OPENAI_API_KEY = dedicatedApiRouteKey
+        } else {
+          delete process.env.OPENAI_API_KEY
+        }
+      }
+      if (provider === 'api-route' && process.env.API_ROUTE_MODEL) {
+        process.env.OPENAI_MODEL = process.env.API_ROUTE_MODEL
+      }
       if (defaultModel) {
         process.env.OPENAI_MODEL ??= defaultModel
       }
@@ -925,15 +953,19 @@ export function applyProviderFlag(
       break
   }
 
-  // A provider flag selects a complete route for this process. Concentrate's
-  // dedicated variables are another source of route identity, so leaving them
-  // behind can re-select Concentrate after a later OpenAI-compatible provider
+  // A provider flag selects a complete route for this process. Dedicated
+  // variables are another source of route identity, so leaving them
+  // behind can re-select a provider after a later OpenAI-compatible provider
   // has applied its defaults. Keep their lifecycle at the selection boundary,
   // rather than relying on individual switch branches to remember cleanup.
   // This runs only after the selected branch succeeds, so an invalid
   // custom-anthropic request remains non-mutating.
   if (provider !== 'concentrate') {
     clearConcentrateProviderState()
+  }
+  if (provider !== 'api-route') {
+    delete process.env.API_ROUTE_API_KEY
+    delete process.env.API_ROUTE_MODEL
   }
 
   return {}

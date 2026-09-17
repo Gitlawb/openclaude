@@ -80,6 +80,8 @@ const SAVED_ENV = {
   CONCENTRATE_API_KEY: process.env.CONCENTRATE_API_KEY,
   CONCENTRATE_BASE_URL: process.env.CONCENTRATE_BASE_URL,
   CONCENTRATE_MODEL: process.env.CONCENTRATE_MODEL,
+  API_ROUTE_API_KEY: process.env.API_ROUTE_API_KEY,
+  API_ROUTE_MODEL: process.env.API_ROUTE_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_API_KEY: process.env.CODEX_API_KEY,
@@ -142,6 +144,8 @@ beforeEach(async () => {
   delete process.env.CONCENTRATE_API_KEY
   delete process.env.CONCENTRATE_BASE_URL
   delete process.env.CONCENTRATE_MODEL
+  delete process.env.API_ROUTE_API_KEY
+  delete process.env.API_ROUTE_MODEL
   delete process.env.OPENAI_MODEL
   delete process.env.OPENAI_BASE_URL
   delete process.env.CODEX_API_KEY
@@ -433,6 +437,39 @@ test.each(['null', 'undefined', '   '])(
     expect(getMainLoopModel()).toBe('deepseek-v4-flash')
   },
 )
+
+test('API Route selects its dedicated model before client normalization', async () => {
+  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+  process.env.API_ROUTE_API_KEY = 'api-route-test'
+  process.env.API_ROUTE_MODEL = 'custom-api-route-model'
+
+  const {
+    getDefaultMainLoopModelSetting,
+    getMainLoopModel,
+    getUserSpecifiedModelSetting,
+  } = await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('custom-api-route-model')
+  expect(getDefaultMainLoopModelSetting()).toBe('custom-api-route-model')
+  expect(getMainLoopModel()).toBe('custom-api-route-model')
+})
+
+test('API Route honors its legacy OpenAI model fallback before client normalization', async () => {
+  saveGlobalConfig(current => ({ ...current, model: 'stale-other-provider-model' }))
+  process.env.API_ROUTE_API_KEY = 'api-route-test'
+  process.env.OPENAI_MODEL = 'legacy-api-route-model'
+
+  const { getMainLoopModel, getUserSpecifiedModelSetting } =
+    await importFreshModelModule()
+  expect(getUserSpecifiedModelSetting()).toBe('legacy-api-route-model')
+  expect(getMainLoopModel()).toBe('legacy-api-route-model')
+})
+
+test('API Route uses its descriptor default before client normalization', async () => {
+  process.env.API_ROUTE_API_KEY = 'api-route-test'
+
+  const { getDefaultMainLoopModelSetting } = await importFreshModelModule()
+  expect(getDefaultMainLoopModelSetting()).toBe('claude-sonnet-4-6')
+})
 
 test('getDefaultMainLoopModelSetting uses the NVIDIA NIM route model', async () => {
   process.env.NVIDIA_NIM = '1'

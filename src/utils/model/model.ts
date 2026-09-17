@@ -69,6 +69,17 @@ function getAllowedConcentrateConfigModel(): string | undefined {
   return undefined
 }
 
+function getAllowedApiRouteConfigModel(): string | undefined {
+  for (const value of [
+    process.env.API_ROUTE_MODEL,
+    process.env.OPENAI_MODEL,
+  ]) {
+    const model = getUsableProviderConfigModel(value)
+    if (model && isModelAllowed(model)) return model
+  }
+  return undefined
+}
+
 export function getSmallFastModel(): ModelName {
   if (process.env.ANTHROPIC_SMALL_FAST_MODEL) return process.env.ANTHROPIC_SMALL_FAST_MODEL
   if (isCustomAnthropicProvider()) {
@@ -173,7 +184,9 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
       // consume its dedicated setting here rather than falling through to a
       // saved model from an unrelated provider.
       ? getAllowedConcentrateConfigModel()
-      : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
+      : activeRouteId === 'api-route'
+        ? getAllowedApiRouteConfigModel()
+        : (provider === 'gemini' ? process.env.GEMINI_MODEL : undefined) ||
         (provider === 'mistral' ? process.env.MISTRAL_MODEL : undefined) ||
         (provider === 'minimax' ? getMiniMaxModelEnv() : undefined) ||
         (isOpenAIShimProvider ? process.env.OPENAI_MODEL : undefined) ||
@@ -402,6 +415,13 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       getAllowedConcentrateConfigModel() ||
       getRouteDefaultModel('concentrate') ||
       'deepseek-v4-flash'
+    )
+  }
+  if (resolveActiveRouteIdFromEnv(process.env) === 'api-route') {
+    return (
+      getAllowedApiRouteConfigModel() ||
+      getRouteDefaultModel('api-route') ||
+      'claude-sonnet-4-6'
     )
   }
   // Custom Anthropic-compatible endpoints intentionally retain the legacy

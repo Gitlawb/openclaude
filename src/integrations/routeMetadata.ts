@@ -246,7 +246,8 @@ function hasUsableEnvCredentialValue(
     envVar === 'LLMTR_API_KEY' ||
     envVar === 'CMD_API_KEY' ||
     envVar === 'COMMANDCODE_API_KEY' ||
-    envVar === 'COMMAND_CODE_API_KEY'
+    envVar === 'COMMAND_CODE_API_KEY' ||
+    envVar === 'API_ROUTE_API_KEY'
   ) {
     return hasUsableOpenAICredential(value)
   }
@@ -533,6 +534,54 @@ export function isCanonicalCommandcodeInferenceBaseUrl(
       !candidate.hash &&
       candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
       normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+const API_ROUTE_CANONICAL_INFERENCE_BASE_URL =
+  'https://global.api-route.com/v1'
+
+export function isCanonicalApiRouteInferenceBaseUrl(
+  value: string | undefined,
+): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const canonical = new URL(API_ROUTE_CANONICAL_INFERENCE_BASE_URL)
+    const candidate = new URL(trimmed)
+    const normalizePath = (pathname: string): string =>
+      pathname.replace(/\/+$/, '') || '/'
+    return (
+      candidate.protocol === 'https:' &&
+      !candidate.port &&
+      !candidate.search &&
+      !candidate.hash &&
+      candidate.hostname.toLowerCase() === canonical.hostname.toLowerCase() &&
+      normalizePath(candidate.pathname) === normalizePath(canonical.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
+export function isApiRouteBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return false
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    return (
+      parsed.protocol === 'https:' &&
+      !parsed.port &&
+      (parsed.hostname.toLowerCase() === 'global.api-route.com' ||
+        parsed.hostname.toLowerCase() === 'api-route.com')
     )
   } catch {
     return false
@@ -1039,6 +1088,16 @@ export function hasConcentrateEnvOnlyProviderIntent(
   )
 }
 
+export function hasApiRouteEnvOnlyProviderIntent(
+  processEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    hasUsableOpenAICredential(processEnv.API_ROUTE_API_KEY) &&
+    !hasConflictingOpenAIBaseUrlForRoute(processEnv, isApiRouteBaseUrl) &&
+    hasNoExplicitNonOpenAIProvider(processEnv)
+  )
+}
+
 export function resolveEnvOnlyProviderRouteId(
   processEnv: NodeJS.ProcessEnv = process.env,
 ):
@@ -1053,6 +1112,7 @@ export function resolveEnvOnlyProviderRouteId(
   | 'clinepass'
   | 'apismart'
   | 'concentrate'
+  | 'api-route'
   | null {
   if (
     hasMiniMaxRouteIntent(processEnv) &&
@@ -1103,6 +1163,10 @@ export function resolveEnvOnlyProviderRouteId(
 
   if (hasConcentrateEnvOnlyProviderIntent(processEnv)) {
     return 'concentrate'
+  }
+
+  if (hasApiRouteEnvOnlyProviderIntent(processEnv)) {
+    return 'api-route'
   }
 
   return null
@@ -1200,6 +1264,13 @@ export function resolveRouteCredentialValue(
     routeId === 'commandcode' &&
     options?.baseUrl !== undefined &&
     !isCanonicalCommandcodeInferenceBaseUrl(options.baseUrl)
+  ) {
+    return undefined
+  }
+  if (
+    routeId === 'api-route' &&
+    options?.baseUrl !== undefined &&
+    !isCanonicalApiRouteInferenceBaseUrl(options.baseUrl)
   ) {
     return undefined
   }
@@ -1327,6 +1398,12 @@ export function resolveRouteIdFromBaseUrl(
       ) {
         continue
       }
+      if (
+        route.id === 'api-route' &&
+        !isCanonicalApiRouteInferenceBaseUrl(baseUrl)
+      ) {
+        continue
+      }
       return route.id
     }
   }
@@ -1347,7 +1424,9 @@ export function resolveRouteIdFromBaseUrl(
           (route.id === 'llmtr' &&
             !isCanonicalLlmtrInferenceBaseUrl(baseUrl)) ||
           (route.id === 'commandcode' &&
-            !isCanonicalCommandcodeInferenceBaseUrl(baseUrl))
+            !isCanonicalCommandcodeInferenceBaseUrl(baseUrl)) ||
+          (route.id === 'api-route' &&
+            !isApiRouteBaseUrl(baseUrl))
         ) {
           continue
         }
@@ -1392,6 +1471,9 @@ function profileRouteHonorsBaseUrlBoundary(
   }
   if (routeId === 'commandcode') {
     return isCanonicalCommandcodeInferenceBaseUrl(baseUrl)
+  }
+  if (routeId === 'api-route') {
+    return isCanonicalApiRouteInferenceBaseUrl(baseUrl)
   }
   if (routeId === 'zai') {
     return !baseUrl || isCanonicalZaiCodingPlanBaseUrl(baseUrl)

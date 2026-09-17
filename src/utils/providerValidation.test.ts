@@ -38,6 +38,8 @@ const ENV_KEYS = [
   'COMMANDCODE_API_KEY',
   'COMMAND_CODE_API_KEY',
   'APISMART_API_KEY',
+  'API_ROUTE_API_KEY',
+  'API_ROUTE_MODEL',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -475,6 +477,36 @@ test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
 
     await expect(getProviderValidationError(process.env)).resolves.toBe(
       'ApiSmart auth is required. Set APISMART_API_KEY.',
+    )
+  },
+)
+
+test('API Route key-only setup validates before client defaults are applied', async () => {
+  process.env.API_ROUTE_API_KEY = 'api-route-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBeNull()
+})
+
+test('noncanonical same-host base rejects a selected API_ROUTE_API_KEY route', async () => {
+  process.env.OPENAI_BASE_URL = 'https://global.api-route.com/staging/v1'
+  process.env.API_ROUTE_API_KEY = 'api-route-key'
+
+  await expect(getProviderValidationError(process.env)).resolves.toBe(
+    'API Route credentials require the canonical https://global.api-route.com/v1 endpoint.',
+  )
+})
+
+test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+  'API Route validation rejects placeholder API_ROUTE_API_KEY %s',
+  async placeholder => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://global.api-route.com/v1'
+    process.env.API_ROUTE_API_KEY = placeholder
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+
+    await expect(getProviderValidationError(process.env)).resolves.toBe(
+      'API Route auth is required. Set API_ROUTE_API_KEY.',
     )
   },
 )

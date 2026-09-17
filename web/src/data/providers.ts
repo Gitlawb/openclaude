@@ -205,6 +205,14 @@ export const providers: Provider[] = [
     notes: 'Unified OpenAI-compatible gateway at https://gw.apismart.ai/v1; defaults to DEEPSEEK_V4_FLASH with hybrid /v1/models discovery.',
   },
   {
+    id: 'api-route',
+    name: 'API Route',
+    group: 'gateways',
+    setup: '/provider or env vars',
+    envVars: ['API_ROUTE_API_KEY', 'API_ROUTE_MODEL'],
+    notes: 'OpenAI-compatible multi-model gateway at https://global.api-route.com/v1; defaults to claude-sonnet-4-6 with hybrid /v1/models discovery.',
+  },
+  {
     id: 'cloudflare',
     name: 'Cloudflare Workers AI',
     group: 'gateways',
