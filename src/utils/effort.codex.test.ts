@@ -88,6 +88,7 @@ async function importFreshEffortModule(options: {
     apiProvider: APIProvider
     capabilities: Partial<Record<MockedThirdPartyCapability, boolean>>
   }
+  isProSubscriber?: boolean
   useRuntimeFallback?: boolean
 }) {
   mock.module('./model/modelSupportOverrides.js', () => ({
@@ -104,7 +105,7 @@ async function importFreshEffortModule(options: {
   }))
   mock.module('./auth.js', () => ({
     ...actualAuth,
-    isProSubscriber: () => false,
+    isProSubscriber: () => options.isProSubscriber ?? false,
     isMaxSubscriber: () => false,
     isTeamSubscriber: () => false,
   }))
@@ -410,6 +411,110 @@ test('modelSupportsXHighEffort: opus-4-7 and opus-4-8 are allowed; other Claude 
   expect(modelSupportsXHighEffort('claude-sonnet-4-5')).toBe(false)
   expect(modelSupportsXHighEffort('claude-haiku-4-5')).toBe(false)
   expect(modelSupportsXHighEffort('claude-3-5-haiku')).toBe(false)
+})
+
+// Claude 5 joins the max/xhigh cohort on first-party Anthropic transports.
+// legacyModelSupportsMaxEffort previously had no transport gate, so an
+// OpenAI-compatible route serving a Claude-named model was offered 'max' even
+// though legacyModelSupportsEffort says it supports no effort at all.
+test('Claude 5 gets max and xhigh on a first-party Anthropic transport', async () => {
+  const { modelSupportsMaxEffort, modelSupportsXHighEffort } =
+    await importFreshEffortModule({
+      provider: 'firstParty',
+      supportsCodexReasoningEffort: false,
+    })
+
+  const context = {
+    apiProvider: 'firstParty' as const,
+    supportsCodexReasoningEffort: false,
+  }
+  for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+    expect(modelSupportsMaxEffort(model, context)).toBe(true)
+    expect(modelSupportsXHighEffort(model, context)).toBe(true)
+  }
+
+  // Near matches are not Claude 5 anywhere else, so they must not be offered
+  // effort levels the endpoint would reject.
+  for (const model of ['claude-opus-50', 'claude-sonnet-5x']) {
+    expect(modelSupportsMaxEffort(model, context)).toBe(false)
+    expect(modelSupportsXHighEffort(model, context)).toBe(false)
+  }
+})
+
+test.each([
+  ['bedrock', true],
+  ['vertex', false],
+  ['foundry', true],
+  ['github', true],
+] as const)(
+  'Claude 5 effort support follows the %s transport contract',
+  async (provider, supported) => {
+    const {
+      getAvailableEffortLevels,
+      getDefaultEffortForModel,
+      modelSupportsEffort,
+      modelSupportsMaxEffort,
+      modelSupportsXHighEffort,
+    } = await importFreshEffortModule({
+      provider,
+      isProSubscriber: true,
+      supportsCodexReasoningEffort: false,
+    })
+    const context = {
+      apiProvider: provider,
+      supportsCodexReasoningEffort: false,
+    }
+
+    for (const model of ['claude-opus-5', 'claude-sonnet-5']) {
+      expect(modelSupportsEffort(model, context)).toBe(supported)
+      expect(modelSupportsMaxEffort(model, context)).toBe(supported)
+      expect(modelSupportsXHighEffort(model, context)).toBe(supported)
+      expect(getAvailableEffortLevels(model, context)).toEqual(
+        supported ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
+      )
+    }
+    expect(getDefaultEffortForModel('claude-opus-5')).toBe(
+      supported ? 'medium' : undefined,
+    )
+  },
+)
+
+test('a third-party route serving a Claude 5 name is not offered max or xhigh', async () => {
+  const { modelSupportsMaxEffort, modelSupportsXHighEffort } =
+    await importFreshEffortModule({
+      provider: 'openai',
+      supportsCodexReasoningEffort: false,
+    })
+
+  const context = {
+    apiProvider: 'openai' as const,
+    supportsCodexReasoningEffort: false,
+    modelDescriptors: {},
+    catalogEntries: [],
+  }
+  expect(modelSupportsMaxEffort('claude-opus-5', context)).toBe(false)
+  expect(modelSupportsXHighEffort('claude-opus-5', context)).toBe(false)
+})
+
+// An explicit third-party capability override still wins over the gate.
+test('an explicit third-party max_effort override still enables max', async () => {
+  const { modelSupportsMaxEffort } = await importFreshEffortModule({
+    provider: 'openai',
+    supportsCodexReasoningEffort: false,
+    thirdPartyCapabilityOverrides: {
+      apiProvider: 'openai',
+      capabilities: { max_effort: true },
+    },
+  })
+
+  expect(
+    modelSupportsMaxEffort('claude-opus-5', {
+      apiProvider: 'openai',
+      supportsCodexReasoningEffort: false,
+      modelDescriptors: {},
+      catalogEntries: [],
+    }),
+  ).toBe(true)
 })
 
 test('xhigh does not appear in available levels for non-supporting models', async () => {

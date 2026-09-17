@@ -1,3 +1,5 @@
+import { isClaude5ModelId } from '../../../utils/model/modelIdMatch.js'
+
 export function hydrateOpenAIShimCompatibilityEnv(
   processEnv: NodeJS.ProcessEnv,
   dependencies: {
@@ -243,6 +245,9 @@ export function createRequestBodyPlanner(context: RequestBodyPlannerContext) {
         request.reasoning.effort === 'xhigh' ? 'max' : request.reasoning.effort
       const modelLower = request.resolvedModel.toLowerCase()
       const isAdaptive =
+        // Boundary-aware so a proxy model named `claude-opus-50` is not sent
+        // Claude 5-only `thinking: { type: 'adaptive' }` and rejected with 400.
+        isClaude5ModelId(modelLower) ||
         modelLower.includes('opus-4-7') ||
         modelLower.includes('opus-4-6') ||
         modelLower.includes('opus-4-8') ||

@@ -10,6 +10,10 @@ import {
   AuthenticationError,
 } from '@anthropic-ai/sdk'
 import { getModelStrings } from './modelStrings.js'
+import {
+  isOpus5FallbackModelId,
+  isSonnet5FallbackModelId,
+} from './modelIdMatch.js'
 import { getCachedOllamaModelOptions, isOllamaProvider } from './ollamaModels.js'
 import {
   getCachedNvidiaNimModelOptions,
@@ -217,11 +221,17 @@ function handleValidationError(
 /**
  * Suggest a fallback model for 3P users when the selected model is unavailable.
  */
-function get3PFallbackSuggestion(model: string): string | undefined {
+export function get3PFallbackSuggestion(model: string): string | undefined {
   if (isFirstPartyAnthropicProvider()) {
     return undefined
   }
   const lowerModel = model.toLowerCase()
+  if (isOpus5FallbackModelId(lowerModel)) {
+    return getModelStrings().opus48
+  }
+  if (isSonnet5FallbackModelId(lowerModel)) {
+    return getModelStrings().sonnet46
+  }
   if (lowerModel.includes('opus-4-8') || lowerModel.includes('opus_4_8')) {
     return getModelStrings().opus47
   }

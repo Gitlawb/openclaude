@@ -3,8 +3,8 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import { Box, Text } from '../ink.js';
 import { isMaxSubscriber, isProSubscriber, isTeamSubscriber } from '../utils/auth.js';
 import { getGlobalConfig, saveGlobalConfig } from '../utils/config.js';
-import type { EffortLevel } from '../utils/effort.js';
-import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, toPersistableEffort } from '../utils/effort.js';
+import type { EffortLevel, ReasoningControlContext } from '../utils/effort.js';
+import { convertEffortValueToLevel, getDefaultEffortForModel, getOpusDefaultEffortConfig, getAvailableEffortLevels, modelGetsMediumEffortDefault, toPersistableEffort } from '../utils/effort.js';
 import { parseUserSpecifiedModel } from '../utils/model/model.js';
 import { updateSettingsForSource } from '../utils/settings/settings.js';
 import type { OptionWithDescription } from './CustomSelect/select.js';
@@ -78,7 +78,7 @@ export function EffortCallout(t0) {
   useEffect(t5, t6);
   let t7;
   if ($[7] !== model) {
-    const defaultEffort = getDefaultEffortForModel(model);
+    const defaultEffort = getDefaultEffortForModel(parseUserSpecifiedModel(model));
     t7 = defaultEffort ? convertEffortValueToLevel(defaultEffort) : "high";
     $[7] = model;
     $[8] = t7;
@@ -216,21 +216,29 @@ function EffortOptionLabel(t0) {
  * - Max/Team: getting medium via tengu_grey_step2 config; show when enabled
  * - Everyone else: mark as dismissed so it never shows
  */
-// Recent Opus models that get the medium-effort default and therefore the
-// callout. The default Opus is now 4.8, so it must be covered alongside 4.7/4.6.
-// Exported as a pure predicate so the regression can be tested deterministically
-// without mocking the subscriber/config gates (see EffortCallout.modelGate.test).
-export function effortCalloutCoversModel(model: string): boolean {
-  const parsed = parseUserSpecifiedModel(model).toLowerCase();
+// The callout announces the medium-effort default, so it must cover exactly the
+// models getLegacyDefaultEffortForModel() applies that default to — hence the
+// shared predicate rather than a second version list here. Re-exported as a pure
+// predicate so the regression can be tested deterministically without mocking
+// the subscriber/config gates (see EffortCallout.modelGate.test).
+export function effortCalloutCoversModel(
+  model: string,
+  context?: ReasoningControlContext,
+): boolean {
+  // The callout receives the user's model setting, which may be an alias, so it
+  // resolves before asking the shared cohort predicate.
+  const resolved = parseUserSpecifiedModel(model);
   return (
-    parsed.includes('opus-4-8') ||
-    parsed.includes('opus-4-7') ||
-    parsed.includes('opus-4-6')
+    getAvailableEffortLevels(resolved, context).includes('medium') &&
+    modelGetsMediumEffortDefault(resolved)
   );
 }
 
-export function shouldShowEffortCallout(model: string): boolean {
-  if (!effortCalloutCoversModel(model)) {
+export function shouldShowEffortCallout(
+  model: string,
+  context?: ReasoningControlContext,
+): boolean {
+  if (!effortCalloutCoversModel(model, context)) {
     return false;
   }
   const config = getGlobalConfig();

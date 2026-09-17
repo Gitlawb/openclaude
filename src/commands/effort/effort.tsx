@@ -187,7 +187,7 @@ function UltracodeCommand({ onDone }: { onDone: LocalJSXCommandOnDone }) {
 export async function call(onDone: LocalJSXCommandOnDone, _context: unknown, args?: string): Promise<React.ReactNode> {
   args = args?.trim() || '';
   if (COMMON_HELP_ARGS.includes(args)) {
-    onDone('Usage: /effort [low|medium|high|max|xhigh|ultracode|auto]\n\nEffort levels:\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- max: Maximum capability with deepest reasoning (Opus 4.8+)\n- xhigh: Extra-high reasoning (OpenAI/Codex and Opus 4.7+)\n- ultracode: Ultracode session-only mode with multi-agent orchestration permission (Anthropic first-party + xhigh-capable models only)\n- auto: Use the default effort level for your model');
+    onDone('Usage: /effort [low|medium|high|max|xhigh|ultracode|auto]\n\nEffort levels:\n- low: Quick, straightforward implementation\n- medium: Balanced approach with standard testing\n- high: Comprehensive implementation with extensive testing\n- max: Maximum capability with deepest reasoning (Sonnet 5, Opus 4.8+)\n- xhigh: Extra-high reasoning (OpenAI/Codex, Sonnet 5, and Opus 4.7+)\n- ultracode: Ultracode session-only mode with multi-agent orchestration permission (Anthropic first-party + xhigh-capable models only)\n- auto: Use the default effort level for your model');
     return;
   }
   if (args === 'current' || args === 'status') {

@@ -133,10 +133,6 @@ beforeEach(async () => {
     ...actualModel,
     getMainLoopModel: () => process.env.OPENAI_MODEL ?? 'gpt-5.5',
   }))
-  mock.module('./model/providers.js', () => ({
-    ...actualProviders,
-    getAPIProvider: () => 'openai',
-  }))
   // Stub settings directly so attribution.ts observes this test's intended
   // settings even when a previous serialized Bun test has mocked the settings
   // module or a nonced import creates a separate cache instance.
@@ -163,7 +159,6 @@ afterEach(() => {
   setClientType(originalClientType)
   setMainLoopModelOverride(originalMainLoopModelOverride)
   mock.module('./model/model.js', () => actualModel)
-  mock.module('./model/providers.js', () => actualProviders)
   mock.module('./settings/settings.js', () => actualSettings)
   restoreEnv()
 })
@@ -196,7 +191,7 @@ describe('getDefaultCommitCoAuthorName', () => {
         apiProvider: 'firstParty',
         isInternalRepo: false,
       }),
-    ).toBe('Claude Opus 4.8')
+    ).toBe('Claude Opus 5')
   })
 
   it('sanitizes unknown internal Claude co-author names', () => {

@@ -1,4 +1,6 @@
-import { afterEach, beforeAll, beforeEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, expect, mock, spyOn, test } from 'bun:test'
+import * as searchProviders from '../tools/WebSearchTool/providers/index.js'
+import { getMainLoopModelOverride, setMainLoopModelOverride } from '../bootstrap/state.js'
 import {
   acquireSharedMutationLock,
   releaseSharedMutationLock,
@@ -158,6 +160,40 @@ test('modelSupportsStructuredOutputs covers the recent Opus models (4.8/4.7/4.6)
   expect(modelSupportsStructuredOutputs('claude-3-opus')).toBe(false)
 })
 
+// Structured outputs are firstParty/Foundry-only. Claude 5 joined the allowlist
+// in this cohort, so pin the exact provider/model paths: near matches must not
+// inherit the capability, and Bedrock/Vertex must stay off until they ship it.
+test('modelSupportsStructuredOutputs covers Claude 5 on firstParty', async () => {
+  // No provider env set => firstParty.
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-50')).toBe(false)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-50')).toBe(false)
+})
+
+test('modelSupportsStructuredOutputs covers Claude 5 on the foundry provider', async () => {
+  process.env.CLAUDE_CODE_USE_FOUNDRY = '1'
+  const { modelSupportsStructuredOutputs } = await importFreshBetas()
+  expect(modelSupportsStructuredOutputs('claude-opus-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(true)
+  expect(modelSupportsStructuredOutputs('claude-opus-50')).toBe(false)
+})
+
+test('modelSupportsStructuredOutputs stays off for Claude 5 on bedrock and vertex', async () => {
+  process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  const bedrock = await importFreshBetas()
+  expect(bedrock.modelSupportsStructuredOutputs('claude-opus-5')).toBe(false)
+  expect(
+    bedrock.modelSupportsStructuredOutputs('us.anthropic.claude-opus-5-v1:0'),
+  ).toBe(false)
+  delete process.env.CLAUDE_CODE_USE_BEDROCK
+
+  process.env.CLAUDE_CODE_USE_VERTEX = '1'
+  const vertex = await importFreshBetas()
+  expect(vertex.modelSupportsStructuredOutputs('claude-sonnet-5')).toBe(false)
+})
+
 test('getMergedBetas returns a non-empty list for the bedrock provider', async () => {
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   const { getMergedBetas } = await importFreshBetas()
@@ -169,6 +205,35 @@ test('getMergedBetas returns a non-empty list for the vertex provider', async ()
   const { getMergedBetas } = await importFreshBetas()
   expect(getMergedBetas(MODEL).length).toBeGreaterThan(0)
 })
+
+for (const [provider, model, supported] of [
+  ['vertex', 'claude-sonnet-5', true],
+  ['vertex', 'claude-sonnet-5@20260501', true],
+  ['vertex', 'claude-sonnet-50', false],
+  ['vertex', 'claude-sonnet-5x', false],
+  ['vertex', 'claude-opus-5', false],
+  ['vertex', 'claude-sonnet-4-6', true],
+  ['bedrock', 'claude-sonnet-5', false],
+] as const) {
+  test(`native web search gates for ${provider} ${model}`, async () => {
+    process.env[provider === 'vertex' ? 'CLAUDE_CODE_USE_VERTEX' : 'CLAUDE_CODE_USE_BEDROCK'] = '1'
+    const { getMergedBetas } = await importFreshBetas()
+    expect(getMergedBetas(model).includes('web-search-2025-03-05')).toBe(supported)
+
+    const { WebSearchTool } = await import('../tools/WebSearchTool/WebSearchTool.js')
+    const previousModel = getMainLoopModelOverride()
+    const availableProviders = spyOn(searchProviders, 'getAvailableProviders').mockReturnValue([])
+    const providerMode = spyOn(searchProviders, 'getProviderMode').mockReturnValue('native')
+    try {
+      setMainLoopModelOverride(model)
+      expect(WebSearchTool.isEnabled()).toBe(supported)
+    } finally {
+      setMainLoopModelOverride(previousModel)
+      availableProviders.mockRestore()
+      providerMode.mockRestore()
+    }
+  })
+}
 
 test('getMergedBetas returns a non-empty list for the foundry provider', async () => {
   process.env.CLAUDE_CODE_USE_FOUNDRY = '1'

@@ -20,6 +20,7 @@ import {
 } from '../context.js'
 import { isEnvTruthy } from '../envUtils.js'
 import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
+import { matchesModelIdAtBoundary } from './modelIdMatch.js'
 import { getModelPricingString } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
@@ -123,7 +124,8 @@ export function isNonCustomOpusModel(model: ModelName): boolean {
     model === getModelStrings().opus45 ||
     model === getModelStrings().opus46 ||
     model === getModelStrings().opus47 ||
-    model === getModelStrings().opus48
+    model === getModelStrings().opus48 ||
+    model === getModelStrings().opus5
   )
 }
 
@@ -257,11 +259,11 @@ export function getDefaultOpusModel(): ModelName {
   }
   // 3P providers (Bedrock, Vertex, Foundry) — kept as a separate branch
   // since 3P availability lags firstParty and these will diverge again at
-  // the next model launch. Keep 3P on Opus 4.7 until they roll out 4.8.
+  // the next model launch. Keep 3P on Opus 4.7 until they roll out Opus 5.
   if (!isFirstPartyAnthropicProvider()) {
     return getModelStrings().opus47
   }
-  return getModelStrings().opus48
+  return getModelStrings().opus5
 }
 
 // @[MODEL LAUNCH]: Update the default Sonnet model (3P providers may lag so keep defaults unchanged).
@@ -309,7 +311,7 @@ export function getDefaultSonnetModel(): ModelName {
   if (!isFirstPartyAnthropicProvider()) {
     return getModelStrings().sonnet45
   }
-  return getModelStrings().sonnet46
+  return getModelStrings().sonnet5
 }
 
 // @[MODEL LAUNCH]: Update the default Haiku model (3P providers may lag so keep defaults unchanged).
@@ -500,35 +502,48 @@ export function getDefaultMainLoopModel(): ModelName {
 export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   name = name.toLowerCase()
   // Special cases for Claude 4+ models to differentiate versions
-  // Order matters: check more specific versions first (4-8 before 4-7 before 4-6 before 4-5 before 4)
-  if (name.includes('claude-opus-4-8')) {
+  // Order matters: check more specific versions first (5 before 4-8 before 4-7
+  // before 4-6 before 4-5 before 4)
+  if (matchesModelIdAtBoundary(name, 'claude-opus-5')) {
+    return 'claude-opus-5'
+  }
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-5')) {
+    return 'claude-sonnet-5'
+  }
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-8')) {
     return 'claude-opus-4-8'
   }
-  if (name.includes('claude-opus-4-7')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-7')) {
     return 'claude-opus-4-7'
   }
-  if (name.includes('claude-opus-4-6')) {
+  if (
+    matchesModelIdAtBoundary(name, 'claude-opus-4-6') ||
+    matchesModelIdAtBoundary(name, 'claude-opus-4.6')
+  ) {
     return 'claude-opus-4-6'
   }
-  if (name.includes('claude-opus-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-5')) {
     return 'claude-opus-4-5'
   }
-  if (name.includes('claude-opus-4-1')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4-1')) {
     return 'claude-opus-4-1'
   }
-  if (name.includes('claude-opus-4')) {
+  if (matchesModelIdAtBoundary(name, 'claude-opus-4')) {
     return 'claude-opus-4'
   }
-  if (name.includes('claude-sonnet-4-6')) {
+  if (
+    matchesModelIdAtBoundary(name, 'claude-sonnet-4-6') ||
+    matchesModelIdAtBoundary(name, 'claude-sonnet-4.6')
+  ) {
     return 'claude-sonnet-4-6'
   }
-  if (name.includes('claude-sonnet-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4-5')) {
     return 'claude-sonnet-4-5'
   }
-  if (name.includes('claude-sonnet-4')) {
+  if (matchesModelIdAtBoundary(name, 'claude-sonnet-4')) {
     return 'claude-sonnet-4'
   }
-  if (name.includes('claude-haiku-4-5')) {
+  if (matchesModelIdAtBoundary(name, 'claude-haiku-4-5')) {
     return 'claude-haiku-4-5'
   }
   // Claude 3.x models use a different naming scheme (claude-3-{family})
@@ -576,26 +591,36 @@ export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
+    const opus = getDefaultOpusModel()
+    const opusName = getMarketingNameForModel(opus) ?? 'Opus'
     if (isOpus1mMergeEnabled()) {
-      return `Opus 4.8 with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+      return `${opusName} with 1M context · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, opus) : ''}`
     }
-    return `Opus 4.8 · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true) : ''}`
+    return `${opusName} · Most capable for complex work${fastMode ? getOpus46PricingSuffix(true, opus) : ''}`
   }
-  return 'Sonnet 4.6 · Best for everyday tasks'
+  const sonnetName =
+    getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'
+  return `${sonnetName} · Best for everyday tasks`
 }
 
 export function renderDefaultModelSetting(
   setting: ModelName | ModelAlias,
 ): string {
   if (setting === 'opusplan') {
-    return 'Opus 4.8 in plan mode, else Sonnet 4.6'
+    const opusName = getMarketingNameForModel(getDefaultOpusModel()) ?? 'Opus'
+    const sonnetName =
+      getMarketingNameForModel(getDefaultSonnetModel()) ?? 'Sonnet'
+    return `${opusName} in plan mode, else ${sonnetName}`
   }
   return renderModelName(parseUserSpecifiedModel(setting))
 }
 
+// The model is required rather than defaulted: a stale default silently prices
+// the current default Opus at a previous model's tier (Opus 5 fast mode bills
+// $10/$50, not Opus 4.8's tier), so callers must name the model they display.
 export function getOpus46PricingSuffix(
   fastMode: boolean,
-  model: string = getModelStrings().opus48,
+  model: string,
 ): string {
   if (!isFirstPartyAnthropicProvider()) return ''
   const pricing = getModelPricingString(model, {
@@ -711,6 +736,14 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       return 'GPT-5.4'
     case 'gpt-5.3-codex-spark':
       return 'GPT-5.3 Codex Spark'
+    case getModelStrings().opus5 + '[1m]':
+      return 'Opus 5 (1M context)'
+    case getModelStrings().opus5:
+      return 'Opus 5'
+    case getModelStrings().sonnet5 + '[1m]':
+      return 'Sonnet 5 (1M context)'
+    case getModelStrings().sonnet5:
+      return 'Sonnet 5'
     case getModelStrings().opus48 + '[1m]':
       return 'Opus 4.8 (1M context)'
     case getModelStrings().opus48:
@@ -1030,6 +1063,12 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
   const has1m = modelId.toLowerCase().includes('[1m]')
   const canonical = getCanonicalName(modelId)
 
+  if (canonical.includes('claude-opus-5')) {
+    return has1m ? 'Opus 5 (with 1M context)' : 'Opus 5'
+  }
+  if (canonical.includes('claude-sonnet-5')) {
+    return has1m ? 'Sonnet 5 (with 1M context)' : 'Sonnet 5'
+  }
   if (canonical.includes('claude-opus-4-8')) {
     return has1m ? 'Opus 4.8 (with 1M context)' : 'Opus 4.8'
   }

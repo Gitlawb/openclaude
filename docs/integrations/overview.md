@@ -13,6 +13,9 @@ Use it for:
   `/usage`;
 - reference samples that match the current implementation.
 
+For the current Claude aliases and route-specific limits, see
+[Claude model defaults and capabilities](claude-models.md).
+
 ## Documentation Structure
 
 This is the current docs layout:
