@@ -41,7 +41,8 @@ export function checkCrossProjectResume(
   // Gate worktree detection to ants only for staged rollout
   if (process.env.USER_TYPE !== 'ant') {
     const sessionId = getSessionIdFromLog(log)
-    const command = `cd ${quote([log.projectPath])} && claude --resume ${sessionId}`
+    // VERBOO-BRAND: binário `verboo` (era `claude` no upstream)
+    const command = `cd ${quote([log.projectPath])} && verboo --resume ${sessionId}`
     return {
       isCrossProject: true,
       isSameRepoWorktree: false,
@@ -65,7 +66,8 @@ export function checkCrossProjectResume(
 
   // Different repo - generate cd command
   const sessionId = getSessionIdFromLog(log)
-  const command = `cd ${quote([log.projectPath])} && claude --resume ${sessionId}`
+  // VERBOO-BRAND: binário `verboo` (era `claude` no upstream)
+  const command = `cd ${quote([log.projectPath])} && verboo --resume ${sessionId}`
   return {
     isCrossProject: true,
     isSameRepoWorktree: false,
