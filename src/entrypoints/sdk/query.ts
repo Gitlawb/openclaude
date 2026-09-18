@@ -6,7 +6,7 @@
  */
 
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
-import { randomUUID } from 'crypto'
+import { randomUUID, type UUID } from 'crypto'
 import { dirname } from 'path'
 import { QueryEngine } from '../../QueryEngine.js'
 import {
@@ -824,11 +824,11 @@ class QueryImpl implements Query {
     // Find the last assistant message UUID that has a file-history snapshot
     const fileHistory = state.fileHistory
     for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      const messageId = (msg as any)?.uuid as string | undefined
+      const msg = messages[i] as { uuid?: string } | undefined
+      const messageId = msg?.uuid
       if (!messageId) continue
 
-      if (fileHistoryCanRestore(fileHistory, messageId as any)) {
+      if (fileHistoryCanRestore(fileHistory, messageId as UUID)) {
         // Synchronous check — return canRewind: true with the messageId.
         // Use rewindFilesAsync() to actually perform the rewind.
         return { canRewind: true }
@@ -850,11 +850,11 @@ class QueryImpl implements Query {
     const fileHistory = state.fileHistory
     let targetMessageId: string | undefined
     for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      const messageId = (msg as any)?.uuid as string | undefined
+      const msg = messages[i] as { uuid?: string } | undefined
+      const messageId = msg?.uuid
       if (!messageId) continue
 
-      if (fileHistoryCanRestore(fileHistory, messageId as any)) {
+      if (fileHistoryCanRestore(fileHistory, messageId as UUID)) {
         targetMessageId = messageId
         break
       }
@@ -865,7 +865,7 @@ class QueryImpl implements Query {
     }
 
     // Get diff stats before rewinding (async)
-    const diffStats = await fileHistoryGetDiffStats(fileHistory, targetMessageId as any)
+    const diffStats = await fileHistoryGetDiffStats(fileHistory, targetMessageId as UUID)
 
     // Perform the actual rewind
     try {
@@ -874,7 +874,7 @@ class QueryImpl implements Query {
           ...prev,
           fileHistory: updater(prev.fileHistory),
         })),
-        targetMessageId as any,
+        targetMessageId as UUID,
       )
 
       return {
@@ -910,7 +910,7 @@ class QueryImpl implements Query {
   supportedAgents(): string[] {
     const state = this.appStateStore.getState()
     const agents = state.agentDefinitions?.activeAgents
-    return agents?.map((a: any) => a.agentType).filter(Boolean) ?? []
+    return agents?.map((a) => a.agentType).filter(Boolean) ?? []
   }
 
   mcpServerStatus(): McpServerStatus[] {
@@ -925,10 +925,10 @@ class QueryImpl implements Query {
         base.serverInfo = client.serverInfo
       }
       if (client.type === 'failed') {
-        base.error = (client as any).error
+        base.error = client.error
       }
       if ('config' in client) {
-        const cfg = (client as any).config
+        const cfg = client.config
         if (cfg?.scope) base.scope = cfg.scope
       }
       return base

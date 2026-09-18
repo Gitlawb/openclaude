@@ -575,11 +575,11 @@ export const SettingsSchema = lazySchema(() =>
           'and feed errors back for self-repair.',
         ),
       worktree: z
-        .preprocess((val: any) => {
+        .preprocess((val: unknown) => {
           if (val && typeof val === 'object') {
-            const copy = { ...val }
+            const copy: Record<string, unknown> = { ...(val as Record<string, unknown>) }
             if ('enableGitLongPaths' in val && !('autoConfigureLongPaths' in val)) {
-              copy.autoConfigureLongPaths = val.enableGitLongPaths
+              copy.autoConfigureLongPaths = (val as Record<string, unknown>).enableGitLongPaths
             }
             return copy
           }

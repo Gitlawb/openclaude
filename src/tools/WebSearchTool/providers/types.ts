@@ -53,15 +53,18 @@ const SOURCE_KEYS = [
   'source', 'domain', 'displayLink', 'displayed_link', 'engine',
 ] as const
 
-function firstMatch(obj: any, keys: readonly string[]): string | undefined {
+function firstMatch(obj: unknown, keys: readonly string[]): string | undefined {
+  if (!obj || typeof obj !== 'object') return undefined
+  const record = obj as Record<string, unknown>
   for (const k of keys) {
-    if (typeof obj?.[k] === 'string' && obj[k]) return obj[k]
+    const v = record[k]
+    if (typeof v === 'string' && v) return v
   }
   return undefined
 }
 
 /** Extract a SearchHit from any object shape using well-known field aliases. */
-export function normalizeHit(raw: any): SearchHit | null {
+export function normalizeHit(raw: unknown): SearchHit | null {
   if (!raw || typeof raw !== 'object') return null
   const title = firstMatch(raw, TITLE_KEYS)
   const url = firstMatch(raw, URL_KEYS)

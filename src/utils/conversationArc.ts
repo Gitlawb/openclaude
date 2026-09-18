@@ -275,8 +275,13 @@ function extractTextFromContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
-      .filter((block: any) => block.type === 'text' && typeof block.text === 'string')
-      .map((block: any) => block.text)
+      .filter((block: unknown): block is { type: string; text: string } =>
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: unknown }).type === 'text' &&
+        typeof (block as { text?: unknown }).text === 'string',
+      )
+      .map((block) => block.text)
       .join('\n')
   }
   return ''
