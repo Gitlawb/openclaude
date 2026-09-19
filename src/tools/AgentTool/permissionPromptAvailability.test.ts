@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { shouldAvoidAgentPermissionPrompts } from './permissionPromptAvailability.js'
+import {
+  canDescendantShowPermissionPrompts,
+  shouldAvoidAgentPermissionPrompts,
+} from './permissionPromptAvailability.js'
 
 describe('shouldAvoidAgentPermissionPrompts', () => {
   test('forwards async agent prompts through an interactive parent session', () => {
@@ -40,6 +43,53 @@ describe('shouldAvoidAgentPermissionPrompts', () => {
         isNonInteractiveSession: true,
       }),
     ).toBe(false)
+  })
+
+  test('does not advertise prompt capability through a sync headless agent', () => {
+    const currentAgentShouldAvoidPrompts =
+      shouldAvoidAgentPermissionPrompts({
+        isAsync: false,
+        permissionMode: 'acceptEdits',
+        isNonInteractiveSession: true,
+      })
+    const descendantCanShowPrompts = canDescendantShowPermissionPrompts({
+      permissionMode: 'acceptEdits',
+      isNonInteractiveSession: true,
+    })
+
+    expect(currentAgentShouldAvoidPrompts).toBe(false)
+    expect(descendantCanShowPrompts).toBe(false)
+    expect(
+      shouldAvoidAgentPermissionPrompts({
+        isAsync: true,
+        canShowPermissionPrompts: descendantCanShowPrompts,
+        permissionMode: 'acceptEdits',
+        isNonInteractiveSession: true,
+      }),
+    ).toBe(true)
+  })
+
+  test('preserves explicit and bubble capability for descendants', () => {
+    expect(
+      canDescendantShowPermissionPrompts({
+        canShowPermissionPrompts: true,
+        permissionMode: 'acceptEdits',
+        isNonInteractiveSession: true,
+      }),
+    ).toBe(true)
+    expect(
+      canDescendantShowPermissionPrompts({
+        canShowPermissionPrompts: false,
+        permissionMode: 'bubble',
+        isNonInteractiveSession: false,
+      }),
+    ).toBe(false)
+    expect(
+      canDescendantShowPermissionPrompts({
+        permissionMode: 'bubble',
+        isNonInteractiveSession: true,
+      }),
+    ).toBe(true)
   })
 
   test('preserves synchronous and bubble prompt behavior', () => {

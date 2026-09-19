@@ -201,6 +201,8 @@ export type ToolUseContext = {
   abortController: AbortController
   readFileState: FileStateCache
   getAppState(): AppState
+  /** Returns untransformed root state when this context belongs to an agent. */
+  getRootAppState?(): AppState
   setAppState(f: (prev: AppState) => AppState): void
   /**
    * Always-shared setAppState for session-scoped infrastructure (background

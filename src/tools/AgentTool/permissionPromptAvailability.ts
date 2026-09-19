@@ -21,3 +21,23 @@ export function shouldAvoidAgentPermissionPrompts({
 
   return isAsync && isNonInteractiveSession
 }
+
+export function canDescendantShowPermissionPrompts({
+  canShowPermissionPrompts,
+  permissionMode,
+  isNonInteractiveSession,
+}: {
+  canShowPermissionPrompts?: boolean
+  permissionMode: InternalPermissionMode | undefined
+  isNonInteractiveSession: boolean
+}): boolean {
+  if (canShowPermissionPrompts !== undefined) {
+    return canShowPermissionPrompts
+  }
+
+  if (permissionMode === 'bubble') {
+    return true
+  }
+
+  return !isNonInteractiveSession
+}

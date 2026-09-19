@@ -120,6 +120,68 @@ const assistantMessage = {} as Parameters<
 >[3]
 
 describe('headless plan-mode PermissionRequest hooks', () => {
+  test('agent permission updates persist against untransformed root state', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'AgentPersistentReadTool',
+      isReadOnly: () => true,
+    })
+    const rootPermissionContext: ToolPermissionContext = {
+      mode: 'default',
+      additionalWorkingDirectories: new Map(),
+      alwaysAllowRules: {
+        session: ['ExistingRootTool'],
+      },
+      alwaysDenyRules: {},
+      alwaysAskRules: {},
+      isBypassPermissionsModeAvailable: true,
+    }
+    const childPermissionContext: ToolPermissionContext = {
+      ...rootPermissionContext,
+      mode: 'plan',
+      alwaysAllowRules: {
+        session: ['ChildScopedTool'],
+      },
+      shouldAvoidPermissionPrompts: false,
+      awaitAutomatedChecksBeforeDialog: true,
+    }
+    let persistedContext: ToolPermissionContext | undefined
+    const context = {
+      abortController: new AbortController(),
+      getAppState: () => ({ toolPermissionContext: childPermissionContext }),
+      getRootAppState: () => ({
+        toolPermissionContext: rootPermissionContext,
+      }),
+      options: {},
+    } as unknown as ToolUseContext
+    const permissionContext = createPermissionContext(
+      readTool,
+      {},
+      context,
+      { message: { id: 'assistant-message' } } as never,
+      'agent-root-permission-persistence',
+      nextContext => {
+        persistedContext = nextContext
+      },
+    )
+
+    await permissionContext.persistPermissions([
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'ApprovedFromAgent' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ])
+
+    expect(persistedContext?.mode).toBe('default')
+    expect(persistedContext?.shouldAvoidPermissionPrompts).toBeUndefined()
+    expect(persistedContext?.awaitAutomatedChecksBeforeDialog).toBeUndefined()
+    expect(persistedContext?.alwaysAllowRules.session).toEqual([
+      'ExistingRootTool',
+      'ApprovedFromAgent',
+    ])
+  })
+
   test('interactive user approval cannot rewrite a read into a mutation', async () => {
     const conditionalTool = createToolFixture(
       z.object({ operation: z.enum(['read', 'write']) }),

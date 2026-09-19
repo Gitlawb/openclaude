@@ -418,6 +418,10 @@ export function createSubagentContext(
 
     // AppState access
     getAppState,
+    // Permission persistence must use the untransformed root context rather
+    // than agent-local mode, rule scoping, or prompt-control flags.
+    getRootAppState: () =>
+      parentContext.getRootAppState?.() ?? parentContext.getAppState(),
     setAppState: overrides?.shareSetAppState
       ? parentContext.setAppState
       : () => {},

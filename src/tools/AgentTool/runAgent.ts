@@ -79,7 +79,10 @@ import type { ContentReplacementState } from '../../utils/toolResultStorage.js'
 import { createAgentId } from '../../utils/uuid.js'
 import { resolveAgentTools } from './agentToolUtils.js'
 import { type AgentDefinition, isBuiltInAgent } from './loadAgentsDir.js'
-import { shouldAvoidAgentPermissionPrompts } from './permissionPromptAvailability.js'
+import {
+  canDescendantShowPermissionPrompts,
+  shouldAvoidAgentPermissionPrompts,
+} from './permissionPromptAvailability.js'
 
 /**
  * Initialize agent-specific MCP servers
@@ -456,6 +459,12 @@ export async function* runAgent({
     permissionMode: agentDefinition.permissionMode,
     isNonInteractiveSession: toolUseContext.options.isNonInteractiveSession,
   })
+  const descendantCanShowPermissionPrompts =
+    canDescendantShowPermissionPrompts({
+      canShowPermissionPrompts: inheritedCanShowPermissionPrompts,
+      permissionMode: agentDefinition.permissionMode,
+      isNonInteractiveSession: toolUseContext.options.isNonInteractiveSession,
+    })
 
   // Override permission mode if agent defines one.
   // However, don't override if parent is in bypassPermissions or acceptEdits mode - those should always take precedence.
@@ -724,7 +733,7 @@ export async function* runAgent({
     // Preserve prompt capability independently from the child execution mode.
     // Async children are marked non-interactive for query behavior, but their
     // inherited canUseTool callback can still reach the interactive root.
-    canShowPermissionPrompts: !shouldAvoidAgentPrompts,
+    canShowPermissionPrompts: descendantCanShowPermissionPrompts,
     appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
     tools: allTools,
     commands: [],

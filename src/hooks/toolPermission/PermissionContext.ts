@@ -191,8 +191,10 @@ function createPermissionContext(
                 latestAppState.toolPermissionContext.mode === 'plan',
             )
       if (updatesToApply.length === 0) return false
+      const rootAppState =
+        toolUseContext.getRootAppState?.() ?? latestAppState
       const updatedContext = applyPermissionUpdatesToLiveContext(
-        latestAppState.toolPermissionContext,
+        rootAppState.toolPermissionContext,
         updatesToApply,
       )
       persistPermissionUpdates(updatesToApply)
