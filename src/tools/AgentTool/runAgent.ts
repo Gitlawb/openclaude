@@ -473,6 +473,7 @@ export async function* runAgent({
   const agentPermissionMode = agentDefinition.permissionMode
   const agentGetAppState = () => {
     const state = toolUseContext.getAppState()
+    const rootState = toolUseContext.getRootAppState?.() ?? state
     let toolPermissionContext = state.toolPermissionContext
 
     // Override permission mode if agent defines one (unless parent is bypassPermissions, acceptEdits, or auto)
@@ -496,7 +497,10 @@ export async function* runAgent({
     // to the parent terminal. Otherwise, async execution is not itself a reason
     // to deny: in interactive sessions the inherited canUseTool callback owns
     // the main-session permission queue.
-    if (shouldAvoidAgentPrompts) {
+    if (
+      shouldAvoidAgentPrompts ||
+      rootState.toolPermissionContext.mode === 'dontAsk'
+    ) {
       toolPermissionContext = {
         ...toolPermissionContext,
         shouldAvoidPermissionPrompts: true,
@@ -734,6 +738,7 @@ export async function* runAgent({
     // Async children are marked non-interactive for query behavior, but their
     // inherited canUseTool callback can still reach the interactive root.
     canShowPermissionPrompts: descendantCanShowPermissionPrompts,
+    permissionSessionId: toolUseContext.options.permissionSessionId,
     appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
     tools: allTools,
     commands: [],

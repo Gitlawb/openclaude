@@ -1251,6 +1251,8 @@ export function REPL({
     setToolJSXInternal(args);
   }, []);
   const [toolUseConfirmQueue, setToolUseConfirmQueue] = useState<ToolUseConfirm[]>([]);
+  const activePermissionSessionId = getSessionId();
+  const activeToolUseConfirmQueue = toolUseConfirmQueue.filter(item => item.permissionSessionId === undefined || item.permissionSessionId === activePermissionSessionId);
   // Sticky footer JSX registered by permission request components (currently
   // only ExitPlanModePermissionRequest). Renders in FullscreenLayout's `bottom`
   // slot so response options stay visible while the user scrolls a long plan.
@@ -1285,7 +1287,7 @@ export function REPL({
   const haikuTitleAttemptedRef = useRef((initialMessages?.length ?? 0) > 0);
   const agentTitle = mainThreadAgentDefinition?.agentType;
   const terminalTitle = sessionTitle ?? agentTitle ?? haikuTitle ?? 'OpenClaude';
-  const isWaitingForApproval = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
+  const isWaitingForApproval = activeToolUseConfirmQueue.length > 0 || promptQueue.length > 0 || pendingWorkerRequest || pendingSandboxRequest;
   // Local-jsx commands (like /plugin, /config) show user-facing dialogs that
   // wait for input. Require jsx != null — if the flag is stuck true but jsx
   // is null, treat as not-showing so TextInput focus and queue processor
@@ -1305,7 +1307,7 @@ export function REPL({
     }
   }, [isLoading, isWaitingForApproval, isShowingLocalJSXCommand]);
   const sessionStatus: TabStatusKind = isWaitingForApproval || isShowingLocalJSXCommand ? 'waiting' : isLoading ? 'busy' : 'idle';
-  const waitingFor = sessionStatus !== 'waiting' ? undefined : toolUseConfirmQueue.length > 0 ? `approve ${toolUseConfirmQueue[0]!.tool.name}` : pendingWorkerRequest ? 'worker request' : pendingSandboxRequest ? 'sandbox request' : isShowingLocalJSXCommand ? 'dialog open' : 'input needed';
+  const waitingFor = sessionStatus !== 'waiting' ? undefined : activeToolUseConfirmQueue.length > 0 ? `approve ${activeToolUseConfirmQueue[0]!.tool.name}` : pendingWorkerRequest ? 'worker request' : pendingSandboxRequest ? 'sandbox request' : isShowingLocalJSXCommand ? 'dialog open' : 'input needed';
 
   // Push status to the PID file for `claude ps`. Fire-and-forget; ps falls
   // back to transcript-tail derivation when this is missing/stale.
@@ -1939,7 +1941,7 @@ export function REPL({
     return queryGuard.setTimeoutHandler(abortTimedOutQuery);
   }, [abortTimedOutQuery, queryGuard]);
 
-  const showSpinner = (!toolJSX || toolJSX.showSpinner === true) && toolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
+  const showSpinner = (!toolJSX || toolJSX.showSpinner === true) && activeToolUseConfirmQueue.length === 0 && promptQueue.length === 0 && (
     // Show spinner during input processing, API call, while teammates are running,
     // or while pending task notifications are queued (prevents spinner bounce between consecutive notifications)
     isLoading || userInputOnProcessing || hasRunningTeammates ||
@@ -1956,7 +1958,7 @@ export function REPL({
 
   // Check if any permission or ask question prompt is currently visible
   // This is used to prevent the survey from opening while prompts are active
-  const hasActivePrompt = toolUseConfirmQueue.length > 0 || promptQueue.length > 0 || sandboxPermissionRequestQueue.length > 0 || elicitation.queue.length > 0 || workerSandboxPermissions.queue.length > 0;
+  const hasActivePrompt = activeToolUseConfirmQueue.length > 0 || promptQueue.length > 0 || sandboxPermissionRequestQueue.length > 0 || elicitation.queue.length > 0 || workerSandboxPermissions.queue.length > 0;
   const feedbackSurveyOriginal = useFeedbackSurvey(messages, isLoading, submitCount, 'session', hasActivePrompt);
   const showIssueFlagBanner = useIssueFlagBanner(messages, submitCount);
 
@@ -2336,7 +2338,7 @@ export function REPL({
     const allowDialogsWithAnimation = !toolJSX || !!toolJSX.shouldContinueAnimation;
     const criticalDialog = resolveCriticalInputDialog({
       sandboxPermissionPending: !!sandboxPermissionRequestQueue[0],
-      toolUseConfirmPending: !!toolUseConfirmQueue[0],
+      toolUseConfirmPending: !!activeToolUseConfirmQueue[0],
       promptPending: !!promptQueue[0],
       workerSandboxPermissionPending: !!workerSandboxPermissions.queue[0],
       elicitationPending: !!elicitation.queue[0],
@@ -2471,8 +2473,9 @@ export function REPL({
       // Each request owns a distinct waiter/controller. Settle every entry
       // removed by this parent-turn cancellation so background agents do not
       // remain blocked after the shared UI queue is cleared.
-      abortPendingToolPermissionRequests(toolUseConfirmQueue, cancelSource, causalEventId);
-      setToolUseConfirmQueue([]);
+      abortPendingToolPermissionRequests(activeToolUseConfirmQueue, cancelSource, causalEventId, abortController);
+      const activeIds = new Set(activeToolUseConfirmQueue.map(item => item.toolUseID));
+      setToolUseConfirmQueue(queue => queue.filter(item => !activeIds.has(item.toolUseID)));
     } else if (focusedInputDialog === 'prompt') {
       // Reject all pending prompts and clear the queue
       for (const item of promptQueue) {
@@ -2725,7 +2728,9 @@ export function REPL({
       // Use setToolUseConfirmQueue callback to get current queue state
       // instead of capturing it in the closure, to avoid stale closure issues
       setToolUseConfirmQueue(currentQueue => {
+        const activeSessionId = getSessionId();
         currentQueue.forEach(item => {
+          if (item.permissionSessionId !== undefined && item.permissionSessionId !== activeSessionId) return;
           void item.recheckPermission();
         });
         return currentQueue;
@@ -2792,6 +2797,7 @@ export function REPL({
         mcpResources: s.mcp.resources,
         ideInstallationStatus: ideInstallationStatus,
         isNonInteractiveSession: false,
+        permissionSessionId: getSessionId(),
         dynamicMcpConfig,
         theme,
         agentDefinitions: allowedAgentTypes ? {
@@ -5139,7 +5145,8 @@ export function REPL({
   // agent — displayedMessages is a different array there, and onAgentSubmit
   // doesn't use the placeholder anyway.
   const placeholderText = userInputOnProcessing && !viewedAgentTask && displayedMessages.length <= userInputBaselineRef.current ? userInputOnProcessing : undefined;
-  const toolPermissionOverlay = focusedInputDialog === 'tool-permission' ? <PermissionRequest key={toolUseConfirmQueue[0]?.toolUseID} onDone={() => setToolUseConfirmQueue(([_, ...tail]) => tail)} onReject={handleQueuedCommandOnCancel} toolUseConfirm={toolUseConfirmQueue[0]!} toolUseContext={getToolUseContext(messages, messages, abortController ?? createAbortController(), mainLoopModel)} verbose={verbose} workerBadge={toolUseConfirmQueue[0]?.workerBadge} setStickyFooter={isFullscreenEnvEnabled() ? setPermissionStickyFooter : undefined} /> : null;
+  const activeToolUseConfirm = activeToolUseConfirmQueue[0];
+  const toolPermissionOverlay = focusedInputDialog === 'tool-permission' ? <PermissionRequest key={activeToolUseConfirm?.toolUseID} onDone={() => setToolUseConfirmQueue(queue => queue.filter(item => item.toolUseID !== activeToolUseConfirm?.toolUseID))} onReject={handleQueuedCommandOnCancel} toolUseConfirm={activeToolUseConfirm!} toolUseContext={getToolUseContext(messages, messages, abortController ?? createAbortController(), mainLoopModel)} verbose={verbose} workerBadge={activeToolUseConfirm?.workerBadge} setStickyFooter={isFullscreenEnvEnabled() ? setPermissionStickyFooter : undefined} /> : null;
 
   // Narrow terminals: companion collapses to a one-liner that REPL stacks
   // on its own row (above input in fullscreen, below in scrollback) instead
@@ -5190,7 +5197,7 @@ export function REPL({
         jumpToNew(scrollRef.current);
       }} scrollable={<>
         <TeammateViewHeader />
-        <Messages messages={displayedMessages} tools={tools} commands={renderCommands} verbose={verbose} toolJSX={toolJSX} toolUseConfirmQueue={toolUseConfirmQueue} inProgressToolUseIDs={viewedTeammateTask ? viewedTeammateTask.inProgressToolUseIDs ?? new Set() : inProgressToolUseIDs} isMessageSelectorVisible={isMessageSelectorVisible} conversationId={conversationId} screen={screen} streamingToolUses={streamingToolUses} showAllInTranscript={showAllInTranscript} agentDefinitions={agentDefinitions} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null} isBriefOnly={viewedAgentTask ? false : isBriefOnly} unseenDivider={viewedAgentTask ? undefined : unseenDivider} scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined} trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined} cursor={cursor} setCursor={setCursor} cursorNavRef={cursorNavRef} />
+        <Messages messages={displayedMessages} tools={tools} commands={renderCommands} verbose={verbose} toolJSX={toolJSX} toolUseConfirmQueue={activeToolUseConfirmQueue} inProgressToolUseIDs={viewedTeammateTask ? viewedTeammateTask.inProgressToolUseIDs ?? new Set() : inProgressToolUseIDs} isMessageSelectorVisible={isMessageSelectorVisible} conversationId={conversationId} screen={screen} streamingToolUses={streamingToolUses} showAllInTranscript={showAllInTranscript} agentDefinitions={agentDefinitions} onOpenRateLimitOptions={handleOpenRateLimitOptions} isLoading={isLoading} streamingText={isLoading && !viewedAgentTask ? visibleStreamingText : null} isBriefOnly={viewedAgentTask ? false : isBriefOnly} unseenDivider={viewedAgentTask ? undefined : unseenDivider} scrollRef={isFullscreenEnvEnabled() ? scrollRef : undefined} trackStickyPrompt={isFullscreenEnvEnabled() ? true : undefined} cursor={cursor} setCursor={setCursor} cursorNavRef={cursorNavRef} />
         <AwsAuthStatusBox />
         {/* Hide the processing placeholder while a modal is showing —
                   it would sit at the last visible transcript row right above

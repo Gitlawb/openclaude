@@ -25,6 +25,7 @@ import { handleInteractivePermission } from './toolPermission/handlers/interacti
 import { handleSwarmWorkerPermission } from './toolPermission/handlers/swarmWorkerHandler.js';
 import { createPermissionContext, createPermissionQueueOps } from './toolPermission/PermissionContext.js';
 import { logPermissionDecision } from './toolPermission/permissionLogging.js';
+import { buildInactivePermissionSessionDecision, isPermissionSessionActive } from './toolPermission/permissionSessionOwnership.js';
 export type CanUseToolFn<Input extends Record<string, unknown> = Record<string, unknown>> = (tool: ToolType, input: Input, toolUseContext: ToolUseContext, assistantMessage: AssistantMessage, toolUseID: string, forceDecision?: PermissionDecision<Input>) => Promise<PermissionDecision<Input>>;
 function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
   const $ = _c(3);
@@ -32,12 +33,24 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
   if ($[0] !== setToolPermissionContext || $[1] !== setToolUseConfirmQueue) {
     t0 = async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => new Promise(resolve => {
       const ctx = createPermissionContext(tool, input, toolUseContext, assistantMessage, toolUseID, setToolPermissionContext, createPermissionQueueOps(setToolUseConfirmQueue));
+      const permissionSessionIsActive = () => isPermissionSessionActive(toolUseContext.options.permissionSessionId);
+      const resolveIfPermissionSessionInactive = () => {
+        if (permissionSessionIsActive()) return false;
+        resolve(buildInactivePermissionSessionDecision());
+        return true;
+      };
+      if (resolveIfPermissionSessionInactive()) {
+        return;
+      }
       if (ctx.resolveIfAborted(resolve)) {
         return;
       }
       const shouldBypassForcedAsk = forceDecision?.behavior === "ask" && toolUseContext.getAppState().toolPermissionContext.mode === "fullAccess";
       const decisionPromise = forceDecision !== undefined && !shouldBypassForcedAsk ? Promise.resolve(forceDecision) : hasPermissionsToUseTool(tool, input, toolUseContext, assistantMessage, toolUseID);
       return decisionPromise.then(async result => {
+        if (resolveIfPermissionSessionInactive()) {
+          return;
+        }
         if (result.behavior === "allow") {
           if (ctx.resolveIfAborted(resolve)) {
             return;
@@ -60,6 +73,9 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
           toolPermissionContext: appState.toolPermissionContext,
           tools: toolUseContext.options.tools
         });
+        if (resolveIfPermissionSessionInactive()) {
+          return;
+        }
         if (ctx.resolveIfAborted(resolve)) {
           return;
         }
@@ -104,6 +120,9 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                   suggestions: result.suggestions,
                   permissionMode: appState.toolPermissionContext.mode
                 });
+                if (resolveIfPermissionSessionInactive()) {
+                  return;
+                }
                 if (coordinatorDecision) {
                   resolve(coordinatorDecision);
                   return;
@@ -121,6 +140,9 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 updatedInput: result.updatedInput,
                 suggestions: result.suggestions
               });
+              if (resolveIfPermissionSessionInactive()) {
+                return;
+              }
               if (swarmDecision) {
                 resolve(swarmDecision);
                 return;
@@ -132,6 +154,9 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                 }).command);
                 if (speculativePromise) {
                   const raceResult = await Promise.race([speculativePromise.then(_temp), new Promise(_temp2)]);
+                  if (resolveIfPermissionSessionInactive()) {
+                    return;
+                  }
                   if (ctx.resolveIfAborted(resolve)) {
                     return;
                   }

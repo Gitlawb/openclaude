@@ -167,6 +167,10 @@ function handleInteractivePermission(
       input: displayInput,
       toolUseContext: ctx.toolUseContext,
       toolUseID: ctx.toolUseID,
+      ...(ctx.toolUseContext.options?.permissionSessionId && {
+        permissionSessionId:
+          ctx.toolUseContext.options.permissionSessionId,
+      }),
       permissionResult: result,
       permissionPromptStartTimeMs,
       ...(feature('BASH_CLASSIFIER')

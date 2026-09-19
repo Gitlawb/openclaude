@@ -327,4 +327,12 @@ describe('abortPendingToolPermissionRequests', () => {
     expect(secondAbort).toHaveBeenCalledTimes(1)
     expect(secondAbort).toHaveBeenCalledWith('ctrl_c', 'cancel-event-1')
   })
+
+  test('also aborts the distinct active parent query', () => {
+    const controller = new AbortController()
+
+    abortPendingToolPermissionRequests([], 'ctrl_c', 'cancel-event-2', controller)
+
+    expect(controller.signal.aborted).toBe(true)
+  })
 })

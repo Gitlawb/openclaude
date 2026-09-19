@@ -19,6 +19,7 @@ import { PowerShellTool } from '../../tools/PowerShellTool/PowerShellTool.js';
 import { SkillTool } from '../../tools/SkillTool/SkillTool.js';
 import { WebFetchTool } from '../../tools/WebFetchTool/WebFetchTool.js';
 import type { AssistantMessage } from '../../types/message.js';
+import type { SessionId } from '../../types/ids.js';
 import type { PermissionDecision } from '../../utils/permissions/PermissionResult.js';
 import { AskUserQuestionPermissionRequest } from './AskUserQuestionPermissionRequest/AskUserQuestionPermissionRequest.js';
 import { BashPermissionRequest } from './BashPermissionRequest/BashPermissionRequest.js';
@@ -108,6 +109,8 @@ export type ToolUseConfirm<Input extends AnyObject = AnyObject> = {
   input: z.infer<Input>;
   toolUseContext: ToolUseContext;
   toolUseID: string;
+  /** Originating session for forwarded agent prompts. */
+  permissionSessionId?: SessionId;
   permissionResult: PermissionDecision;
   permissionPromptStartTimeMs: number;
   /**

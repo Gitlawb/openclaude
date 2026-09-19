@@ -54,6 +54,10 @@ import {
   logPermissionDecision,
   type PermissionDecisionArgs,
 } from './permissionLogging.js'
+import {
+  buildInactivePermissionSessionDecision,
+  isPermissionSessionActive,
+} from './permissionSessionOwnership.js'
 
 type PermissionApprovalSource =
   | { type: 'hook'; permanent?: boolean }
@@ -153,6 +157,13 @@ function createPermissionContext(
       updates: PermissionUpdate[],
       hookPlanModeWasActive?: boolean,
     ) {
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return false
+      }
       if (updates.length === 0) return false
       const appState = toolUseContext.getAppState()
       const validatedUpdates: PermissionUpdate[] = []
@@ -194,6 +205,13 @@ function createPermissionContext(
                 rootAppState.toolPermissionContext.mode === 'plan',
             )
       if (updatesToApply.length === 0) return false
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return false
+      }
       const updatedContext = applyPermissionUpdatesToLiveContext(
         rootAppState.toolPermissionContext,
         updatesToApply,
@@ -431,6 +449,13 @@ function createPermissionContext(
       contentBlocks?: ContentBlockParam[],
       decisionReason?: PermissionDecisionReason,
     ): Promise<PermissionDecision> {
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
+      }
       const planModeWasActive =
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
       const revalidation =
@@ -457,6 +482,13 @@ function createPermissionContext(
       if (finalRevalidation) {
         return finalRevalidation
       }
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
+      }
       this.logDecision(
         {
           decision: 'accept',
@@ -481,6 +513,13 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
     ): Promise<PermissionDecision> {
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
+      }
       const acceptedPermanentUpdates =
         await this.persistPermissions(permissionUpdates, planModeWasActive)
       const postUpdatePlanModeDecision =
@@ -494,6 +533,13 @@ function createPermissionContext(
         )
       if (postUpdatePlanModeDecision) {
         return postUpdatePlanModeDecision
+      }
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
       }
       this.logDecision(
         {
@@ -512,6 +558,13 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
     ): Promise<PermissionDecision> {
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
+      }
       const planModeDecision =
         await revalidatePlanModePermissionAllowWithRaceGuard(
           tool,
@@ -522,6 +575,13 @@ function createPermissionContext(
         )
       if (planModeDecision) {
         return planModeDecision
+      }
+      if (
+        !isPermissionSessionActive(
+          toolUseContext.options.permissionSessionId,
+        )
+      ) {
+        return buildInactivePermissionSessionDecision()
       }
       this.logDecision(
         { decision: 'accept', source: { type: 'classifier' } },

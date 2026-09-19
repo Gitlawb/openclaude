@@ -15,6 +15,7 @@ import {
 // bypasses resolveOnce fails here instead of silently stranding the watchdog.
 
 type QueueItem = {
+  permissionSessionId?: string
   onAbort: (source?: string, causalEventId?: string) => void
   onAllow: (
     updatedInput: Record<string, unknown>,
@@ -28,6 +29,7 @@ function setup(opts?: {
   preAbort?: boolean
   throwOnPush?: boolean
   bridge?: unknown
+  permissionSessionId?: string
 }) {
   // Plain (non-idempotent) spy: a double-call fails the exactly-once assertions,
   // so the handler can't lean on QueryGuard's internal idempotence.
@@ -44,6 +46,9 @@ function setup(opts?: {
     assistantMessage: { message: { id: 'msg-1' } },
     toolUseID: 'tu-1',
     toolUseContext: {
+      options: opts?.permissionSessionId
+        ? { permissionSessionId: opts.permissionSessionId }
+        : undefined,
       queryActivity: {
         registerActivity: vi.fn(),
         acquireLease: vi.fn(() => ({ id: '', release() {} })),
@@ -103,6 +108,11 @@ function setup(opts?: {
 }
 
 describe('handleInteractivePermission watchdog suspension', () => {
+  test('tags the queued prompt with its originating session', () => {
+    const { getQueueItem } = setup({ permissionSessionId: 'session-a' })
+    expect(getQueueItem().permissionSessionId).toBe('session-a')
+  })
+
   test('suspends once when the dialog is shown, before any resolution', () => {
     const { beginUserInteraction, resume } = setup()
     expect(beginUserInteraction).toHaveBeenCalledTimes(1)
