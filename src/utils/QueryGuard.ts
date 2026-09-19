@@ -138,7 +138,7 @@ export class QueryGuard {
   private _lastContext: QueryLifecycleContext | null = null
   private _getActiveOperations: (() => QueryActiveOperationSnapshot) | null =
     null
-  private readonly _idleTimeoutMs: number
+  private _idleTimeoutMs: number
   private readonly _hardMaxQueryMs: number
   private readonly _toolLeaseGraceMs: number
 
@@ -155,6 +155,19 @@ export class QueryGuard {
       0,
       positiveOrDefault(options.toolLeaseGraceMs, DEFAULT_TOOL_LEASE_GRACE_MS),
     )
+  }
+
+  /**
+   * Update the idle deadline for the next query. Active queries retain the
+   * timeout they started with so a concurrent submission cannot mutate them.
+   */
+  setIdleTimeoutMs(idleTimeoutMs: number | undefined): boolean {
+    if (this._status === 'running') return false
+    this._idleTimeoutMs = positiveOrDefault(
+      idleTimeoutMs,
+      DEFAULT_QUERY_IDLE_TIMEOUT_MS,
+    )
+    return true
   }
 
   /**

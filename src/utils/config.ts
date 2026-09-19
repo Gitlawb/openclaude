@@ -299,6 +299,8 @@ export type GlobalConfig = {
    * Overridden by CLI `--max-turns` and OPENCLAUDE_MAX_TURNS / CLAUDE_CODE_MAX_TURNS.
    */
   replMaxTurns?: number
+  /** Foreground QueryGuard inactivity timeout in milliseconds (default: 5 minutes). */
+  queryIdleTimeoutMs?: number
   showTurnDuration: boolean // Controls whether to show turn duration message (e.g., "Cooked for 1m 6s")
   // Controls whether to show per-query cache hit/miss stats at the end of each turn.
   // 'off'     — no display
@@ -777,6 +779,7 @@ export const GLOBAL_CONFIG_KEYS = [
   'autoCompactEnabled',
   'compactTailTurns',
   'replMaxTurns',
+  'queryIdleTimeoutMs',
   'contextCollapseEnabled',
   'toolHistoryCompressionEnabled',
   'showTurnDuration',

@@ -37,7 +37,7 @@ import { updateLastInteractionTime, getLastInteractionTime, getOriginalCwd, getP
 import { asSessionId, asAgentId } from '../types/ids.js';
 import { logForDebugging } from '../utils/debug.js';
 import { QueryGuard } from '../utils/QueryGuard.js';
-import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
+import { getConfiguredQueryIdleTimeoutMs, getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js';
 import { QueryLifecycleOperationTracker, formatQueryLifecycleAbortSignalReason, formatQueryLifecycleLogMessage, getQueryTerminalOutcome, getQueryTerminalReason, type QueryActiveOperationSnapshot, type QueryGuardTimeoutInfo, type QueryLifecycleContext, type QueryTerminalReason } from '../utils/queryLifecycle.js';
 import { claimBackgroundTurnBudget, canRestoreDeferredMaxTurnsCap, computeDeferredMaxTurnsCapForBackgroundHandoff, createForegroundTurnBudgetHandoff, getReplMaxTurnsWarning, releaseForegroundTurnBudget, resolveReplMaxTurnsForSession, shouldShowReplMaxTurnsUnlimitedWarning, shouldContinueBackgroundAfterForegroundQuery, waitForForegroundTurnBudgetSettlement, type ForegroundTurnBudgetHandoff } from './replMaxTurns.js';
 import { createCombinedAbortSignal } from '../utils/combinedAbortSignal.js';
@@ -3359,6 +3359,10 @@ export function REPL({
         }
       });
       return false;
+    }
+    const configuredIdleTimeoutMs = getConfiguredQueryIdleTimeoutMs(process.env, getGlobalConfig().queryIdleTimeoutMs);
+    if (configuredIdleTimeoutMs !== undefined) {
+      queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs);
     }
     const startResult = queryGuard.tryStart({
       queryId: randomUUID(),

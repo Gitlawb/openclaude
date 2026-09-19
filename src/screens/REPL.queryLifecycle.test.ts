@@ -35,9 +35,15 @@ function getOnQueryImplBody(): string {
 describe('REPL query lifecycle timeout logging', () => {
   test('constructs QueryGuard with resolved timeout config', () => {
     expect(source).toContain(
-      "import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js'",
+      "import { getConfiguredQueryIdleTimeoutMs, getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js'",
     )
     expect(source).toContain('new QueryGuard(getQueryGuardOptionsFromEnv())')
+    expect(source).toContain(
+      'getConfiguredQueryIdleTimeoutMs(process.env, getGlobalConfig().queryIdleTimeoutMs)',
+    )
+    expect(source).toContain(
+      'queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs)',
+    )
   })
 
   test('clears interruption-correction state before resuming another session', () => {

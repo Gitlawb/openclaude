@@ -1,3 +1,5 @@
+import { DEFAULT_QUERY_IDLE_TIMEOUT_MS } from './QueryGuard.js'
+
 export const OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV =
   'OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS'
 export const OPENCLAUDE_QUERY_HARD_MAX_MS_ENV =
@@ -5,6 +7,15 @@ export const OPENCLAUDE_QUERY_HARD_MAX_MS_ENV =
 
 // setTimeout-compatible upper bound; larger values can overflow timer APIs.
 export const MAX_CONFIGURABLE_QUERY_HARD_MAX_MS = 0x7fffffff
+
+/** Preset values offered in `/config` (plus any current custom value). */
+export const QUERY_IDLE_TIMEOUT_OPTIONS_MS = [
+  5 * 60 * 1000,
+  10 * 60 * 1000,
+  15 * 60 * 1000,
+  30 * 60 * 1000,
+  60 * 60 * 1000,
+] as const
 
 type EnvLike = Record<string, string | undefined>
 type DebugLogger = (
@@ -32,6 +43,53 @@ function warnInvalidQueryTimeout(
 
 function defaultWarnLogger(message: string): void {
   console.warn(`[OpenClaude] ${message}`)
+}
+
+/** Normalize a persisted query idle timeout, preserving the five-minute default. */
+export function normalizeQueryIdleTimeoutMs(value: unknown): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value.trim())
+        : Number.NaN
+
+  return Number.isSafeInteger(parsed) &&
+    parsed > 0 &&
+    parsed <= MAX_CONFIGURABLE_QUERY_HARD_MAX_MS
+    ? parsed
+    : DEFAULT_QUERY_IDLE_TIMEOUT_MS
+}
+
+/** Format a `/config` option without losing custom millisecond precision. */
+export function formatQueryIdleTimeoutMs(value: unknown): string {
+  const timeoutMs = normalizeQueryIdleTimeoutMs(value)
+  if (timeoutMs % 60_000 === 0) return `${timeoutMs / 60_000} min`
+  if (timeoutMs % 1_000 === 0) return `${timeoutMs / 1_000} sec`
+  return `${timeoutMs} ms`
+}
+
+/** Parse a human-readable `/config` option back into milliseconds. */
+export function parseQueryIdleTimeoutOption(value: string): number {
+  const match = /^(\d+)\s+(min|sec|ms)$/.exec(value.trim())
+  if (!match) return DEFAULT_QUERY_IDLE_TIMEOUT_MS
+
+  const amount = Number(match[1])
+  const multiplier = match[2] === 'min' ? 60_000 : match[2] === 'sec' ? 1_000 : 1
+  return normalizeQueryIdleTimeoutMs(amount * multiplier)
+}
+
+/**
+ * Resolve the persisted `/config` preference only when the environment does
+ * not own this setting. `undefined` tells the caller to keep the env-derived
+ * value (including the default selected for an invalid env override).
+ */
+export function getConfiguredQueryIdleTimeoutMs(
+  env: EnvLike,
+  configuredValue: unknown,
+): number | undefined {
+  if (env[OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV]?.trim()) return undefined
+  return normalizeQueryIdleTimeoutMs(configuredValue)
 }
 
 function getPositiveTimeoutFromEnv(
