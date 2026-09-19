@@ -18,6 +18,8 @@ import { AppStateProvider } from '../../state/AppState.js'
 import { openBrowser } from '../../utils/browser.js'
 import {
   createCheckoutSession,
+  getPurchaseOptions,
+  isPurchaseAttemptSucceeded,
   confirmCardlessTrial,
   getWhatsAppProfile,
   isGroupSubscriptionActive,
@@ -109,7 +111,7 @@ export function filterCliPurchasablePlans(
     const subscription = subscriptionsByGroup.get(group.id)
     const convertingLocalTrial = isCurrentLocalTrial(subscription)
     if (subscription?.status === 'past_due') return false
-    if ((group.isMember || subscription) && !convertingLocalTrial) return false
+    if ((group.isMember || subscription) && !convertingLocalTrial && subscription?.source !== 'managed_seat') return false
 
     const full =
       group.subscriberLimit != null &&
@@ -542,7 +544,8 @@ export function WooviPaymentView({
             error instanceof VerbooApiError &&
             (error.status === 401 ||
               error.status === 403 ||
-              error.kind === 'contract')
+              error.kind === 'contract' ||
+              error.code?.startsWith('purchase_attempt_'))
           ) {
             onError(error)
             return
@@ -630,6 +633,7 @@ type Step =
   | 'checkout'
   | 'polling'
   | 'manual-browser'
+  | 'browser-management'
   | 'woovi-qr'
   | 'success'
   | 'error'
@@ -675,6 +679,9 @@ export function PurchaseFlowView({
     useState<WhatsAppProfile | null>(null)
   const [cardlessVerification, setCardlessVerification] =
     useState<VerificationRequired | null>(null)
+  const purchaseAttemptRef = React.useRef<string | undefined>(undefined)
+  const tokenRef = React.useRef(accessToken)
+  tokenRef.current = accessToken
   const plansRequestRef = React.useRef<AbortController | null>(null)
   const pollingRef = React.useRef<AbortController | null>(null)
   const successTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
@@ -791,6 +798,7 @@ export function PurchaseFlowView({
       groupId: string,
       displayStep: 'polling' | 'cardless-polling' = 'polling',
       requirement: GroupEntitlementRequirement = 'paid',
+      attemptId?: string,
     ) {
       pollingRef.current?.abort()
       const controller = new AbortController()
@@ -803,12 +811,12 @@ export function PurchaseFlowView({
         Date.now() - startedAt < POLL_TIMEOUT_MS
       ) {
         try {
-          const active = await isGroupSubscriptionActive(accessToken, groupId, {
+          const active = attemptId ? await isPurchaseAttemptSucceeded(accessToken, attemptId, groupId, controller.signal) : await isGroupSubscriptionActive(accessToken, groupId, {
             signal: controller.signal,
             requirement,
           })
           if (active) {
-            if (pollingRef.current === controller) complete(requirement)
+            if (pollingRef.current === controller && tokenRef.current === accessToken) complete(requirement)
             return
           }
         } catch (error) {
@@ -841,7 +849,7 @@ export function PurchaseFlowView({
           'plan-detail',
           {
             label: 'Verificar novamente',
-            run: () => void pollEntitlement(groupId, displayStep, requirement),
+            run: () => void pollEntitlement(groupId, displayStep, requirement, attemptId),
           },
         )
       }
@@ -1041,12 +1049,22 @@ export function PurchaseFlowView({
       setInlineMessage(null)
       setStep('checkout')
       try {
+        const options = await getPurchaseOptions(accessToken, group.id, group.billingInterval)
+        if (tokenRef.current !== accessToken) return
+        if (options.recommendation !== 'checkout') {
+          const query = new URLSearchParams({action: 'change-plan',plan: group.id,billingInterval: group.billingInterval})
+          const url = `${VERBOO_FRONT_BASE_URL}/pt/settings/billing?${query}`
+          setManualCheckoutUrl(url);setStep('browser-management');await openBrowser(url);return
+        }
         const result = await createCheckoutSession(accessToken, group.id, {
           paymentMethod,
+          billingInterval: group.billingInterval,
           woovi,
         })
+        if (tokenRef.current !== accessToken) return
+        purchaseAttemptRef.current = result.mode === 'reactivated' ? undefined : result.attemptId
         if (result.mode === 'reactivated') {
-          void startEntitlementPolling(group.id, 'polling', requirement)
+          void startEntitlementPolling(group.id, 'polling', requirement, purchaseAttemptRef.current)
           return
         }
         if (result.mode === 'woovi') {
@@ -1061,7 +1079,7 @@ export function PurchaseFlowView({
         setManualCheckoutUrl(result.url)
         setManualEntitlementRequirement(requirement)
         if (await openBrowser(result.url)) {
-          void startEntitlementPolling(group.id, 'polling', requirement)
+          void startEntitlementPolling(group.id, 'polling', requirement, purchaseAttemptRef.current)
         } else {
           setStep('manual-browser')
         }
@@ -1087,10 +1105,11 @@ export function PurchaseFlowView({
         }
         if (
           presentation.code === 'already_subscribed' ||
+          presentation.code === 'checkout_intent_required' ||
           presentation.code === 'manual_access_active'
         ) {
-          setInlineMessage(presentation.message)
-          void startEntitlementPolling(group.id, 'polling', requirement)
+          setManualCheckoutUrl(`${VERBOO_FRONT_BASE_URL}/pt/settings/billing?action=change-plan&plan=${group.id}&billingInterval=${group.billingInterval}`)
+          setStep('browser-management')
           return
         }
         if (
@@ -1126,13 +1145,8 @@ export function PurchaseFlowView({
           group.billingInterval,
         )
         setManualCheckoutUrl(conversionUrl)
-        setManualEntitlementRequirement('paid')
-        setStep('checkout')
-        if (await openBrowser(conversionUrl)) {
-          void startEntitlementPolling(group.id, 'polling', 'paid')
-        } else {
-          setStep('manual-browser')
-        }
+        setStep('browser-management')
+        await openBrowser(conversionUrl)
         return
       }
       if (group.paymentProvider === 'both') setStep('payment-method')
@@ -1500,6 +1514,14 @@ export function PurchaseFlowView({
         </Box>
       )
 
+    case 'browser-management':
+      return <Box flexDirection="column" gap={1}>
+        <Text>Continue a troca ou a gestão da assinatura no navegador.</Text>
+        <Text>{manualCheckoutUrl}</Text>
+        <Text>A compra será confirmada no billing após a verificação do pagamento.</Text>
+        <Select options={[{label: 'Abrir billing',value: 'open'},{label: 'Voltar',value:'back'},{label:'Fechar',value:'close'}]} onChange={(value: string) => {if(value === 'open' && manualCheckoutUrl) void openBrowser(manualCheckoutUrl);else if(value === 'back')setStep('plan-detail');else onDone(false)}} />
+      </Box>
+
     case 'manual-browser':
       return (
         <Box flexDirection="column" gap={1}>
@@ -1523,6 +1545,7 @@ export function PurchaseFlowView({
                   selectedPlan.id,
                   'polling',
                   manualEntitlementRequirement,
+                  purchaseAttemptRef.current,
                 )
               } else if (value === 'back') setStep('plan-detail')
               else onDone(false)
@@ -1538,7 +1561,7 @@ export function PurchaseFlowView({
           qrCode={wooviPayment.qrCode}
           subscriptionId={wooviPayment.subscriptionId}
           onCancel={() => onDone(false)}
-          onConfirmed={() => void startEntitlementPolling(selectedPlan.id)}
+          onConfirmed={() => void startEntitlementPolling(selectedPlan.id, 'polling', 'paid', purchaseAttemptRef.current)}
           onError={(error) => {
             const presentation = describePurchaseError(
               error,

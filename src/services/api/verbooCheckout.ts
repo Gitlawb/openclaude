@@ -1,11 +1,13 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
+import { setTimeout as pause } from 'node:timers/promises'
+import { randomUUID, createHash } from 'node:crypto'
+import { commercialOperation } from './revenueJourney.js'
 import { z } from 'zod'
 
 import { VERBOO_API_BASE_URL } from '../../constants/oauth.js'
-import { logForDebugging } from '../../utils/debug.js'
-import { logError } from '../../utils/log.js'
 import { isValidCPF } from '../oauth/purchaseValidation.js'
 import {
+  VerbooApiError,
   parseApiEnvelope,
   parseRequest,
   toVerbooApiError,
@@ -41,6 +43,9 @@ const checkoutResultSchema = z.discriminatedUnion('mode', [
 const checkoutInputSchema = z
   .object({
     paymentMethod: z.enum(['stripe', 'woovi']),
+    billingInterval: z.enum(['month', 'year']).optional(),
+    requestId: z.string().uuid().optional(),
+    purchaseIntent: z.enum(['new', 'additional']).optional(),
     woovi: z
       .object({
         taxId: z
@@ -121,6 +126,9 @@ export type CheckoutResult = z.infer<typeof checkoutResultSchema>
 export type PaymentMethod = 'stripe' | 'woovi'
 export type WooviCheckoutData = { taxId: string; phone: string }
 export type CheckoutInput = {
+  billingInterval?: 'month' | 'year'
+  requestId?: string
+  purchaseIntent?: 'new' | 'additional'
   paymentMethod: PaymentMethod
   woovi?: WooviCheckoutData
 }
@@ -142,24 +150,76 @@ async function postAndParse<T>(
   body: unknown,
   schema: z.ZodType<T>,
   contractName: string,
+  operationId?: string,
 ): Promise<T> {
+  const observation = commercialOperation(endpoint.endsWith('/checkout') ? 'checkout_request' : 'trial_activation', operationId)
   try {
     const response = await axios.post(endpoint, body, {
-      headers: authHeaders(accessToken),
-      timeout: 15_000,
+      headers: {...authHeaders(accessToken), ...observation.headers},
+      timeout: 10_000,
     })
-    return parseApiEnvelope(schema, response.data, contractName)
+    const result = parseApiEnvelope(schema, response.data, contractName)
+    observation.complete()
+    return result
   } catch (error) {
     const apiError = toVerbooApiError(
       error,
       `Não foi possível concluir ${contractName}.`,
     )
-    logError(apiError)
-    logForDebugging(
-      `[Checkout] ${apiError.code ?? apiError.kind}: ${apiError.message}`,
-    )
+    observation.fail(apiError)
     throw apiError
   }
+}
+
+const checkoutRequests = new Map<string, string>()
+function checkoutRequest(accessToken: string, groupId: string, input: CheckoutInput): string {
+  if (input.requestId) return input.requestId
+  let actor = accessToken
+  try {
+    const claims = JSON.parse(Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8'))
+    if (typeof claims.sub === 'string' && z.string().uuid().safeParse(claims.sub).success) actor = claims.sub
+  } catch { /* Opaque tokens remain bound to their exact authenticated token. */ }
+  const binding = createHash('sha256').update(JSON.stringify([actor, groupId, input])).digest('hex')
+  let id = checkoutRequests.get(binding)
+  if (!id) {id = randomUUID();checkoutRequests.set(binding, id)}
+  return id
+}
+
+async function commercialGet(url: string, config: AxiosRequestConfig) {
+  const started = Date.now()
+  for (let attempt = 1; ; attempt++) {
+    try { return await axios.get(url, {...config, timeout: Math.min(10_000, 35_000-(Date.now()-started))}) }
+    catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined
+      const retryable = axios.isAxiosError(error) && error.code !== 'ERR_CANCELED' && (!status || [408,429,500,502,503,504].includes(status))
+      const header = axios.isAxiosError(error) ? error.response?.headers?.['retry-after'] : undefined
+      const seconds = header === undefined ? NaN : Number(header)
+      const retryAfter = Number.isFinite(seconds) ? seconds*1000 : typeof header==='string' ? Date.parse(header)-Date.now() : 0
+      const delay = Math.max(250*attempt, Number.isFinite(retryAfter) ? retryAfter : 0)
+      if (!retryable || attempt===3 || config.signal?.aborted || Date.now()-started+delay+10_000>35_000) throw error
+      await pause(delay, undefined, {signal:config.signal as AbortSignal | undefined})
+    }
+  }
+}
+
+export async function getPurchaseOptions(accessToken: string, groupId: string, billingInterval: 'month' | 'year') {
+  const observation = commercialOperation('catalog')
+  try {
+    const response = await commercialGet(`${VERBOO_API_BASE_URL}/api/me/groups/${groupId}/purchase-options`, {headers: {...authHeaders(accessToken), ...observation.headers},params: {billingInterval},timeout: 10_000})
+    const result = parseApiEnvelope(z.object({version: z.literal(1),groupId: z.string().uuid(),billingInterval: z.enum(['month', 'year']),recommendation: z.enum(['checkout', 'choose', 'change', 'manage', 'convert', 'resume', 'recover', 'support'])}),response.data,'opções de compra')
+    if (result.groupId !== groupId || result.billingInterval !== billingInterval) throw new VerbooApiError({kind:'contract',code:'contract_error',message:'Opções de compra incompatíveis.'})
+    observation.complete();return result
+  } catch (error) {observation.fail(error);throw toVerbooApiError(error,'Não foi possível consultar as opções de compra.')}
+}
+export async function isPurchaseAttemptSucceeded(accessToken: string, attemptId: string, groupId: string, signal?: AbortSignal): Promise<boolean> {
+  const observation = commercialOperation('payment_return', attemptId)
+  try {
+    const response = await commercialGet(`${VERBOO_API_BASE_URL}/api/me/purchase-attempts/${attemptId}`, {headers: {...authHeaders(accessToken), ...observation.headers},signal,timeout:10_000})
+    const attempt = parseApiEnvelope(z.object({id:z.string().uuid(),groupId:z.string().uuid(),status:z.enum(['pending','requires_action','succeeded','failed','expired','review'])}),response.data,'confirmação da compra')
+    if (attempt.id !== attemptId || attempt.groupId !== groupId) throw new VerbooApiError({kind:'contract',code:'contract_error',message:'Identidade de compra incompatível.'})
+    if (['failed','expired','review'].includes(attempt.status)) throw new VerbooApiError({kind:'request',code:`purchase_attempt_${attempt.status}`,message:'A compra exige revisão no billing.'})
+    observation.complete();return attempt.status === 'succeeded'
+  } catch (error) {observation.fail(error);throw toVerbooApiError(error,'Não foi possível confirmar esta compra.')}
 }
 
 export async function createCheckoutSession(
@@ -167,14 +227,19 @@ export async function createCheckoutSession(
   groupId: string,
   input: CheckoutInput,
 ): Promise<CheckoutResult> {
-  parseRequest(z.string().uuid(), groupId, 'checkout')
-  const request = parseRequest(checkoutInputSchema, input, 'checkout')
+  const requestId = checkoutRequest(accessToken,groupId,input)
+  let request: z.infer<typeof checkoutInputSchema>
+  try {
+    parseRequest(z.string().uuid(), groupId, 'checkout')
+    request = parseRequest(checkoutInputSchema, {...input, requestId, purchaseIntent: input.purchaseIntent ?? 'new'}, 'checkout')
+  } catch (error) { commercialOperation('checkout_request', requestId).fail(error); throw error }
   return postAndParse(
     `${VERBOO_API_BASE_URL}/api/me/groups/${groupId}/checkout`,
     accessToken,
     request,
     checkoutResultSchema,
     'o checkout',
+    requestId,
   )
 }
 

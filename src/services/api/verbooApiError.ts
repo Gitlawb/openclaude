@@ -71,15 +71,15 @@ export function toVerbooApiError(
     }
     return new VerbooApiError({
       message: fallbackMessage,
-      kind: 'network',
-      code: 'network_error',
+      kind: error.code === 'ERR_CANCELED' ? 'request' : 'network',
+      code: error.code === 'ERR_CANCELED' ? 'request_cancelled' : ['ECONNABORTED','ETIMEDOUT'].includes(error.code ?? '') ? 'request_timeout' : 'network_error',
     })
   }
 
   return new VerbooApiError({
     message: fallbackMessage,
-    kind: 'network',
-    code: 'network_error',
+    kind: 'request',
+    code: 'unknown',
   })
 }
 
