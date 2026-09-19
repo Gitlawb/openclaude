@@ -1324,7 +1324,8 @@ export async function revalidatePlanModePermissionAllow(
   }
   if (
     !planModeWasActive &&
-    context.getAppState().toolPermissionContext.mode !== 'plan'
+    context.getAppState().toolPermissionContext.mode !== 'plan' &&
+    context.getRootAppState?.().toolPermissionContext.mode !== 'plan'
   ) {
     return null
   }
@@ -1378,7 +1379,8 @@ export async function revalidatePlanModePermissionAllowWithRaceGuard(
   context: ToolUseContext,
   planModeWasActive =
     typeof context.getAppState === 'function' &&
-    context.getAppState().toolPermissionContext.mode === 'plan',
+    (context.getAppState().toolPermissionContext.mode === 'plan' ||
+      context.getRootAppState?.().toolPermissionContext.mode === 'plan'),
 ): Promise<PermissionDecision | null> {
   let revalidation = await revalidatePlanModePermissionAllow(
     tool,
@@ -1390,7 +1392,8 @@ export async function revalidatePlanModePermissionAllowWithRaceGuard(
   const enforcePlanMode =
     planModeWasActive ||
     (typeof context.getAppState === 'function' &&
-      context.getAppState().toolPermissionContext.mode === 'plan')
+      (context.getAppState().toolPermissionContext.mode === 'plan' ||
+        context.getRootAppState?.().toolPermissionContext.mode === 'plan'))
   if (!revalidation && enforcePlanMode && !planModeWasActive) {
     revalidation = await revalidatePlanModePermissionAllow(
       tool,

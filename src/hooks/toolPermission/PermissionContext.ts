@@ -182,17 +182,18 @@ function createPermissionContext(
       }
       if (validatedUpdates.length === 0) return false
       const latestAppState = toolUseContext.getAppState()
+      const rootAppState =
+        toolUseContext.getRootAppState?.() ?? latestAppState
       const updatesToApply =
         hookPlanModeWasActive === undefined
           ? validatedUpdates
           : filterPermissionRequestHookUpdates(
               validatedUpdates,
               hookPlanModeWasActive ||
-                latestAppState.toolPermissionContext.mode === 'plan',
+                latestAppState.toolPermissionContext.mode === 'plan' ||
+                rootAppState.toolPermissionContext.mode === 'plan',
             )
       if (updatesToApply.length === 0) return false
-      const rootAppState =
-        toolUseContext.getRootAppState?.() ?? latestAppState
       const updatedContext = applyPermissionUpdatesToLiveContext(
         rootAppState.toolPermissionContext,
         updatesToApply,

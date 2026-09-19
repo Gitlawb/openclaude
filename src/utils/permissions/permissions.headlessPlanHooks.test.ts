@@ -182,6 +182,83 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     ])
   })
 
+  test('agent permission updates cannot escape root plan mode', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'AgentRootPlanReadTool',
+      isReadOnly: () => true,
+    })
+    const rootPermissionContext: ToolPermissionContext = {
+      mode: 'plan',
+      additionalWorkingDirectories: new Map(),
+      alwaysAllowRules: {},
+      alwaysDenyRules: {},
+      alwaysAskRules: {},
+      isBypassPermissionsModeAvailable: true,
+    }
+    const childPermissionContext: ToolPermissionContext = {
+      ...rootPermissionContext,
+      mode: 'acceptEdits',
+    }
+    let persistedContext: ToolPermissionContext | undefined
+    const context = {
+      abortController: new AbortController(),
+      getAppState: () => ({ toolPermissionContext: childPermissionContext }),
+      getRootAppState: () => ({ toolPermissionContext: rootPermissionContext }),
+      options: {},
+    } as unknown as ToolUseContext
+    const permissionContext = createPermissionContext(
+      readTool,
+      {},
+      context,
+      { message: { id: 'assistant-message' } } as never,
+      'agent-root-plan-permission-persistence',
+      nextContext => {
+        persistedContext = nextContext
+      },
+    )
+
+    const result = await permissionContext.handleUserAllow({}, [
+      {
+        type: 'addRules',
+        rules: [{ toolName: 'ApprovedFromAgent' }],
+        behavior: 'allow',
+        destination: 'session',
+      },
+    ])
+
+    expect(result.behavior).toBe('allow')
+    expect(persistedContext).toBeUndefined()
+  })
+
+  test('agent mutation approval respects root plan mode', async () => {
+    const mutationTool = createToolFixture(z.object({}), {
+      name: 'AgentRootPlanMutationTool',
+      isReadOnly: () => false,
+    })
+    const state = planContext({ mode: 'acceptEdits' })
+    state.context.getRootAppState = () => ({
+      toolPermissionContext: {
+        ...state.getPermissionContext(),
+        mode: 'plan',
+      },
+    }) as never
+    const permissionContext = createPermissionContext(
+      mutationTool,
+      {},
+      state.context,
+      { message: { id: 'assistant-message' } } as never,
+      'agent-root-plan-mutation',
+      state.setPermissionContext,
+    )
+
+    const result = await permissionContext.handleUserAllow({}, [])
+
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      decisionReason: { type: 'mode', mode: 'plan' },
+    })
+  })
+
   test('interactive user approval cannot rewrite a read into a mutation', async () => {
     const conditionalTool = createToolFixture(
       z.object({ operation: z.enum(['read', 'write']) }),
