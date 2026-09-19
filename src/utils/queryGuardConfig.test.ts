@@ -38,6 +38,15 @@ describe('query guard config', () => {
     ).toEqual({ idleTimeoutMs: 600_000, hardMaxQueryMs: 3_600_000 })
     expect(
       getQueryGuardOptionsFromEnv(
+        {
+          OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: '3600000',
+          OPENCLAUDE_QUERY_HARD_MAX_MS: '1800000',
+        },
+        warn,
+      ),
+    ).toEqual({ idleTimeoutMs: 3_600_000, hardMaxQueryMs: 1_800_000 })
+    expect(
+      getQueryGuardOptionsFromEnv(
         { OPENCLAUDE_QUERY_HARD_MAX_MS: String(DEFAULT_QUERY_HARD_MAX_MS) },
         warn,
       ),
