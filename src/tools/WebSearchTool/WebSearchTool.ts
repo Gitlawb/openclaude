@@ -122,7 +122,7 @@ function buildEmptyAdapterResultHint(provider: string, providerName: string): st
     `No results from "${providerName}" search backend for provider "${provider}". ` +
     `The default DuckDuckGo backend is rate-limited from many networks (datacenter IPs, VPNs, repeated requests) and returns 0 results when blocked. ` +
     `For reliable web search on this provider, set one of: ` +
-    `OLLAMA_API_KEY, FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, JINA_API_KEY, BING_API_KEY, MOJEEK_API_KEY, LINKUP_API_KEY, YOU_API_KEY — ` +
+    `OLLAMA_BASE_URL, OLLAMA_API_KEY, FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, JINA_API_KEY, BING_API_KEY, MOJEEK_API_KEY, LINKUP_API_KEY, YOU_API_KEY — ` +
     `or switch to an Anthropic / Vertex / Foundry provider that supports the native web_search tool.`
   )
 }

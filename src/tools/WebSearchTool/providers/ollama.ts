@@ -8,6 +8,7 @@
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
 import { fetchJsonWithWebSearchTimeout } from './timeout.js'
+import { sanitizeApiKey } from '../../../utils/providerSecrets.js'
 
 const OLLAMA_HOSTED_WEB_SEARCH_URL = 'https://ollama.com/api/web_search'
 
@@ -36,12 +37,7 @@ export function getUsableOllamaBaseUrlEnvValue(
 export function getUsableOllamaApiKey(
   value: string | undefined,
 ): string | undefined {
-  const trimmed = nonEmpty(value)
-  if (!trimmed) return undefined
-  const normalized = trimmed.toLowerCase()
-  return normalized === 'undefined' || normalized === 'null'
-    ? undefined
-    : trimmed
+  return sanitizeApiKey(value)?.trim()
 }
 
 function isTruthyEnv(value: string | undefined): boolean {

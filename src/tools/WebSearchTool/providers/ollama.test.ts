@@ -59,7 +59,7 @@ describe('ollamaProvider', () => {
     expect(ollamaProvider.isConfigured()).toBe(true)
   })
 
-  test.each(['undefined', 'null'])(
+  test.each(['undefined', 'null', 'SUA_CHAVE', ' sua_chave '])(
     'does not configure hosted search for an %s API key placeholder',
     async placeholder => {
       process.env.OLLAMA_API_KEY = placeholder

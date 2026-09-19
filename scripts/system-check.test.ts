@@ -514,7 +514,7 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
-  test.each(['undefined', 'null'])(
+  test.each(['undefined', 'null', 'SUA_CHAVE', ' sua_chave '])(
     'does not report hosted fallback for an %s Ollama key placeholder in auto mode',
     placeholder => {
       useOpenAICompatibleProvider()
@@ -650,7 +650,7 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
-  test.each(['undefined', 'null'])(
+  test.each(['undefined', 'null', 'SUA_CHAVE', ' sua_chave '])(
     'does not treat an %s Ollama key placeholder as hosted fallback',
     placeholder => {
       process.env.WEB_SEARCH_PROVIDER = 'ollama'
