@@ -5,8 +5,6 @@
  * endpoint. An API key enables the hosted endpoint as a fallback.
  */
 
-import { resolveActiveRouteIdFromEnv } from '../../../integrations/routeMetadata.js'
-import { getOllamaApiBaseUrl } from '../../../utils/providerDiscovery.js'
 import type { SearchInput, SearchProvider } from './types.js'
 import { applyDomainFilters, safeHostname, type ProviderOutput } from './types.js'
 import { fetchJsonWithWebSearchTimeout } from './timeout.js'
@@ -24,6 +22,44 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+function isTruthyEnv(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+    normalized !== '0' &&
+    normalized !== 'false' &&
+    normalized !== 'no',
+  )
+}
+
+function looksLikeOllamaBaseUrl(value: string | undefined): boolean {
+  const trimmed = nonEmpty(value)
+  if (!trimmed) return false
+
+  try {
+    const parsed = new URL(trimmed)
+    const host = parsed.host.toLowerCase()
+    const haystack = `${parsed.hostname} ${parsed.pathname}`.toLowerCase()
+    return host.endsWith(':11434') || haystack.includes('ollama')
+  } catch {
+    return false
+  }
+}
+
+function normalizeOllamaApiBaseUrl(value: string): string {
+  const parsed = new URL(value)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('configured endpoint is not a valid HTTP(S) URL')
+  }
+  const pathname = parsed.pathname.replace(/\/+$/, '')
+  parsed.pathname = pathname.endsWith('/v1')
+    ? pathname.slice(0, -3) || '/'
+    : pathname || '/'
+  parsed.search = ''
+  parsed.hash = ''
+  return parsed.toString().replace(/\/+$/, '')
+}
+
 function isAbortError(error: unknown, signal?: AbortSignal): boolean {
   return (
     signal?.aborted === true ||
@@ -35,24 +71,38 @@ function getConfiguredLocalBaseUrl(): string | undefined {
   const explicitOllamaBaseUrl = nonEmpty(process.env.OLLAMA_BASE_URL)
   if (explicitOllamaBaseUrl) return explicitOllamaBaseUrl
 
-  if (resolveActiveRouteIdFromEnv(process.env) !== 'ollama') return undefined
+  if (!isTruthyEnv(process.env.CLAUDE_CODE_USE_OPENAI)) return undefined
 
-  return (
+  const openAIBaseUrl =
     nonEmpty(process.env.OPENAI_BASE_URL) ??
     nonEmpty(process.env.OPENAI_API_BASE)
-  )
+  const markedOllamaRoute =
+    nonEmpty(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID)?.toLowerCase() === 'ollama'
+  if (!markedOllamaRoute && !looksLikeOllamaBaseUrl(openAIBaseUrl)) {
+    return undefined
+  }
+
+  return openAIBaseUrl
 }
 
-function getSearchTargets(): OllamaSearchTarget[] {
+function getSearchTargets(): {
+  targets: OllamaSearchTarget[]
+  errors: string[]
+} {
   const targets: OllamaSearchTarget[] = []
+  const errors: string[] = []
   const localBaseUrl = getConfiguredLocalBaseUrl()
   const apiKey = nonEmpty(process.env.OLLAMA_API_KEY)
 
   if (localBaseUrl) {
-    targets.push({
-      label: 'local',
-      url: `${getOllamaApiBaseUrl(localBaseUrl)}/api/experimental/web_search`,
-    })
+    try {
+      targets.push({
+        label: 'local',
+        url: `${normalizeOllamaApiBaseUrl(localBaseUrl)}/api/experimental/web_search`,
+      })
+    } catch {
+      errors.push('local: configured endpoint is not a valid HTTP(S) URL')
+    }
   }
 
   if (apiKey) {
@@ -63,22 +113,24 @@ function getSearchTargets(): OllamaSearchTarget[] {
     })
   }
 
-  return targets
+  return { targets, errors }
 }
 
 export const ollamaProvider: SearchProvider = {
   name: 'ollama',
 
   isConfigured() {
-    return getSearchTargets().length > 0
+    return getSearchTargets().targets.length > 0
   },
 
   async search(input: SearchInput, signal?: AbortSignal): Promise<ProviderOutput> {
     const start = performance.now()
-    const targets = getSearchTargets()
-    const errors: string[] = []
+    const { targets, errors } = getSearchTargets()
 
     if (targets.length === 0) {
+      if (errors.length > 0) {
+        throw new Error(`Ollama web search failed (${errors.join('; ')})`)
+      }
       throw new Error(
         'Ollama search requires an active Ollama provider, OLLAMA_BASE_URL, or OLLAMA_API_KEY.',
       )

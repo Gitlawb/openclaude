@@ -87,6 +87,7 @@ test('matching persisted ollama env is reused for ollama launch', async () => {
 
   assert.equal(env.OPENAI_BASE_URL, 'http://127.0.0.1:11435/v1')
   assert.equal(env.OPENAI_MODEL, 'mistral:7b-instruct')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'ollama')
 })
 
 test('ollama launch ignores mismatched persisted openai env and shell model fallback', async () => {
@@ -111,6 +112,7 @@ test('ollama launch ignores mismatched persisted openai env and shell model fall
 
   assert.equal(env.OPENAI_BASE_URL, 'http://localhost:11434/v1')
   assert.equal(env.OPENAI_MODEL, 'qwen2.5-coder:7b')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'ollama')
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.CODEX_API_KEY, undefined)
   assert.equal(env.CHATGPT_ACCOUNT_ID, undefined)
@@ -1576,6 +1578,7 @@ test('ollama profiles never persist openai api keys', () => {
   assert.deepEqual(env, {
     OPENAI_BASE_URL: 'http://localhost:11434/v1',
     OPENAI_MODEL: 'llama3.1:8b',
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'ollama',
   })
   assert.equal('OPENAI_API_KEY' in env, false)
 })

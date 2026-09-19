@@ -516,7 +516,7 @@ describe('system-check WebSearch diagnostics', () => {
     process.env.WEB_SEARCH_PROVIDER = 'ollama'
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
-    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    process.env.OPENAI_BASE_URL = 'https://models.example.com/v1'
 
     expectWebSearchBackend(
       true,
@@ -541,6 +541,27 @@ describe('system-check WebSearch diagnostics', () => {
     expectWebSearchBackend(
       false,
       'WEB_SEARCH_PROVIDER=ollama but an active Ollama provider, OLLAMA_BASE_URL, or OLLAMA_API_KEY is missing.',
+    )
+  })
+
+  test('diagnoses malformed Ollama local configuration without throwing', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    process.env.OLLAMA_BASE_URL = 'not a url'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+    )
+  })
+
+  test('reports hosted fallback when the Ollama local URL is malformed', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    process.env.OLLAMA_BASE_URL = 'not a url'
+    process.env.OLLAMA_API_KEY = 'ollama-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
     )
   })
 

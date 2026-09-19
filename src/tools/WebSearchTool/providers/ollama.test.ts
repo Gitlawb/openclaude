@@ -10,6 +10,7 @@ const savedEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
   OLLAMA_API_KEY: process.env.OLLAMA_API_KEY,
 }
@@ -25,6 +26,7 @@ function clearOllamaEnv(): void {
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
   delete process.env.OLLAMA_BASE_URL
   delete process.env.OLLAMA_API_KEY
 }
@@ -54,6 +56,14 @@ describe('ollamaProvider', () => {
     delete process.env.CLAUDE_CODE_USE_OPENAI
     delete process.env.OPENAI_BASE_URL
     process.env.OLLAMA_API_KEY = 'ollama-test-key'
+    expect(ollamaProvider.isConfigured()).toBe(true)
+  })
+
+  test('uses the Ollama route marker for a reverse-proxied active profile', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+    process.env.OPENAI_BASE_URL = 'https://models.example.com/v1'
+
     expect(ollamaProvider.isConfigured()).toBe(true)
   })
 
@@ -135,6 +145,33 @@ describe('ollamaProvider', () => {
       'Bearer ollama-test-key',
     )
     expect(output.hits[0]?.title).toBe('Hosted result')
+  })
+
+  test('skips a malformed local URL and uses the hosted API', async () => {
+    process.env.OLLAMA_BASE_URL = 'not a url'
+    process.env.OLLAMA_API_KEY = 'ollama-test-key'
+
+    let requestUrl = ''
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requestUrl = String(input)
+      return Response.json({
+        results: [{ title: 'Hosted', url: 'https://example.com/hosted' }],
+      })
+    }) as typeof fetch
+
+    const output = await ollamaProvider.search({ query: 'fallback' })
+
+    expect(requestUrl).toBe('https://ollama.com/api/web_search')
+    expect(output.hits[0]?.title).toBe('Hosted')
+  })
+
+  test('reports malformed local-only configuration without throwing from discovery', async () => {
+    process.env.OLLAMA_BASE_URL = 'not a url'
+
+    expect(ollamaProvider.isConfigured()).toBe(false)
+    await expect(
+      ollamaProvider.search({ query: 'invalid local' }),
+    ).rejects.toThrow('configured endpoint is not a valid HTTP(S) URL')
   })
 
   test('applies shared domain filters to Ollama results', async () => {

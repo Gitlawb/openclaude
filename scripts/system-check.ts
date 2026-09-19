@@ -390,6 +390,27 @@ function buildFirecrawlWebSearchCheck(): CheckResult {
 }
 
 function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
+  if (ollamaBaseUrl) {
+    try {
+      const parsed = new URL(ollamaBaseUrl)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('unsupported protocol')
+      }
+    } catch {
+      if (process.env.OLLAMA_API_KEY) {
+        return pass(
+          'Web search backend',
+          'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
+        )
+      }
+      return fail(
+        'Web search backend',
+        'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+      )
+    }
+  }
+
   if (!providerConfigured) {
     return fail(
       'Web search backend',
@@ -401,7 +422,9 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
   if (process.env.OLLAMA_BASE_URL) configured.push('OLLAMA_BASE_URL')
   if (process.env.OLLAMA_API_KEY) configured.push('OLLAMA_API_KEY')
   if (
-    resolveActiveRouteIdFromEnv(process.env) === 'ollama' &&
+    (resolveActiveRouteIdFromEnv(process.env) === 'ollama' ||
+      (isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
+        process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim().toLowerCase() === 'ollama')) &&
     (process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE)
   ) {
     configured.push('active Ollama provider endpoint')

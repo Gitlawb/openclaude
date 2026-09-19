@@ -24,6 +24,7 @@ const savedWebSearchEnv = {
   CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   OPENAI_API_BASE: process.env.OPENAI_API_BASE,
+  CLAUDE_CODE_PROVIDER_ROUTE_ID: process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID,
 }
 
 const originalFetch = globalThis.fetch
@@ -71,6 +72,7 @@ function configureAutoModeWithOnlyBrave(): void {
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.OPENAI_BASE_URL
   delete process.env.OPENAI_API_BASE
+  delete process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID
 }
 
 function mockDuckDuckGoSearch(
@@ -305,6 +307,20 @@ describe('runSearch', () => {
     expect(ollamaCalls).toBe(1)
     expect(output.providerName).toBe('duckduckgo')
     expect(output.hits[0]?.title).toBe('DuckDuckGo fallback')
+  })
+
+  test('malformed local Ollama configuration falls through to DuckDuckGo', async () => {
+    process.env.WEB_SEARCH_PROVIDER = 'auto'
+    process.env.OLLAMA_BASE_URL = 'not a url'
+    delete process.env.OLLAMA_API_KEY
+    mockDuckDuckGoSearch(async () => ({
+      results: [{ title: 'Fallback', url: 'https://example.com/fallback' }],
+    }))
+
+    const { runSearch } = await import('./index.js')
+    const output = await runSearch({ query: 'invalid Ollama URL' })
+
+    expect(output.providerName).toBe('duckduckgo')
   })
 
   test('auto mode does not fall through after caller abort', async () => {

@@ -405,6 +405,7 @@ export function buildOllamaProfileEnv(
   return {
     OPENAI_BASE_URL: options.getOllamaChatBaseUrl(options.baseUrl ?? undefined),
     OPENAI_MODEL: model,
+    CLAUDE_CODE_PROVIDER_ROUTE_ID: 'ollama',
   }
 }
 
@@ -1982,6 +1983,7 @@ export async function buildLaunchEnv(options: {
         OPENAI_MODEL:
           persistedOpenAIModel ||
           (await resolveOllamaModel(options.goal)),
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'ollama',
       },
     })
   }
