@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { InterruptionCorrectionTracker } from '../utils/interruptionCorrection.js'
 import { QueryGuard } from '../utils/QueryGuard.js'
+import { tryStartQueryWithConfiguredIdleTimeout } from '../utils/queryGuardConfig.js'
 
 const source = readFileSync(join(import.meta.dirname, 'REPL.tsx'), 'utf8')
 
@@ -33,17 +34,59 @@ function getOnQueryImplBody(): string {
 }
 
 describe('REPL query lifecycle timeout logging', () => {
-  test('constructs QueryGuard with resolved timeout config', () => {
-    expect(source).toContain(
-      "import { getConfiguredQueryIdleTimeoutMs, getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js'",
+  test('applies the resolved timeout before starting the query', () => {
+    const calls: string[] = []
+    const guard = {
+      setIdleTimeoutMs(timeoutMs: number) {
+        calls.push(`set:${timeoutMs}`)
+        return true
+      },
+      tryStart(metadata: { queryId: string; querySource: string }) {
+        calls.push(`start:${metadata.queryId}`)
+        return {
+          generation: 1,
+          context: {
+            ...metadata,
+            queryGeneration: 1,
+            startedAt: 1,
+          },
+        }
+      },
+    }
+
+    const result = tryStartQueryWithConfiguredIdleTimeout(
+      guard,
+      { queryId: 'query-1', querySource: 'repl_main_thread', startedAt: 1 },
+      {},
+      15 * 60 * 1000,
     )
-    expect(source).toContain('new QueryGuard(getQueryGuardOptionsFromEnv())')
-    expect(source).toContain(
-      'getConfiguredQueryIdleTimeoutMs(process.env, getGlobalConfig().queryIdleTimeoutMs)',
-    )
-    expect(source).toContain(
-      'queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs)',
-    )
+
+    expect(result?.generation).toBe(1)
+    expect(calls).toEqual(['set:900000', 'start:query-1'])
+  })
+
+  test('preserves an environment-owned timeout when starting the query', () => {
+    const calls: string[] = []
+    const guard = {
+      setIdleTimeoutMs(timeoutMs: number) {
+        calls.push(`set:${timeoutMs}`)
+        return true
+      },
+      tryStart() {
+        calls.push('start')
+        return null
+      },
+    }
+
+    expect(
+      tryStartQueryWithConfiguredIdleTimeout(
+        guard,
+        { queryId: 'query-2', querySource: 'repl_main_thread' },
+        { OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: '600000' },
+        15 * 60 * 1000,
+      ),
+    ).toBeNull()
+    expect(calls).toEqual(['start'])
   })
 
   test('clears interruption-correction state before resuming another session', () => {

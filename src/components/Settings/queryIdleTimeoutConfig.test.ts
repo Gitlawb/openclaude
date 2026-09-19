@@ -1,13 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   DEFAULT_GLOBAL_CONFIG,
   GLOBAL_CONFIG_KEYS,
   isGlobalConfigKey,
+  type GlobalConfig,
 } from '../../utils/config.js'
-
-const source = readFileSync(join(import.meta.dirname, 'Config.tsx'), 'utf8')
+import { createQueryIdleTimeoutSetting } from './queryIdleTimeoutSetting.js'
 
 describe('/config query idle timeout', () => {
   test('registers the persisted global preference', () => {
@@ -16,19 +14,41 @@ describe('/config query idle timeout', () => {
     expect(DEFAULT_GLOBAL_CONFIG.queryIdleTimeoutMs).toBeUndefined()
   })
 
-  test('renders and persists the setting beside interactive query controls', () => {
-    const maxTurnsIndex = source.indexOf("id: 'replMaxTurns'")
-    const idleTimeoutIndex = source.indexOf("id: 'queryIdleTimeoutMs'")
-    const nextSettingIndex = source.indexOf(
-      "id: 'toolHistoryCompressionEnabled'",
-      idleTimeoutIndex,
-    )
+  test('selects, persists, and displays the interactive setting', () => {
+    let persistedConfig: GlobalConfig = {
+      ...DEFAULT_GLOBAL_CONFIG,
+      queryIdleTimeoutMs: 5 * 60 * 1000,
+    }
+    let displayedConfig = persistedConfig
+    const loggedValues: number[] = []
+    const dependencies = {
+      saveGlobalConfig(updater: (current: GlobalConfig) => GlobalConfig) {
+        persistedConfig = updater(persistedConfig)
+      },
+      getGlobalConfig: () => persistedConfig,
+      setGlobalConfig(config: GlobalConfig) {
+        displayedConfig = config
+      },
+      logChange(timeoutMs: number) {
+        loggedValues.push(timeoutMs)
+      },
+    }
 
-    expect(maxTurnsIndex).toBeGreaterThan(-1)
-    expect(idleTimeoutIndex).toBeGreaterThan(maxTurnsIndex)
-    expect(nextSettingIndex).toBeGreaterThan(idleTimeoutIndex)
-    expect(source).toContain("label: 'Query idle timeout'")
-    expect(source).toContain('queryIdleTimeoutMs\n      })')
-    expect(source).toContain('Set query idle timeout to')
+    const initialSetting = createQueryIdleTimeoutSetting(
+      displayedConfig,
+      dependencies,
+    )
+    expect(initialSetting.label).toBe('Query idle timeout')
+    expect(initialSetting.value).toBe('5 min')
+    expect(initialSetting.options).toContain('15 min')
+
+    initialSetting.onChange('15 min')
+
+    expect(persistedConfig.queryIdleTimeoutMs).toBe(15 * 60 * 1000)
+    expect(displayedConfig.queryIdleTimeoutMs).toBe(15 * 60 * 1000)
+    expect(loggedValues).toEqual([15 * 60 * 1000])
+    expect(
+      createQueryIdleTimeoutSetting(displayedConfig, dependencies).value,
+    ).toBe('15 min')
   })
 })

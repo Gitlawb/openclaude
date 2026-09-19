@@ -1,4 +1,10 @@
-import { DEFAULT_QUERY_IDLE_TIMEOUT_MS } from './QueryGuard.js'
+import {
+  DEFAULT_QUERY_IDLE_TIMEOUT_MS,
+} from './QueryGuard.js'
+import type {
+  QueryGuardMetadata,
+  QueryGuardStart,
+} from './queryLifecycle.js'
 
 export const OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV =
   'OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS'
@@ -26,6 +32,11 @@ type DebugLogger = (
 export type QueryGuardResolvedOptions = {
   idleTimeoutMs?: number
   hardMaxQueryMs?: number
+}
+
+type QueryStartGuard = {
+  setIdleTimeoutMs(timeoutMs: number): boolean
+  tryStart(metadata: QueryGuardMetadata): QueryGuardStart | null
 }
 
 function warnInvalidQueryTimeout(
@@ -90,6 +101,23 @@ export function getConfiguredQueryIdleTimeoutMs(
 ): number | undefined {
   if (env[OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV]?.trim()) return undefined
   return normalizeQueryIdleTimeoutMs(configuredValue)
+}
+
+/** Apply the current preference before atomically starting the next query. */
+export function tryStartQueryWithConfiguredIdleTimeout(
+  queryGuard: QueryStartGuard,
+  metadata: QueryGuardMetadata,
+  env: EnvLike,
+  configuredValue: unknown,
+): QueryGuardStart | null {
+  const configuredIdleTimeoutMs = getConfiguredQueryIdleTimeoutMs(
+    env,
+    configuredValue,
+  )
+  if (configuredIdleTimeoutMs !== undefined) {
+    queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs)
+  }
+  return queryGuard.tryStart(metadata)
 }
 
 function getPositiveTimeoutFromEnv(

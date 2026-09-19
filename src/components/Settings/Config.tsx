@@ -12,7 +12,8 @@ import { normalizeApiKeyForConfig } from '../../utils/authPortable.js';
 import { getGlobalConfig, getAutoUpdaterDisabledReason, formatAutoUpdaterDisabledReason, getRemoteControlAtStartup } from '../../utils/config.js';
 import { normalizeCompactTailTurns } from '../../utils/relevancePruning.js';
 import { normalizeReplMaxTurns, REPL_MAX_TURNS_OPTIONS } from '../../utils/replMaxTurns.js';
-import { formatQueryIdleTimeoutMs, parseQueryIdleTimeoutOption, QUERY_IDLE_TIMEOUT_OPTIONS_MS } from '../../utils/queryGuardConfig.js';
+import { formatQueryIdleTimeoutMs } from '../../utils/queryGuardConfig.js';
+import { createQueryIdleTimeoutSetting } from './queryIdleTimeoutSetting.js';
 import chalk from 'chalk';
 import { getModeColor, permissionModeTitle, permissionModeFromString, toExternalPermissionMode, isExternalPermissionMode, PERMISSION_MODES, type ExternalPermissionMode, type PermissionMode } from '../../utils/permissions/PermissionMode.js';
 import { getAutoModeEnabledState, hasAutoModeOptInAnySource, transitionPlanAutoMode } from '../../utils/permissions/permissionSetup.js';
@@ -360,28 +361,16 @@ export function Config({
         value: replMaxTurnsValue as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  }, {
-    id: 'queryIdleTimeoutMs',
-    label: 'Query idle timeout',
-    // OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS remains the higher-priority override.
-    value: formatQueryIdleTimeoutMs(globalConfig.queryIdleTimeoutMs),
-    options: [...new Set([...QUERY_IDLE_TIMEOUT_OPTIONS_MS.map(formatQueryIdleTimeoutMs), formatQueryIdleTimeoutMs(globalConfig.queryIdleTimeoutMs)])],
-    type: 'enum' as const,
-    onChange(queryIdleTimeoutOption: string) {
-      const queryIdleTimeoutMs = parseQueryIdleTimeoutOption(queryIdleTimeoutOption);
-      saveGlobalConfig(current => ({
-        ...current,
-        queryIdleTimeoutMs
-      }));
-      setGlobalConfig({
-        ...getGlobalConfig(),
-        queryIdleTimeoutMs
-      });
+  }, createQueryIdleTimeoutSetting(globalConfig, {
+    saveGlobalConfig,
+    getGlobalConfig,
+    setGlobalConfig,
+    logChange(queryIdleTimeoutMs) {
       logEvent('tengu_query_idle_timeout_changed', {
         value: String(queryIdleTimeoutMs) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS
       });
     }
-  }, {
+  }), {
     id: 'toolHistoryCompressionEnabled',
     label: 'Tool history compression',
     value: globalConfig.toolHistoryCompressionEnabled,
