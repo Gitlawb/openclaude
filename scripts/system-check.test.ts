@@ -565,6 +565,17 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test('does not treat a whitespace-only Ollama key as hosted fallback', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    process.env.OLLAMA_BASE_URL = 'not a url'
+    process.env.OLLAMA_API_KEY = '   '
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+    )
+  })
+
   test('reports supported native mode without requiring API-backed provider credentials', () => {
     process.env.WEB_SEARCH_PROVIDER = 'native'
 

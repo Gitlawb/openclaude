@@ -391,6 +391,7 @@ function buildFirecrawlWebSearchCheck(): CheckResult {
 
 function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
+  const ollamaApiKey = process.env.OLLAMA_API_KEY?.trim()
   if (ollamaBaseUrl) {
     try {
       const parsed = new URL(ollamaBaseUrl)
@@ -398,7 +399,7 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
         throw new Error('unsupported protocol')
       }
     } catch {
-      if (process.env.OLLAMA_API_KEY) {
+      if (ollamaApiKey) {
         return pass(
           'Web search backend',
           'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
@@ -420,7 +421,7 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
 
   const configured: string[] = []
   if (process.env.OLLAMA_BASE_URL) configured.push('OLLAMA_BASE_URL')
-  if (process.env.OLLAMA_API_KEY) configured.push('OLLAMA_API_KEY')
+  if (ollamaApiKey) configured.push('OLLAMA_API_KEY')
   if (
     (resolveActiveRouteIdFromEnv(process.env) === 'ollama' ||
       (isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&

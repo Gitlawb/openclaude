@@ -67,6 +67,16 @@ describe('ollamaProvider', () => {
     expect(ollamaProvider.isConfigured()).toBe(true)
   })
 
+  test('does not infer Ollama from an unrelated hostname substring', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'https://api.notollama.example/v1'
+
+    expect(ollamaProvider.isConfigured()).toBe(false)
+
+    process.env.OPENAI_BASE_URL = 'https://ollama.internal/v1'
+    expect(ollamaProvider.isConfigured()).toBe(true)
+  })
+
   test('uses the signed-in local endpoint and maps structured results', async () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'

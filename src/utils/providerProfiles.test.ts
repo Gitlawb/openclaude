@@ -343,7 +343,31 @@ function buildCloudflareProfile(overrides: Partial<ProviderProfile> = {}): Provi
   })
 }
 
+function buildOllamaProfile(
+  overrides: Partial<ProviderProfile> = {},
+): ProviderProfile {
+  return buildProfile({
+    provider: 'ollama',
+    name: 'Ollama',
+    baseUrl: 'https://models.example.com/v1',
+    model: 'deepseek-v4-flash:cloud',
+    apiKey: '',
+    ...overrides,
+  })
+}
+
 describe('applyProviderProfileToProcessEnv', () => {
+  test('marks a reverse-proxied Ollama profile for runtime discovery', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(buildOllamaProfile())
+
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://models.example.com/v1')
+    expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('ollama')
+  }, 20_000)
+
   test('LLMTR profile clears an ambient dedicated key so its saved key wins', async () => {
     const { applyProviderProfileToProcessEnv } =
       await importFreshProviderProfileModules()
@@ -3741,6 +3765,41 @@ describe('setActiveProviderProfile', () => {
       expect(persisted.env).toEqual({
         OPENAI_BASE_URL: 'http://localhost:11434/v1',
         OPENAI_MODEL: 'llama3.1:8b',
+      })
+    } finally {
+      process.chdir(originalCwd)
+      rmSync(tempDir, { recursive: true, force: true })
+      rmSync(configDir, { recursive: true, force: true })
+    }
+  })
+
+  test('persists the Ollama route marker for a reverse-proxied profile', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-'))
+    const configDir = mkdtempSync(join(tmpdir(), 'openclaude-provider-config-'))
+    process.chdir(tempDir)
+    process.env.CLAUDE_CONFIG_DIR = configDir
+
+    try {
+      const { setActiveProviderProfile } =
+        await importFreshProviderProfileModules()
+      const ollamaProfile = buildOllamaProfile({ id: 'ollama_proxy_prof' })
+
+      saveMockGlobalConfig(current => ({
+        ...current,
+        providerProfiles: [ollamaProfile],
+      }))
+
+      const result = setActiveProviderProfile('ollama_proxy_prof', { configDir })
+      const persisted = JSON.parse(
+        readFileSync(join(configDir, '.openclaude-profile.json'), 'utf8'),
+      )
+
+      expect(result?.id).toBe('ollama_proxy_prof')
+      expect(persisted.profile).toBe('openai')
+      expect(persisted.env).toEqual({
+        OPENAI_BASE_URL: 'https://models.example.com/v1',
+        OPENAI_MODEL: 'deepseek-v4-flash:cloud',
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'ollama',
       })
     } finally {
       process.chdir(originalCwd)

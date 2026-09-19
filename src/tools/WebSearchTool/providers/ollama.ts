@@ -39,8 +39,16 @@ function looksLikeOllamaBaseUrl(value: string | undefined): boolean {
   try {
     const parsed = new URL(trimmed)
     const host = parsed.host.toLowerCase()
-    const haystack = `${parsed.hostname} ${parsed.pathname}`.toLowerCase()
-    return host.endsWith(':11434') || haystack.includes('ollama')
+    const hostnameLabels = parsed.hostname.toLowerCase().split('.')
+    const pathSegments = parsed.pathname
+      .toLowerCase()
+      .split('/')
+      .filter(Boolean)
+    return (
+      host.endsWith(':11434') ||
+      hostnameLabels.includes('ollama') ||
+      pathSegments.includes('ollama')
+    )
   } catch {
     return false
   }

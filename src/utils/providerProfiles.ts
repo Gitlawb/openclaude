@@ -1241,6 +1241,13 @@ export function applyProviderProfileToProcessEnv(
           openAIProfileEnv.AIMLAPI_API_KEY ?? ambientAimlapiKey
       }
     }
+    // Preserve the selected Ollama route even when the profile points at a
+    // reverse proxy whose URL has no Ollama-specific hostname or port. Web
+    // search discovery uses this marker to distinguish that endpoint from a
+    // generic OpenAI-compatible profile.
+    if (route.routeId === 'ollama') {
+      openAIProfileEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+    }
     // Keep ApiSmart route identity even when the profile is retargeted to a
     // proxy. Dedicated credentials stay withheld above; the route id is what
     // lets buildLaunchEnv refuse ambient APISMART_API_KEY / mirrored
@@ -1643,6 +1650,9 @@ function buildOpenAICompatibleStartupEnv(
         strictEnv.AIMLAPI_API_KEY = activeProfile.apiKey
         strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
       }
+      if (activeProfileRouteId === 'ollama') {
+        strictEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+      }
       // Atlas Cloud is dedicatedCredentialsOnly: its route ignores
       // OPENAI_API_KEY, so a generic OpenAI profile pointed at Atlas must
       // persist the dedicated key too or it relaunches unauthenticated.
@@ -1707,6 +1717,9 @@ function buildOpenAICompatibleStartupEnv(
 
   if (isAimlapiProfile) {
     env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'aimlapi'
+  }
+  if (activeProfileRouteId === 'ollama') {
+    env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
   }
   // Preserve ApiSmart identity on retargeted/proxy startup envs so relaunch
   // withholding can refuse ambient dedicated credentials. Canonical profiles
