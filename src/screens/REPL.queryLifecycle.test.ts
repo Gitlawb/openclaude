@@ -34,6 +34,13 @@ function getOnQueryImplBody(): string {
 }
 
 describe('REPL query lifecycle timeout logging', () => {
+  test('wires the executable timeout boundary into the production query start', () => {
+    expect(source).toContain('new QueryGuard(getQueryGuardOptionsFromEnv())')
+    expect(source).toContain(
+      'const startResult = tryStartQueryWithConfiguredIdleTimeout(queryGuard, {',
+    )
+  })
+
   test('applies the resolved timeout before starting the query', () => {
     const calls: string[] = []
     const guard = {
@@ -65,7 +72,7 @@ describe('REPL query lifecycle timeout logging', () => {
     expect(calls).toEqual(['set:900000', 'start:query-1'])
   })
 
-  test('preserves an environment-owned timeout when starting the query', () => {
+  test('reapplies a runtime environment timeout before starting the query', () => {
     const calls: string[] = []
     const guard = {
       setIdleTimeoutMs(timeoutMs: number) {
@@ -78,15 +85,13 @@ describe('REPL query lifecycle timeout logging', () => {
       },
     }
 
-    expect(
-      tryStartQueryWithConfiguredIdleTimeout(
-        guard,
-        { queryId: 'query-2', querySource: 'repl_main_thread' },
-        { OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: '600000' },
-        15 * 60 * 1000,
-      ),
-    ).toBeNull()
-    expect(calls).toEqual(['start'])
+    tryStartQueryWithConfiguredIdleTimeout(
+      guard,
+      { queryId: 'query-2', querySource: 'repl_main_thread' },
+      { OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: '600000' },
+      15 * 60 * 1000,
+    )
+    expect(calls).toEqual(['set:600000', 'start'])
   })
 
   test('clears interruption-correction state before resuming another session', () => {

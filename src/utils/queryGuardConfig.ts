@@ -91,15 +91,26 @@ export function parseQueryIdleTimeoutOption(value: string): number {
 }
 
 /**
- * Resolve the persisted `/config` preference only when the environment does
- * not own this setting. `undefined` tells the caller to keep the env-derived
- * value (including the default selected for an invalid env override).
+ * Resolve the current environment override, or the persisted `/config`
+ * preference when the environment does not own this setting. Invalid,
+ * non-empty environment values select the default and never fall through to
+ * the saved preference.
  */
 export function getConfiguredQueryIdleTimeoutMs(
   env: EnvLike,
   configuredValue: unknown,
-): number | undefined {
-  if (env[OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV]?.trim()) return undefined
+  log: DebugLogger = defaultWarnLogger,
+): number {
+  if (env[OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV]?.trim()) {
+    return (
+      getPositiveTimeoutFromEnv(
+        env,
+        OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV,
+        'query idle timeout',
+        log,
+      ) ?? DEFAULT_QUERY_IDLE_TIMEOUT_MS
+    )
+  }
   return normalizeQueryIdleTimeoutMs(configuredValue)
 }
 
@@ -114,9 +125,7 @@ export function tryStartQueryWithConfiguredIdleTimeout(
     env,
     configuredValue,
   )
-  if (configuredIdleTimeoutMs !== undefined) {
-    queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs)
-  }
+  queryGuard.setIdleTimeoutMs(configuredIdleTimeoutMs)
   return queryGuard.tryStart(metadata)
 }
 

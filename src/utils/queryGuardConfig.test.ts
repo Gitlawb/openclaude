@@ -149,7 +149,9 @@ describe('query guard config', () => {
     ])
   })
 
-  test('uses saved idle timeout only when the environment does not own it', () => {
+  test('resolves the current environment timeout before the saved value', () => {
+    const warn = vi.fn()
+
     expect(getConfiguredQueryIdleTimeoutMs({}, 600_000)).toBe(600_000)
     expect(getConfiguredQueryIdleTimeoutMs({}, undefined)).toBe(
       DEFAULT_QUERY_IDLE_TIMEOUT_MS,
@@ -159,12 +161,14 @@ describe('query guard config', () => {
         { OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: '900000' },
         600_000,
       ),
-    ).toBeUndefined()
+    ).toBe(900_000)
     expect(
       getConfiguredQueryIdleTimeoutMs(
         { OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS: 'invalid' },
         600_000,
+        warn,
       ),
-    ).toBeUndefined()
+    ).toBe(DEFAULT_QUERY_IDLE_TIMEOUT_MS)
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })
