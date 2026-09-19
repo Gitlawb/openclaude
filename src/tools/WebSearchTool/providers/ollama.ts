@@ -32,7 +32,7 @@ function isTruthyEnv(value: string | undefined): boolean {
   )
 }
 
-function looksLikeOllamaBaseUrl(value: string | undefined): boolean {
+export function isOllamaWebSearchBaseUrl(value: string | undefined): boolean {
   const trimmed = nonEmpty(value)
   if (!trimmed) return false
 
@@ -86,7 +86,7 @@ function getConfiguredLocalBaseUrl(): string | undefined {
     nonEmpty(process.env.OPENAI_API_BASE)
   const markedOllamaRoute =
     nonEmpty(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID)?.toLowerCase() === 'ollama'
-  if (!markedOllamaRoute && !looksLikeOllamaBaseUrl(openAIBaseUrl)) {
+  if (!markedOllamaRoute && !isOllamaWebSearchBaseUrl(openAIBaseUrl)) {
     return undefined
   }
 

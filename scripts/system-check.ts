@@ -46,6 +46,7 @@ import {
   getProviderMode,
   type ProviderMode,
 } from '../src/tools/WebSearchTool/providers/index.js'
+import { isOllamaWebSearchBaseUrl } from '../src/tools/WebSearchTool/providers/ollama.js'
 import { getWebSearchTimeoutMs } from '../src/tools/WebSearchTool/providers/timeout.js'
 import { isFirecrawlCloudApiUrl } from '../src/tools/firecrawl/client.js'
 import { getAPIProvider } from '../src/utils/model/providers.js'
@@ -401,19 +402,62 @@ function isInvalidOllamaBaseUrl(value: string | undefined): boolean {
   }
 }
 
+type OllamaLocalConfig =
+  | { status: 'absent' }
+  | {
+      status: 'configured' | 'invalid'
+      source: 'explicit' | 'active'
+    }
+
+function getOllamaLocalConfig(): OllamaLocalConfig {
+  const explicitBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
+  if (explicitBaseUrl) {
+    return {
+      status: isInvalidOllamaBaseUrl(explicitBaseUrl)
+        ? 'invalid'
+        : 'configured',
+      source: 'explicit',
+    }
+  }
+
+  if (!isTruthy(process.env.CLAUDE_CODE_USE_OPENAI)) {
+    return { status: 'absent' }
+  }
+
+  const activeBaseUrl =
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim()
+  if (!activeBaseUrl) return { status: 'absent' }
+
+  const markedOllamaRoute =
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim().toLowerCase() === 'ollama'
+  if (!markedOllamaRoute && !isOllamaWebSearchBaseUrl(activeBaseUrl)) {
+    return { status: 'absent' }
+  }
+
+  return {
+    status: isInvalidOllamaBaseUrl(activeBaseUrl) ? 'invalid' : 'configured',
+    source: 'active',
+  }
+}
+
 function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
   const ollamaApiKey = process.env.OLLAMA_API_KEY?.trim()
-  if (isInvalidOllamaBaseUrl(ollamaBaseUrl)) {
+  const localConfig = getOllamaLocalConfig()
+  if (localConfig.status === 'invalid') {
+    const configLabel =
+      localConfig.source === 'explicit'
+        ? 'OLLAMA_BASE_URL'
+        : 'active Ollama provider endpoint'
     if (ollamaApiKey) {
       return pass(
         'Web search backend',
-        'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
+        `WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; ${configLabel} is invalid and local search will be skipped.`,
       )
     }
     return fail(
       'Web search backend',
-      'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+      `WEB_SEARCH_PROVIDER=ollama but ${configLabel} is not a valid HTTP(S) URL.`,
     )
   }
 
@@ -425,19 +469,14 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
   }
 
   const configured: string[] = []
-  if (ollamaBaseUrl) configured.push('OLLAMA_BASE_URL')
-  if (ollamaApiKey) configured.push('OLLAMA_API_KEY')
-  const activeOllamaBaseUrl =
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE?.trim()
-  if (
-    (resolveActiveRouteIdFromEnv(process.env) === 'ollama' ||
-      (isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
-        process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim().toLowerCase() === 'ollama')) &&
-    activeOllamaBaseUrl
-  ) {
-    configured.push('active Ollama provider endpoint')
+  if (localConfig.status === 'configured') {
+    configured.push(
+      localConfig.source === 'explicit'
+        ? 'OLLAMA_BASE_URL'
+        : 'active Ollama provider endpoint',
+    )
   }
+  if (ollamaApiKey) configured.push('OLLAMA_API_KEY')
 
   return pass(
     'Web search backend',
@@ -446,13 +485,19 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
 }
 
 function getAutoOllamaConfigDetail(): string | undefined {
-  if (!isInvalidOllamaBaseUrl(process.env.OLLAMA_BASE_URL)) return undefined
+  const localConfig = getOllamaLocalConfig()
+  if (localConfig.status !== 'invalid') return undefined
+
+  const configLabel =
+    localConfig.source === 'explicit'
+      ? 'OLLAMA_BASE_URL'
+      : 'Active Ollama provider endpoint'
 
   if (process.env.OLLAMA_API_KEY?.trim()) {
-    return 'OLLAMA_BASE_URL is invalid; runtime will skip local Ollama search and use the hosted Ollama API.'
+    return `${configLabel} is invalid; runtime will skip local Ollama search and use the hosted Ollama API.`
   }
 
-  return 'OLLAMA_BASE_URL is invalid; runtime will skip ollama and fall through to the next provider in auto mode.'
+  return `${configLabel} is invalid; runtime will skip ollama and fall through to the next provider in auto mode.`
 }
 
 function appendAutoOllamaConfigDetail(result: CheckResult): CheckResult {
