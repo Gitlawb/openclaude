@@ -39,16 +39,13 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
         resolve(buildInactivePermissionSessionDecision());
         return true;
       };
-      if (resolveIfPermissionSessionInactive()) {
-        return;
-      }
       if (ctx.resolveIfAborted(resolve)) {
         return;
       }
       const shouldBypassForcedAsk = forceDecision?.behavior === "ask" && toolUseContext.getAppState().toolPermissionContext.mode === "fullAccess";
       const decisionPromise = forceDecision !== undefined && !shouldBypassForcedAsk ? Promise.resolve(forceDecision) : hasPermissionsToUseTool(tool, input, toolUseContext, assistantMessage, toolUseID);
       return decisionPromise.then(async result => {
-        if (resolveIfPermissionSessionInactive()) {
+        if (result.behavior === "ask" && resolveIfPermissionSessionInactive()) {
           return;
         }
         if (result.behavior === "allow") {
@@ -73,7 +70,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
           toolPermissionContext: appState.toolPermissionContext,
           tools: toolUseContext.options.tools
         });
-        if (resolveIfPermissionSessionInactive()) {
+        if (result.behavior === "ask" && resolveIfPermissionSessionInactive()) {
           return;
         }
         if (ctx.resolveIfAborted(resolve)) {

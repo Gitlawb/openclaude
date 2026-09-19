@@ -287,6 +287,8 @@ export type SubagentContextOverrides = {
   abortController?: AbortController
   /** Override the getAppState function */
   getAppState?: ToolUseContext['getAppState']
+  /** Override the untransformed root-state getter. */
+  getRootAppState?: NonNullable<ToolUseContext['getRootAppState']>
   /** Explicitly opt in to sharing a lifecycle tracker with this subagent. */
   queryLifecycle?: ToolUseContext['queryLifecycle']
 
@@ -430,8 +432,9 @@ export function createSubagentContext(
     getAppState,
     // Permission persistence must use the untransformed root context rather
     // than agent-local mode, rule scoping, or prompt-control flags.
-    getRootAppState: () =>
-      parentContext.getRootAppState?.() ?? parentContext.getAppState(),
+    getRootAppState:
+      overrides?.getRootAppState ??
+      (() => parentContext.getRootAppState?.() ?? parentContext.getAppState()),
     setAppState: overrides?.shareSetAppState
       ? parentContext.setAppState
       : () => {},

@@ -136,7 +136,6 @@ async function renderCancelHandler(
       >
         <TestKeybindingProvider registry={registry}>
           <CancelRequestHandler
-            setToolUseConfirmQueue={() => {}}
             onCancel={onCancel}
             onAgentsKilled={() => {}}
             isMessageSelectorVisible={false}

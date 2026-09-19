@@ -63,9 +63,6 @@ export function abortPendingToolPermissionRequests(
 }
 
 type CancelRequestHandlerProps = {
-  setToolUseConfirmQueue: (
-    f: (toolUseConfirmQueue: ToolUseConfirm[]) => ToolUseConfirm[],
-  ) => void
   onCancel: (source: CancelRequestSource, causalEventId?: string) => void
   onAgentsKilled: () => void
   isMessageSelectorVisible: boolean
@@ -87,7 +84,6 @@ type CancelRequestHandlerProps = {
  */
 export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
   const {
-    setToolUseConfirmQueue,
     onCancel,
     onAgentsKilled,
     isMessageSelectorVisible,
@@ -124,7 +120,6 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
     // This takes precedence over queue management so users can always interrupt Claude
     if (abortSignal !== undefined && !abortSignal.aborted) {
       logEvent('tengu_cancel', cancelProps)
-      setToolUseConfirmQueue(() => [])
       onCancel(source, causalEventId)
       return
     }
@@ -139,12 +134,10 @@ export function CancelRequestHandler(props: CancelRequestHandlerProps): null {
 
     // Fallback: nothing to cancel or pop (shouldn't reach here if isActive is correct)
     logEvent('tengu_cancel', cancelProps)
-    setToolUseConfirmQueue(() => [])
     onCancel(source, causalEventId)
   }, [
     abortSignal,
     popCommandFromQueue,
-    setToolUseConfirmQueue,
     onCancel,
     streamMode,
   ])

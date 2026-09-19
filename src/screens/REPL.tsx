@@ -2472,10 +2472,10 @@ export function REPL({
     if (focusedInputDialog === 'tool-permission') {
       // Each request owns a distinct waiter/controller. Settle every entry
       // removed by this parent-turn cancellation so background agents do not
-      // remain blocked after the shared UI queue is cleared.
+      // remain blocked, while prompts owned by inactive sessions stay queued.
       abortPendingToolPermissionRequests(activeToolUseConfirmQueue, cancelSource, causalEventId, abortController);
-      const activeIds = new Set(activeToolUseConfirmQueue.map(item => item.toolUseID));
-      setToolUseConfirmQueue(queue => queue.filter(item => !activeIds.has(item.toolUseID)));
+      const activeEntries = new Set(activeToolUseConfirmQueue);
+      setToolUseConfirmQueue(queue => queue.filter(item => !activeEntries.has(item)));
     } else if (focusedInputDialog === 'prompt') {
       // Reject all pending prompts and clear the queue
       for (const item of promptQueue) {
@@ -2547,7 +2547,6 @@ export function REPL({
 
   // CancelRequestHandler props - rendered inside KeybindingSetup
   const cancelRequestProps = {
-    setToolUseConfirmQueue,
     onCancel: (source, causalEventId) => onCancel(true, source, causalEventId),
     onAgentsKilled: () => setMessages(prev => [...prev, createAgentsKilledMessage()]),
     isMessageSelectorVisible: isMessageSelectorVisible || !!showBashesDialog,
@@ -5146,7 +5145,7 @@ export function REPL({
   // doesn't use the placeholder anyway.
   const placeholderText = userInputOnProcessing && !viewedAgentTask && displayedMessages.length <= userInputBaselineRef.current ? userInputOnProcessing : undefined;
   const activeToolUseConfirm = activeToolUseConfirmQueue[0];
-  const toolPermissionOverlay = focusedInputDialog === 'tool-permission' ? <PermissionRequest key={activeToolUseConfirm?.toolUseID} onDone={() => setToolUseConfirmQueue(queue => queue.filter(item => item.toolUseID !== activeToolUseConfirm?.toolUseID))} onReject={handleQueuedCommandOnCancel} toolUseConfirm={activeToolUseConfirm!} toolUseContext={getToolUseContext(messages, messages, abortController ?? createAbortController(), mainLoopModel)} verbose={verbose} workerBadge={activeToolUseConfirm?.workerBadge} setStickyFooter={isFullscreenEnvEnabled() ? setPermissionStickyFooter : undefined} /> : null;
+  const toolPermissionOverlay = focusedInputDialog === 'tool-permission' ? <PermissionRequest key={`${activeToolUseConfirm?.permissionSessionId ?? 'legacy'}:${activeToolUseConfirm?.toolUseID}`} onDone={() => setToolUseConfirmQueue(queue => queue.filter(item => item !== activeToolUseConfirm))} onReject={handleQueuedCommandOnCancel} toolUseConfirm={activeToolUseConfirm!} toolUseContext={getToolUseContext(messages, messages, abortController ?? createAbortController(), mainLoopModel)} verbose={verbose} workerBadge={activeToolUseConfirm?.workerBadge} setStickyFooter={isFullscreenEnvEnabled() ? setPermissionStickyFooter : undefined} /> : null;
 
   // Narrow terminals: companion collapses to a one-liner that REPL stacks
   // on its own row (above input in fullscreen, below in scrollback) instead

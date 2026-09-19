@@ -12,6 +12,7 @@ import {
 import type { QuerySource } from '../../constants/querySource.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+import { createPermissionSessionStateGetter } from '../../hooks/toolPermission/permissionSessionOwnership.js'
 import { query } from '../../query.js'
 import type { Terminal } from '../../query/transitions.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
@@ -471,9 +472,17 @@ export async function* runAgent({
   // Async agents in an interactive session share the parent's permission UI;
   // only truly non-interactive agents must auto-deny unresolved prompts.
   const agentPermissionMode = agentDefinition.permissionMode
+  const getOriginAppState = createPermissionSessionStateGetter(
+    toolUseContext.options.permissionSessionId,
+    toolUseContext.getAppState,
+  )
+  const getOriginRootAppState = createPermissionSessionStateGetter(
+    toolUseContext.options.permissionSessionId,
+    () => toolUseContext.getRootAppState?.() ?? toolUseContext.getAppState(),
+  )
   const agentGetAppState = () => {
-    const state = toolUseContext.getAppState()
-    const rootState = toolUseContext.getRootAppState?.() ?? state
+    const state = getOriginAppState()
+    const rootState = getOriginRootAppState()
     let toolPermissionContext = state.toolPermissionContext
 
     // Override permission mode if agent defines one (unless parent is bypassPermissions, acceptEdits, or auto)
@@ -497,10 +506,13 @@ export async function* runAgent({
     // to the parent terminal. Otherwise, async execution is not itself a reason
     // to deny: in interactive sessions the inherited canUseTool callback owns
     // the main-session permission queue.
-    if (
-      shouldAvoidAgentPrompts ||
-      rootState.toolPermissionContext.mode === 'dontAsk'
-    ) {
+    if (rootState.toolPermissionContext.mode === 'dontAsk') {
+      toolPermissionContext = {
+        ...toolPermissionContext,
+        mode: 'dontAsk',
+        shouldAvoidPermissionPrompts: true,
+      }
+    } else if (shouldAvoidAgentPrompts) {
       toolPermissionContext = {
         ...toolPermissionContext,
         shouldAvoidPermissionPrompts: true,
@@ -775,6 +787,7 @@ export async function* runAgent({
     readFileState: agentReadFileState,
     abortController: agentAbortController,
     getAppState: agentGetAppState,
+    getRootAppState: getOriginRootAppState,
     ...(!isAsync && toolUseContext.queryLifecycle
       ? { queryLifecycle: toolUseContext.queryLifecycle }
       : {}),

@@ -73,8 +73,23 @@ type PermissionRejectionSource =
 // In the REPL, these are backed by React state.
 type PermissionQueueOps = {
   push(item: ToolUseConfirm): void
-  remove(toolUseID: string): void
-  update(toolUseID: string, patch: Partial<ToolUseConfirm>): void
+  remove(toolUseID: string, permissionSessionId: ToolUseConfirm['permissionSessionId']): void
+  update(
+    toolUseID: string,
+    permissionSessionId: ToolUseConfirm['permissionSessionId'],
+    patch: Partial<ToolUseConfirm>,
+  ): void
+}
+
+function isSamePermissionQueueEntry(
+  item: Pick<ToolUseConfirm, 'toolUseID' | 'permissionSessionId'>,
+  toolUseID: string,
+  permissionSessionId: ToolUseConfirm['permissionSessionId'],
+): boolean {
+  return (
+    item.toolUseID === toolUseID &&
+    item.permissionSessionId === permissionSessionId
+  )
 }
 
 type ResolveOnce<T> = {
@@ -593,10 +608,17 @@ function createPermissionContext(
       queueOps?.push(item)
     },
     removeFromQueue() {
-      queueOps?.remove(toolUseID)
+      queueOps?.remove(
+        toolUseID,
+        toolUseContext.options.permissionSessionId,
+      )
     },
     updateQueueItem(patch: Partial<ToolUseConfirm>) {
-      queueOps?.update(toolUseID, patch)
+      queueOps?.update(
+        toolUseID,
+        toolUseContext.options.permissionSessionId,
+        patch,
+      )
     },
   }
   return Object.freeze(ctx)
@@ -618,22 +640,43 @@ function createPermissionQueueOps(
     push(item: ToolUseConfirm) {
       setToolUseConfirmQueue(queue => [...queue, item])
     },
-    remove(toolUseID: string) {
+    remove(
+      toolUseID: string,
+      permissionSessionId: ToolUseConfirm['permissionSessionId'],
+    ) {
       setToolUseConfirmQueue(queue =>
-        queue.filter(item => item.toolUseID !== toolUseID),
+        queue.filter(
+          item =>
+            !isSamePermissionQueueEntry(
+              item,
+              toolUseID,
+              permissionSessionId,
+            ),
+        ),
       )
     },
-    update(toolUseID: string, patch: Partial<ToolUseConfirm>) {
+    update(
+      toolUseID: string,
+      permissionSessionId: ToolUseConfirm['permissionSessionId'],
+      patch: Partial<ToolUseConfirm>,
+    ) {
       setToolUseConfirmQueue(queue =>
         queue.map(item =>
-          item.toolUseID === toolUseID ? { ...item, ...patch } : item,
+          isSamePermissionQueueEntry(item, toolUseID, permissionSessionId)
+            ? { ...item, ...patch }
+            : item,
         ),
       )
     },
   }
 }
 
-export { createPermissionContext, createPermissionQueueOps, createResolveOnce }
+export {
+  createPermissionContext,
+  createPermissionQueueOps,
+  createResolveOnce,
+  isSamePermissionQueueEntry,
+}
 export type {
   PermissionContext,
   PermissionApprovalSource,

@@ -12,6 +12,29 @@ export function isPermissionSessionActive(
   )
 }
 
+/**
+ * Keep reading live state while the owning session is active, then retain the
+ * last owner-visible state while another session is displayed. Background
+ * agents can continue evaluating terminal permission rules without borrowing
+ * the newly active session's policy.
+ */
+export function createPermissionSessionStateGetter<T>(
+  permissionSessionId: SessionId | undefined,
+  getLiveState: () => T,
+  getActiveSessionId: () => SessionId = getSessionId,
+): () => T {
+  let ownedState = getLiveState()
+  return () => {
+    if (
+      permissionSessionId === undefined ||
+      permissionSessionId === getActiveSessionId()
+    ) {
+      ownedState = getLiveState()
+    }
+    return ownedState
+  }
+}
+
 export function buildInactivePermissionSessionDecision(): PermissionDenyDecision {
   return {
     behavior: 'deny',
