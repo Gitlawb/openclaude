@@ -389,27 +389,32 @@ function buildFirecrawlWebSearchCheck(): CheckResult {
   )
 }
 
+function isInvalidOllamaBaseUrl(value: string | undefined): boolean {
+  const trimmed = value?.trim()
+  if (!trimmed) return false
+
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol !== 'http:' && parsed.protocol !== 'https:'
+  } catch {
+    return true
+  }
+}
+
 function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
   const ollamaApiKey = process.env.OLLAMA_API_KEY?.trim()
-  if (ollamaBaseUrl) {
-    try {
-      const parsed = new URL(ollamaBaseUrl)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new Error('unsupported protocol')
-      }
-    } catch {
-      if (ollamaApiKey) {
-        return pass(
-          'Web search backend',
-          'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
-        )
-      }
-      return fail(
+  if (isInvalidOllamaBaseUrl(ollamaBaseUrl)) {
+    if (ollamaApiKey) {
+      return pass(
         'Web search backend',
-        'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+        'WEB_SEARCH_PROVIDER=ollama; OLLAMA_API_KEY configured; OLLAMA_BASE_URL is invalid and local search will be skipped.',
       )
     }
+    return fail(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+    )
   }
 
   if (!providerConfigured) {
@@ -420,13 +425,16 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
   }
 
   const configured: string[] = []
-  if (process.env.OLLAMA_BASE_URL) configured.push('OLLAMA_BASE_URL')
+  if (ollamaBaseUrl) configured.push('OLLAMA_BASE_URL')
   if (ollamaApiKey) configured.push('OLLAMA_API_KEY')
+  const activeOllamaBaseUrl =
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim()
   if (
     (resolveActiveRouteIdFromEnv(process.env) === 'ollama' ||
       (isTruthy(process.env.CLAUDE_CODE_USE_OPENAI) &&
         process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID?.trim().toLowerCase() === 'ollama')) &&
-    (process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE)
+    activeOllamaBaseUrl
   ) {
     configured.push('active Ollama provider endpoint')
   }
@@ -435,6 +443,26 @@ function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
     'Web search backend',
     `WEB_SEARCH_PROVIDER=ollama; ${formatAndList(configured)} configured.`,
   )
+}
+
+function getAutoOllamaConfigDetail(): string | undefined {
+  if (!isInvalidOllamaBaseUrl(process.env.OLLAMA_BASE_URL)) return undefined
+
+  if (process.env.OLLAMA_API_KEY?.trim()) {
+    return 'OLLAMA_BASE_URL is invalid; runtime will skip local Ollama search and use the hosted Ollama API.'
+  }
+
+  return 'OLLAMA_BASE_URL is invalid; runtime will skip ollama and fall through to the next provider in auto mode.'
+}
+
+function appendAutoOllamaConfigDetail(result: CheckResult): CheckResult {
+  const ollamaDetail = getAutoOllamaConfigDetail()
+  if (!ollamaDetail) return result
+
+  return {
+    ...result,
+    detail: result.detail ? `${result.detail} ${ollamaDetail}` : ollamaDetail,
+  }
 }
 
 function getAutoFirecrawlMissingCredentialDetail(): string | undefined {
@@ -562,9 +590,11 @@ function buildWebSearchEnvChecks(): CheckResult[] {
     if (configuredProviders.length > 0) {
       return appendWebSearchTimeoutDetails([
         appendAutoFirecrawlMissingCredentialDetail(
-          pass(
-            'Web search backend',
-            `WEB_SEARCH_PROVIDER=auto; configured providers: ${configuredProviders.join(', ')}; fallback includes duckduckgo.`,
+          appendAutoOllamaConfigDetail(
+            pass(
+              'Web search backend',
+              `WEB_SEARCH_PROVIDER=auto; configured providers: ${configuredProviders.join(', ')}; fallback includes duckduckgo.`,
+            ),
           ),
         ),
       ])
@@ -572,9 +602,11 @@ function buildWebSearchEnvChecks(): CheckResult[] {
 
     return appendWebSearchTimeoutDetails([
       appendAutoFirecrawlMissingCredentialDetail(
-        pass(
-          'Web search backend',
-          `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`,
+        appendAutoOllamaConfigDetail(
+          pass(
+            'Web search backend',
+            `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT} for reliable search.`,
+          ),
         ),
       ),
     ])
