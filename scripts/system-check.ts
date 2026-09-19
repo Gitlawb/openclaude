@@ -192,6 +192,7 @@ export function buildMemoryGuardChecks(
 }
 
 const WEB_SEARCH_API_PROVIDER_NAMES = new Set([
+  'ollama',
   'firecrawl',
   'tavily',
   'exa',
@@ -204,13 +205,14 @@ const WEB_SEARCH_API_PROVIDER_NAMES = new Set([
 ])
 
 const WEB_SEARCH_RELIABLE_BACKEND_ENV_HINT =
-  'FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
+  'OLLAMA_BASE_URL, OLLAMA_API_KEY, FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
 
 const WEB_SEARCH_PROVIDER_ENV_VARS: Record<
   Exclude<ProviderMode, 'auto' | 'native'>,
   string[]
 > = {
   custom: ['WEB_SEARCH_API', 'WEB_PROVIDER', 'WEB_URL_TEMPLATE'],
+  ollama: ['OLLAMA_BASE_URL', 'OLLAMA_API_KEY'],
   firecrawl: ['FIRECRAWL_API_KEY', 'FIRECRAWL_API_URL'],
   ddg: [],
   tavily: ['TAVILY_API_KEY'],
@@ -387,6 +389,30 @@ function buildFirecrawlWebSearchCheck(): CheckResult {
   )
 }
 
+function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
+  if (!providerConfigured) {
+    return fail(
+      'Web search backend',
+      'WEB_SEARCH_PROVIDER=ollama but an active Ollama provider, OLLAMA_BASE_URL, or OLLAMA_API_KEY is missing.',
+    )
+  }
+
+  const configured: string[] = []
+  if (process.env.OLLAMA_BASE_URL) configured.push('OLLAMA_BASE_URL')
+  if (process.env.OLLAMA_API_KEY) configured.push('OLLAMA_API_KEY')
+  if (
+    resolveActiveRouteIdFromEnv(process.env) === 'ollama' &&
+    (process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE)
+  ) {
+    configured.push('active Ollama provider endpoint')
+  }
+
+  return pass(
+    'Web search backend',
+    `WEB_SEARCH_PROVIDER=ollama; ${formatAndList(configured)} configured.`,
+  )
+}
+
 function getAutoFirecrawlMissingCredentialDetail(): string | undefined {
   const firecrawlSelectedByAutoChain = getAvailableProviders()
     .some(provider => provider.name === 'firecrawl')
@@ -546,6 +572,10 @@ function buildWebSearchEnvChecks(): CheckResult[] {
 
   if (mode === 'firecrawl') {
     return appendWebSearchTimeoutDetails([buildFirecrawlWebSearchCheck()])
+  }
+
+  if (mode === 'ollama') {
+    return appendWebSearchTimeoutDetails([buildOllamaWebSearchCheck(providerConfigured)])
   }
 
   if (mode === 'custom') {

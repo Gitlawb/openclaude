@@ -7,6 +7,7 @@ OpenClaude supports multiple search backends through a provider adapter system.
 | Provider | Env Var | Auth Header | Method |
 |---|---|---|---|
 | Custom API | `WEB_SEARCH_API` | Configurable | GET/POST |
+| Ollama | Active Ollama route or `OLLAMA_API_KEY` | Local sign-in / `Authorization: Bearer` | POST |
 | SearXNG | `WEB_PROVIDER=searxng` | — | GET |
 | Google | `WEB_PROVIDER=google` + `GOOGLE_CSE_ID` | *(query param `?key=`)* | GET |
 | Brave (preset) | `WEB_PROVIDER=brave` | `X-Subscription-Token` | GET |
@@ -49,6 +50,7 @@ export WEB_SEARCH_API=https://search.example.com/search
 | Mode | Behavior |
 |---|---|
 | `auto` (default) | Try all configured providers in order, fall through on failure |
+| `ollama` | Local signed-in Ollama, then hosted Ollama when `OLLAMA_API_KEY` is set; throws if both fail |
 | `tavily` | Tavily only — throws on failure |
 | `exa` | Exa only — throws on failure |
 | `brave` | Brave only — throws on failure |
@@ -57,7 +59,7 @@ export WEB_SEARCH_API=https://search.example.com/search
 | `ddg` | DuckDuckGo only — throws on failure |
 | `native` | Anthropic native / Codex only |
 
-**Auto mode priority:** firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
+**Auto mode priority:** ollama → firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
 
 > **Note:** The `custom` provider is excluded from the `auto` chain. It is only used when `WEB_SEARCH_PROVIDER=custom` is explicitly set. This prevents the generic outbound provider from silently becoming the default backend.
 
@@ -80,6 +82,27 @@ export WEB_SEARCH_TIMEOUT_SEC=30
 Invalid, fractional, zero, negative, or very large values fall back to 15s. Custom API providers keep their separate `WEB_CUSTOM_TIMEOUT_SEC` setting because self-hosted endpoints may need different budgets.
 
 ## Provider Request & Response Formats
+
+### Ollama
+
+When the active route resolves to Ollama, OpenClaude first calls the configured server's signed-in proxy:
+
+```text
+POST http://localhost:11434/api/experimental/web_search
+Content-Type: application/json
+
+{"query":"search terms","max_results":10}
+```
+
+If that request fails and `OLLAMA_API_KEY` is set, it retries the hosted API with `Authorization: Bearer $OLLAMA_API_KEY`. The key is never sent to the local server.
+
+```text
+POST https://ollama.com/api/web_search
+Authorization: Bearer $OLLAMA_API_KEY
+Content-Type: application/json
+```
+
+Both endpoints return structured `results` containing `title`, `url`, and `content`. Use `WEB_SEARCH_PROVIDER=ollama` to select only this local-to-hosted Ollama chain; in `auto` mode, another configured search backend is tried if Ollama search fails.
 
 ### Tavily
 

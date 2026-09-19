@@ -19,6 +19,11 @@ const savedWebSearchEnv = {
   BING_API_KEY: process.env.BING_API_KEY,
   MOJEEK_API_KEY: process.env.MOJEEK_API_KEY,
   LINKUP_API_KEY: process.env.LINKUP_API_KEY,
+  OLLAMA_API_KEY: process.env.OLLAMA_API_KEY,
+  OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
+  CLAUDE_CODE_USE_OPENAI: process.env.CLAUDE_CODE_USE_OPENAI,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  OPENAI_API_BASE: process.env.OPENAI_API_BASE,
 }
 
 const originalFetch = globalThis.fetch
@@ -61,6 +66,11 @@ function configureAutoModeWithOnlyBrave(): void {
   delete process.env.BING_API_KEY
   delete process.env.MOJEEK_API_KEY
   delete process.env.LINKUP_API_KEY
+  delete process.env.OLLAMA_API_KEY
+  delete process.env.OLLAMA_BASE_URL
+  delete process.env.CLAUDE_CODE_USE_OPENAI
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_API_BASE
 }
 
 function mockDuckDuckGoSearch(
@@ -103,6 +113,11 @@ describe('getProviderMode', () => {
   test('returns ddg mode', () => {
     process.env.WEB_SEARCH_PROVIDER = 'ddg'
     expect(getProviderMode()).toBe('ddg')
+  })
+
+  test('returns ollama mode', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    expect(getProviderMode()).toBe('ollama')
   })
 
   test('returns native mode', () => {
@@ -149,6 +164,12 @@ describe('getProviderChain', () => {
     const chain = getProviderChain('ddg' as ProviderMode)
     expect(chain).toHaveLength(1)
     expect(chain[0].name).toBe('duckduckgo')
+  })
+
+  test('ollama mode returns the Ollama provider', () => {
+    const chain = getProviderChain('ollama' as ProviderMode)
+    expect(chain).toHaveLength(1)
+    expect(chain[0].name).toBe('ollama')
   })
 
   test('native mode returns empty chain', () => {
@@ -246,6 +267,46 @@ describe('runSearch', () => {
     expect(output.hits[0].title).toBe('Body fallback result')
   })
 
+  test('active Ollama search falls through to DuckDuckGo when Ollama is unavailable', async () => {
+    process.env.WEB_SEARCH_PROVIDER = 'auto'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+    delete process.env.OLLAMA_API_KEY
+    delete process.env.OLLAMA_BASE_URL
+    delete process.env.FIRECRAWL_API_KEY
+    delete process.env.FIRECRAWL_API_URL
+    delete process.env.TAVILY_API_KEY
+    delete process.env.EXA_API_KEY
+    delete process.env.YOU_API_KEY
+    delete process.env.JINA_API_KEY
+    delete process.env.BRAVE_API_KEY
+    delete process.env.BING_API_KEY
+    delete process.env.MOJEEK_API_KEY
+    delete process.env.LINKUP_API_KEY
+    console.error = () => {}
+
+    let ollamaCalls = 0
+    globalThis.fetch = (async () => {
+      ollamaCalls++
+      return new Response('not signed in', { status: 401 })
+    }) as unknown as typeof fetch
+    mockDuckDuckGoSearch(async () => ({
+      results: [
+        {
+          title: 'DuckDuckGo fallback',
+          url: 'https://example.com/ddg',
+        },
+      ],
+    }))
+
+    const { runSearch } = await import('./index.js')
+    const output = await runSearch({ query: 'ollama fallback' })
+
+    expect(ollamaCalls).toBe(1)
+    expect(output.providerName).toBe('duckduckgo')
+    expect(output.hits[0]?.title).toBe('DuckDuckGo fallback')
+  })
+
   test('auto mode does not fall through after caller abort', async () => {
     configureAutoModeWithOnlyBrave()
     process.env.WEB_SEARCH_TIMEOUT_SEC = '1'
@@ -283,6 +344,12 @@ describe('getAvailableProviders', () => {
   test('always includes duckduckgo (no API key required)', () => {
     const providers = getAvailableProviders()
     expect(providers.some(p => p.name === 'duckduckgo')).toBe(true)
+  })
+
+  test('auto mode puts Ollama first when its API key is configured', () => {
+    process.env.OLLAMA_API_KEY = 'ollama-test-key'
+    const providers = getAvailableProviders()
+    expect(providers[0]?.name).toBe('ollama')
   })
 
   test('does NOT include custom in available providers (auto chain)', () => {

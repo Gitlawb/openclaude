@@ -103,6 +103,8 @@ const ENV_KEYS = [
   'GOOGLE_CSE_ID',
   'FIRECRAWL_API_KEY',
   'FIRECRAWL_API_URL',
+  'OLLAMA_API_KEY',
+  'OLLAMA_BASE_URL',
   'TAVILY_API_KEY',
   'EXA_API_KEY',
   'YOU_API_KEY',
@@ -350,7 +352,7 @@ describe('system-check provider diagnostics', () => {
 
 describe('system-check WebSearch diagnostics', () => {
   const reliableBackendHint =
-    'FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
+    'OLLAMA_BASE_URL, OLLAMA_API_KEY, FIRECRAWL_API_KEY, TAVILY_API_KEY, EXA_API_KEY, YOU_API_KEY, JINA_API_KEY, BRAVE_API_KEY, BING_API_KEY, MOJEEK_API_KEY, or LINKUP_API_KEY'
 
   function expectWebSearchBackend(
     ok: boolean,
@@ -481,6 +483,16 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test('reports the active Ollama search adapter in auto mode', () => {
+    useOpenAICompatibleProvider()
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=auto; configured providers: ollama; fallback includes duckduckgo.',
+    )
+  })
+
   test('fails explicit provider mode when required credentials are missing', () => {
     process.env.WEB_SEARCH_PROVIDER = 'brave'
 
@@ -497,6 +509,38 @@ describe('system-check WebSearch diagnostics', () => {
     expectWebSearchBackend(
       true,
       'WEB_SEARCH_PROVIDER=brave; BRAVE_API_KEY configured.',
+    )
+  })
+
+  test('passes explicit Ollama mode with the active local provider endpoint', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+    process.env.OPENAI_BASE_URL = 'http://localhost:11434/v1'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=ollama; active Ollama provider endpoint configured.',
+    )
+  })
+
+  test('passes explicit Ollama mode with local and hosted fallback configuration', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+    process.env.OLLAMA_BASE_URL = 'http://localhost:11434'
+    process.env.OLLAMA_API_KEY = 'ollama-secret-value-123'
+
+    expectWebSearchBackend(
+      true,
+      'WEB_SEARCH_PROVIDER=ollama; OLLAMA_BASE_URL and OLLAMA_API_KEY configured.',
+    )
+  })
+
+  test('fails explicit Ollama mode without a local endpoint or hosted credential', () => {
+    process.env.WEB_SEARCH_PROVIDER = 'ollama'
+
+    expectWebSearchBackend(
+      false,
+      'WEB_SEARCH_PROVIDER=ollama but an active Ollama provider, OLLAMA_BASE_URL, or OLLAMA_API_KEY is missing.',
     )
   })
 

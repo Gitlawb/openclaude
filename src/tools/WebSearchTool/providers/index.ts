@@ -5,6 +5,7 @@
  *
  *   "auto"      (default) — try providers in priority order, fall through on failure
  *   "custom"    — use WEB_SEARCH_API / WEB_PROVIDER preset only (fail loudly)
+ *   "ollama"    — use Ollama local/hosted Web Search API only (fail loudly)
  *   "firecrawl" — use Firecrawl only (fail loudly)
  *   "tavily"    — use Tavily only (fail loudly)
  *   "exa"       — use Exa only (fail loudly)
@@ -38,6 +39,7 @@ import { braveProvider } from './brave.js'
 import { bingProvider } from './bing.js'
 import { mojeekProvider } from './mojeek.js'
 import { linkupProvider } from './linkup.js'
+import { ollamaProvider } from './ollama.js'
 
 export { type SearchInput, type SearchProvider, type ProviderOutput, type SearchHit } from './types.js'
 export { applyDomainFilters, safeHostname, hostMatchesDomain } from './types.js'
@@ -46,7 +48,7 @@ export { extractHits } from './custom.js'
 // ---------------------------------------------------------------------------
 // All registered providers — order matters for auto mode
 // ---------------------------------------------------------------------------
-// Priority: firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
+// Priority: ollama → firecrawl → tavily → exa → you → jina → brave → bing → mojeek → linkup → ddg
 // DDG is last because it's free but rate-limited.
 // Brave sits ahead of Bing because it runs an independent index (not Google/Bing
 // dependent) and has a usable free tier; Bing's hosted API was sunsetted in 2025
@@ -56,6 +58,7 @@ export { extractHits } from './custom.js'
 //       This prevents the generic outbound provider from silently becoming the default backend.
 
 const ALL_PROVIDERS: SearchProvider[] = [
+  ollamaProvider,
   firecrawlProvider,
   tavilyProvider,
   exaProvider,
@@ -79,6 +82,7 @@ export function getAvailableProviders(): SearchProvider[] {
 export type ProviderMode =
   | 'auto'
   | 'custom'
+  | 'ollama'
   | 'firecrawl'
   | 'ddg'
   | 'tavily'
@@ -93,6 +97,7 @@ export type ProviderMode =
 
 const PROVIDER_BY_NAME: Record<string, SearchProvider> = {
   custom: customProvider,
+  ollama: ollamaProvider,
   firecrawl: firecrawlProvider,
   ddg: duckduckgoProvider,
   tavily: tavilyProvider,

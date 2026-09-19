@@ -30,6 +30,8 @@ const TEST_ENV_KEYS = [
   'OPENAI_BASE_URL',
   'OPENAI_MODEL',
   'OPENCLAUDE_OLLAMA_NUM_CTX',
+  'OLLAMA_API_KEY',
+  'OLLAMA_BASE_URL',
   'WEB_AUTH_HEADER',
   'WEB_AUTH_SCHEME',
   'WEB_BODY_TEMPLATE',
@@ -384,6 +386,22 @@ describe('loadEnvFile', () => {
     expect(process.env.OPENCLAUDE_OLLAMA_NUM_CTX).toBe('32768')
     expect(loaded).toEqual({
       OPENCLAUDE_OLLAMA_NUM_CTX: '32768',
+    })
+  })
+
+  it('loads documented Ollama web search values', () => {
+    const filePath = writeTempEnvFile([
+      'OLLAMA_API_KEY=ollama-key',
+      'OLLAMA_BASE_URL=http://localhost:11434',
+      'WEB_SEARCH_PROVIDER=ollama',
+    ].join('\n'))
+
+    const loaded = loadEnvFile(filePath)
+
+    expect(loaded).toEqual({
+      OLLAMA_API_KEY: 'ollama-key',
+      OLLAMA_BASE_URL: 'http://localhost:11434',
+      WEB_SEARCH_PROVIDER: 'ollama',
     })
   })
 

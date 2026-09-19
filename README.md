@@ -398,11 +398,13 @@ See [Agent Routing and Step Limits](docs/agent-routing.md) for the full guide.
 
 ## Web Search and Fetch
 
-By default, `WebSearch` works on non-Anthropic models using DuckDuckGo. This gives GPT-4o, DeepSeek, Gemini, Ollama, and other OpenAI-compatible providers a free web search path out of the box.
+By default, `WebSearch` works on non-Anthropic models using configured search adapters and then DuckDuckGo. When the active provider is Ollama, OpenClaude first uses the signed-in local Ollama Web Search endpoint. Set `OLLAMA_API_KEY` to enable the hosted Ollama endpoint as a fallback.
 
-> **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Firecrawl.
+> **Note:** DuckDuckGo fallback works by scraping search results and may be rate-limited, blocked, or subject to DuckDuckGo's Terms of Service. If you want a more reliable supported option, configure Ollama Web Search or Firecrawl.
 
 For Anthropic-native backends and Codex responses, OpenClaude keeps the native provider web search behavior.
+
+To select Ollama search explicitly, use `WEB_SEARCH_PROVIDER=ollama`. A local Ollama route uses its configured `OPENAI_BASE_URL` or `OLLAMA_BASE_URL`; hosted search sends `OLLAMA_API_KEY` only to `https://ollama.com/api/web_search`.
 
 `WebFetch` works, but its basic HTTP plus HTML-to-markdown path can still fail on JavaScript-rendered sites or sites that block plain HTTP requests.
 
