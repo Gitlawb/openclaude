@@ -79,6 +79,7 @@ import type { ContentReplacementState } from '../../utils/toolResultStorage.js'
 import { createAgentId } from '../../utils/uuid.js'
 import { resolveAgentTools } from './agentToolUtils.js'
 import { type AgentDefinition, isBuiltInAgent } from './loadAgentsDir.js'
+import { shouldAvoidAgentPermissionPrompts } from './permissionPromptAvailability.js'
 
 /**
  * Initialize agent-specific MCP servers
@@ -446,9 +447,10 @@ export async function* runAgent({
       ? systemContextNoGit
       : baseSystemContext
 
-  // Override permission mode if agent defines one
-  // However, don't override if parent is in bypassPermissions or acceptEdits mode - those should always take precedence
-  // For async agents, also set shouldAvoidPermissionPrompts since they can't show UI
+  // Override permission mode if agent defines one.
+  // However, don't override if parent is in bypassPermissions or acceptEdits mode - those should always take precedence.
+  // Async agents in an interactive session share the parent's permission UI;
+  // only truly non-interactive agents must auto-deny unresolved prompts.
   const agentPermissionMode = agentDefinition.permissionMode
   const agentGetAppState = () => {
     const state = toolUseContext.getAppState()
@@ -471,16 +473,17 @@ export async function* runAgent({
       }
     }
 
-    // Set flag to auto-deny prompts for agents that can't show UI
-    // Use explicit canShowPermissionPrompts if provided, otherwise:
-    //   - bubble mode: always show prompts (bubbles to parent terminal)
-    //   - default: !isAsync (sync agents show prompts, async agents don't)
-    const shouldAvoidPrompts =
-      canShowPermissionPrompts !== undefined
-        ? !canShowPermissionPrompts
-        : agentPermissionMode === 'bubble'
-          ? false
-          : isAsync
+    // Use an explicit caller override when present. Bubble mode always forwards
+    // to the parent terminal. Otherwise, async execution is not itself a reason
+    // to deny: in interactive sessions the inherited canUseTool callback owns
+    // the main-session permission queue.
+    const shouldAvoidPrompts = shouldAvoidAgentPermissionPrompts({
+      isAsync,
+      canShowPermissionPrompts,
+      permissionMode: agentPermissionMode,
+      isNonInteractiveSession:
+        toolUseContext.options.isNonInteractiveSession,
+    })
     if (shouldAvoidPrompts) {
       toolPermissionContext = {
         ...toolPermissionContext,
