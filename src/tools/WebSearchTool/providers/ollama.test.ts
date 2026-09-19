@@ -59,6 +59,24 @@ describe('ollamaProvider', () => {
     expect(ollamaProvider.isConfigured()).toBe(true)
   })
 
+  test.each(['undefined', 'null'])(
+    'does not configure hosted search for an %s API key placeholder',
+    async placeholder => {
+      process.env.OLLAMA_API_KEY = placeholder
+      let calls = 0
+      globalThis.fetch = (async () => {
+        calls++
+        return Response.json({ results: [] })
+      }) as unknown as typeof fetch
+
+      expect(ollamaProvider.isConfigured()).toBe(false)
+      await expect(
+        ollamaProvider.search({ query: 'placeholder key' }),
+      ).rejects.toThrow('OLLAMA_API_KEY')
+      expect(calls).toBe(0)
+    },
+  )
+
   test('uses the Ollama route marker for a reverse-proxied active profile', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'

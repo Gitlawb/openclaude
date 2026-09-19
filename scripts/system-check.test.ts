@@ -514,6 +514,20 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test.each(['undefined', 'null'])(
+    'does not report hosted fallback for an %s Ollama key placeholder in auto mode',
+    placeholder => {
+      useOpenAICompatibleProvider()
+      process.env.OLLAMA_BASE_URL = 'not a url'
+      process.env.OLLAMA_API_KEY = placeholder
+
+      expectWebSearchBackend(
+        true,
+        `WEB_SEARCH_PROVIDER=auto; only DuckDuckGo fallback is available. DuckDuckGo scraping can be rate-limited from datacenter/VPN/repeated-request networks. Configure ${reliableBackendHint} for reliable search. OLLAMA_BASE_URL is invalid; runtime will skip ollama and fall through to the next provider in auto mode.`,
+      )
+    },
+  )
+
   test('reports a malformed active Ollama endpoint in auto mode', () => {
     useOpenAICompatibleProvider()
     process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
@@ -635,6 +649,20 @@ describe('system-check WebSearch diagnostics', () => {
       'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
     )
   })
+
+  test.each(['undefined', 'null'])(
+    'does not treat an %s Ollama key placeholder as hosted fallback',
+    placeholder => {
+      process.env.WEB_SEARCH_PROVIDER = 'ollama'
+      process.env.OLLAMA_BASE_URL = 'not a url'
+      process.env.OLLAMA_API_KEY = placeholder
+
+      expectWebSearchBackend(
+        false,
+        'WEB_SEARCH_PROVIDER=ollama but OLLAMA_BASE_URL is not a valid HTTP(S) URL.',
+      )
+    },
+  )
 
   test('does not report whitespace-only Ollama endpoints as configured', () => {
     process.env.WEB_SEARCH_PROVIDER = 'ollama'

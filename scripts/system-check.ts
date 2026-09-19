@@ -47,6 +47,7 @@ import {
   type ProviderMode,
 } from '../src/tools/WebSearchTool/providers/index.js'
 import {
+  getUsableOllamaApiKey,
   getUsableOllamaBaseUrlEnvValue,
   isOllamaWebSearchBaseUrl,
 } from '../src/tools/WebSearchTool/providers/ollama.js'
@@ -447,7 +448,7 @@ function getOllamaLocalConfig(): OllamaLocalConfig {
 }
 
 function buildOllamaWebSearchCheck(providerConfigured: boolean): CheckResult {
-  const ollamaApiKey = process.env.OLLAMA_API_KEY?.trim()
+  const ollamaApiKey = getUsableOllamaApiKey(process.env.OLLAMA_API_KEY)
   const localConfig = getOllamaLocalConfig()
   if (localConfig.status === 'invalid') {
     const configLabel =
@@ -498,7 +499,7 @@ function getAutoOllamaConfigDetail(): string | undefined {
       ? 'OLLAMA_BASE_URL'
       : 'Active Ollama provider endpoint'
 
-  if (process.env.OLLAMA_API_KEY?.trim()) {
+  if (getUsableOllamaApiKey(process.env.OLLAMA_API_KEY)) {
     return `${configLabel} is invalid; runtime will skip local Ollama search and use the hosted Ollama API.`
   }
 

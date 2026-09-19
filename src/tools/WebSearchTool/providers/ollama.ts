@@ -33,6 +33,17 @@ export function getUsableOllamaBaseUrlEnvValue(
     : trimmed
 }
 
+export function getUsableOllamaApiKey(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = nonEmpty(value)
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
+}
+
 function isTruthyEnv(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -113,7 +124,7 @@ function getSearchTargets(): {
   const targets: OllamaSearchTarget[] = []
   const errors: string[] = []
   const localBaseUrl = getConfiguredLocalBaseUrl()
-  const apiKey = nonEmpty(process.env.OLLAMA_API_KEY)
+  const apiKey = getUsableOllamaApiKey(process.env.OLLAMA_API_KEY)
 
   if (localBaseUrl) {
     try {
