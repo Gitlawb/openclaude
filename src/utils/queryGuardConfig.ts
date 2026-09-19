@@ -1,3 +1,5 @@
+export const OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV =
+  'OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS'
 export const OPENCLAUDE_QUERY_HARD_MAX_MS_ENV =
   'OPENCLAUDE_QUERY_HARD_MAX_MS'
 
@@ -11,16 +13,19 @@ type DebugLogger = (
 ) => void
 
 export type QueryGuardResolvedOptions = {
+  idleTimeoutMs?: number
   hardMaxQueryMs?: number
 }
 
-function warnInvalidQueryHardMax(
+function warnInvalidQueryTimeout(
+  envName: string,
+  defaultDescription: string,
   value: string,
   reason: string,
   log: DebugLogger,
 ): void {
   log(
-    `${OPENCLAUDE_QUERY_HARD_MAX_MS_ENV} invalid value "${value}" (${reason}); using default query hard max`,
+    `${envName} invalid value "${value}" (${reason}); using default ${defaultDescription}`,
     { level: 'warn' },
   )
 }
@@ -29,39 +34,74 @@ function defaultWarnLogger(message: string): void {
   console.warn(`[OpenClaude] ${message}`)
 }
 
-export function getQueryGuardOptionsFromEnv(
-  env: EnvLike = process.env,
-  log: DebugLogger = defaultWarnLogger,
-): QueryGuardResolvedOptions {
-  const raw = env[OPENCLAUDE_QUERY_HARD_MAX_MS_ENV]
+function getPositiveTimeoutFromEnv(
+  env: EnvLike,
+  envName: string,
+  defaultDescription: string,
+  log: DebugLogger,
+): number | undefined {
+  const raw = env[envName]
   const value = raw?.trim()
   if (!value) {
-    return {}
+    return undefined
   }
 
   if (!/^\d+$/.test(value)) {
-    warnInvalidQueryHardMax(
+    warnInvalidQueryTimeout(
+      envName,
+      defaultDescription,
       value,
       'expected a positive integer in milliseconds',
       log,
     )
-    return {}
+    return undefined
   }
 
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    warnInvalidQueryHardMax(value, 'expected a positive finite integer', log)
-    return {}
+    warnInvalidQueryTimeout(
+      envName,
+      defaultDescription,
+      value,
+      'expected a positive finite integer',
+      log,
+    )
+    return undefined
   }
 
   if (parsed > MAX_CONFIGURABLE_QUERY_HARD_MAX_MS) {
-    warnInvalidQueryHardMax(
+    warnInvalidQueryTimeout(
+      envName,
+      defaultDescription,
       value,
       `maximum is ${MAX_CONFIGURABLE_QUERY_HARD_MAX_MS}`,
       log,
     )
-    return {}
+    return undefined
   }
 
-  return { hardMaxQueryMs: parsed }
+  return parsed
+}
+
+export function getQueryGuardOptionsFromEnv(
+  env: EnvLike = process.env,
+  log: DebugLogger = defaultWarnLogger,
+): QueryGuardResolvedOptions {
+  const idleTimeoutMs = getPositiveTimeoutFromEnv(
+    env,
+    OPENCLAUDE_QUERY_IDLE_TIMEOUT_MS_ENV,
+    'query idle timeout',
+    log,
+  )
+  const hardMaxQueryMs = getPositiveTimeoutFromEnv(
+    env,
+    OPENCLAUDE_QUERY_HARD_MAX_MS_ENV,
+    'query hard max',
+    log,
+  )
+
+  return {
+    ...(idleTimeoutMs !== undefined && { idleTimeoutMs }),
+    ...(hardMaxQueryMs !== undefined && { hardMaxQueryMs }),
+  }
 }

@@ -33,7 +33,7 @@ function getOnQueryImplBody(): string {
 }
 
 describe('REPL query lifecycle timeout logging', () => {
-  test('constructs QueryGuard with resolved hard max config', () => {
+  test('constructs QueryGuard with resolved timeout config', () => {
     expect(source).toContain(
       "import { getQueryGuardOptionsFromEnv } from '../utils/queryGuardConfig.js'",
     )
