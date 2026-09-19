@@ -279,8 +279,8 @@ export async function* runAgent({
   toolUseContext: ToolUseContext
   canUseTool: CanUseToolFn
   isAsync: boolean
-  /** Whether this agent can show permission prompts. Defaults to !isAsync.
-   * Set to true for in-process teammates that run async but share the terminal. */
+  /** Whether this agent can show permission prompts. When omitted, infer it
+   * from the parent session; specialized unattended callers should pass false. */
   canShowPermissionPrompts?: boolean
   forkContextMessages?: Message[]
   querySource: QuerySource

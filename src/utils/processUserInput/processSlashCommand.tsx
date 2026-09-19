@@ -155,6 +155,9 @@ async function executeForkedSlashCommand(command: CommandBase & PromptCommand, a
         },
         canUseTool,
         isAsync: true,
+        // Scheduled assistant-mode commands are unattended fire-and-forget
+        // work, even when the owning session is interactive.
+        canShowPermissionPrompts: false,
         querySource: 'agent:custom',
         model: command.model as ModelAlias | undefined,
         availableTools: freshTools,

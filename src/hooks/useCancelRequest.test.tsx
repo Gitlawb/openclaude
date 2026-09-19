@@ -23,7 +23,11 @@ import {
   getDefaultAppState,
   type AppState,
 } from '../state/AppStateStore.js'
-import { CancelRequestHandler } from './useCancelRequest.js'
+import type { ToolUseConfirm } from '../components/permissions/PermissionRequest.js'
+import {
+  abortPendingToolPermissionRequests,
+  CancelRequestHandler,
+} from './useCancelRequest.js'
 import type { LocalAgentTaskState } from '../tasks/LocalAgentTask/LocalAgentTask.js'
 import {
   acquireSharedMutationLock,
@@ -300,5 +304,27 @@ describe('CancelRequestHandler interruption sources', () => {
     } finally {
       await rendered.cleanup()
     }
+  })
+})
+
+describe('abortPendingToolPermissionRequests', () => {
+  test('settles every permission request removed by parent cancellation', () => {
+    const firstAbort = mock((_source?: string, _causalEventId?: string) => {})
+    const secondAbort = mock((_source?: string, _causalEventId?: string) => {})
+    const queue = [
+      { onAbort: firstAbort },
+      { onAbort: secondAbort },
+    ] as Array<Pick<ToolUseConfirm, 'onAbort'>>
+
+    abortPendingToolPermissionRequests(
+      queue,
+      'ctrl_c',
+      'cancel-event-1',
+    )
+
+    expect(firstAbort).toHaveBeenCalledTimes(1)
+    expect(firstAbort).toHaveBeenCalledWith('ctrl_c', 'cancel-event-1')
+    expect(secondAbort).toHaveBeenCalledTimes(1)
+    expect(secondAbort).toHaveBeenCalledWith('ctrl_c', 'cancel-event-1')
   })
 })

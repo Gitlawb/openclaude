@@ -93,6 +93,7 @@ import { KeybindingSetup } from '../keybindings/KeybindingProviderSetup.js';
 import { useShortcutDisplay } from '../keybindings/useShortcutDisplay.js';
 import { getShortcutDisplay } from '../keybindings/shortcutFormat.js';
 import {
+  abortPendingToolPermissionRequests,
   CancelRequestHandler,
   type CancelRequestSource,
 } from '../hooks/useCancelRequest.js';
@@ -2467,8 +2468,10 @@ export function REPL({
       snapshotOutputTokensForTurn(null);
     }
     if (focusedInputDialog === 'tool-permission') {
-      // Tool use confirm handles the abort signal itself
-      toolUseConfirmQueue[0]?.onAbort(cancelSource, causalEventId);
+      // Each request owns a distinct waiter/controller. Settle every entry
+      // removed by this parent-turn cancellation so background agents do not
+      // remain blocked after the shared UI queue is cleared.
+      abortPendingToolPermissionRequests(toolUseConfirmQueue, cancelSource, causalEventId);
       setToolUseConfirmQueue([]);
     } else if (focusedInputDialog === 'prompt') {
       // Reject all pending prompts and clear the queue

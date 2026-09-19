@@ -40,6 +40,16 @@ const KILL_AGENTS_CONFIRM_WINDOW_MS = 3000
 
 export type CancelRequestSource = 'cancel_keybinding' | 'ctrl_c'
 
+export function abortPendingToolPermissionRequests(
+  queue: ReadonlyArray<Pick<ToolUseConfirm, 'onAbort'>>,
+  source?: string,
+  causalEventId?: string,
+): void {
+  for (const item of queue) {
+    item.onAbort(source, causalEventId)
+  }
+}
+
 type CancelRequestHandlerProps = {
   setToolUseConfirmQueue: (
     f: (toolUseConfirmQueue: ToolUseConfirm[]) => ToolUseConfirm[],
