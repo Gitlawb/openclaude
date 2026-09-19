@@ -176,6 +176,16 @@ export function createGetAppStateWithAllowedTools(
 }
 
 /**
+ * Captures the untransformed root state before a forked command replaces
+ * getAppState with a command-scoped view (for example, allowed tools).
+ */
+export function createRootAppStateGetter(
+  context: ToolUseContext,
+): NonNullable<ToolUseContext['getRootAppState']> {
+  return () => context.getRootAppState?.() ?? context.getAppState()
+}
+
+/**
  * Result from preparing a forked command context.
  */
 export type PreparedForkedContext = {
