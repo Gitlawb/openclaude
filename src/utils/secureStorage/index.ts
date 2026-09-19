@@ -81,7 +81,12 @@ export interface SecureStorage {
   readResultAsync?(): Promise<SecureStorageReadResult>
   update(
     data: SecureStorageData,
-    options?: { preserveProviderAccounts?: boolean; lockHeld?: boolean },
+    options?: {
+      preserveProviderAccounts?: boolean
+      lockHeld?: boolean
+      /** Replace a record that is known to contain malformed JSON. */
+      replaceCorrupt?: boolean
+    },
   ): { success: boolean; warning?: string }
   delete(): boolean
 }
@@ -145,7 +150,11 @@ function preserveProviderAccountsOnSharedWrites(storage: SecureStorage): SecureS
         let next = data
         if (options.preserveProviderAccounts !== false) {
           const current = storage.readResult?.()
-          if (current?.kind === 'error') {
+          if (
+            current?.kind === 'error' &&
+            !(options.replaceCorrupt &&
+              current.warning?.includes('returned malformed JSON.'))
+          ) {
             return { success: false, warning: current.warning ?? 'Secure storage read failed.' }
           }
           if (current?.kind === 'ok' && current.data.providerAccounts) {

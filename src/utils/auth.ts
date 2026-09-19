@@ -1266,7 +1266,13 @@ export function saveOAuthTokensIfNeeded(tokens: OAuthTokens): {
       },
     }
 
-    const updateStatus = secureStorage.update(storageData)
+    // A malformed native record cannot be read to preserve provider accounts,
+    // but a successful OAuth login is an explicit recovery boundary: replace
+    // the unreadable record with the freshly authenticated session. Other
+    // storage failures remain fail-closed.
+    const updateStatus = secureStorage.update(storageData, {
+      replaceCorrupt: true,
+    })
 
     if (updateStatus.success) {
       logEvent('tengu_oauth_tokens_saved', { storageBackend })

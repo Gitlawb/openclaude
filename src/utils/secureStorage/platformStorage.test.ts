@@ -1,6 +1,8 @@
 
 import { expect, test, mock, describe, beforeEach, afterEach } from "bun:test";
+import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { linuxSecretStorage } from "./linuxSecretStorage.js";
 import { windowsCredentialStorage } from "./windowsCredentialStorage.js";
 import { macOsKeychainStorage } from "./macOsKeychainStorage.js";
@@ -93,6 +95,14 @@ describe("Secure Storage Platform Implementations", () => {
     test("Linux classified reads distinguish a missing item", () => {
       mockExecaSync.mockReturnValue({ exitCode: 1, stdout: "", stderr: "" });
       expect(linuxSecretStorage.readResult?.()).toEqual({ kind: "missing" });
+    });
+
+    test("Linux classified reads identify malformed JSON", () => {
+      mockExecaSync.mockReturnValue({ exitCode: 0, stdout: "legacy-token", stderr: "" });
+      expect(linuxSecretStorage.readResult?.()).toEqual({
+        kind: "error",
+        warning: "Secret Service returned malformed JSON.",
+      });
     });
 
     test("Windows classified reads distinguish a missing DPAPI file", () => {
@@ -394,7 +404,10 @@ describe("Secure Storage Platform Implementations", () => {
       linuxSecretStorage.update(testData);
 
       const options = execaCalls()[0][2];
-      expect(options.input).toContain("secret-token");
+      expect(options.input?.startsWith("verboo-secure-v1:")).toBe(true);
+      const encoded = options.input!.slice("verboo-secure-v1:".length);
+      const decoded = inflateRawSync(Buffer.from(encoded, 'base64')).toString('utf8');
+      expect(decoded).toContain("secret-token");
     });
 
     test("read parses stdout", () => {
@@ -402,6 +415,35 @@ describe("Secure Storage Platform Implementations", () => {
       const result = linuxSecretStorage.read();
 
       expect(result).toEqual(testData);
+    });
+
+    test("read parses the compressed payload written for KWallet", () => {
+      const json = JSON.stringify(testData);
+      const payload = `verboo-secure-v1:${deflateRawSync(Buffer.from(json)).toString('base64')}`;
+      mockExecaSync.mockReturnValue({ exitCode: 0, stdout: payload });
+
+      expect(linuxSecretStorage.read()).toEqual(testData);
+    });
+
+    test("rejects a compressed payload that exceeds KWallet's limit", () => {
+      const oversized = {
+        mcpOAuth: {
+          server: {
+            accessToken: randomBytes(20_000).toString('base64'),
+            expiresAt: 1,
+            serverName: 'server',
+            serverUrl: 'https://example.invalid',
+          },
+        },
+      };
+
+      const result = linuxSecretStorage.update(oversized);
+
+      expect(result).toEqual({
+        success: false,
+        warning: 'Secure Service payload exceeds the Linux keyring limit.',
+      });
+      expect(mockExecaSync).not.toHaveBeenCalled();
     });
   });
 

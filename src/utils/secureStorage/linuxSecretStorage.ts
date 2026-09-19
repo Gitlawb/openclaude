@@ -1,4 +1,5 @@
 import { execaSync } from 'execa'
+import { deflateRawSync, inflateRawSync } from 'node:zlib'
 import { jsonParse, jsonStringify } from '../slowOperations.js'
 import {
   CREDENTIALS_SERVICE_SUFFIX,
@@ -6,6 +7,28 @@ import {
   getUsername,
 } from './macOsKeychainHelpers.js'
 import type { SecureStorage, SecureStorageData, SecureStorageReadResult } from './index.js'
+
+// KWallet's Secret Service adapter accepts writes larger than this but
+// truncates the stored secret at 8192 bytes while still returning success.
+// Store a compact, versioned representation so the shared credentials record
+// remains safe as provider accounts accumulate.
+const KWalletSecretLimitBytes = 8192
+const COMPRESSED_PAYLOAD_PREFIX = 'verboo-secure-v1:'
+
+function encodePayload(data: SecureStorageData): string {
+  const json = jsonStringify(data)
+  return `${COMPRESSED_PAYLOAD_PREFIX}${deflateRawSync(Buffer.from(json, 'utf8')).toString('base64')}`
+}
+
+function decodePayload(payload: string): SecureStorageData {
+  if (!payload.startsWith(COMPRESSED_PAYLOAD_PREFIX)) {
+    return jsonParse(payload)
+  }
+
+  const encoded = payload.slice(COMPRESSED_PAYLOAD_PREFIX.length)
+  const json = inflateRawSync(Buffer.from(encoded, 'base64')).toString('utf8')
+  return jsonParse(json)
+}
 
 /**
  * Linux-specific secure storage implementation using the secret-tool CLI.
@@ -27,7 +50,7 @@ export const linuxSecretStorage: SecureStorage = {
       )
 
       if (result.exitCode === 0 && result.stdout) {
-        return jsonParse(result.stdout)
+        return decodePayload(result.stdout)
       }
     } catch {
       // fall through
@@ -47,7 +70,7 @@ export const linuxSecretStorage: SecureStorage = {
       )
       if (result.exitCode === 0 && result.stdout) {
         try {
-          return { kind: 'ok', data: jsonParse(result.stdout) }
+          return { kind: 'ok', data: decodePayload(result.stdout) }
         } catch {
           return { kind: 'error', warning: 'Secret Service returned malformed JSON.' }
         }
@@ -70,7 +93,13 @@ export const linuxSecretStorage: SecureStorage = {
       const serviceName = getSecureStorageServiceName(
         CREDENTIALS_SERVICE_SUFFIX,
       )
-      const payload = jsonStringify(data)
+      const payload = encodePayload(data)
+      if (Buffer.byteLength(payload, 'utf8') > KWalletSecretLimitBytes) {
+        return {
+          success: false,
+          warning: 'Secure Service payload exceeds the Linux keyring limit.',
+        }
+      }
       // secret-tool store --label=[label] service [service] account [account]
       // The payload is passed via stdin
       const result = execaSync(

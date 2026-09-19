@@ -55,11 +55,14 @@ export function createFallbackStorage(
       if (fallback) return { kind: 'ok', data: fallback }
       return result.kind === 'error' ? result : { kind: 'missing' }
     },
-    update(data: SecureStorageData): { success: boolean; warning?: string } {
+    update(
+      data: SecureStorageData,
+      options?: { preserveProviderAccounts?: boolean; lockHeld?: boolean; replaceCorrupt?: boolean },
+    ): { success: boolean; warning?: string } {
       // Capture state before update
       const primaryDataBefore = primary.read()
 
-      const result = primary.update(data)
+      const result = primary.update(data, options)
 
       if (result.success) {
         // Delete secondary when migrating to primary for the first time
@@ -71,7 +74,7 @@ export function createFallbackStorage(
         return result
       }
 
-      const fallbackResult = secondary.update(data)
+      const fallbackResult = secondary.update(data, options)
 
       if (fallbackResult.success) {
         // Primary write failed but primary may still hold an *older* valid

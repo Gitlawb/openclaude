@@ -30,4 +30,23 @@ describe('fallback secure storage classification', () => {
     const secondary = storage(() => ({ kind: 'ok', data }))
     expect(createFallbackStorage(primary, secondary).readResult?.()).toEqual({ kind: 'ok', data })
   })
+
+  test('passes the corrupt-record recovery option to the native vault', () => {
+    let receivedOptions: unknown
+    const primary: SecureStorage = {
+      ...storage(() => ({ kind: 'error', warning: 'Secret Service returned malformed JSON.' })),
+      update: (_data, options) => {
+        receivedOptions = options
+        return { success: true }
+      },
+    }
+    const secondary = storage(() => ({ kind: 'missing' }))
+
+    const result = createFallbackStorage(primary, secondary).update(data, {
+      replaceCorrupt: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(receivedOptions).toEqual({ replaceCorrupt: true })
+  })
 })
