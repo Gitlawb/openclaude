@@ -103,9 +103,8 @@ user can approve or deny the request there, and the sub-agent continues with
 that decision. Existing allow and deny rules are still evaluated first.
 
 Non-interactive sessions remain fail-closed: unresolved requests are denied
-unless the host supplies an explicit permission callback or rule. You do not
-need to enable `--dangerously-skip-permissions` for interactive sub-agent
-verification.
+unless a configured permission rule or hook resolves them. You do not need to
+enable `--dangerously-skip-permissions` for interactive sub-agent verification.
 
 ## GitHub Copilot sub-agent optimization
 

@@ -447,6 +447,16 @@ export async function* runAgent({
       ? systemContextNoGit
       : baseSystemContext
 
+  const inheritedCanShowPermissionPrompts =
+    canShowPermissionPrompts ??
+    toolUseContext.options.canShowPermissionPrompts
+  const shouldAvoidAgentPrompts = shouldAvoidAgentPermissionPrompts({
+    isAsync,
+    canShowPermissionPrompts: inheritedCanShowPermissionPrompts,
+    permissionMode: agentDefinition.permissionMode,
+    isNonInteractiveSession: toolUseContext.options.isNonInteractiveSession,
+  })
+
   // Override permission mode if agent defines one.
   // However, don't override if parent is in bypassPermissions or acceptEdits mode - those should always take precedence.
   // Async agents in an interactive session share the parent's permission UI;
@@ -477,14 +487,7 @@ export async function* runAgent({
     // to the parent terminal. Otherwise, async execution is not itself a reason
     // to deny: in interactive sessions the inherited canUseTool callback owns
     // the main-session permission queue.
-    const shouldAvoidPrompts = shouldAvoidAgentPermissionPrompts({
-      isAsync,
-      canShowPermissionPrompts,
-      permissionMode: agentPermissionMode,
-      isNonInteractiveSession:
-        toolUseContext.options.isNonInteractiveSession,
-    })
-    if (shouldAvoidPrompts) {
+    if (shouldAvoidAgentPrompts) {
       toolPermissionContext = {
         ...toolPermissionContext,
         shouldAvoidPermissionPrompts: true,
@@ -496,7 +499,7 @@ export async function* runAgent({
     // Since these are background agents, waiting is fine — the user should
     // only be interrupted when automated checks can't resolve the permission.
     // This applies to bubble mode (always) and explicit canShowPermissionPrompts.
-    if (isAsync && !shouldAvoidPrompts) {
+    if (isAsync && !shouldAvoidAgentPrompts) {
       toolPermissionContext = {
         ...toolPermissionContext,
         awaitAutomatedChecksBeforeDialog: true,
@@ -718,6 +721,10 @@ export async function* runAgent({
       : isAsync
         ? true
         : (toolUseContext.options.isNonInteractiveSession ?? false),
+    // Preserve prompt capability independently from the child execution mode.
+    // Async children are marked non-interactive for query behavior, but their
+    // inherited canUseTool callback can still reach the interactive root.
+    canShowPermissionPrompts: !shouldAvoidAgentPrompts,
     appendSystemPrompt: toolUseContext.options.appendSystemPrompt,
     tools: allTools,
     commands: [],

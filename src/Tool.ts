@@ -183,6 +183,8 @@ export type ToolUseContext = {
     mcpClients: MCPServerConnection[]
     mcpResources: Record<string, ServerResource[]>
     isNonInteractiveSession: boolean
+    /** Whether unresolved agent permission requests can reach a parent prompt. */
+    canShowPermissionPrompts?: boolean
     agentDefinitions: AgentDefinitionsResult
     maxBudgetUsd?: number
     /** Custom system prompt that replaces the default system prompt */

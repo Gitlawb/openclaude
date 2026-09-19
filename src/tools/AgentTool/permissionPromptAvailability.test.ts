@@ -22,6 +22,26 @@ describe('shouldAvoidAgentPermissionPrompts', () => {
     ).toBe(true)
   })
 
+  test('propagates an interactive parent prompt through nested async agents', () => {
+    const parentShouldAvoidPrompts = shouldAvoidAgentPermissionPrompts({
+      isAsync: true,
+      permissionMode: 'acceptEdits',
+      isNonInteractiveSession: false,
+    })
+
+    expect(parentShouldAvoidPrompts).toBe(false)
+    expect(
+      shouldAvoidAgentPermissionPrompts({
+        isAsync: true,
+        canShowPermissionPrompts: !parentShouldAvoidPrompts,
+        permissionMode: 'acceptEdits',
+        // Async child contexts use this flag for query behavior, so prompt
+        // capability must be propagated independently.
+        isNonInteractiveSession: true,
+      }),
+    ).toBe(false)
+  })
+
   test('preserves synchronous and bubble prompt behavior', () => {
     expect(
       shouldAvoidAgentPermissionPrompts({
