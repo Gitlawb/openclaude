@@ -67,6 +67,18 @@ describe('ollamaProvider', () => {
     expect(ollamaProvider.isConfigured()).toBe(true)
   })
 
+  test.each(['undefined', 'null'])(
+    'falls back to OPENAI_API_BASE when OPENAI_BASE_URL is %s',
+    placeholder => {
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+      process.env.OPENAI_BASE_URL = placeholder
+      process.env.OPENAI_API_BASE = 'http://localhost:11434/v1'
+
+      expect(ollamaProvider.isConfigured()).toBe(true)
+    },
+  )
+
   test('does not infer Ollama from an unrelated hostname substring', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.OPENAI_BASE_URL = 'https://api.notollama.example/v1'

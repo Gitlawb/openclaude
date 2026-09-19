@@ -46,7 +46,10 @@ import {
   getProviderMode,
   type ProviderMode,
 } from '../src/tools/WebSearchTool/providers/index.js'
-import { isOllamaWebSearchBaseUrl } from '../src/tools/WebSearchTool/providers/ollama.js'
+import {
+  getUsableOllamaBaseUrlEnvValue,
+  isOllamaWebSearchBaseUrl,
+} from '../src/tools/WebSearchTool/providers/ollama.js'
 import { getWebSearchTimeoutMs } from '../src/tools/WebSearchTool/providers/timeout.js'
 import { isFirecrawlCloudApiUrl } from '../src/tools/firecrawl/client.js'
 import { getAPIProvider } from '../src/utils/model/providers.js'
@@ -410,7 +413,9 @@ type OllamaLocalConfig =
     }
 
 function getOllamaLocalConfig(): OllamaLocalConfig {
-  const explicitBaseUrl = process.env.OLLAMA_BASE_URL?.trim()
+  const explicitBaseUrl = getUsableOllamaBaseUrlEnvValue(
+    process.env.OLLAMA_BASE_URL,
+  )
   if (explicitBaseUrl) {
     return {
       status: isInvalidOllamaBaseUrl(explicitBaseUrl)
@@ -425,8 +430,8 @@ function getOllamaLocalConfig(): OllamaLocalConfig {
   }
 
   const activeBaseUrl =
-    process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.OPENAI_API_BASE?.trim()
+    getUsableOllamaBaseUrlEnvValue(process.env.OPENAI_BASE_URL) ??
+    getUsableOllamaBaseUrlEnvValue(process.env.OPENAI_API_BASE)
   if (!activeBaseUrl) return { status: 'absent' }
 
   const markedOllamaRoute =

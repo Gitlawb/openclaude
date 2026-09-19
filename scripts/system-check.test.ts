@@ -568,6 +568,22 @@ describe('system-check WebSearch diagnostics', () => {
     )
   })
 
+  test.each(['undefined', 'null'])(
+    'uses OPENAI_API_BASE when OPENAI_BASE_URL is the %s placeholder',
+    placeholder => {
+      process.env.WEB_SEARCH_PROVIDER = 'ollama'
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID = 'ollama'
+      process.env.OPENAI_BASE_URL = placeholder
+      process.env.OPENAI_API_BASE = 'http://localhost:11434/v1'
+
+      expectWebSearchBackend(
+        true,
+        'WEB_SEARCH_PROVIDER=ollama; active Ollama provider endpoint configured.',
+      )
+    },
+  )
+
   test('passes explicit Ollama mode with local and hosted fallback configuration', () => {
     process.env.WEB_SEARCH_PROVIDER = 'ollama'
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434'

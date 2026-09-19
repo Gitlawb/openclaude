@@ -22,6 +22,17 @@ function nonEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+export function getUsableOllamaBaseUrlEnvValue(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = nonEmpty(value)
+  if (!trimmed) return undefined
+  const normalized = trimmed.toLowerCase()
+  return normalized === 'undefined' || normalized === 'null'
+    ? undefined
+    : trimmed
+}
+
 function isTruthyEnv(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -33,7 +44,7 @@ function isTruthyEnv(value: string | undefined): boolean {
 }
 
 export function isOllamaWebSearchBaseUrl(value: string | undefined): boolean {
-  const trimmed = nonEmpty(value)
+  const trimmed = getUsableOllamaBaseUrlEnvValue(value)
   if (!trimmed) return false
 
   try {
@@ -76,14 +87,16 @@ function isAbortError(error: unknown, signal?: AbortSignal): boolean {
 }
 
 function getConfiguredLocalBaseUrl(): string | undefined {
-  const explicitOllamaBaseUrl = nonEmpty(process.env.OLLAMA_BASE_URL)
+  const explicitOllamaBaseUrl = getUsableOllamaBaseUrlEnvValue(
+    process.env.OLLAMA_BASE_URL,
+  )
   if (explicitOllamaBaseUrl) return explicitOllamaBaseUrl
 
   if (!isTruthyEnv(process.env.CLAUDE_CODE_USE_OPENAI)) return undefined
 
   const openAIBaseUrl =
-    nonEmpty(process.env.OPENAI_BASE_URL) ??
-    nonEmpty(process.env.OPENAI_API_BASE)
+    getUsableOllamaBaseUrlEnvValue(process.env.OPENAI_BASE_URL) ??
+    getUsableOllamaBaseUrlEnvValue(process.env.OPENAI_API_BASE)
   const markedOllamaRoute =
     nonEmpty(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID)?.toLowerCase() === 'ollama'
   if (!markedOllamaRoute && !isOllamaWebSearchBaseUrl(openAIBaseUrl)) {
