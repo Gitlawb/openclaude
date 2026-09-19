@@ -144,6 +144,15 @@ function authHeaders(accessToken: string): Record<string, string> {
   }
 }
 
+function actorScope(accessToken: string): string {
+  let actor = accessToken
+  try {
+    const claims = JSON.parse(Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8'))
+    if (typeof claims.sub === 'string' && z.string().uuid().safeParse(claims.sub).success) actor = claims.sub
+  } catch { /* Opaque tokens remain bound to their exact authenticated token. */ }
+  return createHash('sha256').update(actor).digest('hex')
+}
+
 async function postAndParse<T>(
   endpoint: string,
   accessToken: string,
@@ -152,7 +161,7 @@ async function postAndParse<T>(
   contractName: string,
   operationId?: string,
 ): Promise<T> {
-  const observation = commercialOperation(endpoint.endsWith('/checkout') ? 'checkout_request' : 'trial_activation', operationId)
+  const observation = commercialOperation(endpoint.endsWith('/checkout') ? 'checkout_request' : 'trial_activation', operationId, actorScope(accessToken))
   try {
     const response = await axios.post(endpoint, body, {
       headers: {...authHeaders(accessToken), ...observation.headers},
@@ -174,12 +183,7 @@ async function postAndParse<T>(
 const checkoutRequests = new Map<string, string>()
 function checkoutRequest(accessToken: string, groupId: string, input: CheckoutInput): string {
   if (input.requestId) return input.requestId
-  let actor = accessToken
-  try {
-    const claims = JSON.parse(Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8'))
-    if (typeof claims.sub === 'string' && z.string().uuid().safeParse(claims.sub).success) actor = claims.sub
-  } catch { /* Opaque tokens remain bound to their exact authenticated token. */ }
-  const binding = createHash('sha256').update(JSON.stringify([actor, groupId, input])).digest('hex')
+  const binding = createHash('sha256').update(JSON.stringify([actorScope(accessToken), groupId, input])).digest('hex')
   let id = checkoutRequests.get(binding)
   if (!id) {id = randomUUID();checkoutRequests.set(binding, id)}
   return id
@@ -203,7 +207,7 @@ async function commercialGet(url: string, config: AxiosRequestConfig) {
 }
 
 export async function getPurchaseOptions(accessToken: string, groupId: string, billingInterval: 'month' | 'year') {
-  const observation = commercialOperation('catalog')
+  const observation = commercialOperation('catalog', undefined, actorScope(accessToken))
   try {
     const response = await commercialGet(`${VERBOO_API_BASE_URL}/api/me/groups/${groupId}/purchase-options`, {headers: {...authHeaders(accessToken), ...observation.headers},params: {billingInterval},timeout: 10_000})
     const result = parseApiEnvelope(z.object({version: z.literal(1),groupId: z.string().uuid(),billingInterval: z.enum(['month', 'year']),recommendation: z.enum(['checkout', 'choose', 'change', 'manage', 'convert', 'resume', 'recover', 'support'])}),response.data,'opções de compra')
@@ -212,7 +216,7 @@ export async function getPurchaseOptions(accessToken: string, groupId: string, b
   } catch (error) {observation.fail(error);throw toVerbooApiError(error,'Não foi possível consultar as opções de compra.')}
 }
 export async function isPurchaseAttemptSucceeded(accessToken: string, attemptId: string, groupId: string, signal?: AbortSignal): Promise<boolean> {
-  const observation = commercialOperation('payment_return', attemptId)
+  const observation = commercialOperation('payment_return', attemptId, actorScope(accessToken))
   try {
     const response = await commercialGet(`${VERBOO_API_BASE_URL}/api/me/purchase-attempts/${attemptId}`, {headers: {...authHeaders(accessToken), ...observation.headers},signal,timeout:10_000})
     const attempt = parseApiEnvelope(z.object({id:z.string().uuid(),groupId:z.string().uuid(),status:z.enum(['pending','requires_action','succeeded','failed','expired','review'])}),response.data,'confirmação da compra')
@@ -232,7 +236,7 @@ export async function createCheckoutSession(
   try {
     parseRequest(z.string().uuid(), groupId, 'checkout')
     request = parseRequest(checkoutInputSchema, {...input, requestId, purchaseIntent: input.purchaseIntent ?? 'new'}, 'checkout')
-  } catch (error) { commercialOperation('checkout_request', requestId).fail(error); throw error }
+  } catch (error) { commercialOperation('checkout_request', requestId, actorScope(accessToken)).fail(error); throw error }
   return postAndParse(
     `${VERBOO_API_BASE_URL}/api/me/groups/${groupId}/checkout`,
     accessToken,

@@ -306,3 +306,18 @@ test('manual retry preserves request and journey across token refresh for the sa
  await createCheckoutSession(jwt(OTHER_GROUP_ID,1),GROUP_ID,{paymentMethod:'stripe',billingInterval:'month'})
  expect((requests[2][1] as {requestId:string}).requestId).not.toBe((requests[0][1] as {requestId:string}).requestId)
 })
+
+
+test('a different account cannot reuse the previous purchase observation identity', async()=>{
+ const {isPurchaseAttemptSucceeded}=await import('./verbooCheckout.js')
+ const headers: Record<string,string>[]=[]
+ axios.get=(async(_url, config)=>{headers.push(config.headers); return {data:{data:{id:ATTEMPT_ID,groupId:GROUP_ID,status:'pending'}}}}) as typeof axios.get
+ const jwt=(sub:string,version:number)=>'header.'+Buffer.from(JSON.stringify({sub,version})).toString('base64url')+'.signature'
+ await isPurchaseAttemptSucceeded(jwt(GROUP_ID,1),ATTEMPT_ID,GROUP_ID)
+ await isPurchaseAttemptSucceeded(jwt(GROUP_ID,2),ATTEMPT_ID,GROUP_ID)
+ await isPurchaseAttemptSucceeded(jwt(OTHER_GROUP_ID,1),ATTEMPT_ID,GROUP_ID)
+ for (const key of ['X-Verboo-Journey-Id','X-Verboo-Operation-Id']) {
+  expect(headers[0][key]).toBe(headers[1][key])
+  expect(headers[2][key]).not.toBe(headers[0][key])
+ }
+})
