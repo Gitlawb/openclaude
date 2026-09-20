@@ -190,9 +190,11 @@ function createPermissionContext(
         return false
       }
       if (updates.length === 0) return false
-      const appState = toolUseContext.getAppState()
+      const validationRootState =
+        toolUseContext.getRootAppState?.() ?? toolUseContext.getAppState()
       const validatedUpdates: PermissionUpdate[] = []
-      let nextContextForValidation = appState.toolPermissionContext
+      let nextContextForValidation =
+        validationRootState.toolPermissionContext
       for (const update of updates) {
         if (update.type === 'setMode') {
           const modeDecision = await getPermissionModeChangeRequestDecision({

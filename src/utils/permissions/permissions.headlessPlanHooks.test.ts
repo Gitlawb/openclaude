@@ -182,6 +182,60 @@ describe('headless plan-mode PermissionRequest hooks', () => {
     ])
   })
 
+  test('agent setMode cannot enable bypass when root availability is disabled', async () => {
+    const readTool = createToolFixture(z.object({}), {
+      name: 'AgentRootBypassAvailabilityReadTool',
+      isReadOnly: () => true,
+    })
+    const rootPermissionContext: ToolPermissionContext = {
+      mode: 'default',
+      additionalWorkingDirectories: new Map(),
+      alwaysAllowRules: {},
+      alwaysDenyRules: {},
+      alwaysAskRules: {},
+      isBypassPermissionsModeAvailable: false,
+    }
+    const childPermissionContext: ToolPermissionContext = {
+      ...rootPermissionContext,
+      isBypassPermissionsModeAvailable: true,
+    }
+    let persistedContext: ToolPermissionContext | undefined
+    const context = {
+      abortController: new AbortController(),
+      getAppState: () => ({ toolPermissionContext: childPermissionContext }),
+      getRootAppState: () => ({
+        toolPermissionContext: rootPermissionContext,
+      }),
+      options: {},
+    } as unknown as ToolUseContext
+    const permissionContext = createPermissionContext(
+      readTool,
+      {},
+      context,
+      { message: { id: 'assistant-message' } } as never,
+      'agent-root-bypass-availability',
+      nextContext => {
+        persistedContext = nextContext
+      },
+    )
+
+    const persisted = await permissionContext.persistPermissions([
+      {
+        type: 'setMode',
+        mode: 'fullAccess',
+        destination: 'session',
+      },
+      {
+        type: 'setMode',
+        mode: 'bypassPermissions',
+        destination: 'session',
+      },
+    ])
+
+    expect(persisted).toBe(false)
+    expect(persistedContext).toBeUndefined()
+  })
+
   test('agent permission updates cannot escape root plan mode', async () => {
     const readTool = createToolFixture(z.object({}), {
       name: 'AgentRootPlanReadTool',
