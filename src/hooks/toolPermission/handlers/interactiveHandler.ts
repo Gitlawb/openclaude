@@ -33,6 +33,7 @@ import {
 } from '../../../utils/interruptionTrace.js'
 import type { PermissionContext } from '../PermissionContext.js'
 import { createResolveOnce } from '../PermissionContext.js'
+import { isPermissionSessionActive } from '../permissionSessionOwnership.js'
 
 type InteractivePermissionParams = {
   ctx: PermissionContext
@@ -69,6 +70,10 @@ function handleInteractivePermission(
     bridgeCallbacks,
     channelCallbacks,
   } = params
+  const permissionSessionIsActive = () =>
+    isPermissionSessionActive(
+      ctx.toolUseContext.options.permissionSessionId,
+    )
 
   // Suspend the watchdog for the dialog window so human think-time isn't counted
   // toward the idle/hard-max timeout. Scoped here, not around the whole
@@ -237,6 +242,7 @@ function handleInteractivePermission(
         feedback?: string,
         contentBlocks?: ContentBlockParam[],
       ) {
+        if (!permissionSessionIsActive()) return
         if (!claim()) return // atomic check-and-mark before await
 
         if (bridgeCallbacks && bridgeRequestId) {
@@ -261,6 +267,7 @@ function handleInteractivePermission(
         )
       },
       onReject(feedback?: string, contentBlocks?: ContentBlockParam[]) {
+        if (!permissionSessionIsActive()) return
         if (!claim()) return
 
         if (bridgeCallbacks && bridgeRequestId) {
@@ -290,7 +297,10 @@ function handleInteractivePermission(
           ctx.assistantMessage,
           ctx.toolUseID,
         )
-        if (freshResult.behavior === 'allow') {
+        if (
+          freshResult.behavior === 'allow' &&
+          permissionSessionIsActive()
+        ) {
           // claim() (atomic check-and-mark), not isResolved() — the async
           // hasPermissionsToUseTool call above opens a window where CCR
           // could have responded in flight. Matches onAllow/onReject/hook
@@ -336,6 +346,7 @@ function handleInteractivePermission(
       const unsubscribe = bridgeCallbacks.onResponse(
         bridgeRequestId,
         async response => {
+          if (!permissionSessionIsActive()) return
           if (!claim()) return // Local user/hook/classifier already responded
           signal.removeEventListener('abort', unsubscribe)
           clearClassifierChecking(ctx.toolUseID)
@@ -443,6 +454,7 @@ function handleInteractivePermission(
         const mapUnsub = channelCallbacks.onResponse(
           channelRequestId,
           async response => {
+            if (!permissionSessionIsActive()) return
             if (!claim()) return // Another racer won
             channelUnsubscribe?.() // both: map delete + listener remove
             clearClassifierChecking(ctx.toolUseID)
@@ -488,7 +500,7 @@ function handleInteractivePermission(
     }
 
     // Skip hooks if they were already awaited in the coordinator branch above
-    if (!awaitAutomatedChecksBeforeDialog) {
+    if (!awaitAutomatedChecksBeforeDialog && permissionSessionIsActive()) {
       // Execute PermissionRequest hooks asynchronously
       // If hook returns a decision before user responds, apply it
       void (async () => {
@@ -500,7 +512,12 @@ function handleInteractivePermission(
           result.updatedInput,
           permissionPromptStartTimeMs,
         )
-        if (!hookDecision || !claim()) return
+        if (
+          !hookDecision ||
+          !permissionSessionIsActive() ||
+          !claim()
+        )
+          return
         if (bridgeCallbacks && bridgeRequestId) {
           bridgeCallbacks.cancelRequest(bridgeRequestId)
         }
@@ -515,7 +532,8 @@ function handleInteractivePermission(
       feature('BASH_CLASSIFIER') &&
       result.pendingClassifierCheck &&
       ctx.tool.name === BASH_TOOL_NAME &&
-      !awaitAutomatedChecksBeforeDialog
+      !awaitAutomatedChecksBeforeDialog &&
+      permissionSessionIsActive()
     ) {
       const classifierPlanModeWasActive =
         ctx.toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
@@ -528,12 +546,16 @@ function handleInteractivePermission(
         ctx.toolUseContext.abortController.signal,
         ctx.toolUseContext.options.isNonInteractiveSession,
         {
-          shouldContinue: () => !isResolved() && !userInteracted,
+          shouldContinue: () =>
+            !isResolved() &&
+            !userInteracted &&
+            permissionSessionIsActive(),
           onComplete: () => {
             clearClassifierChecking(ctx.toolUseID)
             clearClassifierIndicator()
           },
           onAllow: async decisionReason => {
+            if (!permissionSessionIsActive()) return
             if (!claim()) return
             if (bridgeCallbacks && bridgeRequestId) {
               bridgeCallbacks.cancelRequest(bridgeRequestId)

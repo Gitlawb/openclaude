@@ -25,7 +25,7 @@ import { handleInteractivePermission } from './toolPermission/handlers/interacti
 import { handleSwarmWorkerPermission } from './toolPermission/handlers/swarmWorkerHandler.js';
 import { createPermissionContext, createPermissionQueueOps } from './toolPermission/PermissionContext.js';
 import { logPermissionDecision } from './toolPermission/permissionLogging.js';
-import { buildInactivePermissionSessionDecision, isPermissionSessionActive } from './toolPermission/permissionSessionOwnership.js';
+import { isPermissionSessionActive } from './toolPermission/permissionSessionOwnership.js';
 export type CanUseToolFn<Input extends Record<string, unknown> = Record<string, unknown>> = (tool: ToolType, input: Input, toolUseContext: ToolUseContext, assistantMessage: AssistantMessage, toolUseID: string, forceDecision?: PermissionDecision<Input>) => Promise<PermissionDecision<Input>>;
 function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
   const $ = _c(3);
@@ -34,20 +34,12 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
     t0 = async (tool, input, toolUseContext, assistantMessage, toolUseID, forceDecision) => new Promise(resolve => {
       const ctx = createPermissionContext(tool, input, toolUseContext, assistantMessage, toolUseID, setToolPermissionContext, createPermissionQueueOps(setToolUseConfirmQueue));
       const permissionSessionIsActive = () => isPermissionSessionActive(toolUseContext.options.permissionSessionId);
-      const resolveIfPermissionSessionInactive = () => {
-        if (permissionSessionIsActive()) return false;
-        resolve(buildInactivePermissionSessionDecision());
-        return true;
-      };
       if (ctx.resolveIfAborted(resolve)) {
         return;
       }
       const shouldBypassForcedAsk = forceDecision?.behavior === "ask" && toolUseContext.getAppState().toolPermissionContext.mode === "fullAccess";
       const decisionPromise = forceDecision !== undefined && !shouldBypassForcedAsk ? Promise.resolve(forceDecision) : hasPermissionsToUseTool(tool, input, toolUseContext, assistantMessage, toolUseID);
       return decisionPromise.then(async result => {
-        if (result.behavior === "ask" && resolveIfPermissionSessionInactive()) {
-          return;
-        }
         if (result.behavior === "allow") {
           if (ctx.resolveIfAborted(resolve)) {
             return;
@@ -70,9 +62,6 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
           toolPermissionContext: appState.toolPermissionContext,
           tools: toolUseContext.options.tools
         });
-        if (result.behavior === "ask" && resolveIfPermissionSessionInactive()) {
-          return;
-        }
         if (ctx.resolveIfAborted(resolve)) {
           return;
         }
@@ -107,7 +96,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
             }
           case "ask":
             {
-              if (appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
+              if (appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog && permissionSessionIsActive()) {
                 const coordinatorDecision = await handleCoordinatorPermission({
                   ctx,
                   ...(feature("BASH_CLASSIFIER") ? {
@@ -117,10 +106,7 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                   suggestions: result.suggestions,
                   permissionMode: appState.toolPermissionContext.mode
                 });
-                if (resolveIfPermissionSessionInactive()) {
-                  return;
-                }
-                if (coordinatorDecision) {
+                if (coordinatorDecision && permissionSessionIsActive()) {
                   resolve(coordinatorDecision);
                   return;
                 }
@@ -128,36 +114,32 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
               if (ctx.resolveIfAborted(resolve)) {
                 return;
               }
-              const swarmDecision = await handleSwarmWorkerPermission({
-                ctx,
-                description,
-                ...(feature("BASH_CLASSIFIER") ? {
-                  pendingClassifierCheck: result.pendingClassifierCheck
-                } : {}),
-                updatedInput: result.updatedInput,
-                suggestions: result.suggestions
-              });
-              if (resolveIfPermissionSessionInactive()) {
-                return;
+              if (permissionSessionIsActive()) {
+                const swarmDecision = await handleSwarmWorkerPermission({
+                  ctx,
+                  description,
+                  ...(feature("BASH_CLASSIFIER") ? {
+                    pendingClassifierCheck: result.pendingClassifierCheck
+                  } : {}),
+                  updatedInput: result.updatedInput,
+                  suggestions: result.suggestions
+                });
+                if (swarmDecision && permissionSessionIsActive()) {
+                  resolve(swarmDecision);
+                  return;
+                }
               }
-              if (swarmDecision) {
-                resolve(swarmDecision);
-                return;
-              }
-              if (feature("BASH_CLASSIFIER") && result.pendingClassifierCheck && tool.name === BASH_TOOL_NAME && !appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog) {
+              if (feature("BASH_CLASSIFIER") && result.pendingClassifierCheck && tool.name === BASH_TOOL_NAME && !appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog && permissionSessionIsActive()) {
                 const classifierPlanModeWasActive = toolUseContext.getAppState().toolPermissionContext.mode === "plan";
                 const speculativePromise = peekSpeculativeClassifierCheck((input as {
                   command: string;
                 }).command);
                 if (speculativePromise) {
                   const raceResult = await Promise.race([speculativePromise.then(_temp), new Promise(_temp2)]);
-                  if (resolveIfPermissionSessionInactive()) {
-                    return;
-                  }
                   if (ctx.resolveIfAborted(resolve)) {
                     return;
                   }
-                  if (raceResult.type === "result" && raceResult.result.matches && raceResult.result.confidence === "high" && feature("BASH_CLASSIFIER")) {
+                  if (permissionSessionIsActive() && raceResult.type === "result" && raceResult.result.matches && raceResult.result.confidence === "high" && feature("BASH_CLASSIFIER")) {
                     consumeSpeculativeClassifierCheck((input as {
                       command: string;
                     }).command);
@@ -167,26 +149,29 @@ function useCanUseTool(setToolUseConfirmQueue, setToolPermissionContext) {
                       classifier: "bash_allow" as const,
                       reason: `Allowed by prompt rule: "${raceResult.result.matchedDescription}"`
                     }, undefined, classifierPlanModeWasActive);
-                    if (classifierDecision.behavior !== "allow") {
+                    if (permissionSessionIsActive()) {
+                      if (classifierDecision.behavior !== "allow") {
+                        resolve(classifierDecision);
+                        return;
+                      }
+                      const matchedRule = raceResult.result.matchedDescription ?? undefined;
+                      if (matchedRule) {
+                        setClassifierApproval(toolUseID, matchedRule);
+                      }
                       resolve(classifierDecision);
                       return;
                     }
-                    const matchedRule = raceResult.result.matchedDescription ?? undefined;
-                    if (matchedRule) {
-                      setClassifierApproval(toolUseID, matchedRule);
-                    }
-                    resolve(classifierDecision);
-                    return;
                   }
                 }
               }
+              const ownerIsActive = permissionSessionIsActive();
               handleInteractivePermission({
                 ctx,
                 description,
                 result,
-                awaitAutomatedChecksBeforeDialog: appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog,
-                bridgeCallbacks: feature("BRIDGE_MODE") ? appState.replBridgePermissionCallbacks : undefined,
-                channelCallbacks: feature("KAIROS") || feature("KAIROS_CHANNELS") ? appState.channelPermissionCallbacks : undefined
+                awaitAutomatedChecksBeforeDialog: appState.toolPermissionContext.awaitAutomatedChecksBeforeDialog || !ownerIsActive,
+                bridgeCallbacks: ownerIsActive && feature("BRIDGE_MODE") ? appState.replBridgePermissionCallbacks : undefined,
+                channelCallbacks: ownerIsActive && (feature("KAIROS") || feature("KAIROS_CHANNELS")) ? appState.channelPermissionCallbacks : undefined
               }, resolve);
               return;
             }
