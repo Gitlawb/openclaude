@@ -18,6 +18,7 @@ describe('permission session ownership', () => {
     let liveState = { mode: 'default' }
     const getOwnedState = createPermissionSessionStateGetter(
       asSessionId('session-a'),
+      liveState,
       () => liveState,
       () => activeSessionId,
     )
@@ -30,6 +31,34 @@ describe('permission session ownership', () => {
     expect(getOwnedState()).toEqual({ mode: 'dontAsk' })
 
     activeSessionId = asSessionId('session-a')
+    expect(getOwnedState()).toEqual({ mode: 'fullAccess' })
+  })
+
+  test('does not seed an inactive owner from the active session', () => {
+    let activeSessionId = asSessionId('session-b')
+    let liveState = { mode: 'fullAccess' }
+    const getOwnedState = createPermissionSessionStateGetter(
+      asSessionId('session-a'),
+      { mode: 'dontAsk' },
+      () => liveState,
+      () => activeSessionId,
+    )
+
+    expect(getOwnedState()).toEqual({ mode: 'dontAsk' })
+
+    activeSessionId = asSessionId('session-a')
+    liveState = { mode: 'default' }
+    expect(getOwnedState()).toEqual({ mode: 'default' })
+  })
+
+  test('preserves an owner allow policy while the active session denies', () => {
+    const getOwnedState = createPermissionSessionStateGetter(
+      asSessionId('session-a'),
+      { mode: 'fullAccess' },
+      () => ({ mode: 'dontAsk' }),
+      () => asSessionId('session-b'),
+    )
+
     expect(getOwnedState()).toEqual({ mode: 'fullAccess' })
   })
 

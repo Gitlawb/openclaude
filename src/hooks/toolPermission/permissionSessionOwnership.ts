@@ -20,10 +20,11 @@ export function isPermissionSessionActive(
  */
 export function createPermissionSessionStateGetter<T>(
   permissionSessionId: SessionId | undefined,
+  initialState: T,
   getLiveState: () => T,
   getActiveSessionId: () => SessionId = getSessionId,
 ): () => T {
-  let ownedState = getLiveState()
+  let ownedState = initialState
   return () => {
     if (
       permissionSessionId === undefined ||

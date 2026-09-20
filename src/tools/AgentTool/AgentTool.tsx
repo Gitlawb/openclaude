@@ -345,6 +345,10 @@ export const AgentTool = buildTool({
 
     // Get app state for permission mode and agent filtering
     const appState = toolUseContext.getAppState();
+    const permissionSessionState = {
+      appState,
+      rootAppState: toolUseContext.getRootAppState?.() ?? appState
+    };
     const permissionMode = appState.toolPermissionContext.mode;
     // In-process teammates get a no-op setAppState; setAppStateForTasks
     // reaches the root store so task registration/progress/kill stay visible.
@@ -823,6 +827,7 @@ export const AgentTool = buildTool({
       cwd,
       description,
       agentName: name,
+      permissionSessionState,
     };
 
     // Helper to wrap execution with a cwd override. Worktree wins if present;

@@ -16,6 +16,7 @@ import { createPermissionSessionStateGetter } from '../../hooks/toolPermission/p
 import { query } from '../../query.js'
 import type { Terminal } from '../../query/transitions.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
+import type { AppState } from '../../state/AppStateStore.js'
 import { getDumpPromptsPath } from '../../services/api/dumpPrompts.js'
 import { cleanupAgentTracking } from '../../services/api/promptCacheBreakDetection.js'
 import {
@@ -274,6 +275,7 @@ export async function* runAgent({
   onQueryProgress,
   agentName,
   routingSubagentType,
+  permissionSessionState,
 }: {
   agentDefinition: AgentDefinition
   promptMessages: Message[]
@@ -345,10 +347,32 @@ export async function* runAgent({
    *  which drops the original subagent_type that agentRouting is keyed on. Pass
    *  the original subagent_type here so the configured route still resolves. */
   routingSubagentType?: string
+  /** App/root permission state captured synchronously by an ordinary AgentTool
+   * before delayed or restarted execution can switch the displayed session. */
+  permissionSessionState?: {
+    appState: AppState
+    rootAppState: AppState
+  }
 }): AsyncGenerator<Message, void> {
   // Track subagent usage for feature discovery
 
-  const appState = toolUseContext.getAppState()
+  const initialAppState =
+    permissionSessionState?.appState ?? toolUseContext.getAppState()
+  const getOriginAppState = createPermissionSessionStateGetter(
+    toolUseContext.options.permissionSessionId,
+    initialAppState,
+    toolUseContext.getAppState,
+  )
+  const initialRootAppState =
+    permissionSessionState?.rootAppState ??
+    toolUseContext.getRootAppState?.() ??
+    initialAppState
+  const getOriginRootAppState = createPermissionSessionStateGetter(
+    toolUseContext.options.permissionSessionId,
+    initialRootAppState,
+    () => toolUseContext.getRootAppState?.() ?? toolUseContext.getAppState(),
+  )
+  const appState = getOriginAppState()
   const permissionMode = appState.toolPermissionContext.mode
   // Always-shared channel to the root AppState store. toolUseContext.setAppState
   // is a no-op when the *parent* is itself an async agent (nested async→async),
@@ -472,14 +496,6 @@ export async function* runAgent({
   // Async agents in an interactive session share the parent's permission UI;
   // only truly non-interactive agents must auto-deny unresolved prompts.
   const agentPermissionMode = agentDefinition.permissionMode
-  const getOriginAppState = createPermissionSessionStateGetter(
-    toolUseContext.options.permissionSessionId,
-    toolUseContext.getAppState,
-  )
-  const getOriginRootAppState = createPermissionSessionStateGetter(
-    toolUseContext.options.permissionSessionId,
-    () => toolUseContext.getRootAppState?.() ?? toolUseContext.getAppState(),
-  )
   const agentGetAppState = () => {
     const state = getOriginAppState()
     const rootState = getOriginRootAppState()
