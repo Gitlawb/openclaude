@@ -73,22 +73,32 @@ type PermissionRejectionSource =
 // In the REPL, these are backed by React state.
 type PermissionQueueOps = {
   push(item: ToolUseConfirm): void
-  remove(toolUseID: string, permissionSessionId: ToolUseConfirm['permissionSessionId']): void
+  remove(
+    toolUseID: string,
+    permissionSessionId: ToolUseConfirm['permissionSessionId'],
+    agentId: ToolUseContext['agentId'],
+  ): void
   update(
     toolUseID: string,
     permissionSessionId: ToolUseConfirm['permissionSessionId'],
+    agentId: ToolUseContext['agentId'],
     patch: Partial<ToolUseConfirm>,
   ): void
 }
 
 function isSamePermissionQueueEntry(
-  item: Pick<ToolUseConfirm, 'toolUseID' | 'permissionSessionId'>,
+  item: Pick<
+    ToolUseConfirm,
+    'toolUseID' | 'permissionSessionId' | 'toolUseContext'
+  >,
   toolUseID: string,
   permissionSessionId: ToolUseConfirm['permissionSessionId'],
+  agentId: ToolUseContext['agentId'],
 ): boolean {
   return (
     item.toolUseID === toolUseID &&
-    item.permissionSessionId === permissionSessionId
+    item.permissionSessionId === permissionSessionId &&
+    item.toolUseContext.agentId === agentId
   )
 }
 
@@ -611,12 +621,14 @@ function createPermissionContext(
       queueOps?.remove(
         toolUseID,
         toolUseContext.options.permissionSessionId,
+        toolUseContext.agentId,
       )
     },
     updateQueueItem(patch: Partial<ToolUseConfirm>) {
       queueOps?.update(
         toolUseID,
         toolUseContext.options.permissionSessionId,
+        toolUseContext.agentId,
         patch,
       )
     },
@@ -643,6 +655,7 @@ function createPermissionQueueOps(
     remove(
       toolUseID: string,
       permissionSessionId: ToolUseConfirm['permissionSessionId'],
+      agentId: ToolUseContext['agentId'],
     ) {
       setToolUseConfirmQueue(queue =>
         queue.filter(
@@ -651,6 +664,7 @@ function createPermissionQueueOps(
               item,
               toolUseID,
               permissionSessionId,
+              agentId,
             ),
         ),
       )
@@ -658,11 +672,17 @@ function createPermissionQueueOps(
     update(
       toolUseID: string,
       permissionSessionId: ToolUseConfirm['permissionSessionId'],
+      agentId: ToolUseContext['agentId'],
       patch: Partial<ToolUseConfirm>,
     ) {
       setToolUseConfirmQueue(queue =>
         queue.map(item =>
-          isSamePermissionQueueEntry(item, toolUseID, permissionSessionId)
+          isSamePermissionQueueEntry(
+            item,
+            toolUseID,
+            permissionSessionId,
+            agentId,
+          )
             ? { ...item, ...patch }
             : item,
         ),
