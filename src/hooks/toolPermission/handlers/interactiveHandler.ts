@@ -11,7 +11,7 @@ import {
 } from '../../../services/mcp/channelNotification.js'
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
-  shortRequestId,
+  channelPermissionRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
 import type { ConnectedMCPServer } from '../../../services/mcp/types.js'
@@ -406,7 +406,11 @@ function handleInteractivePermission(
       channelCallbacks &&
       !ctx.tool.requiresUserInteraction?.()
     ) {
-      const channelRequestId = shortRequestId(ctx.toolUseID)
+      const channelRequestId = channelPermissionRequestId(
+        ctx.toolUseID,
+        ctx.toolUseContext.options.permissionSessionId,
+        ctx.toolUseContext.agentId,
+      )
       const channelClients = ctx.toolUseContext
         .getAppState()
         .mcp.clients.filter(
