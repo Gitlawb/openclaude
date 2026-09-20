@@ -341,6 +341,7 @@ function createPermissionContext(
       suggestions: PermissionUpdate[] | undefined,
       updatedInput?: Record<string, unknown>,
       permissionPromptStartTimeMs?: number,
+      ownerDecisionAuthorized = false,
     ): Promise<PermissionDecision | null> {
       const enforcePlanMode =
         toolUseContext.getAppState().toolPermissionContext.mode === 'plan'
@@ -410,6 +411,7 @@ function createPermissionContext(
               ),
               permissionPromptStartTimeMs,
               enforcePlanMode,
+              ownerDecisionAuthorized,
             )
           } else if (decision.behavior === 'deny') {
             this.logDecision(
@@ -473,8 +475,13 @@ function createPermissionContext(
       permissionPromptStartTimeMs?: number,
       contentBlocks?: ContentBlockParam[],
       decisionReason?: PermissionDecisionReason,
+      // Set only after an exact owner-scoped user/remote decision is claimed.
+      // Persistence keeps its own active-session guard; this token prevents a
+      // later UI switch from rewriting the already-authorized one-time result.
+      ownerDecisionAuthorized = false,
     ): Promise<PermissionDecision> {
       if (
+        !ownerDecisionAuthorized &&
         !isPermissionSessionActive(
           toolUseContext.options.permissionSessionId,
         )
@@ -508,6 +515,7 @@ function createPermissionContext(
         return finalRevalidation
       }
       if (
+        !ownerDecisionAuthorized &&
         !isPermissionSessionActive(
           toolUseContext.options.permissionSessionId,
         )
@@ -537,8 +545,10 @@ function createPermissionContext(
       permissionUpdates: PermissionUpdate[],
       permissionPromptStartTimeMs?: number,
       planModeWasActive = false,
+      ownerDecisionAuthorized = false,
     ): Promise<PermissionDecision> {
       if (
+        !ownerDecisionAuthorized &&
         !isPermissionSessionActive(
           toolUseContext.options.permissionSessionId,
         )
@@ -560,6 +570,7 @@ function createPermissionContext(
         return postUpdatePlanModeDecision
       }
       if (
+        !ownerDecisionAuthorized &&
         !isPermissionSessionActive(
           toolUseContext.options.permissionSessionId,
         )

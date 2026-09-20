@@ -304,6 +304,9 @@ describe('handleInteractivePermission watchdog suspension', () => {
       [],
       undefined,
       expect.any(Number),
+      undefined,
+      undefined,
+      true,
     )
     expect(resolve).toHaveBeenCalledWith(
       expect.objectContaining({ behavior: 'deny' }),
@@ -333,7 +336,7 @@ describe('handleInteractivePermission watchdog suspension', () => {
     }
   })
 
-  test('defers a bridge response until the prompt owner is active', async () => {
+  test('settles an exact bridge response even when the prompt owner is hidden', async () => {
     const ownerSessionId = getSessionId()
     let respond:
       | ((response: {
@@ -368,18 +371,23 @@ describe('handleInteractivePermission watchdog suspension', () => {
         updatedInput: { command: 'touch deferred' },
         updatedPermissions: [],
       })
-      expect(resolve).not.toHaveBeenCalled()
-      expect(ctx.handleUserAllow).not.toHaveBeenCalled()
-
-      switchSession(ownerSessionId)
-      await getQueueItem().onAllow({}, [])
       expect(resolve).toHaveBeenCalledTimes(1)
+      expect(ctx.handleUserAllow).toHaveBeenCalledWith(
+        { command: 'touch deferred' },
+        [],
+        undefined,
+        expect.any(Number),
+        undefined,
+        undefined,
+        true,
+      )
+      expect(getQueueItem()).toBeDefined()
     } finally {
       switchSession(ownerSessionId)
     }
   })
 
-  test('does not let an automated hook claim the prompt after its owner becomes inactive', async () => {
+  test('settles an owner-scoped hook that finishes after its owner becomes inactive', async () => {
     const ownerSessionId = getSessionId()
     let finishHook: ((decision: { behavior: 'allow' }) => void) | undefined
     const hookDecision = new Promise<{ behavior: 'allow' }>(resolve => {
@@ -394,13 +402,9 @@ describe('handleInteractivePermission watchdog suspension', () => {
     try {
       switchSession(asSessionId('inactive-hook-owner-test-session'))
       finishHook?.({ behavior: 'allow' })
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(resolve).not.toHaveBeenCalled()
-
-      switchSession(ownerSessionId)
-      getQueueItem().onReject('decided by owner')
+      await Bun.sleep(10)
       expect(resolve).toHaveBeenCalledTimes(1)
+      expect(getQueueItem()).toBeDefined()
     } finally {
       switchSession(ownerSessionId)
     }

@@ -263,6 +263,7 @@ function handleInteractivePermission(
             permissionPromptStartTimeMs,
             contentBlocks,
             result.decisionReason,
+            true,
           ),
         )
       },
@@ -346,7 +347,6 @@ function handleInteractivePermission(
       const unsubscribe = bridgeCallbacks.onResponse(
         bridgeRequestId,
         async response => {
-          if (!permissionSessionIsActive()) return
           if (!claim()) return // Local user/hook/classifier already responded
           signal.removeEventListener('abort', unsubscribe)
           clearClassifierChecking(ctx.toolUseID)
@@ -361,6 +361,9 @@ function handleInteractivePermission(
                 response.updatedPermissions ?? [],
                 undefined,
                 permissionPromptStartTimeMs,
+                undefined,
+                undefined,
+                true,
               ),
             )
           } else {
@@ -454,7 +457,6 @@ function handleInteractivePermission(
         const mapUnsub = channelCallbacks.onResponse(
           channelRequestId,
           async response => {
-            if (!permissionSessionIsActive()) return
             if (!claim()) return // Another racer won
             channelUnsubscribe?.() // both: map delete + listener remove
             clearClassifierChecking(ctx.toolUseID)
@@ -472,6 +474,9 @@ function handleInteractivePermission(
                   [],
                   undefined,
                   permissionPromptStartTimeMs,
+                  undefined,
+                  undefined,
+                  true,
                 ),
               )
             } else {
@@ -511,10 +516,10 @@ function handleInteractivePermission(
           result.suggestions,
           result.updatedInput,
           permissionPromptStartTimeMs,
+          true,
         )
         if (
           !hookDecision ||
-          !permissionSessionIsActive() ||
           !claim()
         )
           return

@@ -103,10 +103,10 @@ test('queues an owner-session ask first reached while another session is active'
     expect(queue[0]?.permissionSessionId).toBe(ownerSessionId)
 
     switchSession(ownerSessionId)
-    queue[0]?.onReject('owner denied')
-    await expect(decisionPromise).resolves.toMatchObject({
-      message: expect.stringContaining('owner denied'),
-    })
+    const approvalPromise = queue[0]?.onAllow({}, [])
+    switchSession(asSessionId('switched-during-owner-approval'))
+    await approvalPromise
+    await expect(decisionPromise).resolves.toMatchObject({ behavior: 'allow' })
   } finally {
     switchSession(ownerSessionId)
     root.unmount()
