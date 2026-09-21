@@ -140,6 +140,24 @@ describe('clean-install verifier seams', () => {
     ])
   })
 
+  test('requires the packaged heap-limit launcher helper', () => {
+    const required = [
+      'package/package.json',
+      'package/bin/openclaude',
+      'package/bin/node-compile-cache.mjs',
+      'package/bin/heap-limit.mjs',
+      'package/dist/cli.mjs',
+      'package/dist/sdk.mjs',
+      'package/src/entrypoints/sdk.d.ts',
+    ]
+    const withoutHelper = required.filter(entry => entry !== 'package/bin/heap-limit.mjs')
+
+    expect(getTarballPayloadProblems(new Set(required))).toEqual([])
+    expect(getTarballPayloadProblems(new Set(withoutHelper))).toEqual([
+      'tarball is missing declared payload: package/bin/heap-limit.mjs',
+    ])
+  })
+
   test('continues past a malformed setup receipt to a later valid receipt', () => {
     const launches = {
       nativeHost: {
