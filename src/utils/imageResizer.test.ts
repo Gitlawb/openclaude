@@ -6,18 +6,28 @@ let mockMetadata: unknown = { width: 10, height: 10, format: 'png' }
 let throwOnSharpConstruction = false
 const defaultBuffer = Buffer.from('rendered')
 
-function makeSharpInstance(): any {
-  const chain: any = {}
-  chain.metadata = () => Promise.resolve(mockMetadata)
-  chain.resize = () => chain
-  chain.jpeg = () => chain
-  chain.png = () => chain
-  chain.webp = () => chain
-  chain.toBuffer = () => Promise.resolve(defaultBuffer)
+type MockImageProcessor = {
+  metadata: () => Promise<unknown>
+  resize: (...args: unknown[]) => MockImageProcessor
+  jpeg: (options?: { quality?: number }) => MockImageProcessor
+  png: (...args: unknown[]) => MockImageProcessor
+  webp: (...args: unknown[]) => MockImageProcessor
+  toBuffer: () => Promise<Buffer>
+}
+
+function makeSharpInstance(): MockImageProcessor {
+  const chain: MockImageProcessor = {
+    metadata: () => Promise.resolve(mockMetadata),
+    resize: () => chain,
+    jpeg: () => chain,
+    png: () => chain,
+    webp: () => chain,
+    toBuffer: () => Promise.resolve(defaultBuffer),
+  }
   return chain
 }
 
-function sharpFactory(input: Buffer): any {
+function sharpFactory(input: Buffer): MockImageProcessor {
   if (throwOnSharpConstruction) {
     throw new Error('image_processor_napi crashed')
   }
@@ -301,22 +311,23 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
   test('metadata-less + oversized: falls to lower JPEG quality until it fits', async () => {
     // Simulate a noisy image that only fits the raw target at quality <= 60.
     let lastQuality: number | undefined
-    const sharpWithQuality = (input: Buffer): any => {
-      const chain: any = {}
-      chain.metadata = () => Promise.resolve(undefined)
-      chain.resize = () => chain
-      chain.jpeg = (opts: { quality?: number }) => {
-        lastQuality = opts?.quality
-        // quality 80 still oversized; 60 and below fit (<= 3.75MB).
-        chain.toBuffer = () =>
-          Promise.resolve(
-            Buffer.alloc(lastQuality && lastQuality <= 60 ? 1000 : 4_000_000),
-          )
-        return chain
+    const sharpWithQuality = (input: Buffer): MockImageProcessor => {
+      const chain: MockImageProcessor = {
+        metadata: () => Promise.resolve(undefined),
+        resize: () => chain,
+        jpeg: opts => {
+          lastQuality = opts?.quality
+          // quality 80 still oversized; 60 and below fit (<= 3.75MB).
+          chain.toBuffer = () =>
+            Promise.resolve(
+              Buffer.alloc(lastQuality && lastQuality <= 60 ? 1000 : 4_000_000),
+            )
+          return chain
+        },
+        png: () => chain,
+        webp: () => chain,
+        toBuffer: () => Promise.resolve(Buffer.alloc(1000)),
       }
-      chain.png = () => chain
-      chain.webp = () => chain
-      if (!chain.toBuffer) chain.toBuffer = () => Promise.resolve(Buffer.alloc(1000))
       return chain
     }
     mock.module(imageProcessorPath, () => ({
@@ -346,16 +357,18 @@ describe('maybeResizeAndDownsampleImageBuffer — #1964 fixes', () => {
   })
 
   test('metadata-less + oversized: throws user-facing limit error when no quality fits', async () => {
-    const sharpAlwaysTooBig = (input: Buffer): any => {
-      const chain: any = {}
-      chain.metadata = () => Promise.resolve(undefined)
-      chain.resize = () => chain
-      chain.jpeg = () => {
-        chain.toBuffer = () => Promise.resolve(Buffer.alloc(4_000_000))
-        return chain
+    const sharpAlwaysTooBig = (input: Buffer): MockImageProcessor => {
+      const chain: MockImageProcessor = {
+        metadata: () => Promise.resolve(undefined),
+        resize: () => chain,
+        jpeg: () => {
+          chain.toBuffer = () => Promise.resolve(Buffer.alloc(4_000_000))
+          return chain
+        },
+        png: () => chain,
+        webp: () => chain,
+        toBuffer: () => Promise.resolve(Buffer.alloc(4_000_000)),
       }
-      chain.png = () => chain
-      chain.webp = () => chain
       return chain
     }
     mock.module(imageProcessorPath, () => ({

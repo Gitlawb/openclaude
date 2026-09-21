@@ -187,11 +187,15 @@ export const ollamaProvider: SearchProvider = {
           { providerName: `Ollama ${target.label}` },
         )
 
-        if (!data || !Array.isArray(data.results)) {
+        const rawResults =
+          data && typeof data === 'object' && 'results' in data
+            ? data.results
+            : undefined
+        if (!Array.isArray(rawResults)) {
           throw new Error('response did not contain a results array')
         }
 
-        const hits = data.results
+        const hits = rawResults
           .filter((result: unknown): result is Record<string, unknown> =>
             Boolean(result) && typeof result === 'object',
           )
