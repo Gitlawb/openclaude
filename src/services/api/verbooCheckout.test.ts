@@ -50,10 +50,12 @@ test('sends the explicit Woovi method and payer data to checkout', async () => {
 
   expect(post).toHaveBeenCalledWith(
     `https://code.verboo.ai/api/me/groups/${GROUP_ID}/checkout`,
-    {
+    expect.objectContaining({
       paymentMethod: 'woovi',
+      requestId: expect.any(String),
+      purchaseIntent: 'new',
       woovi: { taxId: '52998224725', phone: '11999999999' },
-    },
+    }),
     expect.objectContaining({
       headers: expect.objectContaining({
         Authorization: 'Bearer access-token',
@@ -272,4 +274,50 @@ test('rejects invalid Woovi payer data before sending a request', async () => {
     }),
   ).rejects.toMatchObject({ code: 'invalid_request' })
   expect(post).not.toHaveBeenCalled()
+})
+
+test('the exact purchase attempt confirms payment, never an existing group membership',async()=>{
+ const {isPurchaseAttemptSucceeded}=await import('./verbooCheckout.js')
+ const get=mock(async()=>({data:{data:{id:ATTEMPT_ID,groupId:GROUP_ID,status:'pending'}}}))
+ axios.get=get as typeof axios.get
+ expect(await isPurchaseAttemptSucceeded('token',ATTEMPT_ID,GROUP_ID)).toBe(false)
+ get.mockResolvedValueOnce({data:{data:{id:ATTEMPT_ID,groupId:GROUP_ID,status:'succeeded'}}})
+ expect(await isPurchaseAttemptSucceeded('token',ATTEMPT_ID,GROUP_ID)).toBe(true)
+ get.mockResolvedValueOnce({data:{data:{id:ATTEMPT_ID,groupId:OTHER_GROUP_ID,status:'succeeded'}}})
+ await expect(isPurchaseAttemptSucceeded('token',ATTEMPT_ID,GROUP_ID)).rejects.toMatchObject({kind:'contract'})
+ expect(get.mock.calls.every(call=>String(call[0]).endsWith('/purchase-attempts/'+ATTEMPT_ID))).toBe(true)
+})
+
+test('terminal attempts stop polling without inferring access',async()=>{
+ const {isPurchaseAttemptSucceeded}=await import('./verbooCheckout.js')
+ for (const status of ['failed','expired','review']) {
+  axios.get=(async()=>({data:{data:{id:ATTEMPT_ID,groupId:GROUP_ID,status}}})) as typeof axios.get
+  await expect(isPurchaseAttemptSucceeded('token',ATTEMPT_ID,GROUP_ID)).rejects.toMatchObject({code:`purchase_attempt_${status}`})
+ }
+})
+test('manual retry preserves request and journey across token refresh for the same actor',async()=>{
+ const requests: unknown[][]=[]
+ axios.post=(async(...args:unknown[])=>{requests.push(args);return {data:{data:{mode:'stripe',attemptId:ATTEMPT_ID,url:'https://checkout.stripe.com/original'}}}}) as typeof axios.post
+ const jwt=(sub:string,version:number)=>'header.'+Buffer.from(JSON.stringify({sub,version})).toString('base64url')+'.signature'
+ await createCheckoutSession(jwt(GROUP_ID,1),GROUP_ID,{paymentMethod:'stripe',billingInterval:'month'})
+ await createCheckoutSession(jwt(GROUP_ID,2),GROUP_ID,{paymentMethod:'stripe',billingInterval:'month'})
+ expect(requests[0][1]).toEqual(requests[1][1])
+ expect((requests[0][2] as {headers:Record<string,string>}).headers['X-Verboo-Journey-Id']).toBe((requests[1][2] as {headers:Record<string,string>}).headers['X-Verboo-Journey-Id'])
+ await createCheckoutSession(jwt(OTHER_GROUP_ID,1),GROUP_ID,{paymentMethod:'stripe',billingInterval:'month'})
+ expect((requests[2][1] as {requestId:string}).requestId).not.toBe((requests[0][1] as {requestId:string}).requestId)
+})
+
+
+test('a different account cannot reuse the previous purchase observation identity', async()=>{
+ const {isPurchaseAttemptSucceeded}=await import('./verbooCheckout.js')
+ const headers: Record<string,string>[]=[]
+ axios.get=(async(_url, config)=>{headers.push(config.headers); return {data:{data:{id:ATTEMPT_ID,groupId:GROUP_ID,status:'pending'}}}}) as typeof axios.get
+ const jwt=(sub:string,version:number)=>'header.'+Buffer.from(JSON.stringify({sub,version})).toString('base64url')+'.signature'
+ await isPurchaseAttemptSucceeded(jwt(GROUP_ID,1),ATTEMPT_ID,GROUP_ID)
+ await isPurchaseAttemptSucceeded(jwt(GROUP_ID,2),ATTEMPT_ID,GROUP_ID)
+ await isPurchaseAttemptSucceeded(jwt(OTHER_GROUP_ID,1),ATTEMPT_ID,GROUP_ID)
+ for (const key of ['X-Verboo-Journey-Id','X-Verboo-Operation-Id']) {
+  expect(headers[0][key]).toBe(headers[1][key])
+  expect(headers[2][key]).not.toBe(headers[0][key])
+ }
 })

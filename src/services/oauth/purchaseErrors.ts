@@ -1,6 +1,13 @@
 import { VerbooApiError } from '../api/verbooApiError.js'
 
 const BUSINESS_MESSAGES: Record<string, string> = {
+  purchase_attempt_failed: 'Esta compra não foi concluída. Consulte a tentativa no billing antes de tentar novamente.',
+  purchase_attempt_expired: 'Esta tentativa expirou. Consulte o billing para iniciar uma nova compra.',
+  purchase_attempt_review: 'Esta compra está em conciliação. Consulte o billing ou o suporte; não é necessário iniciar outro pagamento.',
+ checkout_intent_required: 'Você já tem um contrato. Continue no billing para trocar ou confirmar uma assinatura adicional.',
+ checkout_in_progress: 'Sua compra está em processamento. Retome a mesma tentativa no billing.',
+ checkout_request_conflict: 'Esta tentativa pertence a outra seleção. Consulte o billing antes de iniciar outra compra.',
+
   trial_unavailable: 'Este teste já foi utilizado ou não está mais disponível.',
   group_full: 'Este plano atingiu o limite de assinantes.',
   manual_access_active:
