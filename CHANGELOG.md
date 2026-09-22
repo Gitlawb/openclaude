@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.31.0](https://github.com/Gitlawb/openclaude/compare/v0.30.0...v0.31.0) (2026-09-22)
+
+
+### Features
+
+* **launcher:** support --max-old-space-size-percentage ([#2219](https://github.com/Gitlawb/openclaude/issues/2219)) ([055e5d5](https://github.com/Gitlawb/openclaude/commit/055e5d551a615c732597a497c2a176c1fe2a8692))
+* **providers:** add Command Code hybrid gateway ([#2196](https://github.com/Gitlawb/openclaude/issues/2196)) ([5b9daef](https://github.com/Gitlawb/openclaude/commit/5b9daef6052128c6236e02f9ba45e382491e78f7))
+* **query:** configure idle timeout ([#2233](https://github.com/Gitlawb/openclaude/issues/2233)) ([876fb79](https://github.com/Gitlawb/openclaude/commit/876fb7924a35d6b38d0d53eacf185900e2fb7387))
+* **skills:** add verify for revocations and eyebrow drift checks ([#2215](https://github.com/Gitlawb/openclaude/issues/2215)) ([eb3c590](https://github.com/Gitlawb/openclaude/commit/eb3c5902eb742322b437d33307590bdc852d4668))
+* **skills:** enforce registry revocations.json on install ([#2187](https://github.com/Gitlawb/openclaude/issues/2187)) ([0ea8eef](https://github.com/Gitlawb/openclaude/commit/0ea8eefbd0d48735ddb9e6b8c9e7ee6957dc9b98))
+* **web-search:** add Ollama backend ([#2234](https://github.com/Gitlawb/openclaude/issues/2234)) ([70d97fd](https://github.com/Gitlawb/openclaude/commit/70d97fd13772f080f0e9a530d5860874215f9783))
+* **zai:** add GLM-5.3-Flash Coding Plan support ([#2185](https://github.com/Gitlawb/openclaude/issues/2185)) ([aceacf0](https://github.com/Gitlawb/openclaude/commit/aceacf0e590a7d84447a8c44f3aa61eba781a542))
+
+
+### Bug Fixes
+
+* **agent:** forward subagent permission prompts to parent session ([#2235](https://github.com/Gitlawb/openclaude/issues/2235)) ([a07b06c](https://github.com/Gitlawb/openclaude/commit/a07b06cee6af87723c6fba131bf1d9b0680e7e0d))
+* **api:** validate API_TIMEOUT_MS in the native Anthropic clients ([#2169](https://github.com/Gitlawb/openclaude/issues/2169)) ([35d7edc](https://github.com/Gitlawb/openclaude/commit/35d7edc2f6548c9c4608a43eabce3ea6cfb14cae))
+* **bg:** clean up old completed session artifacts ([#2167](https://github.com/Gitlawb/openclaude/issues/2167)) ([70fe2de](https://github.com/Gitlawb/openclaude/commit/70fe2de2f838857dfc0500974542f2e05863cb23))
+* **chrome:** launch the packaged CLI entrypoint in npm installs ([#2146](https://github.com/Gitlawb/openclaude/issues/2146)) ([bfb44ff](https://github.com/Gitlawb/openclaude/commit/bfb44ffa817a2318b319b852106497bfbde2deb2))
+* **ci:** restore main validation ([#2236](https://github.com/Gitlawb/openclaude/issues/2236)) ([5fb5abb](https://github.com/Gitlawb/openclaude/commit/5fb5abb6f82aa779e4027bf3298c8b52a5041c8b))
+* **ctx:** let explicit overrides beat discovered context windows ([#2082](https://github.com/Gitlawb/openclaude/issues/2082)) ([3451187](https://github.com/Gitlawb/openclaude/commit/3451187aedda550a9dd8f0a7660edb0848de7cff)), closes [#2081](https://github.com/Gitlawb/openclaude/issues/2081)
+* **frontmatter:** anchor the closing --- to the start of a line ([#2027](https://github.com/Gitlawb/openclaude/issues/2027)) ([cbbe10f](https://github.com/Gitlawb/openclaude/commit/cbbe10ff8a794f4d97c32af9ef25f334b22bb5f5))
+* **hooks:** preserve compound Bash commands on Windows ([#2217](https://github.com/Gitlawb/openclaude/issues/2217)) ([0c2043f](https://github.com/Gitlawb/openclaude/commit/0c2043f05e70bb6cdd673423fa2555a6d1c272bf))
+* identify OpenCode Go requests ([#2203](https://github.com/Gitlawb/openclaude/issues/2203)) ([3609d75](https://github.com/Gitlawb/openclaude/commit/3609d751c06531873485ae5197737ae85c99b3a7))
+* **image:** allow large/metadata-less screenshots through on resize failure ([#1964](https://github.com/Gitlawb/openclaude/issues/1964)) ([#1970](https://github.com/Gitlawb/openclaude/issues/1970)) ([2e687df](https://github.com/Gitlawb/openclaude/commit/2e687df4ec1bf86195abfc37494d18e1da9e04d4))
+* **mcp:** resolve server names by own-property, not the prototype chain ([#1983](https://github.com/Gitlawb/openclaude/issues/1983)) ([c3930ca](https://github.com/Gitlawb/openclaude/commit/c3930ca5ad7182057b3bc0bc729d0b56172a9dcd))
+* **openai-shim:** request streaming usage from compatible local providers ([#2144](https://github.com/Gitlawb/openclaude/issues/2144)) ([decad0e](https://github.com/Gitlawb/openclaude/commit/decad0e17270c6748b47139b976488b4e60b82bb))
+* **plugins:** keep Windows marketplace cache on copy ENOENT ([#2220](https://github.com/Gitlawb/openclaude/issues/2220)) ([e2b021d](https://github.com/Gitlawb/openclaude/commit/e2b021d8bbda66b64cef7dbe1e089fea3eaa563f))
+* **profiles:** apply context limit to all profile models ([#2201](https://github.com/Gitlawb/openclaude/issues/2201)) ([0b68e57](https://github.com/Gitlawb/openclaude/commit/0b68e579b9dd44fae984b9ef2b17d03f68befdad))
+* **sdk:** preserve async generator session context ([#2204](https://github.com/Gitlawb/openclaude/issues/2204)) ([0abfca3](https://github.com/Gitlawb/openclaude/commit/0abfca30e5a2945678415f5328691584387720fb))
+* **xai:** validate OAuth state before settling callbacks ([#2228](https://github.com/Gitlawb/openclaude/issues/2228)) ([d16318a](https://github.com/Gitlawb/openclaude/commit/d16318a47f48a7e6c674b1df9ccb4f3a873886d2))
+
+
+### Performance Improvements
+
+* **bg:** avoid full scans for exact session IDs ([#2166](https://github.com/Gitlawb/openclaude/issues/2166)) ([55e9b24](https://github.com/Gitlawb/openclaude/commit/55e9b24d9147d059207bd8db6ed54382ba180db9))
+
 ## [0.30.0](https://github.com/Gitlawb/openclaude/compare/v0.29.1...v0.30.0) (2026-08-31)
 
 
