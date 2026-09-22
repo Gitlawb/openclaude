@@ -3405,6 +3405,37 @@ test('openai launch removes legacy generic credentials from a noncanonical Conce
   }
 })
 
+test('API Route saved profile relaunch uses persisted generic key/model over ambient dedicated state', async () => {
+  const env = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'api-route',
+      OPENAI_BASE_URL: 'https://global.api-route.com/v1',
+      OPENAI_MODEL: 'saved-api-route-model',
+      OPENAI_API_KEY: 'saved-api-route-key',
+    }),
+    goal: 'balanced',
+    processEnv: {
+      API_ROUTE_API_KEY: 'ambient-api-route-key',
+      API_ROUTE_MODEL: 'ambient-api-route-model',
+    },
+  })
+
+  assert.equal(env.API_ROUTE_API_KEY, undefined)
+  assert.equal(env.API_ROUTE_MODEL, undefined)
+  assert.equal(env.OPENAI_BASE_URL, 'https://global.api-route.com/v1')
+  assert.equal(env.OPENAI_MODEL, 'saved-api-route-model')
+  assert.equal(env.OPENAI_API_KEY, 'saved-api-route-key')
+  assert.equal(
+    resolveRouteCredentialValue({
+      routeId: 'api-route',
+      baseUrl: env.OPENAI_BASE_URL,
+      processEnv: env,
+    }),
+    'saved-api-route-key',
+  )
+})
+
 test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a saved profile', async () => {
   const env = await buildStartupEnvFromProfile({
     persisted: profile('openai', {
@@ -3425,6 +3456,50 @@ test('buildStartupEnvFromProfile preserves Concentrate env-only setup over a sav
   assert.equal(env.CONCENTRATE_MODEL, 'claude-sonnet-5')
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(resolveActiveRouteIdFromEnv(env), 'concentrate')
+})
+
+test('applyStartupEnvFromProfile preserves API Route env-only setup over a saved profile', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    API_ROUTE_API_KEY: 'api-route-env-only-key',
+    API_ROUTE_MODEL: 'api-route-env-only-model',
+  }
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    processEnv,
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.API_ROUTE_API_KEY, 'api-route-env-only-key')
+  assert.equal(processEnv.API_ROUTE_MODEL, 'api-route-env-only-model')
+  assert.equal(processEnv.OPENAI_BASE_URL, undefined)
+  assert.equal(processEnv.OPENAI_API_KEY, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(processEnv), 'api-route')
+})
+
+test('applyStartupEnvFromProfile preserves API Route key-only descriptor-default intent', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    API_ROUTE_API_KEY: 'api-route-env-only-key',
+  }
+
+  const error = await applyStartupEnvFromProfile({
+    persisted: profile('openai', {
+      OPENAI_BASE_URL: 'https://api.openai.com/v1',
+      OPENAI_MODEL: 'gpt-4o',
+      OPENAI_API_KEY: 'sk-persisted',
+    }),
+    processEnv,
+  })
+
+  assert.equal(error, null)
+  assert.equal(processEnv.API_ROUTE_API_KEY, 'api-route-env-only-key')
+  assert.equal(processEnv.OPENAI_MODEL, undefined)
+  assert.equal(resolveActiveRouteIdFromEnv(processEnv), 'api-route')
+  assert.equal(await getProviderValidationError(processEnv), null)
 })
 
 test('buildConcentrateProfileEnv prefers CONCENTRATE_MODEL over OPENAI_MODEL', () => {
@@ -3475,4 +3550,65 @@ test('buildOpenAIProfileEnv does not stamp a generic key as Concentrate credenti
   assert.ok(env)
   assert.equal(env?.OPENAI_API_KEY, 'generic-proxy-key')
   assert.equal(env?.CONCENTRATE_API_KEY, undefined)
+})
+
+test('openai launch withholds ambient API Route credentials from a keyless proxy profile on restart', async () => {
+  for (const ambient of [
+    { OPENAI_API_KEY: 'ambient-api-route-key' },
+    { OPENAI_API_KEYS: 'ambient-key-a,ambient-key-b' },
+  ]) {
+    const env = await buildLaunchEnv({
+      profile: 'openai',
+      persisted: profile('openai', {
+        CLAUDE_CODE_PROVIDER_ROUTE_ID: 'api-route',
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        OPENAI_MODEL: 'claude-sonnet-4-6',
+      }),
+      goal: 'coding',
+      processEnv: {
+        OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+        ...ambient,
+      },
+    })
+
+    assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'api-route')
+    assert.equal(env.OPENAI_API_KEY, undefined)
+    assert.equal(env.OPENAI_API_KEYS, undefined)
+  }
+
+  const canonical = await buildLaunchEnv({
+    profile: 'openai',
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'api-route',
+      OPENAI_BASE_URL: 'https://global.api-route.com/v1',
+      OPENAI_MODEL: 'claude-sonnet-4-6',
+    }),
+    goal: 'coding',
+    processEnv: {
+      OPENAI_BASE_URL: 'https://global.api-route.com/v1',
+      OPENAI_API_KEY: 'ambient-api-route-key',
+    },
+  })
+  assert.equal(canonical.OPENAI_API_KEY, 'ambient-api-route-key')
+})
+
+test('buildStartupEnvFromProfile applies saved API Route proxy profile even when ambient credentials are present', async () => {
+  const processEnv: NodeJS.ProcessEnv = {
+    OPENAI_API_KEY: 'ambient-key',
+    OPENAI_API_KEYS: 'ambient-key-1,ambient-key-2',
+  }
+
+  const env = await buildStartupEnvFromProfile({
+    persisted: profile('openai', {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'api-route',
+      OPENAI_BASE_URL: 'https://proxy.example.com/v1',
+      OPENAI_MODEL: 'claude-sonnet-4-6',
+    }),
+    processEnv,
+  })
+
+  assert.equal(env.OPENAI_BASE_URL, 'https://proxy.example.com/v1')
+  assert.equal(env.CLAUDE_CODE_PROVIDER_ROUTE_ID, 'api-route')
+  assert.equal(env.OPENAI_API_KEY, undefined)
+  assert.equal(env.OPENAI_API_KEYS, undefined)
 })

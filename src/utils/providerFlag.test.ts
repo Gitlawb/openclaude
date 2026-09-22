@@ -47,6 +47,8 @@ const ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'API_ROUTE_API_KEY',
+  'API_ROUTE_MODEL',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -101,6 +103,8 @@ const RESET_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'API_ROUTE_API_KEY',
+  'API_ROUTE_MODEL',
   'CONCENTRATE_API_KEY',
   'CONCENTRATE_BASE_URL',
   'CONCENTRATE_MODEL',
@@ -1848,3 +1852,150 @@ describe('applyProviderFlag - concentrate', () => {
     expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
   })
 })
+
+describe('applyProviderFlag - api-route', () => {
+  test('sets API Route OpenAI-compatible defaults and mirrors API_ROUTE_API_KEY', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+
+    const result = applyProviderFlag('api-route', [])
+
+    expect(result.error).toBeUndefined()
+    expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
+    expect(process.env.OPENAI_BASE_URL).toBe('https://global.api-route.com/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('api-route-secret-key')
+    expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-4-6')
+  })
+
+  test('uses API_ROUTE_MODEL from env when --model is not provided', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.API_ROUTE_MODEL = 'custom-api-route-model'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_MODEL).toBe('custom-api-route-model')
+  })
+
+  test('explicit --model overrides API_ROUTE_MODEL', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.API_ROUTE_MODEL = 'custom-api-route-model'
+
+    applyProviderFlag('api-route', ['--model', 'flag-model'])
+
+    expect(process.env.OPENAI_MODEL).toBe('flag-model')
+  })
+
+  test.each(['', '   ', 'null', 'undefined', ' NULL '])(
+    'does not contaminate OPENAI_MODEL with unusable API_ROUTE_MODEL %j',
+    placeholder => {
+      process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+      process.env.API_ROUTE_MODEL = placeholder
+
+      applyProviderFlag('api-route', [])
+
+      expect(process.env.OPENAI_MODEL).toBe('claude-sonnet-4-6')
+    },
+  )
+
+  test('does not forward the dedicated key to a preserved custom base URL', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.OPENAI_BASE_URL = 'https://custom-proxy.example.com/v1'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_BASE_URL).toBe(
+      'https://custom-proxy.example.com/v1',
+    )
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('dedicated key overrides a lingering OPENAI_API_KEY from another provider', () => {
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('api-route-secret-key')
+  })
+
+  test('clears OPENAI_API_KEYS when dedicated API Route key is set on canonical endpoint', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.OPENAI_API_KEYS = 'stale-key-1,stale-key-2'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_API_KEY).toBe('api-route-secret-key')
+    expect(process.env.OPENAI_API_KEYS).toBeUndefined()
+  })
+
+  test('clears a stale OPENAI_API_KEY when no API Route key is set', () => {
+    delete process.env.API_ROUTE_API_KEY
+    process.env.OPENAI_API_KEY = 'existing-openai-key'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test.each(['SUA_CHAVE', 'sua_chave', 'null', 'undefined', ' NULL '])(
+    'does not mirror placeholder API Route credential %s',
+    placeholder => {
+      process.env.API_ROUTE_API_KEY = placeholder
+
+      applyProviderFlag('api-route', [])
+
+      expect(process.env.OPENAI_API_KEY).toBeUndefined()
+    },
+  )
+
+  test('clears unsupported OpenAI shim settings from a previous route', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.OPENAI_API_FORMAT = 'responses'
+    process.env.OPENAI_AUTH_HEADER = 'x-api-key'
+    process.env.OPENAI_AUTH_SCHEME = 'raw'
+    process.env.OPENAI_AUTH_HEADER_VALUE = 'stale-value'
+    process.env.ANTHROPIC_CUSTOM_HEADERS = 'X-Proxy-Auth: proxy-secret'
+
+    applyProviderFlag('api-route', [])
+
+    expect(process.env.OPENAI_API_FORMAT).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+    expect(process.env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
+  })
+
+  test('clears a copied API Route key from OPENAI_API_KEY when switching to another provider', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+    process.env.OPENAI_API_KEY = 'api-route-secret-key'
+
+    applyProviderFlag('openai', [])
+
+    expect(process.env.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  test('switching from API Route to Ollama replaces the route identity and credentials', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+
+    applyProviderFlag('api-route', [])
+    applyProviderFlag('ollama', [])
+
+    expect(process.env.API_ROUTE_API_KEY).toBeUndefined()
+    expect(process.env.API_ROUTE_MODEL).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('http://localhost:11434/v1')
+    expect(process.env.OPENAI_API_KEY).toBe('ollama')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('ollama')
+  })
+
+  test('switching from API Route to OpenAI replaces the known gateway endpoint', () => {
+    process.env.API_ROUTE_API_KEY = 'api-route-secret-key'
+
+    applyProviderFlag('api-route', [])
+    applyProviderFlag('openai', [])
+
+    expect(process.env.API_ROUTE_API_KEY).toBeUndefined()
+    expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(resolveActiveRouteIdFromEnv(process.env)).toBe('openai')
+  })
+})
+
+

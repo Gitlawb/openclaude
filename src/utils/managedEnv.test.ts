@@ -18,7 +18,10 @@ import {
   loadEnvFile,
   rememberLoadedEnvFileValues,
 } from './envFile.js'
-import { applyConfigEnvironmentVariables } from './managedEnv.js'
+import {
+  applyConfigEnvironmentVariables,
+  applySafeConfigEnvironmentVariables,
+} from './managedEnv.js'
 
 const ENV_KEYS = [
   'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
@@ -28,6 +31,8 @@ const ENV_KEYS = [
   'CMD_API_KEY',
   'COMMANDCODE_API_KEY',
   'COMMAND_CODE_API_KEY',
+  'API_ROUTE_API_KEY',
+  'API_ROUTE_MODEL',
   'OPENAI_API_KEY',
   'OPENAI_AZURE_STYLE',
   'OPENAI_BASE_URL',
@@ -94,6 +99,36 @@ function writeTempEnvFile(content: string): string {
   writeFileSync(filePath, content, 'utf-8')
   return filePath
 }
+
+describe('host-managed API Route settings boundary', () => {
+  for (const [name, applySettings] of [
+    ['pre-trust', applySafeConfigEnvironmentVariables],
+    ['post-trust', applyConfigEnvironmentVariables],
+  ] as const) {
+    it(`preserves host routing against API Route settings during ${name} merge`, () => {
+      process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = '1'
+      process.env.CLAUDE_CODE_USE_OPENAI = '1'
+      process.env.OPENAI_BASE_URL = 'https://api.openai.com/v1'
+      process.env.OPENAI_MODEL = 'host-model'
+      process.env.OPENAI_API_KEY = 'host-key'
+      saveGlobalConfig(current => ({
+        ...current,
+        env: {
+          API_ROUTE_API_KEY: 'settings-api-route-key',
+          API_ROUTE_MODEL: 'settings-api-route-model',
+        },
+      }))
+
+      applySettings()
+
+      expect(process.env.API_ROUTE_API_KEY).toBeUndefined()
+      expect(process.env.API_ROUTE_MODEL).toBeUndefined()
+      expect(process.env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1')
+      expect(process.env.OPENAI_MODEL).toBe('host-model')
+      expect(process.env.OPENAI_API_KEY).toBe('host-key')
+    })
+  }
+})
 
 describe('applyConfigEnvironmentVariables', () => {
   it('preserves the complete host-managed Command Code route against settings env', () => {

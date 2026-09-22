@@ -16,6 +16,7 @@ import {
   getRouteCredentialValue,
   getRouteDescriptor,
   getRouteDefaultModel,
+  isCanonicalApiRouteInferenceBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalCommandcodeInferenceBaseUrl,
@@ -144,6 +145,7 @@ function hasUsableCredentialEnvValue(
     envVar === 'OPENAI_API_KEY' ||
     envVar === 'AIMLAPI_API_KEY' ||
     envVar === 'APISMART_API_KEY' ||
+    envVar === 'API_ROUTE_API_KEY' ||
     envVar === 'CONCENTRATE_API_KEY' ||
     envVar === 'LLMTR_API_KEY' ||
     envVar === 'CMD_API_KEY' ||
@@ -270,12 +272,13 @@ function getRuntimeValidationTarget(
     return enabledTarget
   }
 
-  // The documented CONCENTRATE_API_KEY-only setup is routed before the client
-  // applies its default base URL. Select its descriptor directly so startup
-  // validates the dedicated credential, including a noncanonical dedicated
-  // base URL, instead of returning early for an unset OpenAI mode.
-  if (resolveActiveRouteIdFromEnv(env) === 'concentrate') {
-    return validationTargets.find(target => target.descriptor.id === 'concentrate')
+  // The documented CONCENTRATE_API_KEY-only and API_ROUTE_API_KEY-only setup
+  // is routed before the client applies its default base URL. Select its descriptor
+  // directly so startup validates the dedicated credential, including a noncanonical
+  // dedicated base URL, instead of returning early for an unset OpenAI mode.
+  const activeRouteId = resolveActiveRouteIdFromEnv(env)
+  if (activeRouteId === 'concentrate' || activeRouteId === 'api-route') {
+    return validationTargets.find(target => target.descriptor.id === activeRouteId)
   }
 
   if (!useOpenAI) {
@@ -306,6 +309,8 @@ function getRuntimeValidationTarget(
           !isCanonicalApismartInferenceBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'concentrate' &&
           !isCanonicalConcentrateInferenceBaseUrl(request.baseUrl)) ||
+        (target.descriptor.id === 'api-route' &&
+          !isCanonicalApiRouteInferenceBaseUrl(request.baseUrl)) ||
         (target.descriptor.id === 'commandcode' &&
           !isCanonicalCommandcodeInferenceBaseUrl(request.baseUrl)))
     ) {
@@ -433,6 +438,17 @@ async function getDescriptorValidationError(
     !isCanonicalConcentrateInferenceBaseUrl(concentrateBaseUrl)
   ) {
     return 'Concentrate credentials require the canonical https://api.concentrate.ai/v1 endpoint.'
+  }
+
+  const apiRouteBaseUrl =
+    env.OPENAI_BASE_URL?.trim() ||
+    env.OPENAI_API_BASE?.trim()
+  if (
+    target.descriptor.id === 'api-route' &&
+    apiRouteBaseUrl &&
+    !isCanonicalApiRouteInferenceBaseUrl(apiRouteBaseUrl)
+  ) {
+    return 'API Route credentials require the canonical https://global.api-route.com/v1 endpoint.'
   }
 
   switch (validation.kind) {

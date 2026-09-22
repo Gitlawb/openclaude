@@ -25,6 +25,7 @@ import { getErrnoCode } from './errors.js'
 import {
   getRouteDefaultBaseUrl,
   getRouteDefaultModel,
+  isCanonicalApiRouteInferenceBaseUrl,
   isCanonicalApismartInferenceBaseUrl,
   isCanonicalConcentrateInferenceBaseUrl,
   isCanonicalLlmtrInferenceBaseUrl,
@@ -118,6 +119,8 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
+  'API_ROUTE_API_KEY',
+  'API_ROUTE_MODEL',
   'NEARAI_API_KEY',
   'FIREWORKS_API_KEY',
   'LONGCAT_API_KEY',
@@ -219,6 +222,7 @@ export type ProfileEnv = {
   MIMO_API_KEY?: string
   ATLAS_CLOUD_API_KEY?: string
   APISMART_API_KEY?: string
+  API_ROUTE_API_KEY?: string
   CLINE_API_KEY?: string
   NEARAI_API_KEY?: string
   FIREWORKS_API_KEY?: string
@@ -1491,6 +1495,7 @@ function hasConcreteProviderSelection(
   // before the env-only resolver has a chance to see it.
   return (
     sanitizeApiKey(processEnv.APISMART_API_KEY) !== undefined ||
+    sanitizeApiKey(processEnv.API_ROUTE_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.FIREWORKS_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.NEARAI_API_KEY) !== undefined ||
     sanitizeApiKey(processEnv.LONGCAT_API_KEY) !== undefined ||
@@ -2181,12 +2186,17 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'commandcode' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalCommandcodeInferenceBaseUrl(env.OPENAI_BASE_URL)
+  const isNoncanonicalApiRouteLaunch =
+    effectiveOpenAIRouteId === 'api-route' &&
+    !!env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalApiRouteInferenceBaseUrl(env.OPENAI_BASE_URL)
   const isNoncanonicalDedicatedOpenAILaunch =
     isNoncanonicalAimlapiLaunch ||
     isNoncanonicalApismartLaunch ||
     isNoncanonicalConcentrateLaunch ||
     isNoncanonicalLlmtrLaunch ||
-    isNoncanonicalCommandcodeLaunch
+    isNoncanonicalCommandcodeLaunch ||
+    isNoncanonicalApiRouteLaunch
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
@@ -2510,12 +2520,18 @@ export async function buildStartupEnvFromProfile(options?: {
     persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'commandcode' &&
     !!persisted.env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalCommandcodeInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
+  const persistedApiRouteProxy =
+    persisted?.profile === 'openai' &&
+    persisted.env.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'api-route' &&
+    !!persisted.env.OPENAI_BASE_URL?.trim() &&
+    !isCanonicalApiRouteInferenceBaseUrl(persisted.env.OPENAI_BASE_URL)
   if (
     hasConcreteProviderSelection(processEnv) &&
     !persistedApismartProxy &&
     !persistedConcentrateProxy &&
     !persistedLlmtrProxy &&
-    !persistedCommandcodeProxy
+    !persistedCommandcodeProxy &&
+    !persistedApiRouteProxy
   ) {
     return processEnv
   }

@@ -58,6 +58,7 @@ const EXPECTED_PRESETS = [
   'opencode',
   'opencode-go',
   'clinepass',
+  'api-route',
 ] as const satisfies readonly ProviderPreset[]
 
 describe('compatibility mappings', () => {

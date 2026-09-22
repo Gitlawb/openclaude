@@ -21,6 +21,7 @@ const originalEnv = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_API_KEYS: process.env.OPENAI_API_KEYS,
   LLMTR_API_KEY: process.env.LLMTR_API_KEY,
+  API_ROUTE_API_KEY: process.env.API_ROUTE_API_KEY,
   CMD_API_KEY: process.env.CMD_API_KEY,
   COMMANDCODE_API_KEY: process.env.COMMANDCODE_API_KEY,
   COMMAND_CODE_API_KEY: process.env.COMMAND_CODE_API_KEY,
@@ -455,6 +456,7 @@ beforeEach(async () => {
   process.env.OPENAI_API_KEY = 'test-key'
   delete process.env.OPENAI_API_KEYS
   delete process.env.LLMTR_API_KEY
+  delete process.env.API_ROUTE_API_KEY
   delete process.env.CMD_API_KEY
   delete process.env.COMMANDCODE_API_KEY
   delete process.env.COMMAND_CODE_API_KEY
@@ -508,6 +510,7 @@ afterEach(() => {
     restoreEnv('OPENAI_API_KEY', originalEnv.OPENAI_API_KEY)
     restoreEnv('OPENAI_API_KEYS', originalEnv.OPENAI_API_KEYS)
     restoreEnv('LLMTR_API_KEY', originalEnv.LLMTR_API_KEY)
+    restoreEnv('API_ROUTE_API_KEY', originalEnv.API_ROUTE_API_KEY)
     restoreEnv('CMD_API_KEY', originalEnv.CMD_API_KEY)
     restoreEnv('COMMANDCODE_API_KEY', originalEnv.COMMANDCODE_API_KEY)
     restoreEnv('COMMAND_CODE_API_KEY', originalEnv.COMMAND_CODE_API_KEY)
@@ -586,6 +589,22 @@ test('Concentrate selection prefers its dedicated key over a generic OPENAI_API_
 
   expect(captured.url).toBe('https://api.concentrate.ai/v1/chat/completions')
   expect(captured.authorization).toBe('Bearer concentrate-key')
+})
+
+test('API Route selection prefers its dedicated key over a generic OPENAI_API_KEYS pool', async () => {
+  process.env.API_ROUTE_API_KEY = 'api-route-key'
+  process.env.OPENAI_API_KEYS = 'generic-openai-key-a,generic-openai-key-b'
+  delete process.env.OPENAI_API_KEY
+  delete process.env.OPENAI_BASE_URL
+  delete process.env.OPENAI_MODEL
+
+  const result = applyProviderFlag('api-route', [])
+  expect(result.error).toBeUndefined()
+
+  const captured = await captureChatCompletionRequest('claude-sonnet-4-6')
+
+  expect(captured.url).toBe('https://global.api-route.com/v1/chat/completions')
+  expect(captured.authorization).toBe('Bearer api-route-key')
 })
 
 test('selected LLMTR route sends LLMTR_API_KEY through the generic route credential resolver', async () => {

@@ -1223,6 +1223,15 @@ test('resolveActiveRouteIdFromEnv honors an explicit OpenAI opt-out over Concent
   expect(resolveActiveRouteIdFromEnv({ CLAUDE_CODE_USE_OPENAI: '0', CONCENTRATE_API_KEY: 'concentrate-key' })).not.toBe('concentrate')
 })
 
+test('resolveActiveRouteIdFromEnv honors an explicit OpenAI opt-out over API Route', () => {
+  expect(
+    resolveActiveRouteIdFromEnv({
+      CLAUDE_CODE_USE_OPENAI: '0',
+      API_ROUTE_API_KEY: 'api-route-key',
+    }),
+  ).not.toBe('api-route')
+})
+
 test('resolveActiveRouteIdFromEnv refines generic OpenAI profile by Concentrate base URL', () => {
   expect(
     resolveActiveRouteIdFromEnv({
