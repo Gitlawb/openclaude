@@ -91,6 +91,24 @@ test('does not advertise reasoning when the router response is incomplete', asyn
   expect(getVerbooModelReasoning('verboo/no-reasoning')).toBeUndefined()
 })
 
+test('keeps a virtual router on server-controlled automatic thinking', async () => {
+  process.env.CLAUDE_CODE_EFFORT_LEVEL = 'high'
+  axios.get = mock(async () => ({
+    data: {
+      data: [{
+        id: 'ultra/jev-router',
+        reasoning: { effort_levels: ['auto'], default_effort: 'auto' },
+      }],
+    },
+  })) as typeof axios.get
+
+  await fetchVerbooModels('access-token', { force: true })
+
+  expect(getVerbooModelReasoning('ultra/jev-router')).toEqual({ effortLevels: ['auto'], defaultEffort: 'auto' })
+  expect(resolveAppliedEffort('ultra/jev-router', 'low')).toBeUndefined()
+  expect(getEffortSuffix('ultra/jev-router', 'max')).toBe(' with automatic thinking')
+})
+
 test('accepts only entitled model IDs for agent catalog roles', async () => {
   axios.get = mock(async () => ({
     data: {

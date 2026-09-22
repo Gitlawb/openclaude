@@ -118,7 +118,9 @@ export function getAvailableEffortLevels(model: string): string[] {
       ? getCodexReasoningLevels(model)
       : getClaudeNativeModel(model)
         ? (getClaudeNativeModel(model)?.supportedReasoningLevels ?? [])
-      : (getVerbooModelReasoning(model)?.effortLevels ?? [])
+      : (getVerbooModelReasoning(model)?.effortLevels.filter(
+          level => level.toLowerCase() !== 'auto',
+        ) ?? [])
   }
   if (!modelSupportsEffort(model)) {
     return []
@@ -258,6 +260,10 @@ export function resolveAppliedEffort(
   if (isVerbooMode()) {
     const modelInfo = getCodexModel(model)
     const claudeModel = getClaudeNativeModel(model)
+    const reasoning = getVerbooModelReasoning(model)
+    if (reasoning?.defaultEffort.toLowerCase() === 'auto') {
+      return undefined
+    }
     const selected = envOverride ?? appStateEffortValue
     if (selected === undefined) return undefined
     if (modelInfo) {
@@ -272,7 +278,6 @@ export function resolveAppliedEffort(
         ? getClaudeNativeReasoningEffort(model, selected)
         : undefined
     }
-    const reasoning = getVerbooModelReasoning(model)
     if (!reasoning) return undefined
     return typeof selected === 'string'
       ? getVerbooReasoningEffort(model, selected) ?? reasoning.defaultEffort
@@ -338,6 +343,7 @@ export function getEffortSuffix(
         ? resolved
         : (modelInfo?.defaultReasoningLevel ?? verbooReasoning?.defaultEffort)
     if (!displayed) return ''
+    if (displayed.toLowerCase() === 'auto') return ' with automatic thinking'
     return ` with ${displayed} effort`
   }
   if (resolved === undefined) return ''
