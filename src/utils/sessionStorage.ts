@@ -69,6 +69,12 @@ import type { QueueOperationMessage } from '../types/messageQueueTypes.js'
 import { uniq } from './array.js'
 import { registerCleanup } from './cleanupRegistry.js'
 import { updateSessionName } from './concurrentSessions.js'
+import {
+  convertCodexRollout,
+  getCodexLogOptions,
+  readCodexFirstPrompt,
+  readCodexSessionNames,
+} from './codexSessionImport.js'
 import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { logForDiagnosticsNoPII } from './diagLogs.js'
@@ -2901,6 +2907,8 @@ async function trackSessionBranchingAnalytics(
 export async function fetchLogs(limit?: number): Promise<LogOption[]> {
   const projectDir = getProjectDir(getOriginalCwd())
   const logs = await getSessionFilesLite(projectDir, limit, getOriginalCwd())
+  // Sessões do Codex CLI (ainda não convertidas) para --continue cross-CLI
+  logs.push(...(await getCodexLogOptions(new Set([getOriginalCwd()]))))
 
   await trackSessionBranchingAnalytics(logs)
 
@@ -3294,8 +3302,21 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
     return log
   }
 
-  // Use the fullPath from the index entry directly
-  const sessionFile = log.fullPath
+  // Rollout do Codex: converte para o formato nativo antes de carregar.
+  // A conversão é idempotente — sessões já convertidas apontam direto
+  // para o arquivo nativo em ~/.claude/projects.
+  let sessionFile = log.fullPath
+  let resolvedLog = log
+  if (log.importedFrom === 'codex' && log.fullPath) {
+    try {
+      const convertedPath = await convertCodexRollout(log.fullPath)
+      sessionFile = convertedPath
+      resolvedLog = { ...log, fullPath: convertedPath, importedFrom: undefined }
+    } catch (error) {
+      logError(error)
+      return log
+    }
+  }
   if (!sessionFile) {
     return log
   }
@@ -3323,7 +3344,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
     } = await loadTranscriptFile(sessionFile)
 
     if (messages.size === 0) {
-      return log
+      return resolvedLog
     }
 
     // Find the most recent user/assistant leaf message from the transcript
@@ -3334,7 +3355,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
         (msg.type === 'user' || msg.type === 'assistant'),
     )
     if (!mostRecentLeaf) {
-      return log
+      return resolvedLog
     }
 
     // Build the conversation chain from this leaf
@@ -3343,7 +3364,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
     // metadata entries (custom-title etc.) are keyed by the current session.
     const sessionId = mostRecentLeaf.sessionId as UUID | undefined
     return {
-      ...log,
+      ...resolvedLog,
       messages: removeExtraFields(transcript),
       firstPrompt: extractFirstPrompt(transcript),
       messageCount: countVisibleMessages(transcript),
@@ -3393,7 +3414,7 @@ export async function loadFullLog(log: LogOption): Promise<LogOption> {
     }
   } catch {
     // If loading fails, return the original log
-    return log
+    return resolvedLog
   }
 }
 
@@ -4397,6 +4418,9 @@ export async function loadAllProjectsMessageLogsProgressive(
     }
   }
 
+  // Sessões do Codex CLI (ainda não convertidas) — visão "all projects"
+  rawLogs.push(...(await getCodexLogOptions()))
+
   // Deduplicate — same session can appear in multiple project dirs
   const sorted = deduplicateLogsBySessionId(rawLogs)
 
@@ -4489,6 +4513,10 @@ async function getStatOnlyLogsForWorktrees(
         ...(await getSessionFilesLite(additionalProjectDir, undefined, cwd)),
       )
     }
+    // Sessões do Codex CLI do mesmo cwd (ainda não convertidas)
+    allLogs.push(
+      ...(await getCodexLogOptions(new Set([...worktreePaths, cwd]))),
+    )
     return deduplicateLogsBySessionId(allLogs)
   }
 
@@ -4548,6 +4576,13 @@ async function getStatOnlyLogsForWorktrees(
   for (const additionalDir of getAdditionalProjectsDirs()) {
     await scanSourceDir(additionalDir)
   }
+
+  // Sessões do Codex CLI dos worktrees (ainda não convertidas)
+  allLogs.push(
+    ...(await getCodexLogOptions(
+      new Set([...worktreePaths, getOriginalCwd()]),
+    )),
+  )
 
   // Deduplicate by sessionId — the same session can appear in multiple
   // worktree project dirs. Keep the entry with the newest modified time.
@@ -5401,6 +5436,20 @@ async function enrichLog(
   readBuf: Buffer,
 ): Promise<LogOption | null> {
   if (!log.isLite || !log.fullPath) return log
+
+  // Rollouts do Codex têm formato próprio — readLiteMetadata não se aplica.
+  // Título: nome da sessão no Codex (session_index.jsonl) > primeiro prompt.
+  if (log.importedFrom === 'codex') {
+    const sessionNames = await readCodexSessionNames()
+    const name = log.sessionId ? sessionNames.get(log.sessionId) : undefined
+    const firstPrompt =
+      name ?? (await readCodexFirstPrompt(log.fullPath))
+    return {
+      ...log,
+      isLite: false,
+      firstPrompt: firstPrompt || '(codex)',
+    }
+  }
 
   const meta = await readLiteMetadata(log.fullPath, log.fileSize ?? 0, readBuf)
 

@@ -221,7 +221,10 @@ export function ResumeConversation({
         }
       }
       if (result_3.sessionId && !forkSession) {
-        switchSession(asSessionId(result_3.sessionId), log_0.fullPath ? dirname(log_0.fullPath) : null);
+        // Prefer the resolved fullPath: for imported sessions (Codex) it
+        // points to the converted native file, not the foreign source.
+        const sessionDirPath = result_3.fullPath ?? log_0.fullPath;
+        switchSession(asSessionId(result_3.sessionId), sessionDirPath ? dirname(sessionDirPath) : null);
         await renameRecordingForSession();
         await resetSessionFilePointer();
         restoreCostStateForSession(result_3.sessionId);
