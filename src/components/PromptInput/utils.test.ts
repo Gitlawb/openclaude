@@ -5,6 +5,7 @@ import {
   canAcceptPromptSuggestion,
   isNonSpacePrintable,
   normalizePromptInputChunk,
+  shouldShowStandaloneAgentBanner,
   resolveHelpToggleChange,
   resolveCoalescedModeSubmission,
 } from './utils.js'
@@ -84,6 +85,15 @@ test('preserves input and rendered mode without a pending mode entry', () => {
     input: 'echo ok',
     mode: 'bash',
   })
+})
+
+test('does not create a banner for a color-only standalone context', () => {
+  expect(shouldShowStandaloneAgentBanner(undefined)).toBe(false)
+  expect(shouldShowStandaloneAgentBanner('')).toBe(false)
+})
+
+test('creates a banner when a standalone agent has a name', () => {
+  expect(shouldShowStandaloneAgentBanner('renato')).toBe(true)
 })
 
 test('only prompt submissions can accept prompt suggestions', () => {
