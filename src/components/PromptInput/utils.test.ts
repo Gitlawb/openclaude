@@ -1,10 +1,16 @@
-import { expect, test } from 'bun:test'
+import { PassThrough } from 'node:stream'
 
-import type { Key } from '../../ink.js'
+import { expect, test } from 'bun:test'
+import React from 'react'
+
+import { createRoot, type Key } from '../../ink.js'
+import { AppStateProvider, getDefaultAppState } from '../../state/AppState.js'
+import { useSwarmBanner } from './useSwarmBanner.js'
 import {
   canAcceptPromptSuggestion,
   isNonSpacePrintable,
   normalizePromptInputChunk,
+  shouldShowStandaloneAgentBanner,
   resolveHelpToggleChange,
   resolveCoalescedModeSubmission,
 } from './utils.js'
@@ -84,6 +90,61 @@ test('preserves input and rendered mode without a pending mode entry', () => {
     input: 'echo ok',
     mode: 'bash',
   })
+})
+
+test('does not create a banner for a color-only standalone context', () => {
+  expect(shouldShowStandaloneAgentBanner(undefined)).toBe(false)
+  expect(shouldShowStandaloneAgentBanner('')).toBe(false)
+  expect(shouldShowStandaloneAgentBanner('   ')).toBe(false)
+})
+
+test('creates a banner when a standalone agent has a usable name', () => {
+  expect(shouldShowStandaloneAgentBanner('renato')).toBe(true)
+})
+
+test('useSwarmBanner omits a banner for color-only standalone context', async () => {
+  let observedBanner: ReturnType<typeof useSwarmBanner> | undefined
+
+  function HookProbe() {
+    observedBanner = useSwarmBanner()
+    return null
+  }
+
+  const stdout = new PassThrough()
+  const stdin = new PassThrough() as PassThrough & {
+    isTTY: boolean
+    setRawMode: (mode: boolean) => void
+    ref: () => void
+    unref: () => void
+  }
+  stdin.isTTY = true
+  stdin.setRawMode = () => {}
+  stdin.ref = () => {}
+  stdin.unref = () => {}
+  ;(stdout as unknown as { columns: number }).columns = 120
+
+  const root = await createRoot({
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    patchConsole: false,
+  })
+
+  root.render(
+    React.createElement(
+      AppStateProvider,
+      {
+        initialState: {
+          ...getDefaultAppState(),
+          standaloneAgentContext: { name: '', color: 'blue' },
+        },
+      },
+      React.createElement(HookProbe),
+    ),
+  )
+
+  await Bun.sleep(10)
+  expect(observedBanner).toBeNull()
+  root.unmount()
 })
 
 test('only prompt submissions can accept prompt suggestions', () => {

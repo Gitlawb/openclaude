@@ -24,6 +24,7 @@ import {
   isTeammate,
 } from '../../utils/teammate.js'
 import { isInProcessTeammate } from '../../utils/teammateContext.js'
+import { shouldShowStandaloneAgentBanner } from './utils.js'
 import type { Theme } from '../../utils/theme.js'
 
 type SwarmBannerInfo = {
@@ -124,7 +125,7 @@ export function useSwarmBanner(): SwarmBannerInfo {
   // Standalone agent (/rename, /color): name and/or custom color, no @team.
   const standaloneName = getStandaloneAgentName(state)
   const standaloneColor = standaloneAgentContext?.color
-  if (standaloneName || standaloneColor) {
+  if (shouldShowStandaloneAgentBanner(standaloneName)) {
     return {
       text: standaloneName ?? '',
       bgColor: toThemeColor(standaloneColor),

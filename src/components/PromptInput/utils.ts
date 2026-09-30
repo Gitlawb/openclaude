@@ -126,3 +126,13 @@ export function resolveCoalescedModeSubmission(
 export function canAcceptPromptSuggestion(mode: PromptInputMode): boolean {
   return mode === 'prompt'
 }
+
+/**
+ * A standalone color without a usable name should tint the prompt border,
+ * not create an empty banner that changes the prompt layout.
+ */
+export function shouldShowStandaloneAgentBanner(
+  standaloneName: string | undefined,
+): boolean {
+  return standaloneName !== undefined && standaloneName.trim().length > 0
+}

@@ -314,6 +314,7 @@ function PromptInput({
   // WebBrowser pill — visible when a browser is open
   const bagelFooterVisible = useAppState(s => false);
   const teamContext = useAppState(s => s.teamContext);
+  const standaloneAgentContext = useAppState(s => s.standaloneAgentContext);
   const queuedCommands = useCommandQueue();
   const promptSuggestionState = useAppState(s => s.promptSuggestion);
   const speculation = useAppState(s => s.speculation);
@@ -2307,6 +2308,13 @@ function PromptInput({
     const teammateColorName = getTeammateColor();
     if (teammateColorName && AGENT_COLORS.includes(teammateColorName as AgentColorName)) {
       return AGENT_COLOR_TO_THEME_COLOR[teammateColorName as AgentColorName];
+    }
+
+    // Standalone color is a prompt identity indicator, but does not add a
+    // separate banner row when no standalone name is set.
+    const standaloneColor = standaloneAgentContext?.color;
+    if (standaloneColor && AGENT_COLORS.includes(standaloneColor as AgentColorName)) {
+      return AGENT_COLOR_TO_THEME_COLOR[standaloneColor as AgentColorName];
     }
 
     // Ambient ultracode indicator: cyan-blue border whenever ultracode is the
