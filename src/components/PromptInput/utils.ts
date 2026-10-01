@@ -3,6 +3,12 @@ import {
   isShiftEnterKeyBindingInstalled,
 } from '../../commands/terminalSetup/terminalSetup.js'
 import type { Key } from '../../ink.js'
+import {
+  AGENT_COLORS,
+  AGENT_COLOR_TO_THEME_COLOR,
+  type AgentColorName,
+} from '../../tools/AgentTool/agentColorManager.js'
+import type { Theme } from '../../utils/theme.js'
 import type {
   PromptInputMode,
   TextInputChangeContext,
@@ -135,4 +141,34 @@ export function shouldShowStandaloneAgentBanner(
   standaloneName: string | undefined,
 ): boolean {
   return standaloneName !== undefined && standaloneName.trim().length > 0
+}
+
+export function resolvePromptBorderColor({
+  mode,
+  inProcessTeammate,
+  teammateColor,
+  teamName,
+  standaloneColor,
+  ultracodeActive,
+}: {
+  mode: PromptInputMode
+  inProcessTeammate: boolean
+  teammateColor?: string
+  teamName?: string
+  standaloneColor?: string
+  ultracodeActive?: boolean
+}): keyof Theme {
+  if (mode === 'bash') return 'bashBorder'
+  if (inProcessTeammate) return 'promptBorder'
+
+  // Team identity takes precedence over a saved standalone color.
+  for (const identityColor of [
+    teammateColor,
+    teamName ? undefined : standaloneColor,
+  ]) {
+    if (identityColor && AGENT_COLORS.includes(identityColor as AgentColorName)) {
+      return AGENT_COLOR_TO_THEME_COLOR[identityColor as AgentColorName]
+    }
+  }
+  return ultracodeActive ? 'ultracode' : 'promptBorder'
 }

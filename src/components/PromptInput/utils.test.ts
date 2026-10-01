@@ -11,6 +11,7 @@ import {
   isNonSpacePrintable,
   normalizePromptInputChunk,
   shouldShowStandaloneAgentBanner,
+  resolvePromptBorderColor,
   resolveHelpToggleChange,
   resolveCoalescedModeSubmission,
 } from './utils.js'
@@ -102,11 +103,14 @@ test('creates a banner when a standalone agent has a usable name', () => {
   expect(shouldShowStandaloneAgentBanner('renato')).toBe(true)
 })
 
-test('useSwarmBanner omits a banner for color-only standalone context', async () => {
+test.each(['', '   '])('useSwarmBanner omits a color-only banner with name %j', async name => {
   let observedBanner: ReturnType<typeof useSwarmBanner> | undefined
+  let notifyRendered!: () => void
+  const rendered = new Promise<void>(resolve => { notifyRendered = resolve })
 
   function HookProbe() {
     observedBanner = useSwarmBanner()
+    React.useEffect(() => { notifyRendered() }, [])
     return null
   }
 
@@ -128,23 +132,47 @@ test('useSwarmBanner omits a banner for color-only standalone context', async ()
     stdin: stdin as unknown as NodeJS.ReadStream,
     patchConsole: false,
   })
+  const exited = root.waitUntilExit()
 
   try {
     root.render(
       React.createElement(AppStateProvider, {
         initialState: {
           ...getDefaultAppState(),
-          standaloneAgentContext: { name: '', color: 'blue' },
+          standaloneAgentContext: { name, color: 'blue' },
         },
         children: React.createElement(HookProbe),
       }),
     )
 
-    await Bun.sleep(10)
+    await rendered
     expect(observedBanner).toBeNull()
   } finally {
     root.unmount()
+    await exited
+    stdout.destroy()
+    stdin.destroy()
   }
+})
+
+test('standalone border color respects mode and team identity', () => {
+  const standalone = {
+    mode: 'prompt' as const,
+    inProcessTeammate: false,
+    standaloneColor: 'blue',
+    ultracodeActive: false,
+  }
+  expect(resolvePromptBorderColor(standalone)).toBe('blue_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...standalone, mode: 'bash' })).toBe('bashBorder')
+  expect(resolvePromptBorderColor({ ...standalone, inProcessTeammate: true })).toBe('promptBorder')
+  expect(resolvePromptBorderColor({ ...standalone, teammateColor: 'red' })).toBe('red_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...standalone, teammateColor: 'invalid' })).toBe('blue_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...standalone, teamName: 'team', teammateColor: 'red' })).toBe('red_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...standalone, teamName: 'team' })).toBe('promptBorder')
+  expect(resolvePromptBorderColor({ ...standalone, teamName: 'team', ultracodeActive: true })).toBe('ultracode')
+  expect(resolvePromptBorderColor({ ...standalone, standaloneColor: 'invalid' })).toBe('promptBorder')
+  expect(resolvePromptBorderColor({ ...standalone, standaloneColor: undefined, ultracodeActive: true })).toBe('ultracode')
+  expect(resolvePromptBorderColor({ ...standalone, ultracodeActive: true })).toBe('blue_FOR_SUBAGENTS_ONLY')
 })
 
 test('only prompt submissions can accept prompt suggestions', () => {

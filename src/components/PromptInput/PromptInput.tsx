@@ -87,7 +87,7 @@ import { findSlackChannelPositions, getKnownChannelsVersion, hasSlackMcpServer, 
 import { isInProcessEnabled } from '../../utils/swarm/backends/registry.js';
 import { syncTeammateMode } from '../../utils/swarm/teamHelpers.js';
 import type { TeamSummary } from '../../utils/teamDiscovery.js';
-import { getTeammateColor } from '../../utils/teammate.js';
+import { getTeammateColor, getTeamName } from '../../utils/teammate.js';
 import { isInProcessTeammate } from '../../utils/teammateContext.js';
 import { writeToMailbox } from '../../utils/teammateMailbox.js';
 import type { TextHighlight } from '../../utils/textHighlighting.js';
@@ -123,7 +123,7 @@ import { useMaybeTruncateInput } from './useMaybeTruncateInput.js';
 import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
 import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
-import { canAcceptPromptSuggestion, isVimModeEnabled, normalizePromptInputChunk, resolveCoalescedModeSubmission, resolveHelpToggleChange } from './utils.js';
+import { canAcceptPromptSuggestion, isVimModeEnabled, normalizePromptInputChunk, resolveCoalescedModeSubmission, resolveHelpToggleChange, resolvePromptBorderColor } from './utils.js';
 type Props = {
   debug: boolean;
   ideSelection: IDESelection | undefined;
@@ -2289,42 +2289,14 @@ function PromptInput({
     inlineGhostText,
     inputFilter: lazySpaceInputFilter
   };
-  const getBorderColor = (): keyof Theme => {
-    const modeColors: Record<string, keyof Theme> = {
-      bash: 'bashBorder'
-    };
-
-    // Mode colors take priority, then teammate color, then default
-    if (modeColors[mode]) {
-      return modeColors[mode];
-    }
-
-    // In-process teammates run headless - don't apply teammate colors to leader UI
-    if (isInProcessTeammate()) {
-      return 'promptBorder';
-    }
-
-    // Check for teammate color from environment
-    const teammateColorName = getTeammateColor();
-    if (teammateColorName && AGENT_COLORS.includes(teammateColorName as AgentColorName)) {
-      return AGENT_COLOR_TO_THEME_COLOR[teammateColorName as AgentColorName];
-    }
-
-    // Standalone color is a prompt identity indicator, but does not add a
-    // separate banner row when no standalone name is set.
-    const standaloneColor = standaloneAgentContext?.color;
-    if (standaloneColor && AGENT_COLORS.includes(standaloneColor as AgentColorName)) {
-      return AGENT_COLOR_TO_THEME_COLOR[standaloneColor as AgentColorName];
-    }
-
-    // Ambient ultracode indicator: cyan-blue border whenever ultracode is the
-    // active effort. Ranks below bash mode and teammate identity (explicit
-    // contextual overrides) but above the default border.
-    if (ultracodeActive) {
-      return 'ultracode';
-    }
-    return 'promptBorder';
-  };
+  const getBorderColor = (): keyof Theme => resolvePromptBorderColor({
+    mode,
+    inProcessTeammate: isInProcessTeammate(),
+    teammateColor: teamContext?.selfAgentColor ?? getTeammateColor(),
+    teamName: getTeamName(teamContext),
+    standaloneColor: standaloneAgentContext?.color,
+    ultracodeActive,
+  });
   if (isExternalEditorActive) {
     return <Box flexDirection="row" alignItems="center" justifyContent="center" borderColor={getBorderColor()} borderStyle="round" borderLeft={false} borderRight={false} borderBottom width="100%">
         <Text dimColor italic>
