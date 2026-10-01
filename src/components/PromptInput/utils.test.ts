@@ -129,22 +129,22 @@ test('useSwarmBanner omits a banner for color-only standalone context', async ()
     patchConsole: false,
   })
 
-  root.render(
-    React.createElement(
-      AppStateProvider,
-      {
+  try {
+    root.render(
+      React.createElement(AppStateProvider, {
         initialState: {
           ...getDefaultAppState(),
           standaloneAgentContext: { name: '', color: 'blue' },
         },
-      },
-      React.createElement(HookProbe),
-    ),
-  )
+        children: React.createElement(HookProbe),
+      }),
+    )
 
-  await Bun.sleep(10)
-  expect(observedBanner).toBeNull()
-  root.unmount()
+    await Bun.sleep(10)
+    expect(observedBanner).toBeNull()
+  } finally {
+    root.unmount()
+  }
 })
 
 test('only prompt submissions can accept prompt suggestions', () => {
