@@ -55,6 +55,48 @@ test('keeps store: false by default and removes it only for configured routes', 
   expect(mistral.body).not.toHaveProperty('store')
 })
 
+test('removes store for Anthropic models on a custom OpenAI-compatible gateway (#2242)', async () => {
+  await ensureIntegrationsLoaded()
+  const processEnv = {
+    OPENAI_BASE_URL: 'https://litellm.example.test/v1',
+    OPENAI_API_KEY: 'test-key',
+  }
+  const prepare = (model: string) =>
+    prepareOpenAIRequest({
+      request: resolveProviderRequest({ model, processEnv }),
+      requestProcessEnv: processEnv,
+      params: {
+        model,
+        messages: [{ role: 'user', content: 'hello' }],
+        max_tokens: 64,
+      },
+      dependencies,
+    })
+
+  for (const model of [
+    'claude-sonnet-4-6',
+    'anthropic/claude-opus-4-1',
+    'openrouter/anthropic/claude-haiku-4-5',
+    'bedrock/us.anthropic.claude-sonnet-4-6',
+    'sonnet-4-6',
+    'opus-4-1',
+    'haiku-4-5',
+  ]) {
+    const prepared = prepare(model)
+    expect(prepared.shimConfig.removeBodyFields).toContain('store')
+    expect(prepared.body).not.toHaveProperty('store')
+  }
+
+  for (const model of [
+    'gpt-4o',
+    'my-sonnet-rag',
+    'magnum-opus',
+    'Helsinki-NLP/opus-mt-en-de',
+  ]) {
+    expect(prepare(model).body.store).toBe(false)
+  }
+})
+
 test('prepares a chat-completions request without executing transport', async () => {
   await ensureIntegrationsLoaded()
   const processEnv = {
