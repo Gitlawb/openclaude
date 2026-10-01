@@ -231,6 +231,18 @@ function inferRemoteModelOpenAIShimConfig(
     }
   }
 
+  // Anthropic never accepts the OpenAI-only `store` field, so strip it for
+  // Claude models on any OpenAI-compatible route (LiteLLM and similar proxies
+  // forward it and get a 400) instead of matching proxy hosts one by one
+  // (#2242). Bare family aliases such as `sonnet-4-6` are common proxy names,
+  // and Bedrock cross-region IDs carry a region prefix (`us.anthropic.claude-...`).
+  const hasAnthropicModel = segments.some(s =>
+    /^(?:[a-z]{2,4}\.)?(?:claude|anthropic)|^(?:sonnet|opus|haiku)-\d/.test(s),
+  )
+  if (hasAnthropicModel) {
+    return { removeBodyFields: ['store'] }
+  }
+
   // Only infer the Z.AI GLM shim for routes without a catalog entry
   // (direct/aggregator aliases like `glm-5.2` or `openrouter/zhipu/glm-5.2`).
   // Catalog-backed GLM routes declare their own contract via
