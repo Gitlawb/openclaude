@@ -143,6 +143,11 @@ export function shouldShowStandaloneAgentBanner(
   return standaloneName !== undefined && standaloneName.trim().length > 0
 }
 
+/**
+ * Resolves the border token with mode overrides before agent identity.
+ * Active teams suppress saved standalone colors; invalid colors fall through
+ * to the next eligible identity, then ultracode or the default prompt border.
+ */
 export function resolvePromptBorderColor({
   mode,
   inProcessTeammate,

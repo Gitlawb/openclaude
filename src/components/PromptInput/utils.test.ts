@@ -103,11 +103,20 @@ test('creates a banner when a standalone agent has a usable name', () => {
   expect(shouldShowStandaloneAgentBanner('renato')).toBe(true)
 })
 
-test.each(['', '   '])('useSwarmBanner omits a color-only banner with name %j', async name => {
+test.each([
+  { name: '', teamName: undefined, expected: null },
+  { name: '   ', teamName: undefined, expected: null },
+  { name: 'saved-agent', teamName: 'active-team', expected: null },
+  {
+    name: 'saved-agent', teamName: undefined,
+    expected: { text: 'saved-agent', bgColor: 'blue_FOR_SUBAGENTS_ONLY' },
+  },
+])('useSwarmBanner respects standalone and AppState team identity: %j', async ({ name, teamName, expected }) => {
   let observedBanner: ReturnType<typeof useSwarmBanner> | undefined
   let notifyRendered!: () => void
   const rendered = new Promise<void>(resolve => { notifyRendered = resolve })
 
+  /** Observes the real hook after mounting its AppState provider. */
   function HookProbe() {
     observedBanner = useSwarmBanner()
     React.useEffect(() => { notifyRendered() }, [])
@@ -140,13 +149,21 @@ test.each(['', '   '])('useSwarmBanner omits a color-only banner with name %j', 
         initialState: {
           ...getDefaultAppState(),
           standaloneAgentContext: { name, color: 'blue' },
+          teamContext: teamName ? {
+            teamName,
+            teamFilePath: '/test/team.json',
+            leadAgentId: 'team-lead',
+            isLeader: true,
+            selfAgentColor: 'red',
+            teammates: {},
+          } : undefined,
         },
         children: React.createElement(HookProbe),
       }),
     )
 
     await rendered
-    expect(observedBanner).toBeNull()
+    expect(observedBanner).toEqual(expected)
   } finally {
     root.unmount()
     await exited

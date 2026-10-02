@@ -198,6 +198,7 @@ type Props = {
 // Bottom slot has maxHeight="50%"; reserve lines for footer, border, status.
 const PROMPT_FOOTER_LINES = 5;
 const MIN_INPUT_VIEWPORT_LINES = 3;
+/** Renders the prompt editor, agent banner, and mode-aware input controls. */
 function PromptInput({
   debug,
   ideSelection,
@@ -2289,6 +2290,7 @@ function PromptInput({
     inlineGhostText,
     inputFilter: lazySpaceInputFilter
   };
+  /** Resolves the current mode and team/standalone identity for the input border. */
   const getBorderColor = (): keyof Theme => resolvePromptBorderColor({
     mode,
     inProcessTeammate: isInProcessTeammate(),
