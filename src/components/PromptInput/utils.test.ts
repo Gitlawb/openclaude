@@ -192,6 +192,31 @@ test('standalone border color respects mode and team identity', () => {
   expect(resolvePromptBorderColor({ ...standalone, ultracodeActive: true })).toBe('blue_FOR_SUBAGENTS_ONLY')
 })
 
+test('border color reads production AppState member identity before dynamic fallback', () => {
+  const leader = {
+    name: 'team-lead', color: 'red', tmuxSessionName: '', tmuxPaneId: '',
+    cwd: '/test', spawnedAt: 0,
+  }
+  const teamContext = {
+    teamName: 'active-team', teamFilePath: '/test/team.json', leadAgentId: 'leader',
+    teammates: { leader, member: { ...leader, name: 'member', color: 'green' } },
+  }
+  const input = {
+    mode: 'prompt' as const, inProcessTeammate: false, teamContext,
+    standaloneColor: 'blue', ultracodeActive: true,
+  }
+  // TeamCreateTool stores the leader color in teammates, without selfAgentColor.
+  expect(resolvePromptBorderColor(input)).toBe('red_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, teammateColor: 'yellow' })).toBe('red_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, teamContext: { ...teamContext, selfAgentId: 'member' } })).toBe('green_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, teamContext: { ...teamContext, selfAgentColor: 'purple' } })).toBe('purple_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, teamContext: { ...teamContext, selfAgentId: 'missing' }, teammateColor: 'yellow' })).toBe('yellow_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, teamContext: { ...teamContext, teammates: {} } })).toBe('ultracode')
+  expect(resolvePromptBorderColor({ ...input, teamContext: { ...teamContext, teammates: {}, selfAgentColor: 'invalid' }, teammateColor: 'yellow' })).toBe('yellow_FOR_SUBAGENTS_ONLY')
+  expect(resolvePromptBorderColor({ ...input, mode: 'bash' })).toBe('bashBorder')
+  expect(resolvePromptBorderColor({ ...input, inProcessTeammate: true })).toBe('promptBorder')
+})
+
 test('only prompt submissions can accept prompt suggestions', () => {
   expect(canAcceptPromptSuggestion('prompt')).toBe(true)
   expect(canAcceptPromptSuggestion('bash')).toBe(false)

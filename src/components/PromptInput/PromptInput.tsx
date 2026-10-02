@@ -2294,7 +2294,8 @@ function PromptInput({
   const getBorderColor = (): keyof Theme => resolvePromptBorderColor({
     mode,
     inProcessTeammate: isInProcessTeammate(),
-    teammateColor: teamContext?.selfAgentColor ?? getTeammateColor(),
+    teammateColor: getTeammateColor(),
+    teamContext,
     teamName: getTeamName(teamContext),
     standaloneColor: standaloneAgentContext?.color,
     ultracodeActive,
