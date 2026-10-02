@@ -3,13 +3,39 @@ import {
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js'
+import { AbortError } from '../../utils/errors.js'
 import { createAssistantMessage } from '../../utils/messages.js'
-import { fetchToolsForClient } from './client.js'
+import {
+  callMCPToolWithUrlElicitationRetry,
+  fetchToolsForClient,
+} from './client.js'
 import type { ConnectedMCPServer } from './types.js'
 
 describe('MCP tool activity', () => {
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  test('URL elicitation cancellation uses the shared AbortError type', async () => {
+    const abortController = new AbortController()
+    abortController.abort()
+    const callToolFn = vi.fn(async () => ({ content: [] }))
+
+    await expect(
+      callMCPToolWithUrlElicitationRetry({
+        client: {} as never,
+        clientConnection: {
+          type: 'connected',
+          name: 'elicitation-cancel-test',
+        } as never,
+        tool: 'slow-tool',
+        args: {},
+        signal: abortController.signal,
+        setAppState: vi.fn(),
+        callToolFn,
+      }),
+    ).rejects.toBeInstanceOf(AbortError)
+    expect(callToolFn).not.toHaveBeenCalled()
   })
 
   test('emits progress heartbeats while a tool call remains pending', async () => {
@@ -153,6 +179,79 @@ describe('MCP tool activity', () => {
     const progressCountAfterCompletion = onProgress.mock.calls.length
     vi.advanceTimersByTime(30_000)
     expect(onProgress).toHaveBeenCalledTimes(progressCountAfterCompletion)
+  })
+
+  test('aborts the MCP request when the tool-call timeout expires', async () => {
+    vi.useFakeTimers()
+    const originalTimeout = process.env.MCP_TOOL_TIMEOUT
+    process.env.MCP_TOOL_TIMEOUT = '1000'
+    let requestSignal: AbortSignal | undefined
+    const sdkClient = {
+      request: vi.fn(async () => ({
+        tools: [
+          {
+            name: 'slow-tool',
+            inputSchema: { type: 'object' },
+          },
+        ],
+      })),
+      callTool: vi.fn(
+        (
+          _request: unknown,
+          _schema: unknown,
+          options: { signal?: AbortSignal },
+        ) => {
+          requestSignal = options.signal
+          return new Promise(() => {})
+        },
+      ),
+    }
+    const connection = {
+      type: 'connected',
+      name: 'timeout-abort-test',
+      config: { type: 'sdk' },
+      capabilities: { tools: {} },
+      client: sdkClient,
+    } as unknown as ConnectedMCPServer
+
+    try {
+      const [tool] = await fetchToolsForClient(connection)
+      expect(tool).toBeDefined()
+      const parentMessage = createAssistantMessage({
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_timeout_abort',
+            name: tool!.name,
+            input: {},
+          },
+        ],
+      })
+      const callPromise = tool!.call(
+        {},
+        {
+          abortController: new AbortController(),
+          setAppState: vi.fn(),
+        } as never,
+        undefined as never,
+        parentMessage,
+      )
+
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(requestSignal).toBeDefined()
+      expect(requestSignal?.aborted).toBe(false)
+
+      vi.advanceTimersByTime(1000)
+      await expect(callPromise).rejects.toThrow('timed out after 1s')
+      expect(requestSignal?.aborted).toBe(true)
+    } finally {
+      if (originalTimeout === undefined) {
+        delete process.env.MCP_TOOL_TIMEOUT
+      } else {
+        process.env.MCP_TOOL_TIMEOUT = originalTimeout
+      }
+    }
   })
 
   test('a throwing started callback does not prevent the tool call', async () => {

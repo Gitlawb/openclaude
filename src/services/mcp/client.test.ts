@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
 
 import {
   appendBoundedMcpStderr,
+  attachMcpRequestCancellationHandler,
   buildMcpSseEventSourceHeaders,
   buildMcpSseRequestHeaders,
   cleanupFailedConnection,
   buildMcpStdioCommand,
   logMcpServerStderr,
+  wrapFetchWithRequestCancellation,
 } from './client.js'
 import { wrapFetchWithStepUpDetection } from './auth.js'
 import {
@@ -204,6 +208,79 @@ test('SSE failed recovery reaches UnauthorizedError without leaking the resource
     'Bearer resource-access-secret',
   )
   assert.equal(fixture.getRedirectCalls(), 1)
+})
+
+test('timed-out Streamable HTTP tool calls cancel the response stream after headers', async () => {
+  const activeRequests = new Map<string | number, AbortController>()
+  let streamCancelled = false
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      if (request.method === 'GET') {
+        return new Response(null, { status: 405 })
+      }
+      const text = await request.text()
+      if (!text) return new Response(null, { status: 202 })
+      const payload = JSON.parse(text) as { id: number; method: string }
+      if (payload.method === 'initialize') {
+        return Response.json({
+          jsonrpc: '2.0',
+          id: payload.id,
+          result: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            serverInfo: { name: 'timeout-stream-test', version: '1.0.0' },
+          },
+        })
+      }
+      if (payload.method === 'notifications/initialized') {
+        return new Response(null, { status: 202 })
+      }
+      if (payload.method === 'tools/call') {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start() {},
+            cancel() {
+              streamCancelled = true
+            },
+          }),
+          {
+            headers: { 'content-type': 'text/event-stream' },
+          },
+        )
+      }
+      return new Response(null, { status: 202 })
+    },
+  })
+  const transport = new StreamableHTTPClientTransport(
+    new URL(`http://127.0.0.1:${server.port}/mcp`),
+    {
+      fetch: wrapFetchWithRequestCancellation(fetch, activeRequests),
+    },
+  )
+  attachMcpRequestCancellationHandler(transport, activeRequests)
+  const client = new Client({ name: 'timeout-test', version: '1.0.0' })
+
+  try {
+    await client.connect(transport)
+    await assert.rejects(
+      client.callTool(
+        { name: 'slow-tool', arguments: {} },
+        CallToolResultSchema,
+        { timeout: 20 },
+      ),
+    )
+
+    const cancellationDeadline = Date.now() + 1_000
+    while (!streamCancelled && Date.now() < cancellationDeadline) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    assert.equal(streamCancelled, true)
+    assert.equal(activeRequests.size, 0)
+  } finally {
+    await client.close()
+    server.stop(true)
+  }
 })
 
 test('cleanupFailedConnection awaits transport close before resolving', async () => {

@@ -122,6 +122,7 @@ beforeEach(async () => {
     delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
     delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
     delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    delete process.env.USER_TYPE
   } catch (error) {
     releaseSharedMutationLock()
     hasSharedMutationLock = false
@@ -333,6 +334,41 @@ describe('getAutoCompactThreshold', () => {
     // The effective window is floor-raised to 33k in this configuration.
     // Selecting the 30k buffer here would compact after only 3k tokens.
     expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(20_000)
+  })
+
+  test('internal context cap keeps precedence over session override and auto-compact cap', async () => {
+    process.env.USER_TYPE = 'ant'
+    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = '200000'
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '100000'
+    realContext.setSessionContextWindowOverride('claude-sonnet-4', 1_000_000)
+    const { getEffectiveContextWindowSize, getAutoCompactThreshold } =
+      await importAutoCompact()
+
+    try {
+      expect(getEffectiveContextWindowSize('claude-sonnet-4')).toBe(80_000)
+      expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(50_000)
+    } finally {
+      realContext.clearSessionContextWindowOverride('claude-sonnet-4')
+      delete process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    }
+  })
+
+  test('session context-window override immediately updates auto-compact threshold', async () => {
+    process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '100000'
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000'
+    delete process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+    const { getAutoCompactThreshold, getEffectiveContextWindowSize } =
+      await importAutoCompact()
+
+    expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(50_000)
+    realContext.setSessionContextWindowOverride('claude-sonnet-4', 1_000_000)
+
+    try {
+      expect(getEffectiveContextWindowSize('claude-sonnet-4')).toBe(980_000)
+      expect(getAutoCompactThreshold('claude-sonnet-4')).toBe(950_000)
+    } finally {
+      realContext.clearSessionContextWindowOverride('claude-sonnet-4')
+    }
   })
 
   test('keeps compaction and warning thresholds usable across mid-sized windows', async () => {
