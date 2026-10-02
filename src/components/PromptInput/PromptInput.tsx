@@ -87,7 +87,7 @@ import { findSlackChannelPositions, getKnownChannelsVersion, hasSlackMcpServer, 
 import { isInProcessEnabled } from '../../utils/swarm/backends/registry.js';
 import { syncTeammateMode } from '../../utils/swarm/teamHelpers.js';
 import type { TeamSummary } from '../../utils/teamDiscovery.js';
-import { getTeammateColor } from '../../utils/teammate.js';
+import { getTeammateColor, getTeamName } from '../../utils/teammate.js';
 import { isInProcessTeammate } from '../../utils/teammateContext.js';
 import { writeToMailbox } from '../../utils/teammateMailbox.js';
 import type { TextHighlight } from '../../utils/textHighlighting.js';
@@ -123,7 +123,7 @@ import { useMaybeTruncateInput } from './useMaybeTruncateInput.js';
 import { usePromptInputPlaceholder } from './usePromptInputPlaceholder.js';
 import { useShowFastIconHint } from './useShowFastIconHint.js';
 import { useSwarmBanner } from './useSwarmBanner.js';
-import { canAcceptPromptSuggestion, isVimModeEnabled, normalizePromptInputChunk, resolveCoalescedModeSubmission, resolveHelpToggleChange } from './utils.js';
+import { canAcceptPromptSuggestion, isVimModeEnabled, normalizePromptInputChunk, resolveCoalescedModeSubmission, resolveHelpToggleChange, resolvePromptBorderColor } from './utils.js';
 type Props = {
   debug: boolean;
   ideSelection: IDESelection | undefined;
@@ -198,6 +198,7 @@ type Props = {
 // Bottom slot has maxHeight="50%"; reserve lines for footer, border, status.
 const PROMPT_FOOTER_LINES = 5;
 const MIN_INPUT_VIEWPORT_LINES = 3;
+/** Renders the prompt editor, agent banner, and mode-aware input controls. */
 function PromptInput({
   debug,
   ideSelection,
@@ -314,6 +315,7 @@ function PromptInput({
   // WebBrowser pill — visible when a browser is open
   const bagelFooterVisible = useAppState(s => false);
   const teamContext = useAppState(s => s.teamContext);
+  const standaloneAgentContext = useAppState(s => s.standaloneAgentContext);
   const queuedCommands = useCommandQueue();
   const promptSuggestionState = useAppState(s => s.promptSuggestion);
   const speculation = useAppState(s => s.speculation);
@@ -2288,35 +2290,16 @@ function PromptInput({
     inlineGhostText,
     inputFilter: lazySpaceInputFilter
   };
-  const getBorderColor = (): keyof Theme => {
-    const modeColors: Record<string, keyof Theme> = {
-      bash: 'bashBorder'
-    };
-
-    // Mode colors take priority, then teammate color, then default
-    if (modeColors[mode]) {
-      return modeColors[mode];
-    }
-
-    // In-process teammates run headless - don't apply teammate colors to leader UI
-    if (isInProcessTeammate()) {
-      return 'promptBorder';
-    }
-
-    // Check for teammate color from environment
-    const teammateColorName = getTeammateColor();
-    if (teammateColorName && AGENT_COLORS.includes(teammateColorName as AgentColorName)) {
-      return AGENT_COLOR_TO_THEME_COLOR[teammateColorName as AgentColorName];
-    }
-
-    // Ambient ultracode indicator: cyan-blue border whenever ultracode is the
-    // active effort. Ranks below bash mode and teammate identity (explicit
-    // contextual overrides) but above the default border.
-    if (ultracodeActive) {
-      return 'ultracode';
-    }
-    return 'promptBorder';
-  };
+  /** Resolves the current mode and team/standalone identity for the input border. */
+  const getBorderColor = (): keyof Theme => resolvePromptBorderColor({
+    mode,
+    inProcessTeammate: isInProcessTeammate(),
+    teammateColor: getTeammateColor(),
+    teamContext,
+    teamName: getTeamName(teamContext),
+    standaloneColor: standaloneAgentContext?.color,
+    ultracodeActive,
+  });
   if (isExternalEditorActive) {
     return <Box flexDirection="row" alignItems="center" justifyContent="center" borderColor={getBorderColor()} borderStyle="round" borderLeft={false} borderRight={false} borderBottom width="100%">
         <Text dimColor italic>
